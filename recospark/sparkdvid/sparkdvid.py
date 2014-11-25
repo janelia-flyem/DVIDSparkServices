@@ -63,38 +63,17 @@ class sparkdvid(object):
         uuid = self.uuid
         
         def writer(element_pair):
-            # construct graph
-            graph_data = {}
+            import httplib
+            from pydvid.labelgraph import labelgraph
+            conn = httplib.HTTPConnection(server)
+
             edge, weight = element_pair
             v1, v2 = edge
 
-            vertices = []
-            edges = []
             if v2 == -1:
-                vertices.append({"Id": int(v1), "Weight": int(weight)})
+                labelgraph.update_vertex(conn, uuid, graph_name, int(v1), int(weight)) 
             else:
-                # ?? update vertex by 0 ??
-                edges.append({"Id1": int(v1), "Id2": int(v2), "Weight": int(weight)})             
-
-            graph_data["Vertices"] = vertices
-            graph_data["Edges"] = edges 
-
-            # write to DVID
-            import requests
-            import json
-            json_str = json.dumps(graph_data)
-            
-            requests.post("http://" + server + "/api/node/" + uuid + "/" + graph_name + "/weight",
-                    data=json_str, headers={'content-type': 'text/html'}) 
+                labelgraph.update_edge(conn, uuid, graph_name, int(v1), int(v2), int(weight)) 
 
         elements.foreach(writer)
-
-
-
-
-
-
-
-
-
 

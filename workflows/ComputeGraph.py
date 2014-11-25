@@ -1,6 +1,10 @@
 import json
 import sys
 import requests
+from pydvid.labelgraph import labelgraph
+from pydvid.errors import DvidHttpError
+import httplib
+
 #from jsonschema import validate
 
 # ?! define schema (return schema if asked)
@@ -57,17 +61,13 @@ graph_elements_red.persist(StorageLevel.MEMORY_ONLY) # ??
 graph_vertices = graph_elements_red.filter(sg.is_vertex)
 graph_edges = graph_elements_red.filter(sg.is_edge)
 
-#print graph_edges.reduce(lambda a, b: 4)
-
-
 # create graph
-# TODO call pydvid
-dataset_name = "http://" + config_data["server"] + "/api/repo/"+ config_data["uuid"] + "/instance"
-req_json = {}
-req_json["typename"] = "labelgraph"
-req_json["dataname"] = config_data["graph-name"]
-req_str = json.dumps(req_json)
-requests.post(dataset_name, data=req_str, headers={'content-type': 'text/html'}) 
+conn = httplib.HTTPConnection(config_data["server"])
+try:
+    labelgraph.create_new(conn, config_data["uuid"], config_data["graph-name"])
+except DvidHttpError:
+    pass
+
 
 # dump graph -- should this be wrapped through utils or through sparkdvid
 # will this result in too many request (should they be accumulated) simple_graph_writer = sparkdvid_context.foreach_graph_elements(graph_vertices,
