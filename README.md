@@ -8,9 +8,11 @@ plugin modules.
 
 ## Installation
 
-% python setup build
-% python setup install
+Python dependences: jsonschema and pydvid.
+
+    % python setup build
+    % python setup install
 
 Example command:
 
-% spark-submit --master local[4]  workflows/ComputeGraph.py example/config.json
+    % spark-submit --master local[4]  workflows/ComputeGraph.py example/config.json
