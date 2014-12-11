@@ -5,5 +5,5 @@
     "roi": "temproi",
     "graph-name": "sparkgraph",
     "chunk-size": 32,
-    "graph-builder-exe-samp": "simplegraph"
+    "graph-builder-exe": "neuroproof_graph_build_stream"
 }

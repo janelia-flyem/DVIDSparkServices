@@ -34,14 +34,15 @@ except ValidationError, e:
 
 from pyspark import SparkContext
 from pyspark import StorageLevel
-sc = SparkContext("local", "Compute Graph")
+#sc = SparkContext("local", "Compute Graph")
+sc = SparkContext(None, "Compute Graph")
 sparkdvid_context = sparkdvid.sparkdvid(sc, config_data["server"], config_data["uuid"])
 
 #  grab ROI
 distrois = sparkdvid_context.parallelize_roi(config_data["roi"], config_data["chunk-size"])
 
 # map ROI to label volume
-label_chunks = sparkdvid_context.map_labels64(distrois, config_data["label-name"], 0)
+label_chunks = sparkdvid_context.map_labels64(distrois, config_data["label-name"], 1)
 
 # map labels to graph data -- external program
 # use default driver for now specifying custom program

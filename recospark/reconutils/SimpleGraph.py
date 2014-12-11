@@ -25,8 +25,6 @@ class SimpleGraph(object):
     def string2graph(self, graphstr):
         offset = 0
         
-        fout = open("worker.out", 'w')
-
         # get number of vertices
         num_verts,  = struct.unpack_from('<Q', graphstr, offset)
         offset += 8
@@ -43,8 +41,6 @@ class SimpleGraph(object):
         num_edges, = struct.unpack_from('<Q', graphstr, offset)
         offset += 8
         
-        fout.write(str(num_edges) + "\n")
-        fout.close()
 
         # weight should be a double
         for edge in range(0, num_edges):
@@ -61,13 +57,14 @@ class SimpleGraph(object):
             #return []
             import numpy
             vertices = numpy.unique(label_chunk)
-            
+           
+            # just add a vertex of size 1 for each
             elements = []
             for iter1 in range(len(vertices)):
                 vert = vertices[iter1]
                 elements.append(((vert, -1), 1))
-                if ((vert % 50) == 0) and (iter1 < (len(vertices)-1)):
-                    elements.append(((vert, vertices[iter1+1]), 3))
+                #if ((vert % 50) == 0) and (iter1 < (len(vertices)-1)):
+                #    elements.append(((vert, vertices[iter1+1]), 3))
 
             return elements
         else:
