@@ -57,23 +57,36 @@ class sparkdvid(object):
 
 
     # foreach will write graph elements to DVID storage
-    def foreach_graph_elements(self, elements, graph_name):
+    def foreachPartition_graph_elements(self, elements, graph_name):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
         
-        def writer(element_pair):
+        def writer(element_pairs):
             import httplib
             from pydvid.labelgraph import labelgraph
             conn = httplib.HTTPConnection(server)
+       
+            if element_pairs is None:
+                return
 
-            edge, weight = element_pair
-            v1, v2 = edge
+            vertices = []
+            edges = []
+            for element_pair in element_pairs:
+                edge, weight = element_pair
+                v1, v2 = edge
 
-            if v2 == -1:
-                labelgraph.update_vertex(conn, uuid, graph_name, int(v1), int(weight)) 
-            else:
-                labelgraph.update_edge(conn, uuid, graph_name, int(v1), int(v2), int(weight)) 
+                if v2 == -1:
+                    vertices.append((int(v1), int(weight)))
+                else:
+                    edges.append((int(v1), int(v2), int(weight)))
+    
+            if len(vertices) > 0:
+                labelgraph.update_vertices(conn, uuid, graph_name, vertices) 
+            
+            if len(edges) > 0:
+                labelgraph.update_edges(conn, uuid, graph_name, edges) 
+            return []
 
-        elements.foreach(writer)
+        elements.foreachPartition(writer)
 

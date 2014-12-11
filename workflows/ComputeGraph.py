@@ -72,8 +72,8 @@ except DvidHttpError:
 
 # dump graph -- should this be wrapped through utils or through sparkdvid
 # will this result in too many request (should they be accumulated) simple_graph_writer = sparkdvid_context.foreach_graph_elements(graph_vertices,
-sparkdvid_context.foreach_graph_elements(graph_vertices, config_data["graph-name"])
-sparkdvid_context.foreach_graph_elements(graph_edges, config_data["graph-name"])
+sparkdvid_context.foreachPartition_graph_elements(graph_vertices, config_data["graph-name"])
+sparkdvid_context.foreachPartition_graph_elements(graph_edges, config_data["graph-name"])
 
 graph_elements_red.unpersist() # ?? can I stop persisting earlier
 
