@@ -1,27 +1,24 @@
 import json
 import sys
-#from pydvid.errors import DvidHttpError
 import httplib
+from pyspark import SparkContext
+
+import Image
+import numpy
+import os
+
 
 config_data = json.load(open(sys.argv[1]))
-
-from pyspark import SparkContext
 
 #sc = SparkContext("local", "Compute Graph")
 #sc = SparkContext("local[32]", "Ingest Grayscale")
 sc = SparkContext(None, "Ingest Grayscale")
 
-# assume all slices are the same size
-
 # block size default
 blocksize = 32
-jobfactor = 4
 
-import Image
-import numpy
-
-# ?! assume multiples of 32 for now!! -- is this needed??
-
+# !! handles stacks that are not multiples of 32
+# !! assumes same size images; assumes 0,0 offset -- z absolute
 for slice in range(config_data["minslice"], config_data["maxslice"]+1, blocksize):
     # parallelize images across many machines
     imgs = sc.parallelize(range(slice, slice+blocksize), blocksize)
@@ -30,7 +27,12 @@ for slice in range(config_data["minslice"], config_data["maxslice"]+1, blocksize
 
     # map file to numpy array
     def img2npy(slicenum):
-        return slicenum, numpy.array(Image.open(config_data["basename"] % slicenum))
+        try:
+            img = Image.open(config_data["basename"] % slicenum)
+            return slicenum, numpy.array(img)
+        except Exception, e:
+            # just return a blank slice -- will be handled downstream
+            return slicenum, numpy.zeros((0,0), numpy.uint8)
 
     npy_images = imgs.map(img2npy)  
   
@@ -74,25 +76,30 @@ for slice in range(config_data["minslice"], config_data["maxslice"]+1, blocksize
     
     yblocks = groupedlines.map(lines2blocks)
   
-    """
-    # ?! dumb temp
+    # write blocks to disk for separte post-process -- write directly to DVID eventually?
+    def write2disk(yblocks):
+        zbindex = slice/blocksize 
+        ypos, blocks = yblocks
+        ybindex = ypos / blocksize
+        
+        zsize,ysize,xsize = blocks.shape
+        
+        outdir = config_data["output-dir"]
+        outdir += "/" + ("%05d" % zbindex) + ".z/"
+        filename = outdir + ("%05d" % ybindex) + "-" + str(xsize/blocksize) + ".blocks"
 
-    def stupid(blocks):
-        return 42
-    nums = yblocks.map(stupid)
-    final_list = nums.collect()
-    print len(final_list)
+        try: 
+            os.makedirs(outdir)
+        except Exception, e:
+            pass
 
-    # ?! end dumb temp
-    """
+        # extract blocks from buffer and write to disk
+        fout = open(filename, 'w')
+        for iterx in range(0, xsize, blocksize):
+            block = blocks[:,:,iterx:iterx+32].copy()
+            fout.write(numpy.getbuffer(block))
+        fout.close()
 
-    # sort blocks and collect (should just do a foreach when DVID can handle parallel) ?!
-    sortedyblocks_rdd = yblocks.sortByKey()
+    yblocks.foreach(write2disk) 
     
-    # inefficient collect
-    yblock_sorted_list = sortedyblocks_rdd.collect()
-
-    for yindex, blocks in yblock_sorted_list:
-        # ?! pydvid write
-        _, _, xs = blocks.shape
-        print slice / blocksize, yindex / blocksize, "0-" + str(xs/blocksize - 1)
+    
