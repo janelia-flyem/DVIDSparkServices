@@ -1,6 +1,5 @@
 import json
 import sys
-import requests
 from pydvid.labelgraph import labelgraph
 from pydvid.errors import DvidHttpError
 import httplib
