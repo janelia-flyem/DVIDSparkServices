@@ -1,0 +1,7 @@
+{
+    "minslice" : 0,
+    "maxslice" : 261,
+    "basename" : "/groups/scheffer/home/plazas/backup_012715/grayscale_maps/iso.%05d.png",
+    "output-dir" : "/groups/scheffer/home/plazas/temp_blocks"
+
+}

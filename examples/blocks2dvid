@@ -1,0 +1,26 @@
+#!/bin/bash
+
+SERVER=${1}
+UUID=${2}
+DNAME=${3}
+
+for zdir in *.z
+do
+    for yfn in ${zdir}/*.blocks
+    do
+        # get z block index
+        ztemp=${zdir%.z}
+        z=$((10#$ztemp+0))
+        
+        # get num blocks
+        tempb=${yfn//[0-9]*-/}
+        numblocks=${tempb%.blocks}
+        
+        # get y block index
+        ytemp=${yfn//-[0-9]*.blocks/}        
+        ytemp2=${ytemp//*\//}
+        y=$((10#$ytemp2+0))
+
+        curl -X POST ${SERVER}/api/node/${UUID}/${DNAME}/blocks/0_${y}_${z}/${numblocks} --data-binary @${yfn}
+    done
+done

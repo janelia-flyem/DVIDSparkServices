@@ -1,7 +1,5 @@
 # Spark Implemented EM Reconstruction Workflows [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/jfrc_grey_180x40.png)](http://www.janelia.org) 
 
-(Not ready for use)
-
 Provides python utitlies for interacting with EM data stored in DVID.
 Several sample workflows are provided as well as infrastructure for custom
 plugin modules.
@@ -13,6 +11,56 @@ Python dependences: jsonschema and pydvid.
     % python setup build
     % python setup install
 
+*Other dependencies might be required for certain workflows.*
+
+A pre-built spark binary can be downloaded from [http://spark.apache.org/downloads.html](http://spark.apache.org/downloads.html)
+
 Example command:
 
-    % spark-submit --master local[4]  workflows/ComputeGraph.py example/config.json
+    % spark-submit --master local[4]  workflows/ComputeGraph.py example/config_example.json
+
+
+## Workflows Supported
+
+This section describes some of the workflows available in recospark.  Recospark python workflows all have the same pattern:
+
+    % workflows/WORKFLOWNAME.py CONFIG
+
+### Compute Graph
+
+This workflow takes a DVID labelsblock volume and ROI and computes a DVID labelgraph.
+The ROI is split into several substacks.  Spark will process each substack (plus a 1 pixel overlap)
+to compute the size of each vertex and its overlap with neighboring vertices.  This graph information
+is aggregated by key across all substacks and written to DVID.  The actual graph construction can be
+done with a third-party binary.  In this workflow, it is recommended that [NeuroProof](https://github.com/janelia-flyem/NeuroProof) is installed.
+
+Compute Graph is limited by the throughput of databases behind DVID.  If the DVID backend is not clustered, the accesses
+will be throttled and slow.  The algorithm has linear complexity and should otherwise scale to very large datasets.
+
+Example configuration JSON (commens added for convenience but is not valid JSON)
+
+    {
+        "server": "127.0.0.1:8000", # DVID server
+        "uuid": "UUID", # DVID uuid
+        "label-name": "label-name",
+        "roi": "roi-name",
+        "graph-name": "graph-name",
+        "graph-builder-exe": "neuroproof_graph_build_stream" # binary that builds the graph
+    }
+
+### DVID Block Ingest
+
+This workflow takes a stack of 2D images and produces binary chunks of DVID blocks.  The script does not
+actually communicate with DVID and can be called independent of some of the recospark libraries.
+A separate script is necessary to write the DVID blocks to DVID.  An example of one such script is provided,
+in the example directory.  The blocks will be padded with black (0) pixels, so that all blocks are 32x32x32
+in size.
+
+Example configuration JSON:
+
+    {
+        "minslice" : MINZ, # minimum stack slice number examined
+        "maxslice" : MAXZ, # maximum stack slice number examined
+        "basename": IMAGEPATH, # image name template
+        "output-dir": OUTDIR # directory where the blocks are written to
+    }
