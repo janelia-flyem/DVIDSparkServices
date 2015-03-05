@@ -1,6 +1,5 @@
 import requests
 import json
-import dill
 
 class sparkdvid(object):
     def __init__(self, context, dvid_server, dvid_uuid):

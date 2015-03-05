@@ -6,7 +6,7 @@ plugin modules.
 
 ## Installation
 
-Python dependences: jsonschema and pydvid.
+Python dependences: jsonschema, pydvid, argparse, importlib
 
     % python setup build
     % python setup install
@@ -17,14 +17,23 @@ A pre-built spark binary can be downloaded from [http://spark.apache.org/downloa
 
 Example command:
 
-    % spark-submit --master local[4]  workflows/ComputeGraph.py example/config_example.json
+    % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c example/config_example.json
+
+This calls the module ComputeGraph with the provide configuration in JSON.  One can supply the flag '-d' instead of '-d' and the config file to retrieve a JSON schema describing the expected input.
 
 
-## Workflows Supported
+## Workflow Plugins
 
-This section describes some of the workflows available in recospark.  Recospark python workflows all have the same pattern:
+This section describes some of the workflows available in recospark and the plugin architecture.
 
-    % workflows/WORKFLOWNAME.py CONFIG
+**Plugin Architecture**
+
+Recospark python workflows all have the same pattern:
+
+    % workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
+
+Where WORKFLOWNAME should exist as a python file in the module *workflows* and define a class with the same name that inherits from
+the python object *recospark.reconutils.workflow.Workflow* or *recospark.reconutils.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
 
 ### Compute Graph
 
@@ -40,7 +49,7 @@ will be throttled and slow.  The algorithm has linear complexity and should othe
 Example configuration JSON (commens added for convenience but is not valid JSON)
 
     {
-        "server": "127.0.0.1:8000", # DVID server
+        "dvid-server": "127.0.0.1:8000", # DVID server
         "uuid": "UUID", # DVID uuid
         "label-name": "label-name",
         "roi": "roi-name",

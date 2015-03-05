@@ -1,4 +1,3 @@
-import dill
 import struct
 
 class SimpleGraph(object):
@@ -7,10 +6,6 @@ class SimpleGraph(object):
             self.external_prog = config["graph-builder-exe"]
         else:
             self.external_prog = ""
-
-    def retrieve_schema(self):
-        pass
-        # TODO
 
     def vol2string(self, label_chunk):
         import numpy

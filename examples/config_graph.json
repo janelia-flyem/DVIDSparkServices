@@ -1,6 +1,6 @@
 {
-    "server": "127.0.0.1:8000",
-    "uuid": "4b6",
+    "dvid-server": "127.0.0.1:8000",
+    "uuid": "16b",
     "label-name": "labels",
     "roi": "temproi",
     "graph-name": "sparkgraph",
