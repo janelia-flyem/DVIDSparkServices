@@ -1,4 +1,4 @@
-# Spark Implemented EM Reconstruction Workflows [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/jfrc_grey_180x40.png)](http://www.janelia.org) 
+# Spark Implemented EM Reconstruction Workflows  [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/HHMI_Janelia_Color_Alternate_180x40.png)](http://www.janelia.org)
 
 Provides python utitlies for interacting with EM data stored in DVID.
 Several sample workflows are provided as well as infrastructure for custom
