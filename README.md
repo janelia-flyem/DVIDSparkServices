@@ -19,7 +19,7 @@ Example command:
 
     % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c example/config_example.json
 
-This calls the module ComputeGraph with the provide configuration in JSON.  One can supply the flag '-d' instead of '-d' and the config file to retrieve a JSON schema describing the expected input.
+This calls the module ComputeGraph with the provide configuration in JSON.  One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input. 
 
 
 ## Workflow Plugins
