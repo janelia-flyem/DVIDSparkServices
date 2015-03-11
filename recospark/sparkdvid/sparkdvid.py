@@ -54,6 +54,43 @@ class sparkdvid(object):
 
         return distrois.map(mapper)
 
+    # produce mapped ROI RDDs
+    def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2):
+        # copy local context to minimize sent data
+        server = self.dvid_server
+        server2 = self.dvid_server
+        uuid = self.uuid
+
+        def mapper(roi):
+            import httplib
+            from pydvid.voxels import VoxelsAccessor
+            import numpy
+
+            conn = httplib.HTTPConnection(server)
+            labels_access = VoxelsAccessor(conn, uuid, label_name,
+                    throttle=True, retry_timeout=1800.0)
+            
+            pt1 = (0, roi[0], roi[1], roi[2])
+            pt2 = (1, roi[3], roi[4], roi[5])
+            
+            label_volume = labels_access.get_ndarray( pt1, pt2 )
+            label_volume = label_volume.transpose((3,2,1,0)).squeeze()
+            
+            
+            conn2 = httplib.HTTPConnection(server2)
+            labels_access = VoxelsAccessor(conn, uuid2, label_name2,
+                    throttle=True, retry_timeout=1800.0)
+            
+            pt1 = (0, roi[0], roi[1], roi[2])
+            pt2 = (1, roi[3], roi[4], roi[5])
+            
+            label_volume2 = labels_access.get_ndarray( pt1, pt2 )
+            label_volume2 = label_volume2.transpose((3,2,1,0)).squeeze()
+            
+            return (pt1, pt2, label_volume, label_volume2)
+
+        return distrois.map(mapper)
+
 
     # foreach will write graph elements to DVID storage
     def foreachPartition_graph_elements(self, elements, graph_name):

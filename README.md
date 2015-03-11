@@ -6,7 +6,7 @@ plugin modules.
 
 ## Installation
 
-Python dependences: jsonschema, pydvid, argparse, importlib
+Python dependences: jsonschema, pydvid, argparse, importlib, requests
 
     % python setup build
     % python setup install
@@ -35,7 +35,31 @@ Recospark python workflows all have the same pattern:
 Where WORKFLOWNAME should exist as a python file in the module *workflows* and define a class with the same name that inherits from
 the python object *recospark.reconutils.workflow.Workflow* or *recospark.reconutils.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
 
-### Compute Graph
+### Evaluate Segmentation (plugin: EvaluateSeg)
+
+This workflow takes the location of two DVID segmentations and computes quality metrics over them.
+An ROI is provided and is split up between spark workers.  Each worker fetches two volumes corresponding to the baseline/ground truth volume and
+the comparison volume.  Variation of Information metric is computed by finding the overlap of labels
+in each subvolume and then combining the overlap results together.
+[NeuroProof](https://github.com/janelia-flyem/NeuroProof) must be installed.
+
+Currently, evaluating segmentation is limited by the throughput of the databases behind DVID.  If the DVID backend is not clustered,
+the accesses will be throttled and slow.
+
+Example configuration JSON (comments added for convenience but is not valid JSON)
+
+    {
+        "dvid-server": "127.0.0.1:8000", # DVID server for baseline
+        "uuid": "UUID", # DVID uuid
+        "label-name": "label-name",
+        "roi": "temproi", # ROI should have coordinates that can be used by both volumes
+        "dvid-server-comp": "127.0.0.1:8000", # DVID server for comparison stack
+        "uuid-comp": "UUID2", # comparison UUID
+        "label-name-comp": "label-name2"
+    }
+
+
+### Compute Graph (plugin: ComputeGraph)
 
 This workflow takes a DVID labelsblock volume and ROI and computes a DVID labelgraph.
 The ROI is split into several substacks.  Spark will process each substack (plus a 1 pixel overlap)
@@ -46,7 +70,7 @@ done with a third-party binary.  In this workflow, it is recommended that [Neuro
 Compute Graph is limited by the throughput of databases behind DVID.  If the DVID backend is not clustered, the accesses
 will be throttled and slow.  The algorithm has linear complexity and should otherwise scale to very large datasets.
 
-Example configuration JSON (commens added for convenience but is not valid JSON)
+Example configuration JSON (comments added for convenience but is not valid JSON)
 
     {
         "dvid-server": "127.0.0.1:8000", # DVID server
@@ -57,7 +81,7 @@ Example configuration JSON (commens added for convenience but is not valid JSON)
         "graph-builder-exe": "neuroproof_graph_build_stream" # binary that builds the graph
     }
 
-### DVID Block Ingest
+### DVID Block Ingest (plugin: IngestGrayscale)
 
 This workflow takes a stack of 2D images and produces binary chunks of DVID blocks.  The script does not
 actually communicate with DVID and can be called independent of some of the recospark libraries.
