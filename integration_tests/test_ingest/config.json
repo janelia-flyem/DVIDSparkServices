@@ -1,0 +1,7 @@
+{
+    "minslice" : 0,
+    "maxslice" : 261,
+    "basename" : "DIR/resources/grayscale_maps/iso.%05d.png",
+    "output-dir" : "DIR/test_ingest/temp_data/blocks"
+
+}

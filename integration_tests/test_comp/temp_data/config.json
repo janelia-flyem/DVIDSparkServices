@@ -1,0 +1,11 @@
+{
+    "dvid-server": "127.0.0.1:8000",
+    "uuid": "77b4e77eceea40a9b253a8488511ddd2",
+    "label-name": "labels",
+    "roi": "temproi",
+    "dvid-server-comp": "127.0.0.1:8000",
+    "uuid-comp": "4c30edaac66e4af2933d3bd322ae4885",
+    "label-name-comp": "labels",
+    "chunk-size": 64,
+    "debug": true
+}

@@ -108,17 +108,18 @@ class EvaluateSeg(DVIDWorkflow):
         for (body, val, tot) in bodies1_vi_all:
             accum1 += val
             total += tot
-        
-        # print values per body
-        for (body, val, tot) in bodies1_vi_all:
-            print body, val/total # normalize
-        print "VI total1: ", accum1/total # normalize
-        
+       
+        if "debug" in self.config_data and self.config_data["debug"]:
+            # print values per body
+            for (body, val, tot) in bodies1_vi_all:
+                print "DEBUG: ", body, val/total # normalize
+            print "DEBUG: VI total1: ", accum1/total # normalize
+            
 
-        for (body, val, tot) in bodies2_vi_all:
-            print body, val/total # normalize
-            accum2 += val
-        print "VI total2: ", accum2/total # normalize
+            for (body, val, tot) in bodies2_vi_all:
+                print "DEBUG: ", body, val/total # normalize
+                accum2 += val
+            print "DEBUG: VI total2: ", accum2/total # normalize
 
 
     @staticmethod

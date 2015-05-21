@@ -121,7 +121,7 @@ class IngestGrayscale(Workflow):
                 # extract blocks from buffer and write to disk
                 fout = open(filename, 'w')
                 for iterx in range(0, xsize, blocksize):
-                    block = blocks[:,:,iterx:iterx+32].copy()
+                    block = blocks[:,:,iterx:iterx+blocksize].copy()
                     fout.write(numpy.getbuffer(block))
                 fout.close()
 

@@ -84,7 +84,6 @@ class ComputeGraph(DVIDWorkflow):
         except DvidHttpError:
             pass
 
-
         # dump graph -- should this be wrapped through utils or through sparkdvid ??
         # will this result in too many request (should they be accumulated) ??
         # currently looking at one partitioning at a time to try to group requests
@@ -92,6 +91,10 @@ class ComputeGraph(DVIDWorkflow):
                 self.config_data["graph-name"])
         self.sparkdvid_context.foreachPartition_graph_elements(graph_edges,
                 self.config_data["graph-name"])
+
+        if "debug" in self.config_data and self.config_data["debug"]:
+            num_elements = graph_elements.count()
+            print "DEBUG: ", num_elements
 
         graph_elements_red.unpersist()
 
