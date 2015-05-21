@@ -1,2 +1,9 @@
 *.pyc
 *.swp
+integration_tests/test_comp/temp_data/config.json
+integration_tests/test_comp/temp_data/results.txt
+integration_tests/test_graph/temp_data/config.json
+integration_tests/test_graph/temp_data/results.txt
+integration_tests/test_ingest/temp_data/config.json
+integration_tests/test_ingest/temp_data/results.txt
+integration_tests/test_ingest/temp_data/blocks

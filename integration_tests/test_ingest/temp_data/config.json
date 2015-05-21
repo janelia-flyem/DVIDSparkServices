@@ -1,7 +1,0 @@
-{
-    "minslice" : 0,
-    "maxslice" : 261,
-    "basename" : "/groups/scheffer/home/plazas/development/recospark/integration_tests/resources/grayscale_maps/iso.%05d.png",
-    "output-dir" : "/groups/scheffer/home/plazas/development/recospark/integration_tests/test_ingest/temp_data/blocks"
-
-}
