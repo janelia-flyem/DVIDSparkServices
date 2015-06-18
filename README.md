@@ -6,7 +6,7 @@ plugin modules.
 
 ## Installation
 
-Python dependences: jsonschema, pydvid, argparse, importlib, requests
+Python dependences: jsonschema, [libdvidcpp](https://github.com/janelia-flyem/libdvid-cpp), argparse, importlib, requests
 
     % python setup build
     % python setup install

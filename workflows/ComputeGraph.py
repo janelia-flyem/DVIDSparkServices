@@ -1,7 +1,6 @@
 import httplib
 
-from pydvid.labelgraph import labelgraph
-from pydvid.errors import DvidHttpError
+from libdvid import DVIDNodeService
 
 from recospark.reconutils import SimpleGraph
 from recospark.reconutils.dvidworkflow import DVIDWorkflow
@@ -79,10 +78,9 @@ class ComputeGraph(DVIDWorkflow):
 
         # create graph
         conn = httplib.HTTPConnection(self.config_data["dvid-server"])
-        try:
-            labelgraph.create_new(conn, self.config_data["uuid"], self.config_data["graph-name"])
-        except DvidHttpError:
-            pass
+        node_service = DVIDNodeService(str(self.config_data["dvid-server"]), str(self.config_data["uuid"]))
+        
+        node_service.create_graph(str(self.config_data["graph-name"]))
 
         # dump graph -- should this be wrapped through utils or through sparkdvid ??
         # will this result in too many request (should they be accumulated) ??

@@ -1,5 +1,6 @@
-import requests
 import json
+
+BLK_SIZE = 32
 
 class sparkdvid(object):
     def __init__(self, context, dvid_server, dvid_uuid):
@@ -12,12 +13,13 @@ class sparkdvid(object):
         # function will export and should include dependencies
         rois = [] # x,y,z,x2,y2,z2
 
+        from libdvid import DVIDNodeService, SubstackXYZ
+        
         # extract roi
-        r = requests.get("http://" + self.dvid_server + "/api/node/" + self.uuid + "/" + 
-                roi + "/partition?batchsize=" + str(chunk_size/32)) 
-        substack_data = r.json()
-        for subvolume in substack_data["Subvolumes"]:
-            substack = subvolume["MinPoint"]
+        node_service = DVIDNodeService(str(self.dvid_server), str(self.uuid))
+
+        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / BLK_SIZE) 
+        for substack in substacks:
             rois.append((substack[0], substack[1], substack[2],
                     substack[0] + chunk_size,
                     substack[1] + chunk_size,
@@ -33,23 +35,21 @@ class sparkdvid(object):
         uuid = self.uuid
 
         def mapper(roi):
-            import httplib
-            from pydvid.voxels import VoxelsAccessor
-            import numpy
+            from libdvid import DVIDNodeService
+            # extract labels 64
+            node_service = DVIDNodeService(str(server), str(uuid))
+          
+            # get sizes of roi
+            size1 = roi[3]+2*overlap-roi[0]
+            size2 = roi[4]+2*overlap-roi[1]
+            size3 = roi[5]+2*overlap-roi[2]
 
-            conn = httplib.HTTPConnection(server)
-            labels_access = VoxelsAccessor(conn, uuid, label_name,
-                    throttle=True, retry_timeout=1800.0)
+            # retrieve data from roi start position considering overlap
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-overlap, roi[1]-overlap, roi[2]-overlap) )
+
+            # flip to be in C-order (no performance penalty)
+            label_volume = label_volume.transpose((2,1,0))
             
-            pt1 = (0, roi[0]-overlap, roi[1]-overlap, roi[2]-overlap)
-            pt2 = (1, roi[3]+overlap, roi[4]+overlap, roi[5]+overlap)
-            
-            label_volume = labels_access.get_ndarray( pt1, pt2 )
-            label_volume = label_volume.transpose((3,2,1,0)).squeeze()
-            
-            # convert to RDD string and return -- always assume little endian!
-            #data = numpy.getbuffer(label_volume)
-            #return str(data)
             return label_volume
 
         return distrois.map(mapper)
@@ -58,35 +58,39 @@ class sparkdvid(object):
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2):
         # copy local context to minimize sent data
         server = self.dvid_server
-        server2 = self.dvid_server
+        server2 = dvidserver2
         uuid = self.uuid
 
         def mapper(roi):
-            import httplib
-            from pydvid.voxels import VoxelsAccessor
-            import numpy
+            from libdvid import DVIDNodeService
+            
+            # extract labels 64
+            node_service = DVIDNodeService(str(server), str(uuid))
 
-            conn = httplib.HTTPConnection(server)
-            labels_access = VoxelsAccessor(conn, uuid, label_name,
-                    throttle=True, retry_timeout=1800.0)
+            # get sizes of roi
+            size1 = roi[3]-roi[0]
+            size2 = roi[4]-roi[1]
+            size3 = roi[5]-roi[2]
+
+            # retrieve data from roi start position
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0], roi[1], roi[2]) )
+
+            # flip to be in C-order (no performance penalty)
+            label_volume = label_volume.transpose((2,1,0))
             
-            pt1 = (0, roi[0], roi[1], roi[2])
-            pt2 = (1, roi[3], roi[4], roi[5])
-            
-            label_volume = labels_access.get_ndarray( pt1, pt2 )
-            label_volume = label_volume.transpose((3,2,1,0)).squeeze()
-            
-            
-            conn2 = httplib.HTTPConnection(server2)
-            labels_access = VoxelsAccessor(conn, uuid2, label_name2,
-                    throttle=True, retry_timeout=1800.0)
-            
-            pt1 = (0, roi[0], roi[1], roi[2])
-            pt2 = (1, roi[3], roi[4], roi[5])
-            
-            label_volume2 = labels_access.get_ndarray( pt1, pt2 )
-            label_volume2 = label_volume2.transpose((3,2,1,0)).squeeze()
-            
+            # fetch second label volume
+            node_service2 = DVIDNodeService(str(server2), str(uuid2))
+ 
+            # retrieve data from roi start position
+            label_volume2 = node_service2.get_labels3D( str(label_name2), (size1,size2,size3), (roi[0], roi[1], roi[2]) )
+
+            # flip to be in C-order (no performance penalty)
+            label_volume2 = label_volume2.transpose((2,1,0))
+
+            pt1 = (roi[0], roi[1], roi[2])
+            pt2 = (roi[3], roi[4], roi[5])
+
+
             return (pt1, pt2, label_volume, label_volume2)
 
         return distrois.map(mapper)
@@ -99,9 +103,10 @@ class sparkdvid(object):
         uuid = self.uuid
         
         def writer(element_pairs):
-            import httplib
-            from pydvid.labelgraph import labelgraph
-            conn = httplib.HTTPConnection(server)
+            from libdvid import DVIDNodeService, Vertex, Edge
+            
+            # write graph information
+            node_service = DVIDNodeService(str(server), str(uuid))
        
             if element_pairs is None:
                 return
@@ -113,15 +118,16 @@ class sparkdvid(object):
                 v1, v2 = edge
 
                 if v2 == -1:
-                    vertices.append((int(v1), int(weight)))
+                    vertices.append(Vertex(v1, weight))
                 else:
-                    edges.append((int(v1), int(v2), int(weight)))
+                    edges.append(Edge(v1, v2, weight))
     
             if len(vertices) > 0:
-                labelgraph.update_vertices(conn, uuid, graph_name, vertices) 
+                node_service.update_vertices(str(graph_name), vertices) 
             
             if len(edges) > 0:
-                labelgraph.update_edges(conn, uuid, graph_name, edges) 
+                node_service.update_edges(str(graph_name), edges) 
+            
             return []
 
         elements.foreachPartition(writer)

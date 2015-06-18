@@ -14,5 +14,5 @@ setup(name='recospark',
       url='https://github.com/janelia-flyem/reconspark',
       packages=packages,
       package_data=package_data,
-      setup_requires=['jsonschema>=1.0', 'pydvid>=0.1', 'argparse', 'importlib']
+      setup_requires=['jsonschema>=1.0', 'argparse', 'importlib']
       )
