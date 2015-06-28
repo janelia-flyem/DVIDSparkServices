@@ -1,5 +1,4 @@
-from recospark.reconutils.dvidworkflow import DVIDWorkflow
-from recospark.reconutils import Evaluate
+from DVIDSparkServices.reconutils.dvidworkflow import DVIDWorkflow
 
 class EvaluateSeg(DVIDWorkflow):
     # schema for evaluating segmentation
@@ -46,6 +45,7 @@ class EvaluateSeg(DVIDWorkflow):
         super(EvaluateSeg, self).__init__(config_filename, self.Schema, "Evaluate Segmentation")
 
     def execute(self):
+        from DVIDSparkServices.reconutils import Evaluate
         from pyspark import SparkContext
         from pyspark import StorageLevel
 

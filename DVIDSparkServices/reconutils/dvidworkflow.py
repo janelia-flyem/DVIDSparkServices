@@ -2,9 +2,9 @@ import json
 from jsonschema import validate
 from jsonschema import ValidationError
 
-from recospark.reconutils.workflow import Workflow
-from recospark.reconutils import workflow
-from recospark.sparkdvid import sparkdvid
+from DVIDSparkServices.reconutils.workflow import Workflow
+from DVIDSparkServices.reconutils import workflow
+from DVIDSparkServices.sparkdvid import sparkdvid
 
 
 

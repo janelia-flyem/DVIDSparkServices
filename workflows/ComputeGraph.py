@@ -1,9 +1,4 @@
-import httplib
-
-from libdvid import DVIDNodeService
-
-from recospark.reconutils import SimpleGraph
-from recospark.reconutils.dvidworkflow import DVIDWorkflow
+from DVIDSparkServices.reconutils.dvidworkflow import DVIDWorkflow
 
 class ComputeGraph(DVIDWorkflow):
     # schema for building graph
@@ -51,6 +46,8 @@ class ComputeGraph(DVIDWorkflow):
     # build graph by dividing into mostly disjoint chunks and computing the number
     # of voxels and overlap between them
     def execute(self):
+        from DVIDSparkServices.reconutils import SimpleGraph
+        from libdvid import DVIDNodeService
         from pyspark import SparkContext
         from pyspark import StorageLevel
 
@@ -77,7 +74,6 @@ class ComputeGraph(DVIDWorkflow):
         graph_edges = graph_elements_red.filter(sg.is_edge)
 
         # create graph
-        conn = httplib.HTTPConnection(self.config_data["dvid-server"])
         node_service = DVIDNodeService(str(self.config_data["dvid-server"]), str(self.config_data["uuid"]))
         
         node_service.create_graph(str(self.config_data["graph-name"]))
