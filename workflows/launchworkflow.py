@@ -35,7 +35,7 @@ def main(argv):
 
         # list all services if requested and exit
         if args.list_workflows:
-            plugins = [os.path.split(plugin)[1].rstrip('.py') for plugin in glob.glob(workflowpath + '*.py') if plugin != workflowpath + "launchworkflow.py"]
+            plugins = [os.path.split(plugin)[1].rstrip('.py') for plugin in glob.glob(workflowpath + '*.py') if plugin != workflowpath + "launchworkflow.py" and plugin != workflowpath + "__init__.py"]
             print json.dumps(plugins, indent=4)
             return
 
