@@ -41,7 +41,7 @@ def main(argv):
 
         # import plugin and grab class
         # assume plugin name and class name are the same
-        workflow_mod = imp.load_source(args.workflow, workflowpath + args.workflow + '.py')
+        workflow_mod = imp.load_source("workflows." + args.workflow, workflowpath + args.workflow + '.py')
         workflow_cls = getattr(workflow_mod, args.workflow)
 
         # print the json schema for the given workflow
