@@ -3,6 +3,7 @@ from setuptools import setup
 packages=['DVIDSparkServices', 
           'DVIDSparkServices.reconutils',
           'DVIDSparkServices.sparkdvid',
+          'DVIDSparkServices.workflow',
           'workflows'
          ]
 
@@ -14,5 +15,5 @@ setup(name='DVIDSparkServices',
       url='https://github.com/janelia-flyem/DVIDSparkServices',
       packages=packages,
       package_data=package_data,
-      setup_requires=['jsonschema>=1.0', 'argparse', 'importlib']
+      setup_requires=['jsonschema>=1.0', 'argparse', 'importlib', 'lz4']
       )

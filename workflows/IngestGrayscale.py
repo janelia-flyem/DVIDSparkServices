@@ -2,7 +2,7 @@ import Image
 import numpy
 import os
 
-from DVIDSparkServices.reconutils.workflow import Workflow
+from DVIDSparkServices.workflow.workflow import Workflow
 
 class IngestGrayscale(Workflow):
     # schema for ingesting grayscale

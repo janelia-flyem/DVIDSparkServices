@@ -1,4 +1,4 @@
-from DVIDSparkServices.reconutils.dvidworkflow import DVIDWorkflow
+from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class ComputeGraph(DVIDWorkflow):
     # schema for building graph

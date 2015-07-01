@@ -1,4 +1,4 @@
-from DVIDSparkServices.reconutils.dvidworkflow import DVIDWorkflow
+from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
@@ -88,22 +88,28 @@ class CreateSegmentation(DVIDWorkflow):
     def __init__(self, config_filename):
         super(CreateSegmentation, self).__init__(config_filename, self.Schema, "Create segmentation")
 
+
+    # DVID => ROI dataframe => ROI+gray => map to labels, ROI+max+label+label, persist()
+    # (stitch): => flatmap to boundary, id, cropped labels => reduce to common boundaries maps
+    # => flatmap substack and boundary mappings => take ROI max id collect, join offsets with boundary
+    # => join offsets and boundary mappings to persisted ROI+label, unpersist => map labels
+    # (write): => for each row
     def execute(self):
         from pyspark import SparkContext
         from pyspark import StorageLevel
 
-        # ?! log main actions
-        # ?! move algorithms to recon (graph creation and seg seem pretty basic
+        # ?! move algorithms to recon (graph creation and seg seem pretty basic)
         # ?! keep IO in spark dvid (how to guarantee disjointness of elements)
         # ?! return dataframe for graph to retrieve vertex or edge?
         # ?! rois might be better as dataframe
         # ?1 should roi (future read data) be a special, non-RDD object
-        # ?! compress lz4
 
         # grab ROI (?! will need to recover distrois so probably should have collect built-in -- might not be possible)
+        # ?! return dataframe instead to allow easier querying? 
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["roi"],
                 self.chunksize)
 
+        # ?! should put ROI ID in mapped data
         # get grayscale chunks with specified overlap
         gray_chunks = self.sparkdvid_context.map_grayscale8(distrois,
                 self.config_data["grayscale"], overlap)
@@ -118,7 +124,7 @@ class CreateSegmentation(DVIDWorkflow):
         # flatMap => (boundary id, partial labelvolume)
         # reduceByKey => (boundary_id, substacks, mappings) # map
         # flatMap => (substack, mappings)
-        boundary_mappings = seg_chunks.flatMap(segmentor.extract_overlap).reduceByKey(segmentor.stitch_mappings).flatMap(segmentor.extract_substackmappings)
+        boundary_mappings = seg_chunks.flatMap(segmentor.extract_overlap).reduceByKey(segmentor.stitch_mappings).flatMap(segmentor.extract_substackmappings) # aggregate maps?
 
         boundary_mappings.persist()
         seg_chunks.persist()
@@ -139,7 +145,7 @@ class CreateSegmentation(DVIDWorkflow):
         
         # ?! write data to DVID
         self.sparkdvid_context.writelabels(mapped_seg_chunks)
-
+        self.logger.log("Wrote DVID labels") # write to logger after spark job
 
 
 

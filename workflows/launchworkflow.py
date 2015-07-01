@@ -6,7 +6,7 @@ import glob
 import json
 import os
 
-from DVIDSparkServices.reconutils.workflow import WorkflowError
+from DVIDSparkServices.workflow import WorkflowError
 
 def main(argv):
     try:
