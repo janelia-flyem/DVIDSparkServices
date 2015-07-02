@@ -1,7 +1,7 @@
 from jsonschema import validate
 from jsonschema import ValidationError
 import json
-from DVIDSparkServices.workflow import WorkflowLogger
+from DVIDSparkServices.workflow.logger import WorkflowLogger
 
 #  workflow exception
 class WorkflowError(Exception):
@@ -36,7 +36,7 @@ class Workflow(object):
     def _init_spark(self, appname):
         # only load spark when creating a workflow
         from pyspark import SparkContext, SparkConf
-       
+    
         # create custom lz4 rdd compression -- this should greatly
         # speed-up RDD shuffling involving large label volumes
         import lz4

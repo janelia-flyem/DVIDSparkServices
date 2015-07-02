@@ -3,7 +3,7 @@ from jsonschema import validate
 from jsonschema import ValidationError
 
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.reconutils import workflow
+from DVIDSparkServices.workflow import workflow
 from DVIDSparkServices.sparkdvid import sparkdvid
 
 

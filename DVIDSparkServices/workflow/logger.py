@@ -5,7 +5,7 @@ or be extended to write to a DVID call back.
 import time
 import datetime
 
-def WorkflowLogger:
+class WorkflowLogger:
     def __init__(self, appname):
         self.appname = appname
         self.log("Started")
