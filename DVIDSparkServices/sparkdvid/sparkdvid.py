@@ -1,12 +1,43 @@
 import json
 
-BLK_SIZE = 32
 
 class sparkdvid(object):
+    BLK_SIZE = 32
+    
     def __init__(self, context, dvid_server, dvid_uuid):
         self.sc = context
         self.dvid_server = dvid_server
         self.uuid = dvid_uuid
+
+    # Produce RDDs for each subvolume partition (this will replace default implementation)
+    # Treats subvolum index as the RDD key and maximizes partition count for now
+    # Assumes disjoint subsvolumes in ROI
+    def parallelize_roi_new(self, roi, chunk_size, border, find_neighbors=True):
+        # function will export and should include dependencies
+        subvolumes = [] # x,y,z,x2,y2,z2
+
+        from libdvid import DVIDNodeService, SubstackXYZ
+        
+        # extract roi for a given chunk size
+        node_service = DVIDNodeService(str(self.dvid_server), str(self.uuid))
+        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / BLK_SIZE) 
+        
+        # create roi array giving unique substack ids
+        substack_id = 0
+        for substack in substacks:
+            # use substack id as key
+            subvolumes.append(substack_id, Subvolume(substack_id, substack, chunk_size)) 
+            substack_id += 1
+    
+        # grab all neighbors for each substack
+        if find_neighbors:
+            # inefficient search for all boundaries
+            for i in range(0, len(subvolumes)-1):
+                for j in range(i+1, len(subvolumes)):
+                    subvolumes[i].recordborder(subvolumes[j], border)
+
+        # Potential TODO: custom partitioner for grouping close regions
+        return self.sc.parallelize(subvolumes, len(subvolumes))
 
     # produce RDDs for each ROI partition -- should there be an option for number of slices?
     def parallelize_roi(self, roi, chunk_size):
@@ -28,8 +59,40 @@ class sparkdvid(object):
         return self.sc.parallelize(rois, len(rois))
 
 
+    # (key, ROI) => (key, ROI, grayscale)
+    # ** Preserves partitioner 
+    # Compression of numpy array is avoided since
+    # lz4 will not be too effective on grayscale data
+    def map_grayscale8(self, distsubvolumes, gray_name, border=0):
+        # copy local context to minimize sent data
+        server = self.dvid_server
+        uuid = self.uuid
+
+        def mapper(subvolume_key_value):
+            key, subvolume = subvolume_key_value
+
+            from libdvid import DVIDNodeService
+            # extract grayscale x
+            node_service = DVIDNodeService(str(server), str(uuid))
+          
+            # get sizes of subvolume
+            size1 = subvolume.roi.x2+2*border-subvolume.roi.x1
+            size2 = subvolume.roi.y2+2*border-subvolume.roi.y1
+            size3 = subvolume.roi.z2+2*border-subvolume.roi.z1
+
+            # retrieve data from roi start position considering border 
+            gray_volume = node_service.get_gray3D( str(gray_name), (size1,size2,size3), (subvolume.roi.x1-border, subvolume.roi.y1-border, subvolume.roi.z1-border) )
+
+            # flip to be in C-order (no performance penalty)
+            gray_volume = gray_volume.transpose((2,1,0))
+            
+            return (key, (subvolume, gray_volume))
+
+        return distsubvolumes.mapValues(mapper)
+
+
     # produce mapped ROI RDDs
-    def map_labels64(self, distrois, label_name, overlap):
+    def map_labels64(self, distrois, label_name, border):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
@@ -40,12 +103,12 @@ class sparkdvid(object):
             node_service = DVIDNodeService(str(server), str(uuid))
           
             # get sizes of roi
-            size1 = roi[3]+2*overlap-roi[0]
-            size2 = roi[4]+2*overlap-roi[1]
-            size3 = roi[5]+2*overlap-roi[2]
+            size1 = roi[3]+2*border-roi[0]
+            size2 = roi[4]+2*border-roi[1]
+            size3 = roi[5]+2*border-roi[2]
 
-            # retrieve data from roi start position considering overlap
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-overlap, roi[1]-overlap, roi[2]-overlap) )
+            # retrieve data from roi start position considering border
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-border, roi[1]-border, roi[2]-border) )
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -131,4 +194,40 @@ class sparkdvid(object):
             return []
 
         elements.foreachPartition(writer)
+
+    # (key, (ROI, segmentation compressed+border))
+    # => segmentation output in DVID
+    def foreachPartition_write_labels3d(self, label_name, seg_chunks, border = 0):
+        # copy local context to minimize sent data
+        server = self.dvid_server
+        uuid = self.uuid
+
+        # create labels type
+        node_service = DVIDNodeService(label_name, uuid)
+        node_service.create_labels3d(label_name)
+
+        def writer(subvolume_seg):
+            from libdvid import DVIDNodeService
+            # write segmentation
+            node_service = DVIDNodeService(str(server), str(uuid))
+            
+            (key, subvolume, segcomp) = subvolume_seg
+            # uncompress data
+            seg = segcomp.decompress() 
+
+            # get sizes of subvolume 
+            size1 = subvolume.roi.x2-subvolume.roi.x1
+            size2 = subvolume.roi.y2-subvolume.roi.y1
+            size3 = subvolume.roi.z2-subvolume.roi.z1
+
+            # extract seg ignoring borders (z,y,x)
+            seg = seg[border:size3+border, border:size2+border, border:size1+border]
+
+            # put in x,y,z and send
+            seg = seg.transpose((2,1,0))
+             
+            # send data from roi start position
+            node_service.put_labels3D(label_name, (size1,size2,size3), (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1))
+
+        return distrois.foreach(writer)
 
