@@ -26,7 +26,7 @@ class sparkdvid(object):
         substack_id = 0
         for substack in substacks:
             # use substack id as key
-            subvolumes.append(substack_id, Subvolume(substack_id, substack, chunk_size)) 
+            subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border))) 
             substack_id += 1
     
         # grab all neighbors for each substack

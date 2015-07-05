@@ -9,7 +9,7 @@ class Subvolume(object):
     SubvolumeNamedTuple = collections.namedtuple('x1', 'y1', 'z1',
             'x2', 'y2', 'z2')
 
-    def __init__(self, roi_id, roi, chunk_size):
+    def __init__(self, roi_id, roi, chunk_size, border):
         self.roi_id = roi_id
         self.max_id = 0
         self.roi(SubvolumeNamedTuple(roi[0],
@@ -17,6 +17,7 @@ class Subvolume(object):
                     roi[0] + chunk_size,
                     roi[1] + chunk_size,
                     roi[2] + chunk_size))
+        self.border = border
 
     # assume line[0] < line[1] and add border in calculation 
     def intersects(self, line1, line2):
