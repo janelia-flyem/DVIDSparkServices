@@ -1,11 +1,17 @@
 {
-    "dvid-server": "127.0.0.1:8000",
-    "uuid": "UUID1",
-    "label-name": "labels",
-    "roi": "temproi",
-    "dvid-server-comp": "127.0.0.1:8000",
-    "uuid-comp": "UUID2",
-    "label-name-comp": "labels",
-    "chunk-size": 64,
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "label-name": "labels",
+        "roi": "temproi"
+    },
+    "dvid-info-comp": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID2",
+        "label-name": "labels"
+    },
+    "options": {
+        "chunk-size": 64
+    },
     "debug": true
 }

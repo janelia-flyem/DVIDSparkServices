@@ -16,13 +16,24 @@ class DVIDWorkflow(Workflow):
   "title": "Basic DVID Workflow Interface",
   "type": "object",
   "properties": {
-    "dvid-server": { 
-      "description": "location of DVID server",
-      "type": "string" 
-    },
-    "uuid": { "type": "string" }
-  },
-  "required" : ["dvid-server", "uuid"]
+    "dvid-info": {
+      "type": "object",
+      "properties": {
+        "dvid-server": {
+          "description": "location of DVID server",
+          "type": "string",
+          "minLength": 1,
+          "property": "dvid-server"
+        },
+        "uuid": {
+          "description": "version node to store segmentation",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required" : ["dvid-server", "uuid"]
+    }
+  }
 }
     """
    
@@ -37,8 +48,9 @@ class DVIDWorkflow(Workflow):
             raise WorkflowError("DVID validation error: ", e.what())
 
         # create spark dvid context
-        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc, self.config_data["dvid-server"],
-                self.config_data["uuid"])
+        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
+                self.config_data["dvid-info"]["dvid-server"],
+                self.config_data["dvid-info"]["uuid"])
 
 
     # just dumps specific DVID schema

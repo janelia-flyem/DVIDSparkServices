@@ -2,7 +2,6 @@ from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
-    # ?! modify base schema so dvid can be found
     Schema = """
 { "$schema": "http://json-schema.org/schema#",
   "title": "Service to create image segmentation from grayscale data",

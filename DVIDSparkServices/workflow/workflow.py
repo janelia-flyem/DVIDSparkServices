@@ -63,14 +63,15 @@ class Workflow(object):
 
         # set spark config
         sconfig = SparkConf()
-        sconfig.setMaster(None).setAppname(appname)
+        sconfig.setAppName(appname)
         
         # always store job info for later retrieval on master
         # set 1 cpu per task for now but potentially allow
         # each workflow to overwrite this for certain high
         # memory situations
-        sconfig.setAll(["spark.task.cpus", "1"],
-                       ["spark.eventLog.enabled", "true"]
+        sconfig.setAll([("spark.task.cpus", "1"),
+                        ("spark.eventLog.enabled", "true")
+                       ]
                       )
 
         return SparkContext(conf=sconfig)

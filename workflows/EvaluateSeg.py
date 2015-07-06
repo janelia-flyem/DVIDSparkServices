@@ -7,37 +7,65 @@ class EvaluateSeg(DVIDWorkflow):
   "title": "Tool to Create DVID blocks from image slices",
   "type": "object",
   "properties": {
-    "dvid-server": { 
-      "description": "location of DVID server",
-      "type": "string" 
+    "dvid-info": {
+      "type": "object",
+      "properties": {
+        "dvid-server": { 
+          "description": "location of DVID server",
+          "type": "string", 
+          "minLength": 1,
+          "property": "dvid-server"
+        },
+        "uuid": {
+              "description": "version node to store segmentation",
+              "type": "string",
+              "minLength": 1
+        },
+        "label-name": { 
+          "description": "DVID data instance pointing to label blocks",
+          "type": "string" 
+        },
+        "roi": { 
+          "description": "name of DVID ROI for given label-name",
+          "type": "string" 
+        }
+      },
+      "required" : ["dvid-server", "uuid", "label-name", "roi"]
     },
-    "uuid": { "type": "string" },
-    "label-name": { 
-      "description": "DVID data instance pointing to label blocks",
-      "type": "string" 
+    "dvid-info-comp": {
+      "type": "object",
+      "properties": {
+        "dvid-server": { 
+          "description": "location of DVID server",
+          "type": "string", 
+          "minLength": 1,
+          "property": "dvid-server"
+        },
+        "uuid": {
+              "description": "version node to store segmentation",
+              "type": "string",
+              "minLength": 1
+        },
+        "label-name": { 
+          "description": "DVID data instance pointing to label blocks",
+          "type": "string" 
+        }
+      },
+      "required" : ["dvid-server", "uuid", "label-name"]
     },
-    "roi": { 
-      "description": "name of DVID ROI for given label-name",
-      "type": "string" 
-    },
-    "dvid-server-comp": { 
-      "description": "location of DVID server",
-      "type": "string" 
-    },
-    "uuid-comp": { "type": "string" },
-    "label-name-comp": { 
-      "description": "DVID data instance pointing to label blocks",
-      "type": "string" 
-    },
-    "chunk-size": {
-      "description": "size of chunks to be processed",
-      "type": "integer",
-      "default": 256
+    "options": {
+      "type": "object",
+      "properties": {
+        "chunk-size": {
+          "description": "size of chunks to be processed",
+          "type": "integer",
+          "default": 256
+        }
+      }
     }
-  },
-  "required" : ["dvid-server", "uuid", "label-name", "roi", "dvid-server-comp", "uuid-comp", "label-name-comp"]
+  }
 }
-    """
+"""
 
     chunksize = 256
 
@@ -49,19 +77,20 @@ class EvaluateSeg(DVIDWorkflow):
         from pyspark import SparkContext
         from pyspark import StorageLevel
 
-        if "chunk-size" in self.config_data:
-            self.chunksize = self.config_data["chunk-size"]
+        if "chunk-size" in self.config_data["options"]:
+            self.chunksize = self.config_data["options"]["chunk-size"]
 
         #  grab ROI
-        distrois = self.sparkdvid_context.parallelize_roi(self.config_data["roi"],
+        distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
                 self.chunksize)
 
         # map ROI to two label volumes (0 overlap)
-        label_chunk_pairs = self.sparkdvid_context.map_labels64_pair(distrois, self.config_data["label-name"],
-                self.config_data["dvid-server-comp"], self.config_data["uuid-comp"],
-                self.config_data["label-name-comp"])
+        label_chunk_pairs = self.sparkdvid_context.map_labels64_pair(
+                distrois, self.config_data["dvid-info"]["label-name"],
+                self.config_data["dvid-info-comp"]["dvid-server"],
+                self.config_data["dvid-info-comp"]["uuid"],
+                self.config_data["dvid-info-comp"]["label-name"])
 
-        
         # compute overlap within pairs
         eval = Evaluate.Evaluate(self.config_data)
        

@@ -7,36 +7,52 @@ class ComputeGraph(DVIDWorkflow):
   "title": "Tool to Create DVID blocks from image slices",
   "type": "object",
   "properties": {
-    "dvid-server": { 
-      "description": "location of DVID server",
-      "type": "string" 
+    "dvid-info": {
+      "type": "object",
+      "properties": {
+        "dvid-server": {
+          "description": "location of DVID server",
+          "type": "string",
+          "minLength": 1,
+          "property": "dvid-server"
+        },
+        "uuid": {
+          "description": "version node to store segmentation",
+          "type": "string",
+          "minLength": 1
+        },
+        "label-name": { 
+          "description": "DVID data instance pointing to label blocks",
+          "type": "string" 
+        },
+        "roi": { 
+          "description": "name of DVID ROI for given label-name",
+          "type": "string" 
+        },
+        "graph-name": { 
+          "description": "destination name of DVID labelgraph",
+          "type": "string" 
+        }
+      },
+      "required" : ["dvid-server", "uuid", "label-name", "roi", "graph-name"]
     },
-    "uuid": { "type": "string" },
-    "label-name": { 
-      "description": "DVID data instance pointing to label blocks",
-      "type": "string" 
-    },
-    "roi": { 
-      "description": "name of DVID ROI for given label-name",
-      "type": "string" 
-    },
-    "graph-name": { 
-      "description": "destination name of DVID labelgraph",
-      "type": "string" 
-    },
-    "graph-builder-exe": { 
-      "description": "name of executable that will build graph",
-      "type": "string" 
-    },
-    "chunk-size": {
-      "description": "size of chunks to be processed",
-      "type": "integer",
-      "default": 256
+    "options": {
+      "type": "object",
+      "properties": {
+        "graph-builder-exe": { 
+          "description": "name of executable that will build graph",
+          "type": "string" 
+        },
+        "chunk-size": {
+          "description": "size of chunks to be processed",
+          "type": "integer",
+          "default": 256
+        }
+      }
     }
-  },
-  "required" : ["dvid-server", "uuid", "label-name", "roi", "graph-name"]
+  }
 }
-    """
+"""
 
     chunksize = 256
 
@@ -51,18 +67,18 @@ class ComputeGraph(DVIDWorkflow):
         from pyspark import SparkContext
         from pyspark import StorageLevel
 
-        if "chunk-size" in self.config_data:
-            self.chunksize = self.config_data["chunk-size"]
+        if "chunk-size" in self.config_data["options"]:
+            self.chunksize = self.config_data["options"]["chunk-size"]
 
         #  grab ROI
-        distrois = self.sparkdvid_context.parallelize_roi(self.config_data["roi"],
+        distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
                 self.chunksize)
 
         # map ROI to label volume (1 pixel overlap)
-        label_chunks = self.sparkdvid_context.map_labels64(distrois, self.config_data["label-name"], 1)
+        label_chunks = self.sparkdvid_context.map_labels64(distrois, self.config_data["dvid-info"]["label-name"], 1)
 
         # map labels to graph data -- external program (eventually convert neuroproof metrics and graph to a python library) ?!
-        sg = SimpleGraph.SimpleGraph(self.config_data) 
+        sg = SimpleGraph.SimpleGraph(self.config_data["options"]) 
 
         # extract graph
         graph_elements = label_chunks.flatMap(sg.build_graph) 
@@ -74,17 +90,17 @@ class ComputeGraph(DVIDWorkflow):
         graph_edges = graph_elements_red.filter(sg.is_edge)
 
         # create graph
-        node_service = DVIDNodeService(str(self.config_data["dvid-server"]), str(self.config_data["uuid"]))
+        node_service = DVIDNodeService(str(self.config_data["options"]["dvid-server"]), str(self.config_data["options"]["uuid"]))
         
-        node_service.create_graph(str(self.config_data["graph-name"]))
+        node_service.create_graph(str(self.config_data["options"]["graph-name"]))
 
         # dump graph -- should this be wrapped through utils or through sparkdvid ??
         # will this result in too many request (should they be accumulated) ??
         # currently looking at one partitioning at a time to try to group requests
         self.sparkdvid_context.foreachPartition_graph_elements(graph_vertices,
-                self.config_data["graph-name"])
+                self.config_data["options"]["graph-name"])
         self.sparkdvid_context.foreachPartition_graph_elements(graph_edges,
-                self.config_data["graph-name"])
+                self.config_data["options"]["graph-name"])
 
         if "debug" in self.config_data and self.config_data["debug"]:
             num_elements = graph_elements.count()

@@ -54,13 +54,13 @@ class Segmentor(object):
             return (key, (subvolume, supervoxels_compressed))
 
         # preserver partitioner
-        return gray_chunks.mapValues(_segment): 
+        return gray_chunks.mapValues(_segment)
 
     # label volumes to label volumes remapped, preserves partitioner 
     def stitch(self, label_chunks):
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
-        subvolumes = label_chunks.map(lambda x: return x[1]).collect()
+        subvolumes = label_chunks.map(lambda x: x[1]).collect()
         offsets = {}
         offset = 0
         for subvolume in subvolumes:
@@ -105,29 +105,26 @@ class Segmentor(object):
                 newkey = (key1, key2)
 
                 # crop volume to overlap
-                offx1, offx2, offx1_2, offx2_2 = 
-                            intersects(
+                offx1, offx2, offx1_2, offx2_2 = intersects(
                                 subvolume.roi.x1-subvolume.border,
                                 subvolume.roi.x2+subvolume.border,
                                 roi2.x1-subvolume.border,
                                 roi2.x2+subvolume.border
                             )
-                offy1, offy2, offy1_2, offy2_2 = 
-                            intersects(
+                offy1, offy2, offy1_2, offy2_2 = intersects(
                                 subvolume.roi.y1-subvolume.border,
                                 subvolume.roi.y2+subvolume.border,
                                 roi2.y1-subvolume.border,
                                 roi2.y2+subvolume.border
                             )
-                offz1, offz2, offz1_2, offz2_2 = 
-                            intersects(
+                offz1, offz2, offz1_2, offz2_2 = intersects(
                                 subvolume.roi.z1-subvolume.border,
                                 subvolume.roi.z2+subvolume.border,
                                 roi2.z1-subvolume.border,
                                 roi2.z2+subvolume.border
                             )
                             
-                labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2]
+                labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
 
                 labels_cropped_c = CompressedNumpyArray(labels_cropped)
                 # add to flat map
