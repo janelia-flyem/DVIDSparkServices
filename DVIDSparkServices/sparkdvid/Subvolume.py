@@ -1,3 +1,8 @@
+import collections
+    
+SubvolumeNamedTuple = collections.namedtuple('SubvolumeNamedTuple',
+            'x1 y1 z1 x2 y2 z2')
+
 class Subvolume(object):
     """
     Contains subvolume for DVID ROI datatype.  It also adds an
@@ -6,18 +11,16 @@ class Subvolume(object):
     Assume neighboring Subvolumes are disjoint.
     """
 
-    SubvolumeNamedTuple = collections.namedtuple('x1', 'y1', 'z1',
-            'x2', 'y2', 'z2')
-
     def __init__(self, roi_id, roi, chunk_size, border):
         self.roi_id = roi_id
         self.max_id = 0
-        self.roi(SubvolumeNamedTuple(roi[0],
+        self.roi = SubvolumeNamedTuple(roi[0],
                     roi[1], roi[2],
                     roi[0] + chunk_size,
                     roi[1] + chunk_size,
-                    roi[2] + chunk_size))
+                    roi[2] + chunk_size)
         self.border = border
+        self.local_regions = []
 
     # assume line[0] < line[1] and add border in calculation 
     def intersects(self, line1, line2):
@@ -41,7 +44,7 @@ class Subvolume(object):
         return self.max_id
 
     # returns true if two rois overlap
-    def recordoverlap(self, roi2):
+    def recordborder(self, roi2):
         linex1 = [self.roi.x1, self.roi.x2]
         linex2 = [roi2.roi.x1, roi2.roi.x2]
         liney1 = [self.roi.y1, self.roi.y2]
@@ -53,6 +56,7 @@ class Subvolume(object):
         if (self.touches(linex1[0], linex1[1], linex2[0], linex2[1]) and self.intersects(liney1, liney2) and self.intersects(linez1, linez2)) or (self.touches(liney1[0], liney1[1], liney2[0], liney2[1]) and self.intersects(linex1, linex2) and self.intersects(linez1, linez2)) or (self.touches(linez1[0], linez1[1], linez2[0], linez2[1]) and self.intersects(liney1, liney2) and self.intersects(linex1, linex2)):
             # save overlapping substacks
             self.local_regions.append((roi2.roi_id, roi2.roi))
+            roi2.local_regions.append((self.roi_id, self.roi))
 
 
 

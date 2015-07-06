@@ -1,12 +1,13 @@
 class Segmentor(object):
     # determines what pixels are used as seeds (0-255 8-bit range)
-    SEED_THRES = 10 
+    SEED_THRES = 100 
    
     # the size of the seed needed
     SEED_SIZE_THRES = 5
 
-    def __init__(self, context, config):
+    def __init__(self, context, config, options):
         self.context = context
+
         mode = config["options"]["stitch-algorithm"]
         if mode == "none":
             self.stitch_mode = 0
@@ -26,12 +27,16 @@ class Segmentor(object):
         from scipy.ndimage.morphology import binary_closing
         from numpy import bincount 
         from skimage import morphology as skmorph
+        seed_threshold = self.SEED_SIZE_THRES
+        seed_cytothreshold = self.SEED_THRES
+        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
+        # only looks at values
         def _segment(gray_chunks):
-            (key, subvolume, gray) = gray_chunks
+            (subvolume, gray) = gray_chunks
 
             # extract seed mask from grayscale
-            seedmask = gray[gray <= SEED_THRES]
+            seedmask = gray >= seed_cytothreshold
 
             # closing operation to clean up seed mask
             seedmask_closed = binary_closing(seedmask, iterations=2)
@@ -41,26 +46,31 @@ class Segmentor(object):
 
             # filter small connected components
             component_sizes = bincount(seeds.ravel())
-            small_components = component_sizes < SEED_SIZE_THRES
+            small_components = component_sizes < seed_threshold 
             small_locations = small_components[seeds]
             seeds[small_locations] = 0
 
             # compute watershed
             supervoxels = skmorph.watershed(gray, seeds)
             max_id = supervoxels.max()
-            supervoxels_compressed = CompressedNumpyArray(supervoxels) 
+            supervoxels_compressed = CompressedNumpyArray(supervoxels)
             subvolume.set_max_id(max_id)
 
-            return (key, (subvolume, supervoxels_compressed))
+            return (subvolume, supervoxels_compressed)
 
         # preserver partitioner
         return gray_chunks.mapValues(_segment)
 
     # label volumes to label volumes remapped, preserves partitioner 
     def stitch(self, label_chunks):
+        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+        
+        def example(stuff):
+            return stuff[1][0]
+        
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
-        subvolumes = label_chunks.map(lambda x: x[1]).collect()
+        subvolumes = label_chunks.map(example).collect()
         offsets = {}
         offset = 0
         for subvolume in subvolumes:
@@ -86,10 +96,9 @@ class Segmentor(object):
                 return npt1, npt1+size, npt1_2, npt1_2+size
 
             import numpy
-            from DVIDSparkServices.sparkdvid import CompressedNumpyArray
 
             oldkey, (subvolume, labelsc) = key_labels
-            labels = labelsc.decompress()
+            labels = labelsc.deserialize()
 
             boundary_array = []
             
@@ -128,7 +137,7 @@ class Segmentor(object):
 
                 labels_cropped_c = CompressedNumpyArray(labels_cropped)
                 # add to flat map
-                boundary_array.append((new_key, (subvolume, labels_cropped_c)))
+                boundary_array.append((newkey, (subvolume, labels_cropped_c)))
 
             return boundary_array
 
@@ -140,28 +149,33 @@ class Segmentor(object):
         # groupby is not a big deal here since same keys will not be in the same partition
         grouped_boundaries = mapped_boundaries.groupByKey()
 
-        stitch_mode = self.stich_mode
+        stitch_mode = self.stitch_mode
 
         # mappings to one partition (larger/second id keeps orig labels)
         # (new key, list<2>(subvolume, boundary compressed)) =>
         # (key, (subvolume, mappings))
         def stitcher(key_boundary):
+            import numpy
             key, (boundary_list) = key_boundary
 
             # should be only two values
             if len(boundary_list) != 2:
                 raise Exception("Expects exactly two subvolumes per boundary")
+            # extract iterables
+            boundary_list_list = []
+            for item1 in boundary_list:
+                boundary_list_list.append(item1)
 
             # order subvolume regions (they should be the same shape)
-            subvolume1, boundary1_c = boundary_list[0]
-            subvolume2, boundary2_c = boundary_list[1]
+            subvolume1, boundary1_c = boundary_list_list[0] 
+            subvolume2, boundary2_c = boundary_list_list[1] 
 
             if subvolume1.roi_id > subvolume2.roi_id:
                 subvolume1, subvolume2 = subvolume2, subvolume1
                 boundary1_c, boundary2_c = boundary2_c, boundary1_c
 
-            boundary1 = boundary1_c.decompress()
-            boundary2 = boundary2_c.decompress()
+            boundary1 = boundary1_c.deserialize()
+            boundary2 = boundary2_c.deserialize()
 
             if boundary1.shape != boundary2.shape:
                 raise Exception("Extracted boundaries are different shapes")
@@ -301,14 +315,14 @@ class Segmentor(object):
                         not_mutual += 1
             
             # handle offsets in mergelist
-            offset1 = subvolume_offsets[subvolume1.roi_id] 
-            offset2 = subvolume_offsets[subvolume2.roi_id] 
-            for merger in mergelist:
+            offset1 = subvolume_offsets.value[subvolume1.roi_id] 
+            offset2 = subvolume_offsets.value[subvolume2.roi_id] 
+            for merger in merge_list:
                 merger[0] = merger[0]+offset1
-                merger[1] = merger[1]+offset1
+                merger[1] = merger[1]+offset2
 
             # return id and mappings, only relevant for stack one
-            return (subvolume1.substack_id, merge_list)
+            return (subvolume1.roi_id, merge_list)
 
         # key, mapping1; key mapping2 => key, mapping1+mapping2
         def reduce_mappings(b1, b2):
@@ -359,11 +373,13 @@ class Segmentor(object):
 
         # use offset and mappings to relabel volume
         def relabel(key_label_mapping):
-            key, (subvolume, label_chunk_c) = key_label_mapping
-            labels = label_chunk_c.decompress()
+            import numpy
+
+            (subvolume, label_chunk_c) = key_label_mapping
+            labels = label_chunk_c.deserialize()
 
             # grab broadcast offset
-            offset = subvolume_offsets[subvolume.roi_id]
+            offset = subvolume_offsets.value[subvolume.roi_id]
 
             labels = labels + offset 
             # make sure 0 is 0
@@ -374,7 +390,7 @@ class Segmentor(object):
             label_mappings = dict(zip(mapping_col, mapping_col))
             
             # create maps from merge list
-            for mapping in master_merge_list:
+            for mapping in master_merge_list.value:
                 if mapping[0] in label_mappings:
                     label_mappings[mapping[0]] = mapping[1]
 
@@ -382,7 +398,7 @@ class Segmentor(object):
             vectorized_relabel = numpy.frompyfunc(label_mappings.__getitem__, 1, 1)
             labels = vectorized_relabel(labels).astype(numpy.uint64)
        
-            return (key, CompressedNumpyArray(labels)) 
+            return (subvolume, CompressedNumpyArray(labels))
 
         # just map values with broadcast map
         # Potential TODO: consider fast join with partitioned map (not broadcast)

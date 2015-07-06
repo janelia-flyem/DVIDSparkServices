@@ -69,14 +69,14 @@ class CreateSegmentation(DVIDWorkflow):
           "uniqueItems": true
         }
       },
-      "required": ["segmentation-plugin", "stitch-algorithm"]
+      "required": ["stitch-algorithm"]
     }
   }
 }
     """
 
     # choose reasonably big subvolume to minimize stitching effects
-    chunksize = 512
+    chunksize = 128 
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -96,15 +96,16 @@ class CreateSegmentation(DVIDWorkflow):
         from pyspark import SparkContext
         from pyspark import StorageLevel
         from pyspark.storagelevel import StorageLevel
+        from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
-        # grab ROI subvolumes
+        # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi_new(
-                self.config_data["roi"],
-                self.chunksize)
+                self.config_data["dvid-info"]["roi"],
+                self.chunksize, self.overlap/2)
 
         # get grayscale chunks with specified overlap
         gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes,
-                self.config_data["grayscale"], overlap/2)
+                self.config_data["dvid-info"]["grayscale"])
 
         # check for custom segmentation plugin 
         segmentation_plugin = ""
@@ -119,7 +120,7 @@ class CreateSegmentation(DVIDWorkflow):
         # call the correct segmentation plugin (must be installed)
         segmentor = None
         if segmentation_plugin == "":
-            segmentor = Segmentor(self.sparkdvid_context, seg_options)
+            segmentor = Segmentor(self.sparkdvid_context, self.config_data, seg_options)
         else:
             import importlib
             # assume there is a plugin folder in reconutil
@@ -148,8 +149,8 @@ class CreateSegmentation(DVIDWorkflow):
         seg_chunks.unpersist()
 
         # write data to DVID
-        self.sparkdvid_context.foreach_write_labels3d(options["segmentation-name"], mapped_seg_chunks, overlap/2)
-        self.logger.log("Wrote DVID labels") # write to logger after spark job
+        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks)
+        self.logger.write_data("Wrote DVID labels") # write to logger after spark job
 
     @staticmethod
     def dumpschema():

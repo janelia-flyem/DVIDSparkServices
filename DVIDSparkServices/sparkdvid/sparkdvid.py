@@ -1,5 +1,5 @@
 import json
-
+from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 class sparkdvid(object):
     BLK_SIZE = 32
@@ -20,8 +20,10 @@ class sparkdvid(object):
         
         # extract roi for a given chunk size
         node_service = DVIDNodeService(str(self.dvid_server), str(self.uuid))
-        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / BLK_SIZE) 
-        
+        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE) 
+       
+        print "Num substacks: ", len(substacks)
+
         # create roi array giving unique substack ids
         substack_id = 0
         for substack in substacks:
@@ -34,7 +36,7 @@ class sparkdvid(object):
             # inefficient search for all boundaries
             for i in range(0, len(subvolumes)-1):
                 for j in range(i+1, len(subvolumes)):
-                    subvolumes[i].recordborder(subvolumes[j], border)
+                    subvolumes[i][1].recordborder(subvolumes[j][1])
 
         # Potential TODO: custom partitioner for grouping close regions
         return self.sc.parallelize(subvolumes, len(subvolumes))
@@ -49,7 +51,7 @@ class sparkdvid(object):
         # extract roi
         node_service = DVIDNodeService(str(self.dvid_server), str(self.uuid))
 
-        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / BLK_SIZE) 
+        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE) 
         for substack in substacks:
             rois.append((substack[0], substack[1], substack[2],
                     substack[0] + chunk_size,
@@ -63,30 +65,29 @@ class sparkdvid(object):
     # ** Preserves partitioner 
     # Compression of numpy array is avoided since
     # lz4 will not be too effective on grayscale data
-    def map_grayscale8(self, distsubvolumes, gray_name, border=0):
+    def map_grayscale8(self, distsubvolumes, gray_name):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
 
-        def mapper(subvolume_key_value):
-            key, subvolume = subvolume_key_value
-
+        # only grab value
+        def mapper(subvolume):
             from libdvid import DVIDNodeService
             # extract grayscale x
             node_service = DVIDNodeService(str(server), str(uuid))
           
             # get sizes of subvolume
-            size1 = subvolume.roi.x2+2*border-subvolume.roi.x1
-            size2 = subvolume.roi.y2+2*border-subvolume.roi.y1
-            size3 = subvolume.roi.z2+2*border-subvolume.roi.z1
+            size1 = subvolume.roi.x2+2*subvolume.border-subvolume.roi.x1
+            size2 = subvolume.roi.y2+2*subvolume.border-subvolume.roi.y1
+            size3 = subvolume.roi.z2+2*subvolume.border-subvolume.roi.z1
 
             # retrieve data from roi start position considering border 
-            gray_volume = node_service.get_gray3D( str(gray_name), (size1,size2,size3), (subvolume.roi.x1-border, subvolume.roi.y1-border, subvolume.roi.z1-border) )
+            gray_volume = node_service.get_gray3D( str(gray_name), (size1,size2,size3), (subvolume.roi.x1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.z1-subvolume.border) )
 
             # flip to be in C-order (no performance penalty)
             gray_volume = gray_volume.transpose((2,1,0))
             
-            return (key, (subvolume, gray_volume))
+            return (subvolume, gray_volume)
 
         return distsubvolumes.mapValues(mapper)
 
@@ -108,7 +109,7 @@ class sparkdvid(object):
             size3 = roi[5]+2*border-roi[2]
 
             # retrieve data from roi start position considering border
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-border, roi[1]-border, roi[2]-border) )
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-border, roi[1]-border, roi[2]-border), compress=True )
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -136,7 +137,7 @@ class sparkdvid(object):
             size3 = roi[5]-roi[2]
 
             # retrieve data from roi start position
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0], roi[1], roi[2]) )
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0], roi[1], roi[2]), compress=True )
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -145,7 +146,7 @@ class sparkdvid(object):
             node_service2 = DVIDNodeService(str(server2), str(uuid2))
  
             # retrieve data from roi start position
-            label_volume2 = node_service2.get_labels3D( str(label_name2), (size1,size2,size3), (roi[0], roi[1], roi[2]) )
+            label_volume2 = node_service2.get_labels3D( str(label_name2), (size1,size2,size3), (roi[0], roi[1], roi[2]), compress=True )
 
             # flip to be in C-order (no performance penalty)
             label_volume2 = label_volume2.transpose((2,1,0))
@@ -197,37 +198,41 @@ class sparkdvid(object):
 
     # (key, (ROI, segmentation compressed+border))
     # => segmentation output in DVID
-    def foreachPartition_write_labels3d(self, label_name, seg_chunks, border = 0):
+    def foreach_write_labels3d(self, label_name, seg_chunks):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
 
+        from libdvid import DVIDNodeService
         # create labels type
-        node_service = DVIDNodeService(label_name, uuid)
-        node_service.create_labels3d(label_name)
+        node_service = DVIDNodeService(str(server), str(uuid))
+        node_service.create_labelblk(str(label_name))
 
         def writer(subvolume_seg):
             from libdvid import DVIDNodeService
+            import numpy
             # write segmentation
             node_service = DVIDNodeService(str(server), str(uuid))
             
-            (key, subvolume, segcomp) = subvolume_seg
+            (key, (subvolume, segcomp)) = subvolume_seg
             # uncompress data
-            seg = segcomp.decompress() 
+            seg = segcomp.deserialize() 
 
             # get sizes of subvolume 
             size1 = subvolume.roi.x2-subvolume.roi.x1
             size2 = subvolume.roi.y2-subvolume.roi.y1
             size3 = subvolume.roi.z2-subvolume.roi.z1
 
+            border = subvolume.border
+
             # extract seg ignoring borders (z,y,x)
             seg = seg[border:size3+border, border:size2+border, border:size1+border]
 
-            # put in x,y,z and send
-            seg = seg.transpose((2,1,0))
+            # put in x,y,z and send (should I have to actually copy?!)
+            seg = numpy.copy(seg.transpose((2,1,0)))
              
             # send data from roi start position
-            node_service.put_labels3D(label_name, (size1,size2,size3), (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1))
+            node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True)
 
-        return distrois.foreach(writer)
+        return seg_chunks.foreach(writer)
 
