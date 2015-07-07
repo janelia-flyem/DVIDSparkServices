@@ -76,7 +76,8 @@ class CreateSegmentation(DVIDWorkflow):
     """
 
     # choose reasonably big subvolume to minimize stitching effects
-    chunksize = 128 
+    #chunksize = 128 
+    chunksize = 512 
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -145,11 +146,12 @@ class CreateSegmentation(DVIDWorkflow):
         # (preserves initial partitioning)
         mapped_seg_chunks = segmentor.stitch(seg_chunks)
 
+        # write data to DVID
+        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"])
+        
         # no longer need seg chunks
         seg_chunks.unpersist()
-
-        # write data to DVID
-        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks)
+        
         self.logger.write_data("Wrote DVID labels") # write to logger after spark job
 
     @staticmethod

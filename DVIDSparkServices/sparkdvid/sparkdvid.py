@@ -22,8 +22,6 @@ class sparkdvid(object):
         node_service = DVIDNodeService(str(self.dvid_server), str(self.uuid))
         substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE) 
        
-        print "Num substacks: ", len(substacks)
-
         # create roi array giving unique substack ids
         substack_id = 0
         for substack in substacks:
@@ -198,7 +196,7 @@ class sparkdvid(object):
 
     # (key, (ROI, segmentation compressed+border))
     # => segmentation output in DVID
-    def foreach_write_labels3d(self, label_name, seg_chunks):
+    def foreach_write_labels3d(self, label_name, seg_chunks, roi_name=None):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
@@ -230,9 +228,8 @@ class sparkdvid(object):
 
             # put in x,y,z and send (should I have to actually copy?!)
             seg = numpy.copy(seg.transpose((2,1,0)))
-             
             # send data from roi start position
-            node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True)
+            node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True, roi=str(roi_name))
 
         return seg_chunks.foreach(writer)
 

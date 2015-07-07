@@ -1,9 +1,12 @@
 class Segmentor(object):
     # determines what pixels are used as seeds (0-255 8-bit range)
-    SEED_THRES = 100 
+    SEED_THRES = 150 
    
     # the size of the seed needed
     SEED_SIZE_THRES = 5
+
+    # background size (what to completely ignore)
+    BACKGROUND_SIZE = 100
 
     def __init__(self, context, config, options):
         self.context = context
@@ -29,10 +32,14 @@ class Segmentor(object):
         from skimage import morphology as skmorph
         seed_threshold = self.SEED_SIZE_THRES
         seed_cytothreshold = self.SEED_THRES
+        background_size = self.BACKGROUND_SIZE
         from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
-        # only looks at values
+        # only looks at gray values
+        # TODO: should mask out based on ROI ?!
+        # (either mask gray or provide mask separately)
         def _segment(gray_chunks):
+            import numpy
             (subvolume, gray) = gray_chunks
 
             # extract seed mask from grayscale
@@ -50,8 +57,23 @@ class Segmentor(object):
             small_locations = small_components[seeds]
             seeds[small_locations] = 0
 
-            # compute watershed
-            supervoxels = skmorph.watershed(gray, seeds)
+            # mask out background (don't have to 0 out seeds since
+            mask_mask = numpy.zeros(gray.shape).astype(numpy.uint8)
+            mask_mask[gray == 0] = 1
+            mask_mask = label(mask_mask)[0]
+            mask_sizes = bincount(mask_mask.ravel())
+            mask_components = mask_sizes < background_size 
+            small_mask_locations = mask_components[mask_mask]
+            mask_mask[small_mask_locations] = 0
+            mask = mask_mask == 0 
+
+            # invert and convert to 0 to 1 range for watershed
+            new_gray = (255.0-gray)/255.0
+
+            # compute watershed (mask any boundary)
+            supervoxels = skmorph.watershed(new_gray, seeds,
+                    None, None, mask)
+            
             max_id = supervoxels.max()
             supervoxels_compressed = CompressedNumpyArray(supervoxels)
             subvolume.set_max_id(max_id)

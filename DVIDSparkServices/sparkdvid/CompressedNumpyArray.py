@@ -22,24 +22,22 @@ class CompressedNumpyArray(object):
         numpy_array_binary = memfile.read()
         memfile.close()
 
-        self.serialized_data = ''
-   
+        self.serialized_data = []
+
         # write in chunks of 1 billion bytes to prevent overflow
         for index in range(0, len(numpy_array_binary), self.lz4_chunk):
-            self.serialized_data += lz4.dumps(numpy_array_binary[index:index+self.lz4_chunk])
+            self.serialized_data.append(lz4.dumps(numpy_array_binary[index:index+self.lz4_chunk]))
         
     # extract numpy array
     def deserialize(self):
         index = 0
-        compressed_size = len(self.serialized_data)
         deserialized_data = ""
 
         # retrieve lz4 chunks
-        while index < compressed_size:
-            length = struct.unpack('i', self.serialized_data[index:index+4])[0]
-            deserialized_data += lz4.loads(self.serialized_data[index:index+length])
-            index += length
-        
+        for chunk in self.serialized_data:
+            deserialized_data += lz4.loads(chunk)
+                
+              
         # use stringio to use numpy import
         memfile = StringIO.StringIO()
         memfile.write(deserialized_data)
