@@ -14,6 +14,5 @@ setup(name='DVIDSparkServices',
       description='Spark-based reconstruction tools working on DVID',
       url='https://github.com/janelia-flyem/DVIDSparkServices',
       packages=packages,
-      package_data=package_data,
-      setup_requires=['jsonschema>=1.0', 'argparse', 'importlib', 'lz4']
+      package_data=package_data
       )

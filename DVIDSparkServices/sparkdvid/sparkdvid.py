@@ -226,7 +226,7 @@ class sparkdvid(object):
             # extract seg ignoring borders (z,y,x)
             seg = seg[border:size3+border, border:size2+border, border:size1+border]
 
-            # put in x,y,z and send (should I have to actually copy?!)
+            # put in x,y,z and send (copy the slice to make contiguous) 
             seg = numpy.copy(seg.transpose((2,1,0)))
             # send data from roi start position
             node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True, roi=str(roi_name))
