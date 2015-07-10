@@ -86,6 +86,7 @@ class CreateSegmentation(DVIDWorkflow):
     overlap = 40
 
     def __init__(self, config_filename):
+        # ?! set number of cpus per task to 2 (make dynamic?)
         super(CreateSegmentation, self).__init__(config_filename, self.Schema, "Create segmentation")
 
 

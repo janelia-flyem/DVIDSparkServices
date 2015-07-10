@@ -12,7 +12,7 @@ class sparkdvid(object):
     # Produce RDDs for each subvolume partition (this will replace default implementation)
     # Treats subvolum index as the RDD key and maximizes partition count for now
     # Assumes disjoint subsvolumes in ROI
-    def parallelize_roi_new(self, roi, chunk_size, border, find_neighbors=True):
+    def parallelize_roi_new(self, roi, chunk_size, border=0, find_neighbors=True):
         # function will export and should include dependencies
         subvolumes = [] # x,y,z,x2,y2,z2
 
@@ -123,19 +123,22 @@ class sparkdvid(object):
         server2 = dvidserver2
         uuid = self.uuid
 
-        def mapper(roi):
+        def mapper(subvolume):
             from libdvid import DVIDNodeService
             
             # extract labels 64
             node_service = DVIDNodeService(str(server), str(uuid))
 
             # get sizes of roi
-            size1 = roi[3]-roi[0]
-            size2 = roi[4]-roi[1]
-            size3 = roi[5]-roi[2]
+            size1 = subvolume.roi[3]-subvolume.roi[0]
+            size2 = subvolume.roi[4]-subvolume.roi[1]
+            size3 = subvolume.roi[5]-subvolume.roi[2]
 
             # retrieve data from roi start position
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0], roi[1], roi[2]), compress=True )
+            label_volume = node_service.get_labels3D(str(label_name),
+                (size1,size2,size3),
+                (subvolume.roi[0],subvolume. subvolume.roi[1],
+                subvolume. roi[2]))
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -144,18 +147,17 @@ class sparkdvid(object):
             node_service2 = DVIDNodeService(str(server2), str(uuid2))
  
             # retrieve data from roi start position
-            label_volume2 = node_service2.get_labels3D( str(label_name2), (size1,size2,size3), (roi[0], roi[1], roi[2]), compress=True )
+            label_volume2 = node_service.get_labels3D(str(label_name2),
+                (size1,size2,size3),
+                (subvolume.roi[0],subvolume. subvolume.roi[1],
+                subvolume. roi[2]))
 
             # flip to be in C-order (no performance penalty)
             label_volume2 = label_volume2.transpose((2,1,0))
 
-            pt1 = (roi[0], roi[1], roi[2])
-            pt2 = (roi[3], roi[4], roi[5])
+            return (subvolume, label_volume, label_volume2)
 
-
-            return (pt1, pt2, label_volume, label_volume2)
-
-        return distrois.map(mapper)
+        return distrois.mapValues(mapper)
 
 
     # foreach will write graph elements to DVID storage
