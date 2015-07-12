@@ -90,17 +90,17 @@ class ComputeGraph(DVIDWorkflow):
         graph_edges = graph_elements_red.filter(sg.is_edge)
 
         # create graph
-        node_service = DVIDNodeService(str(self.config_data["options"]["dvid-server"]), str(self.config_data["options"]["uuid"]))
+        node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]), str(self.config_data["dvid-server"]["uuid"]))
         
-        node_service.create_graph(str(self.config_data["options"]["graph-name"]))
+        node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
 
         # dump graph -- should this be wrapped through utils or through sparkdvid ??
         # will this result in too many request (should they be accumulated) ??
         # currently looking at one partitioning at a time to try to group requests
         self.sparkdvid_context.foreachPartition_graph_elements(graph_vertices,
-                self.config_data["options"]["graph-name"])
+                self.config_data["dvid-info"]["graph-name"])
         self.sparkdvid_context.foreachPartition_graph_elements(graph_edges,
-                self.config_data["options"]["graph-name"])
+                self.config_data["dvid-info"]["graph-name"])
 
         if "debug" in self.config_data and self.config_data["debug"]:
             num_elements = graph_elements.count()

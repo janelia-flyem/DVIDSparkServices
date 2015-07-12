@@ -107,6 +107,8 @@ class EvaluateSeg(DVIDWorkflow):
         distrois = self.sparkdvid_context.parallelize_roi_new(self.config_data["dvid-info"]["roi"],
                 self.chunksize, 0, False)
 
+        # ?! need subvolumes stored at driver
+
         # map ROI to two label volumes (0 overlap)
         # this will be used for all volume and point overlaps
         # (preserves partitioner)
@@ -117,9 +119,6 @@ class EvaluateSeg(DVIDWorkflow):
                 self.config_data["dvid-info-comp"]["uuid"],
                 self.config_data["dvid-info-comp"]["label-name"])
         
-        # ?! ?? what should I persist since I do not want to have to go back to DVID but
-        # there is only 1 stage
-
         # evaluation tool (support RAND, VI, per body, graph, and
         # histogram stats over different sets of points)
         evaluator = Evaluate.Evaluate(self.config_data)
@@ -139,12 +138,25 @@ class EvaluateSeg(DVIDWorkflow):
         # => (key, (subvolume, stats, seggt-split, seg2-split, seggt-map, seg2-map))
         # (preserve partitioner)
         lpairs_proc = evaluator.calcoverlap(lpairs_split, self.config_data["options"]["boundary-size"])
-        
+       
+        point_data = {}
+        ### POINT ANALYSIS ###
         for point_list in self.config_data["dvid-info"]["point-lists"]:
+            # grab point list from DVID
+            keyvalue = point_list_name.split('/')
+            if len(keyvalue) != 2:
+                raise Exception(str(point_list_name) + "point list key value not properly specified")
+
+            from libdvid import DVIDNodeService
+            node_service = DVIDNodeService(self.server, self.uuid)
+
+            # is this too large to broadcast?? -- default lz4 should help quite a bit
+            point_data[keyvalue[1]] = node_service.get_json(keyvalue[0], keyvalue[1])
+            
             # Generate per substack and global stats for given points.
             # Querying will just be done on the local labels stored.
             # (preserve partitioner)
-            lpairs_proc = evaluator.calcoverlap_pts(lpairs_proc, point_list)
+            lpairs_proc = evaluator.calcoverlap_pts(lpairs_proc, keyvalue[1], point_data[keyvalue[1]])
 
         """
         Extract stats by retrieving substacks and stats info
@@ -152,14 +164,41 @@ class EvaluateSeg(DVIDWorkflow):
 
         Stats retrieved for volume and each set of points:
 
-        * Rand and VI across whole set (no filter)
-        * Per body VI (fragmentation factors and GT body quality)
-        * Per body VI (at different filter thresholds)
+        * Rand and VI across whole set -- a few GT body thresholds
+        * Per body VI (fragmentation factors and GT body quality) -- a few thresholds
+        * Per body VI (at different filter thresholds) -- a few filter thresholds
         * Histogram of #bodies vs #points/annotations for GT and test
-        * Approx edit distance (no filter)
-        * Per body edit distance (at different filter thresholds)
+        * Approx edit distance (no filter) 
+        * Per body edit distance 
         (both sides for recompute of global, plus GT)
-        * (synapse points only) Synapse graph stat (at different thresholds)
+        * Show connectivity graph of best bodies (correspond bodies and then show matrix)
+        (P/R computed for different thresholds but easily handled client side; number
+        of best bodies also good)
+        * TODO Per body largest corrected -- a few filter thresholds (separate filter?)
+        (could be useful for understanding best-case scenarios) -- skeleton version?
+        * TODO Best body metrics
+        * TODD: dilate points within GT body ?? -- might not really add, an arbitrary but
+        well chosen point might be best
+        * TODO?? (synapse points only) Synapse graph stat (at different thresholds) -- hard
+        to figure out what node correpodence would be -- what does it mean to say that a pathway
+        is found by test segmentation? -- probably useless, alternative ...
+
+
+        Importance GT selections, GT noise filters, and importance filters (test seg side):
+        
+        * (client) Body stats can be selected by GT size or other preference client side.
+        * (client) Bodies selected can be used to compute cumulative VI -- (just have sum
+        under GT body list)
+        * (client-side bio select): P/R for connectivity graph appox (importance filter could
+        be used for what is similar but probably hard-code >50% of body since that will allow
+        us to loosely correspond things)
+        * (pre-computed) Small bodies can be filtered from GT to reduce noise per body/accum
+        (this can be done just by percentages and just record what the threshold was)
+        * (pre-computed) Edit distance until body is within a certain threshold. ?? (test seg side)
+        Maybe try to get body 90%, 95%, 100% correct -- report per body and total (for convenience);
+        compute for bodies that make up 90%, 100% of total volume?
+        * (client) ?? Use slider to filter edit distance by body size
+        (appoximate edit distance since splits can help multiple bodies?
 
         Advances:
 
@@ -167,11 +206,13 @@ class EvaluateSeg(DVIDWorkflow):
         * Breakdown by different types of points
         * Explicit pruning by bio size
         * Edit distance (TODO: more realistic edit distance)
-        * Thresholded graph measures
+        * Thresholded synapse measures (graph measures ??) -- probably not
         * Histogram views and comparisons
         * Subvolume breakdowns for 'heat-map'
         (outliers are important, identify pathological mergers)
         * Ability to handle very large datasets
+        * Display bodies that are good, help show best-case scenarios (substacks
+        inform this as well)
 
         Note:
 
@@ -184,6 +225,9 @@ class EvaluateSeg(DVIDWorkflow):
         * TODO: compute only over important body list (probably just filter client side)
         """
         stats = evaluator.calculate_stats(lpairs_proc)
+
+        # ?! maybe generate a summary view from stats, write that back
+        # with simplify output, dump the more complicated file to keyvalue as well
 
         # ?! write stats and config back to DVID with time stamp
         # (@ user_name + job + name + unique number)

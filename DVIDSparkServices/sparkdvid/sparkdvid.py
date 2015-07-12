@@ -155,7 +155,8 @@ class sparkdvid(object):
             # flip to be in C-order (no performance penalty)
             label_volume2 = label_volume2.transpose((2,1,0))
 
-            return (subvolume, label_volume, label_volume2)
+            return (subvolume, CompressedNumpyArray(label_volume),
+                               CompressedNumpyArray(label_volume2))
 
         return distrois.mapValues(mapper)
 

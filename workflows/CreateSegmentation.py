@@ -136,9 +136,6 @@ class CreateSegmentation(DVIDWorkflow):
         # save max id as well in substack info
         seg_chunks = segmentor.segment(gray_chunks)
 
-        # really do not need grayscale anymore
-        gray_chunks.unpersist()
-
         # any forced persistence will result in costly
         # pickling, lz4 compressed numpy array should help
         seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)

@@ -59,6 +59,21 @@ Example configuration JSON (comments added for convenience but is not valid JSON
     }
 
 
+TODO:
+
+* Improve rigor of nuisance metric
+* Options for anisotropic datasets
+* Add contiguous neurite length metric for skeleton point type (store edges in point file): the largest contiguously length completely within GT body
+
+### Segmentation (plugin: CreateSegmentation)
+
+TODO:
+
+* Refactor morphology routines for package reuseability
+* Make segmentation plugins easier (create no-op seg and watershed plugin)
+* Add options for anisotropic volumes
+
+
 ### Compute Graph (plugin: ComputeGraph)
 
 This workflow takes a DVID labelsblock volume and ROI and computes a DVID labelgraph.
