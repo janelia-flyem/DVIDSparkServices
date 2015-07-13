@@ -94,11 +94,18 @@ class EvaluateSeg(DVIDWorkflow):
 
     def __init__(self, config_filename):
         super(EvaluateSeg, self).__init__(config_filename, self.Schema, "Evaluate Segmentation")
-
+    
     def execute(self):
+        # imports here so that schema can be retrieved without installation
         from DVIDSparkServices.reconutils import Evaluate
+        from libdvid import DVIDNodeService
         from pyspark import SparkContext
         from pyspark import StorageLevel
+        import time
+        import datetime
+        import json
+
+        node_service = DVIDNodeService(self.server, self.uuid)
 
         if "chunk-size" in self.config_data["options"]:
             self.chunksize = self.config_data["options"]["chunk-size"]
@@ -106,8 +113,6 @@ class EvaluateSeg(DVIDWorkflow):
         #  grab ROI (no overlap and no neighbor checking)
         distrois = self.sparkdvid_context.parallelize_roi_new(self.config_data["dvid-info"]["roi"],
                 self.chunksize, 0, False)
-
-        # ?! need subvolumes stored at driver
 
         # map ROI to two label volumes (0 overlap)
         # this will be used for all volume and point overlaps
@@ -130,7 +135,7 @@ class EvaluateSeg(DVIDWorkflow):
 
         ### VOLUMETRIC ANALYSIS ###
 
-        # TODO: ?! Grab number of intersecting disjoint faces
+        # TODO: !! Grab number of intersecting disjoint faces
         # (might need +1 border) for split edit distance
         
         # grab volumetric body overlap ignoring boundaries as specified
@@ -146,9 +151,6 @@ class EvaluateSeg(DVIDWorkflow):
             keyvalue = point_list_name.split('/')
             if len(keyvalue) != 2:
                 raise Exception(str(point_list_name) + "point list key value not properly specified")
-
-            from libdvid import DVIDNodeService
-            node_service = DVIDNodeService(self.server, self.uuid)
 
             # is this too large to broadcast?? -- default lz4 should help quite a bit
             point_data[keyvalue[1]] = node_service.get_json(keyvalue[0], keyvalue[1])
@@ -226,36 +228,27 @@ class EvaluateSeg(DVIDWorkflow):
         """
         stats = evaluator.calculate_stats(lpairs_proc)
 
-        # ?! maybe generate a summary view from stats, write that back
+        # TODO: !! maybe generate a summary view from stats, write that back
         # with simplify output, dump the more complicated file to keyvalue as well
 
-        # ?! write stats and config back to DVID with time stamp
-        # (@ user_name + job + name + unique number)
+        # write stats and config back to DVID with time stamp
+        # (@ name + user name + time stamp)
+        # client should use '--' delimeter to parse name
+        stats["time-analyzed"] = 
+            datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+        stats["config-file"] = self.config_data
+        current_time = time.time()
 
-        """ 
-        OLD STUFF
-        # print VI
-        accum1 = 0
-        accum2 = 0
-        total = 0
+        username = str(self.config_data["dvid-info"]["user-name"])
+        username = username.split('.').join('__')
+        
+        location = str(self.config_data["dvid-info"]["stats-location"])
+        location = location.split('.').join('__')
+    
+        fileloc = str(location + "--" + user_name + "--" + str(current_time))
 
-        # accumulate body VI and normalizing value
-        for (body, val, tot) in bodies1_vi_all:
-            accum1 += val
-            total += tot
-       
-        if "debug" in self.config_data and self.config_data["debug"]:
-            # print values per body
-            for (body, val, tot) in bodies1_vi_all:
-                print "DEBUG: ", body, val/total # normalize
-            print "DEBUG: VI total1: ", accum1/total # normalize
-            
-
-            for (body, val, tot) in bodies2_vi_all:
-                print "DEBUG: ", body, val/total # normalize
-                accum2 += val
-            print "DEBUG: VI total2: ", accum2/total # normalize
-        """
+        node_service.create_keyvalue(writelocation)
+        node_service.put(writelocation, fileloc, json.dumps(stats))
 
     @staticmethod
     def dumpschema():
