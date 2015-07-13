@@ -246,7 +246,7 @@ class EvaluateSeg(DVIDWorkflow):
         # write stats and config back to DVID with time stamp
         # (@ name + user name + time stamp)
         # client should use '--' delimeter to parse name
-        stats["time-analyzed"] = 
+        stats["time-analyzed"] = \
             datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
         stats["config-file"] = self.config_data
         current_time = time.time()

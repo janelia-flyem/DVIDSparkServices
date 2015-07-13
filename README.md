@@ -61,7 +61,8 @@ Example configuration JSON (comments added for convenience but is not valid JSON
 
 TODO:
 
-* Improve rigor of nuisance metric
+* Refactor to reduce code footprint
+* Add body size filter to reduce noise from imperfect ground truth
 * Options for anisotropic datasets
 * Add contiguous neurite length metric for skeleton point type (store edges in point file): the largest contiguously length completely within GT body
 

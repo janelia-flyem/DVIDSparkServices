@@ -20,7 +20,7 @@ class Evaluate(object):
                 count += overlap
                 cumdisttemp.append(overlap)
 
-        cumdist = [for val in cumdist: val/count]
+        cumdist = [val/count for val in cumdist]
         cumdist.sort()
         cumdist.reverse()
         return cumdist
@@ -55,16 +55,16 @@ class Evaluate(object):
    
         return seg_overlap_syn, (leftover_seg, prop_indices)
 
-
+    # ?? how to deal with global body disjoint (part of a larger segmentation)
     def load_subvolume_stats(self, stats, overlap_gt, overlap_seg, comparison_type,
                labelgt_map, label2_map):
         gt_overlap = OverlapStats(overlap_gt, comparison_type)
         seg_overlap = OverlapStats(overlap_seg, comparison_type)
 
         # compute VI and rand stats
-        fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, dummy = 
-                                calculate_vi(gt_overlap, seg_overlap)
-        fmerge_rand, fsplit_rand  =
+        fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, dummy = \
+                                calculate_vi(gt_overlap, seg_overlap) 
+        fmerge_rand, fsplit_rand  = \
                                 calculate_rand(gt_overlap, seg_overlap)
         
         # load substack stats
@@ -159,7 +159,7 @@ class Evaluate(object):
             # relabel volume (minimize size of map that needs to be communicated)
             # TODO: !! refactor into morpho
             vectorized_relabel = numpy.frompyfunc(remapping.__getitem__, 1, 1)
-            labelgt_split = vectorized_relabel(labelgt_split).astype(numpy.uint64))
+            labelgt_split = vectorized_relabel(labelgt_split).astype(numpy.uint64)
 
             # find maps and remap partition with rest
             stack2 = np.Stack(label2, boundary_iter)
@@ -184,7 +184,7 @@ class Evaluate(object):
             # relabel volume (minimize size of map that needs to be communicated)
             # TODO: !! refactor into morpho
             vectorized_relabel = numpy.frompyfunc(remapping.__getitem__, 1, 1)
-            label2_split = vectorized_relabel(label2_split).astype(numpy.uint64))
+            label2_split = vectorized_relabel(label2_split).astype(numpy.uint64)
 
             # compress results
             return (subvolume, labelgt_map, label2_map,
@@ -314,22 +314,22 @@ class Evaluate(object):
             # if synapse type load total pair matches (save boundary point deps) 
             if point_data["type"] == "synapse":
                 # grab partial connectivity graph for gt
-                gt_overlap_syn, leftover_gt = 
+                gt_overlap_syn, leftover_gt = \
                     self.extract_subvolume_connections(index2body_gt, parent_list, adjacency_list)
             
                 # add custom synapse type
                 stats.add_gt_syn_connections(OverlapStats(gt_overlap_syn,
-                        ComparisonType("synapse-graph", str(point_list_name],
-                        point_data["sparse"), leftover_gt)
+                        ComparisonType("synapse-graph", str(point_list_name),
+                        point_data["sparse"], leftover_gt)))
 
                 # grab partial connectivity graph for seg
-                seg_overlap_syn, leftover_seg = 
+                seg_overlap_syn, leftover_seg = \
                     self.extract_subvolume_connections(index2body_seg, parent_list, adjacency_list)
                 
                 # add custom synapse type
                 stats.add_seg_syn_connections(OverlapStats(seg_overlap_syn,
-                        ComparisonType("synapse-graph", str(point_list_name],
-                        point_data["sparse"), leftover_seg)
+                        ComparisonType("synapse-graph", str(point_list_name),
+                        point_data["sparse"], leftover_seg)))
 
             # points no longer needed
             return (stats, labelgt_map, label2_map, labelgtc, label2c)
@@ -338,7 +338,7 @@ class Evaluate(object):
 
     def calculate_stats(lpairs_splits):
         # extract subvolume stats and send to the driver
-        all_stats.map(lamda x: x[1][0]).collect()
+        all_stats.map(lambda x: x[1][0]).collect()
         
         metric_results = {}
 
@@ -426,9 +426,9 @@ class Evaluate(object):
             seg_overlap = whole_volume_stats.seg_overlaps[iter1].overlap_map
             
             # TODO !! Add normalized per body vi by body size
-            fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, vi_bodies = 
+            fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, vi_bodies = \
                                     calculate_vi(gt_overlap, seg_overlap)
-            fmerge_rand, fsplit_rand  =
+            fmerge_rand, fsplit_rand  = \
                                     calculate_rand(gt_overlap, seg_overlap)
            
             # add rand, vi global,  for each type
@@ -539,7 +539,7 @@ class Evaluate(object):
                     total += overlap
                 fsplit = fsplit_bodies[body]
                 vitot = vi_bodies[body]
-                comparison_type_metrics[typename]["gt-bodies"][body] = 
+                comparison_type_metrics[typename]["gt-bodies"][body] = \
                         [fsplit, vitot, total]
                 if fsplit > worst_fsplit:
                     worst_fsplit = fsplit
@@ -560,7 +560,7 @@ class Evaluate(object):
                     total += overlap
                 fsplit = fsplit_bodies[body]
                 vitot = vi_bodies[body]
-                comparison_type_metrics[typename]["seg-bodies"][body] = 
+                comparison_type_metrics[typename]["seg-bodies"][body] = \
                         [fsplit, vitot, total]
                 
                 if fmerge > worst_fmerge:
@@ -594,7 +594,7 @@ class Evaluate(object):
                     total = 0
                     max_id = 0
                     max_val = 0
-                    seg, overlap in overlapset:
+                    for seg, overlap in overlapset:
                         total += overlap
                         if overlap > max_val:
                             max_val = overlap
