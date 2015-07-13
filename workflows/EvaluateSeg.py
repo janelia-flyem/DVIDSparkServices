@@ -89,6 +89,16 @@ class EvaluateSeg(DVIDWorkflow):
 }
 """
 
+    # TODO:!! provide option to filter GT for small bodies (this
+    # might be best as a good body list (presumably dense-ish) -- could
+    # be some bias if the GT is incomplete and a similar segmentation
+    # algorithm is run against it.  Size filter could bias against border
+    # neurons that are 'correct'.  GT cut-off/list should probably be added
+    # directly at the GT itself to indicate completeness.
+
+    # TODO: !! Take body list to better pre-filter synapses for summary
+    # view -- but summary numbers can mostly be computed from scratch
+
     chunksize = 256
     writelocation = "seg-metrics"
 
@@ -218,6 +228,8 @@ class EvaluateSeg(DVIDWorkflow):
 
         Note:
 
+        * Filter for accumulative VI total is not needed since per body VI
+        cna just be summed at different thresholds
         * GT body VI will be less meaningful over sparse point datasets
         * Test body fragmentation will be less meaningful over sparse point datasets
         * Edit distance can be made better.  Presumably, the actual

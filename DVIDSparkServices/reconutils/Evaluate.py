@@ -6,6 +6,8 @@ from segstats import *
 # TODO!! add stat jsonschema
 
 class Evaluate(object):
+
+    # TODO: ?! Add body filter up front (based on GT quality?)
     def __init__(self, config):
         self.server = config["dvid-info"]["dvid-server"]
         self.uuid = config["dvid-info"]["uuid"]
@@ -118,7 +120,6 @@ class Evaluate(object):
         # add partial global results
         stats.add_gt_overlap(gt_overlap)
         stats.add_seg_overlap(seg_overlap)
-
 
     # TODO !! refactor internal function to Morpho.py
     def split_disjoint_labels(label_pairs):
@@ -350,6 +351,8 @@ class Evaluate(object):
         allsubvolume_metrics["types"] = {}
         allsubvolume_metrics["ids"] = {}
 
+        synapse_index_position =  0
+            
         for subvol_stats in all_stats:
             subvolume_metrics = {}
             # load substack location/size info 
@@ -407,6 +410,10 @@ class Evaluate(object):
             typename = comptype.typename+":"+comptype.instance_name
             if typename not in comparison_type_metrics:
                 comparison_type_metrics[typename] = {}
+
+            if comptype.typename == "synapse":
+                synapse_index_position = iter1
+
 
             # TODO !! take subset of distribution
             comparison_type_metrics[typename]["dist-gt"] = distgt
@@ -561,8 +568,120 @@ class Evaluate(object):
                     worst_fmerge_body = body
 
             comparison_type_metrics[typename]["worst-fmerge"] = [worst_fmerge, worst_fmerge_body]
-        
-        # ?! look for synapse points and compute graph measure (different cut-offs?)
+     
+        gt_synapses = {}
+        seg_synapses = {}
+        if len(whole_volume_stats.seg_syn_connections) != 0:
+            # grab non sparse synapse info if available
+            # !! Assume first synapse file is the one used for the calculating the graph
+            r
+            comptype = whole_volume_stats.seg_gt_connections[0][0].comparison_type
+            if comptype.typename == "synapse" and not comptype.sparse:
+                tgt_synapses = whole_volume_stats.gt_syn_connections[0][0].overlap_map
+                tseg_synapses = whole_volume_stats.seg_syn_connections[0][0].overlap_map
+
+                gt_overlap = whole_volume_stats.gt_overlaps[synapse_index_position].overlap_map
+                seg_overlap = whole_volume_stats.seg_overlaps[synapse_index_position].overlap_map
+                # !! Using simple 50 percent threshold to find body matches
+
+                # TODO: !! better strategy than taking simple threshold for important
+                # bodies -- for now only take GT > 50 synapses
+                importance_threshold = 50
+
+                important_gtbodies = set() 
+                important_segbodies = {}
+                for gt, overlapset in gt_overlap.items():
+                    total = 0
+                    max_id = 0
+                    max_val = 0
+                    seg, overlap in overlapset:
+                        total += overlap
+                        if overlap > max_val:
+                            max_val = overlap
+                            max_id = seg
+                    if total <= importance_threshold:
+                        break
+                    # find size of seg body
+                    total2 = 0
+                    for seg2, overlap in seg_overlap[seg]:
+                        total2 += overlap 
+                    
+                    # match body if over half of the seg is in over half of the GT
+                    if max_val > total/2 and max_val > total2/2:
+                        important_gtbodies.add(gt)
+                        important_segbodies[max_id] = gt
+                
+                for pre, overlapset in tgt_synapses.items():
+                    if pre not in important_gtbodies:
+                        continue
+                    for post, overlap in overlapset:
+                        if post in important_gtbodies:
+                            if pre not in gt_synapses:
+                                gt_synapses[pre] = set()
+                            gt_synapses[pre].add((post, overlap))
+                
+                for pre, overlapset in tseg_synapses.items():
+                    if pre not in important_segbodies:
+                        continue
+                    for post, overlap in overlapset:
+                        if post in important_segbodies:
+                            if pre not in seg_synapses:
+                                seg_synapses[pre] = set()
+                            seg_synapses[pre].add((post, overlap))
+
+
+        # look for synapse points and compute graph measure (different cut-offs?)
+        # provide graph for matching bodies; provide stats at different thresholds
+        if len(gt_synapses) != 0:
+            comparison_type_metrics["connection-matrix"] = {}
+            if len(important_gtbodies) == 0:
+                comparison_type_metrics["connection-matrix"]["gt"] = []
+                comparison_type_metrics["connection-matrix"]["seg"] = []
+                comparison_type_metrics["connection-matrix"]["thresholds"] = []
+            else:
+                gt_connection_matrix = []
+                gtpathway = {}
+                segpathway = {}
+                for gtbody, overlapset in gt_synapses.items():
+                    if gtbody not in important_gtbodies:
+                        continue
+                    for (partner, overlap) in overlapset:
+                        if partner not in important_gtbodies:
+                            continue
+                        gt_connection_matrix.append([gt_body, partner, overlap])
+                        gtpathway[(gt_body, partner)] = overlap
+                seg_connection_matrix = []
+                for segbody, overlapset in seg_synapses.items():
+                    if segbody not in important_segbodies:
+                        continue
+                    for (partner, overlap) in overlapset:
+                        if partner not in important_segbodies:
+                            continue
+                        # add mapping to gt in matrix
+                        seg_connection_matrix.append([important_seg_bodies[seg_body],
+                            seg_body, important_seg_bodies[partner], partner, overlap])
+                        segpathway[(important_seg_bodies[seg_body],
+                            important_seg_bodies[partner])] = overlap
+
+                # load stats        
+                comparison_type_metrics["connection-matrix"]["gt"] = gt_connection_matrix
+                comparison_type_metrics["connection-matrix"]["seg"] = seg_connection_matrix
+                # dump a few metrics to add to the master table
+                # ignroe connections <= threshold
+                for threshold in [0, 5, 10]:
+                    recalled_gt = 0
+                    for connection, weight in gtpathway.items():
+                        if weight <= threshold:
+                            continue
+                        if connection in segpathway and segpathway[connection] > threshold:
+                            recalled_gt += 1
+                    false_conn = 0
+                    for connection, weight in segpathway.items():
+                        if weight <= threshold:
+                            continue
+                        if connection not in gtpathway or gtpathway[connection] < threshold:
+                            false_conn += 1
+                    comparison_type_metrics["connection-matrix"]["thresholds"].append[false_conn, recalled_gt, threshold]
 
 
         metric_results["types"] = comparison_type_metrics
