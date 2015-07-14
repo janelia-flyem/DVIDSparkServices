@@ -30,10 +30,10 @@ class Evaluate(object):
     
     """
     
-    # TODO: ?! Add body filter up front (based on GT quality?)
     def __init__(self, config):
         self.server = config["dvid-info"]["dvid-server"]
         self.uuid = config["dvid-info"]["uuid"]
+        self.body_threshold = config["options"]["body-threshold"]
 
     def _extract_distribution(self, body_overlap):
         """Helper function: extracts sorted list of body sizes.
@@ -465,9 +465,6 @@ class Evaluate(object):
         # write results for each comparison type
         comparison_type_metrics = {}
 
-        # TODO: compute vi/rand metrics with bottom 10 percent of 'volume' ignored
-        # should help with noise primarily (other noise filters??)
-
         for iter1 in range(0, len(whole_volume_stats.gt_overlaps)):
             # check for comparison and create if necessary
             comptype = whole_volume_stats.gt_overlaps[iter1].comparison_type
@@ -489,16 +486,18 @@ class Evaluate(object):
             # TODO !! generate statitcs histogram
 
             ###### AGGREGATE STATS #######
-            # ?! TOTAL (ignore smallest bodies for aggregate)
-            
             gt_overlap = whole_volume_stats.gt_overlaps[iter1].overlap_map
             seg_overlap = whole_volume_stats.seg_overlaps[iter1].overlap_map
             
             # TODO !! Add normalized per body vi by body size
+            
+            # ignore smallest bodies (GT noise could complicate comparisons)
             fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, vi_bodies = \
-                                    calculate_vi(gt_overlap, seg_overlap)
+                                    calculate_vi(gt_overlap, seg_overlap,
+                                            self.body_threshold)
             fmerge_rand, fsplit_rand  = \
-                                    calculate_rand(gt_overlap, seg_overlap)
+                                    calculate_rand(gt_overlap, seg_overlap,
+                                            self.body_threshold)
            
             # add rand, vi global,  for each type
             statvi = VIStat(comptype, fmerge_vi, fsplit_vi)
@@ -519,17 +518,18 @@ class Evaluate(object):
             # id -> [vifmerge, vitotal, size]
             comparison_type_metrics[typename]["seg-bodies"] = {} # fmerge
           
-            # ?! TOTAL (ignore smallest bodies for print)
-
+            # Do not report smallest bodies 
             # examine gt bodies
-            worst_gt_body = 0
-            worst_gt_val = 0
-            worst_fsplit = 0
-            worst_fsplit_body = 0
+            worst_gt_body = -1
+            worst_gt_val = -1
+            worst_fsplit = -1
+            worst_fsplit_body = -1
             for body, overlapset in gt_overlap.items():
                 total = 0
                 for body2, overlap in overlapset:
                     total += overlap
+                if total < self.body_threshold:
+                    continue
                 fsplit = fsplit_bodies[body]
                 vitot = vi_bodies[body]
                 comparison_type_metrics[typename]["gt-bodies"][body] = \
@@ -545,12 +545,14 @@ class Evaluate(object):
             comparison_type_metrics[typename]["worst-fsplit"] = [worst_fsplit, worst_fsplit_body]
            
             # examine seg bodies
-            worst_fmerge = 0
-            worst_fmerge_body = 0
+            worst_fmerge = -1
+            worst_fmerge_body = -1
             for body, overlapset in seg_overlap.items():
                 total = 0
                 for body2, overlap in overlapset:
                     total += overlap
+                if total < self.body_threshold:
+                    continue
                 fsplit = fsplit_bodies[body]
                 comparison_type_metrics[typename]["seg-bodies"][body] = \
                         [fsplit, total]

@@ -369,8 +369,14 @@ def body_vi(overlapset):
 
     return vi_unnorm, total, decomp_bodies
 
+def get_body_volume(overlapset):
+    total = 0
+    for body, overlap in overlapset:
+        total += overlap
+    return total
+
 # calculate Variation of Information metric
-def calculate_vi(gtoverlap, segoverlap):
+def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
     fsplit_bodies = {}
     fmerge_bodies = {}
 
@@ -381,8 +387,15 @@ def calculate_vi(gtoverlap, segoverlap):
     fmerge_vi = 0
     fsplit_vi = 0
 
+    ignore_bodies = set()
+
     # examine fragmentation of gt (fsplit=oversegmentation)
     for (gtbody, overlapset) in gtoverlap.overlap_map.items():
+        if get_body_volume(overlapset) < body_threshold:
+            # ignore as if it never existed
+            ignore_bodies.add(gtbody)
+            continue
+
         vi_unorm, total, dummy = body_vi(overlapset)
         fsplit_bodies[gtbody] = vi_unnorm
         perbody[gtbody] = vi_unnorm
@@ -391,7 +404,13 @@ def calculate_vi(gtoverlap, segoverlap):
 
     # examine fragmentation of seg (fmerge=undersegmentation)
     for (segbody, overlapset) in segoverlap.overlap_map.items():
-        vi_unorm, total, gtcontribs = body_vi(overlapset)
+        # filter small bodies
+        filtered_overlapset = set()
+        for (gtbody, overlap) in overlapset:
+            if gtbody not in ignore_bodies:
+                filtered_overlapset.add((gtbody, overlap))
+
+        vi_unorm, total, gtcontribs = body_vi(filtered_overlapset)
         fmerge_bodies[segbody] = vi_unnorm
         fsplit_vi += vi_unnorm
 
@@ -408,12 +427,17 @@ def calculate_vi(gtoverlap, segoverlap):
     return fmerge_vi/glb_total, fsplit_vi/glb_total, fmerge_bodies, fsplit_bodies, perbody 
 
 # calculate Rand Index
-def calculate_rand(gtoverlap, segoverlap):
+def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
     fsplit_total = 0
     overlap_total = 0
+    ignore_bodies = set()
     
     # examine fragmentation of gt (fsplit=oversegmentation)
     for (gtbody, overlapset) in gtoverlap.overlap_map.items():
+        if get_body_volume(overlapset) < body_threshold:
+            # ignore as if it never existed
+            ignore_bodies.add(gtbody)
+            continue
         total = 0
         for (segid, overlap) in overlapset:
             total += overlap
@@ -424,8 +448,14 @@ def calculate_rand(gtoverlap, segoverlap):
     fmerge_total = 0
     # examine fragmentation of seg (fmerge=undersegmentation)
     for (gtbody, overlapset) in segoverlap.overlap_map.items():
+        # filter small bodies
+        filtered_overlapset = set()
+        for (gtbody, overlap) in overlapset:
+            if gtbody not in ignore_bodies:
+                filtered_overlapset.add((gtbody, overlap))
+        
         total = 0
-        for (segid, overlap) in overlapset:
+        for (segid, overlap) in filtered_overlapset:
             total += overlap
 
         fmerge_total += (total*(total-1)/2)

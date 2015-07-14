@@ -73,6 +73,11 @@ class EvaluateSeg(DVIDWorkflow):
     "options": {
       "type": "object",
       "properties": {
+        "body-threshold" {
+          "description": "Filter GT bodies below this threshold for aggregate stats",
+          "type": "integer",
+          "default": 1000
+        }.
         "chunk-size": {
           "description": "size of subvolumes to be processed",
           "type": "integer",
@@ -89,12 +94,9 @@ class EvaluateSeg(DVIDWorkflow):
 }
 """
 
-    # TODO:!! provide option to filter GT for small bodies (this
-    # might be best as a good body list (presumably dense-ish) -- could
-    # be some bias if the GT is incomplete and a similar segmentation
-    # algorithm is run against it.  Size filter could bias against border
-    # neurons that are 'correct'.  GT cut-off/list should probably be added
-    # directly at the GT itself to indicate completeness.
+    # TODO:!! GT cut-off/list should probably be added
+    # directly at the GT itself to indicate completeness.  Could also
+    # examine a body list of complete neurons
 
     # TODO: !! Take body list to better pre-filter synapses for summary
     # view -- but summary numbers can mostly be computed from scratch
