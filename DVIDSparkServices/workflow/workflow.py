@@ -70,7 +70,8 @@ class Workflow(object):
         # each workflow to overwrite this for certain high
         # memory situations
         sconfig.setAll([("spark.task.cpus", "1"),
-                        ("spark.eventLog.enabled", "true")
+                        ("spark.eventLog.enabled", "true"),
+                        ("spark.eventLog.dir", "/tmp") # is this a good idea -- really is temp
                        ]
                       )
 

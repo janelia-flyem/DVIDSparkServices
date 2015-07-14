@@ -90,7 +90,7 @@ class ComputeGraph(DVIDWorkflow):
         graph_edges = graph_elements_red.filter(sg.is_edge)
 
         # create graph
-        node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]), str(self.config_data["dvid-server"]["uuid"]))
+        node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]), str(self.config_data["dvid-info"]["uuid"]))
         
         node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
 
@@ -102,7 +102,7 @@ class ComputeGraph(DVIDWorkflow):
         self.sparkdvid_context.foreachPartition_graph_elements(graph_edges,
                 self.config_data["dvid-info"]["graph-name"])
 
-        if "debug" in self.config_data and self.config_data["debug"]:
+        if "debug" in self.config_data["options"] and self.config_data["options"]["debug"]:
             num_elements = graph_elements.count()
             print "DEBUG: ", num_elements
 

@@ -18,9 +18,9 @@ class EvaluateSeg(DVIDWorkflow):
           "property": "dvid-server"
         },
         "uuid": {
-              "description": "version node to store segmentation",
-              "type": "string",
-              "minLength": 1
+          "description": "version node to store segmentation",
+          "type": "string",
+          "minLength": 1
         },
         "label-name": { 
           "description": "DVID data instance pointing to label blocks",
@@ -73,11 +73,11 @@ class EvaluateSeg(DVIDWorkflow):
     "options": {
       "type": "object",
       "properties": {
-        "body-threshold" {
+        "body-threshold": {
           "description": "Filter GT bodies below this threshold for aggregate stats",
           "type": "integer",
           "default": 1000
-        }.
+        },
         "chunk-size": {
           "description": "size of subvolumes to be processed",
           "type": "integer",

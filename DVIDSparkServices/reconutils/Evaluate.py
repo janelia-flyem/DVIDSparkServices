@@ -180,7 +180,7 @@ class Evaluate(object):
             labelgt = labelgt.astype(numpy.float64)
             label2 = label2.astype(numpy.float64)
 
-            # ?! creates stack and adds boundary padding
+            # creates stack and adds boundary padding
             stackgt = np.Stack(labelgt, boundary_iter)
             stack2 = np.Stack(label2, 0)
 

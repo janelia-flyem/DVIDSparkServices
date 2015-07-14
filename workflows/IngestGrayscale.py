@@ -1,7 +1,3 @@
-import Image
-import numpy
-import os
-
 from DVIDSparkServices.workflow.workflow import Workflow
 
 class IngestGrayscale(Workflow):
@@ -42,6 +38,10 @@ class IngestGrayscale(Workflow):
     # handles stacks that are not multiples of the block dim
     # assumes all images are the same size and the same offeset
     def execute(self):
+        import Image
+        import numpy
+        import os
+        
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.blocksize):
             # parallelize images across many machines
             imgs = self.sc.parallelize(range(slice, slice+self.blocksize), self.blocksize)
