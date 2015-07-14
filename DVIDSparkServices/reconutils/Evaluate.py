@@ -1,18 +1,49 @@
+"""Contains functionality for evaluating segmentation quality.
+
+This module consists of the Evaluate class works with the
+evaluate workflow.  Code requires pyspark to execute.
+
+"""
+
 import libNeuroProofMetrics as np
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 import numpy
+
+# contains helper functions
 from segstats import *
+from morpho import *
 
 # TODO!! add stat jsonschema
 
 class Evaluate(object):
+    """Class to handle various aspects of segmentation evaluation workflow.
 
+    This class performs various Spark operations over subvolumes to
+    compute metrics to evaluate segmentation.  Each subvolume is examined
+    and their results are combined to generate aggregate statistics.
+
+    Note:
+        No shuffling occurs in these operations and the partitioner is
+        maintained until the stats are aggregated.  A global broadcast
+        is currently needed by the caller to send point data to subvolumes.
+        The data returned by collect() should be not be overwhelming.
+    
+    """
+    
     # TODO: ?! Add body filter up front (based on GT quality?)
     def __init__(self, config):
         self.server = config["dvid-info"]["dvid-server"]
         self.uuid = config["dvid-info"]["uuid"]
 
-    def extact_distribution(self, body_overlap):
+    def _extract_distribution(self, body_overlap):
+        """Helper function: extracts sorted list of body sizes.
+
+        Args:
+            body_overlap (dict): body to set(body2, overlap)
+        Returns:
+            sorted body size list (largest to smallest)
+        """
+
         count = 0
         cumdisttemp = []
         for body, overlapset in body_overlap.items():
@@ -25,7 +56,30 @@ class Evaluate(object):
         cumdist.reverse()
         return cumdist
 
-    def extract_subvolume_connections(self, index2body_seg, parent_list, adjacency_list):
+    def _extract_subvolume_connections(self, index2body_seg, parent_list, adjacency_list):
+        """Helper function: find synapse connections within a subvolume.
+
+        This function finds connections for a list of points.
+        In some cases, there are synapse points without a body
+        identity and therefore they must be analyzed during 'reduce'.
+
+        Note:
+            point = synapse (pre or post determined by edge direction)
+
+        Args:
+            index2body_seg (dict): point index -> body id
+            parent_list (dict): point -> parent/ancestor point 
+            adjacency_list (dict): point -> set of child points
+
+        Returns:
+            (
+                (pre-syn body, post-syn body, # connections),
+                (body id -> unassigned children points,
+                    point with unknown father-> body id)
+            )
+
+        """
+        
         leftover_seg = {}
         seg_connections = {}
         prop_indices = {}
@@ -55,11 +109,25 @@ class Evaluate(object):
    
         return seg_overlap_syn, (leftover_seg, prop_indices)
 
-    # ?? how to deal with global body disjoint (part of a larger segmentation)
-    def load_subvolume_stats(self, stats, overlap_gt, overlap_seg, comparison_type,
+    def _load_subvolume_stats(self, stats, overlap_gt, overlap_seg, comparison_type,
                labelgt_map, label2_map):
-        gt_overlap = OverlapStats(overlap_gt, comparison_type)
-        seg_overlap = OverlapStats(overlap_seg, comparison_type)
+        """Helper function: loads various stats for the subvolume.
+
+        Args:
+            stats (SubvolumeStats): contains stats for substack
+            overlap_gt (list): Overlap data for gt->seg
+            overlap_seg (list): Overlap data for seg->gt
+            comparison_type (ComparisonType): type of point comparison
+            labelgt_map (dict): split label -> old label
+            label2_map (dict): split label -> old label
+       
+        Returns:
+            stats is updated.
+
+        """
+
+        gt_overlap = OverlapTable(overlap_gt, comparison_type)
+        seg_overlap = OverlapTable(overlap_seg, comparison_type)
 
         # compute VI and rand stats
         fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, dummy = \
@@ -71,129 +139,36 @@ class Evaluate(object):
         stats.add_stat(VIStat(comparison_type, fmerge_vi, fsplit_vi))
         stats.add_stat(RandStat(comparison_type, fmerge_rand, fsplit_rand))
 
-        volume_size = 0
-        # find total volume being compared
-        for key, valset in gt_overlap.overlap_map.items():
-            for (key, val2) in valset:
-                volume_size += volume_size
-        
-         # add total size
-        stats.add_stat(TotalStat(comparison_type, volume_size))
+        # add total size
+        stats.add_stat(TotalStat(comparison_type, gt_overlap.get_size()))
        
         # add number of gt and seg bodies
-        stats.add_stat(NumBodyStat(comparison_type, len(gt_overlap.overlap_map),
-            len(seg_overlap.overlap_map)))
+        stats.add_stat(NumBodyStat(comparison_type, gt_overlap.num_bodies(),
+            seg_overlap.num_bodies()))
 
         # handle maps and load overlaps
-        del_keys = []
-        for key, val in gt_overlap.overlap_map.items():
-            if key in labelgt_map:
-                del_keys.append(key)
-            del_keys2 = []
-            for (key2, val2) in val:
-                if key2 in label2_map:
-                    del_keys2.append((key2,val2))
-            for (key2, val2) in del_keys2:
-                del val[(key2,val2)]
-                val.add((label2_map[key2],val2))
-        for key in del_keys:
-            val = gt_overlap.overlap_map[key]
-            del gt_overlap.overlap_map[key]
-            gt_overlap.overlap_map[labelgt_map[key]] = val
-
-        del_keys = []
-        for key, val in label_overlap.overlap_map.items():
-            if key in label_map:
-                del_keys.append(key)
-            del_keys2 = []
-            for (key2, val2) in val:
-                if key2 in labelgt_map:
-                    del_keys2.append((key2,val2))
-            for (key2, val2) in del_keys2:
-                del val[(key2,val2)]
-                val.add((labelgt_map[key2],val2))
-        for key in del_keys:
-            val = label_overlap.overlap_map[key]
-            del label_overlap.overlap_map[key]
-            label_overlap.overlap_map[label_map[key]] = val
-
+        gt_overlap.partial_remap(labelgt_map, label2_map)
+        seg_overlap.partial_remap(label2_map, labelgt_map)
+        
         # add partial global results
         stats.add_gt_overlap(gt_overlap)
         stats.add_seg_overlap(seg_overlap)
-
-    # TODO !! refactor internal function to Morpho.py
-    def split_disjoint_labels(label_pairs):
-        def _split_disjoint(label_pairs):
-            from skimage.measure import label
-            subvolume, labelgtc, label2c = label_pairs
-
-            # extract numpy arrays
-            labelgt = labelgtc.deserialize()
-            label2 = label2c.deserialize()
-
-            # run connected components
-            labelgt_split = label(labelgt)
-            label2_split = label(label2)
-            
-            # find maps and remap partition with rest
-            stackgt = np.Stack(labelgt, boundary_iter)
-            stackgt_split = np.Stack(labelgt_split, boundary_iter)
-            overlap_gt_split = stackgt.find_overlaps(stackgt_split)
-            statsgt = OverlapStats(ovelap_gt_split, ComparisonType())
-
-            # needed to remap split labels into original coordinates
-            remapping = {}
-            labelgt_map = {}
-            remap_id = labelgt.max() + 1
-
-            for orig, newset in statsgt.overlap_map.items():
-                if len(newset) == 1:
-                    remapping[next(iter(newset))] = orig
-                else:
-                    for newbody in newset:
-                        # guarantee no class of label ids
-                        remapping[newbody] = remap_id
-                        remap_id += 1
-                        labelgt_map[remap_id] = orig
-
-            # relabel volume (minimize size of map that needs to be communicated)
-            # TODO: !! refactor into morpho
-            vectorized_relabel = numpy.frompyfunc(remapping.__getitem__, 1, 1)
-            labelgt_split = vectorized_relabel(labelgt_split).astype(numpy.uint64)
-
-            # find maps and remap partition with rest
-            stack2 = np.Stack(label2, boundary_iter)
-            stack2_split = np.Stack(label2_split, boundary_iter)
-            overlap_2_split = stack2.find_overlaps(stack2_split)
-            stats2 = OverlapStats(ovelap_2_split, ComparisonType())
-
-            # needed to remap split labels into original coordinates
-            remapping = {}
-            label2_map = {}
-            remap_id = label2.max() + 1
-
-            for orig, newset in stats2.overlap_map.items():
-                if len(newset) == 1:
-                    remapping[next(iter(newset))] = orig
-                else:
-                    for newbody in newset:
-                        remapping[newbody] = remap_id
-                        remap_id += 1
-                        label2_map[remap_id] = orig
-
-            # relabel volume (minimize size of map that needs to be communicated)
-            # TODO: !! refactor into morpho
-            vectorized_relabel = numpy.frompyfunc(remapping.__getitem__, 1, 1)
-            label2_split = vectorized_relabel(label2_split).astype(numpy.uint64)
-
-            # compress results
-            return (subvolume, labelgt_map, label2_map,
-                    CompressedNumpyArray(labelgt_split),
-                    CompressedNumpyArray(label2_split))
-
-        return label_pairs.mapValues(_split_disjoint)
-
+    
     def calcoverlap(self, lpairs_split, boundary_iter=0):
+        """Calculates voxel overlap across RDD and records subvolume stats.
+
+        Note:
+            Function preservers RDD partitioner.
+
+        Args:
+            lpairs_split (RDD): RDD is of (subvolume id, data)
+            boundary_iter (int): optional specify how much GT boundary to ignore
+        
+        Returns:
+            Original RDD with new subvolume stats and overlap stats included.
+
+        """
+
         def _calcoverlap(label_pairs):
             subvolume, labelgt_map, label2_map, labelgtc, label2c = label_pairs
             
@@ -211,16 +186,19 @@ class Evaluate(object):
 
             # returns list of (body1, body2, overlap)
             overlaps12 = stackgt.find_overlaps(stack2)
-            overlaps21 = stack2.find_overlaps(stackgt)
+
+            # reverse overlaps for mappings
+            overlaps21 = []
+            for (body1, body2, overlap) in overlaps12:
+                overlaps21.append((body2, body1, overlap))
 
             stats = SubvolumeStats(subvolume)
             
             # ?? should I return stats back
-            self.load_subvolume_stats(stats, overlap12, overlap21,
+            self._load_subvolume_stats(stats, overlap12, overlap21,
                     ComparisonType(), labelgt_map, label2_map)
 
             # TODO:!! Add more distribution stats 
-            
            
             # keep volumes for subsequent point queries
             return (stats, labelgt_map, label2_map,
@@ -230,6 +208,32 @@ class Evaluate(object):
 
 
     def calcoverlap_pts(lpairs_split, point_list_name, point_data):
+        """Calculates point overlap across RDD and records subvolume stats.
+
+        This function can be called over any list of points.  "synapse" points
+        will result in synapse-specific computation.  The list of points is
+        a way to really focus on the most important parts of the segmentation.
+        Filtering unimportant bodies should be slightly less relevant here
+        compared to comprehensive voxel comparisons (e.g., probably less sensitive
+        to boundary conditions for instance).
+
+        Note:
+            Function preservers RDD partitioner.  Currently, the points are
+            broadcast from the driver.  If this data gets big, it might make
+            sense to partition the points, use the same partitioner, and
+            do a trivial join.  Synapse connections can be of the type
+            one to many but not many to one.
+
+        Args:
+            lpairs_split (RDD): RDD is of (subvolume id, data).
+            point_list_name (str): Name of the point list for identification.
+            point_data (list): list of [x,y,z,ptr1,ptr2,..].
+
+        Returns:
+            Original RDD with new subvolume stats and overlap stats included.
+
+        """
+
         # set type, name, sparse
         comparsison_type = ComparisonType(str(point_data["type"]),
                 str(point_list_name), point_data["sparse"])
@@ -257,20 +261,18 @@ class Evaluate(object):
             roi = stats.subvolume.roi
             # grab points that overlap
             for index, point in enumerate(points["point-list"]):
-                if point[0] < roi.x2 and point[0] >= roi.x1 and point[1] < roi.y2 and point[1] >= roi.y2 and point[2] < roi.z2 and point[2] >= roi.z1:
+                if point[0] < roi.x2 and point[0] >= roi.x1 and point[1] < roi.y2 and point[1] >= roi.y1 and point[2] < roi.z2 and point[2] >= roi.z1:
                     subvolume_pts[index] = [point[0]-roi.x1, point[1]-roi.y1, point[2]-roi.z1]
                     adjacency_list[index] = set()
                     for iter1 in range(3, len(point)):
-                        adjacency_list[index].add(iter1)
-                        parent_list[iter1] = index
-
+                        adjacency_list[index].add(point[iter1])
+                        parent_list[point[iter1]] = index
 
             # find overlap for set of points (density should be pretty low)
             overlap_gt = []
             overlap_seg = []
 
-            temp_overlap_gt = {}
-            temp_overlap_seg = {}
+            temp_overlap = {}
         
             index2body_gt = {}
             index2body_seg = {}
@@ -286,7 +288,6 @@ class Evaluate(object):
                 if gtbody in labelgt_map:
                     gtbody_mapped = labelgt_map[gtbody]
                 segbody_mapped = segbody
-                
                 if segbody in label2_map:
                     segbody_mapped = label2_map[segbody]
                 
@@ -295,39 +296,34 @@ class Evaluate(object):
 
                 # load overlaps
                 if (gtbody, segbody) not in temp_overlap_gt:
-                    temp_overlap_gt[(gtbody,segbody)] = 0
-                temp_overlap_gt[(gtbody,segbody)] += 1
+                    temp_overlap[(gtbody,segbody)] = 0
+                temp_overlap[(gtbody,segbody)] += 1
                 
-                if (segbody, gtbody) not in temp_overlap_seg:
-                    temp_overlap_seg[(segbody, gtbody)] = 0
-                temp_overlap_seg[(segbody, gtbody)] += 1
-
             for (gt, seg), overlap in temp_overlap_gt.items():
                 overlap_gt.append((gt,seg,overlap))
-
-            for (seg, gt), overlap in temp_overlap_seg.items():
                 overlap_seg.append((seg,gt,overlap))
 
-            self.load_subvolume_stats(stats, overlap_gt, overalp_seg,
+            self._load_subvolume_stats(stats, overlap_gt, overalp_seg,
                     comparison_type, labelgt_map, label2_map)
 
             # if synapse type load total pair matches (save boundary point deps) 
             if point_data["type"] == "synapse":
                 # grab partial connectivity graph for gt
                 gt_overlap_syn, leftover_gt = \
-                    self.extract_subvolume_connections(index2body_gt, parent_list, adjacency_list)
+                    self._extract_subvolume_connections(index2body_gt, parent_list, adjacency_list)
             
                 # add custom synapse type
-                stats.add_gt_syn_connections(OverlapStats(gt_overlap_syn,
+                stats.add_gt_syn_connections(OverlapTable(gt_overlap_syn,
                         ComparisonType("synapse-graph", str(point_list_name),
                         point_data["sparse"], leftover_gt)))
 
                 # grab partial connectivity graph for seg
                 seg_overlap_syn, leftover_seg = \
-                    self.extract_subvolume_connections(index2body_seg, parent_list, adjacency_list)
+                    self._extract_subvolume_connections(index2body_seg,
+                            parent_list, adjacency_list)
                 
                 # add custom synapse type
-                stats.add_seg_syn_connections(OverlapStats(seg_overlap_syn,
+                stats.add_seg_syn_connections(OverlapTable(seg_overlap_syn,
                         ComparisonType("synapse-graph", str(point_list_name),
                         point_data["sparse"], leftover_seg)))
 
@@ -337,13 +333,84 @@ class Evaluate(object):
         return lpairs_split.mapValues(_calcoverlap_pts)
 
     def calculate_stats(lpairs_splits):
+        """Generates subvolume and aggregate stats.
+
+        Stats retrieved for volume and each set of points:
+
+            * Rand and VI across whole set -- a few GT body thresholds
+            * Per body VI (fragmentation factors and GT body quality) -- 
+            a few thresholds
+            * Per body VI (at different filter thresholds) -- 
+            a few filter thresholds
+            * Histogram of #bodies vs #points/annotations for GT and test
+            * Approx edit distance (no filter) 
+            * Per body edit distance 
+            (both sides for recompute of global, plus GT)
+            * Show connectivity graph of best bodies
+            (correspond bodies and then show matrix)
+            (P/R computed for different thresholds but easily handled client side)
+            * TODO Per body largest corrected -- (could be useful for
+            understanding best-case scenarios) -- skeleton version?
+            * TODO Best body metrics
+
+        
+        Importance GT selections, GT noise filters, and importance filters
+        (test seg side):
+        
+            * (client) Body stats can be selected by GT size or other
+            preference client side.
+            * (client) Bodies selected can be used to compute cumulative VI --
+            (just have sum under GT body list)
+            * (client-side bio select): P/R for connectivity graph appox
+            (importance filter could be used for what is similar but probably
+            hard-code >50% of body since that will allow us to loosely
+            correspond things)
+            * (pre-computed) Small bodies can be filtered from GT to reduce
+            noise per body/accum (this can be done just by percentages and
+            just record what the threshold was)
+            * (pre-computed) Edit distance until body is within a certain threshold.
+            * (client) ?? Use slider to filter edit distance by body size
+            (appoximate edit distance since splits can help multiple bodies?)
+
+        Advances:
+            * Extensive breakdowns by body, opportunity for average body and outliers
+            * Breakdown by different types of points
+            * Explicit pruning by bio size
+            * Edit distance (TODO: more realistic edit distance)
+            * Thresholded synapse measures (graph measures ??) -- probably not
+            * Histogram views and comparisons
+            * Subvolume breakdowns for 'heat-map'
+            (outliers are important, identify pathological mergers)
+            * Ability to handle very large datasets
+            * Display bodies that are good, help show best-case scenarios (substacks
+            inform this as well)
+
+        Note:
+            * Filter for accumulative VI total is not needed since per body VI
+            can just be summed at different thresholds
+            * GT body VI will be less meaningful over sparse point datasets
+            * Test body fragmentation will be less meaningful over sparse
+            point datasets
+            * Edit distance can be made better.  Presumably, the actual
+            nuisance metric is higher since proofreaders need to verify more than
+            they actually correct.  The difference of work at different thresholds
+            will indicate that one needs to be careful what one considers important.
+
+        Args:
+            lpairs_split (RDD): RDD is of (subvolume id, data).
+       
+        Returns:
+            dict containing metrics.
+
+        """
+
         # extract subvolume stats and send to the driver
-        all_stats.map(lambda x: x[1][0]).collect()
+        all_stats = lpairs_splits.map(lambda x: x[1][0]).collect()
         
         metric_results = {}
 
         # accumulate all subvolume stats
-        whole_volume_stats = SubvolumeOverlapStats(None)
+        whole_volume_stats = SubvolumeStats(None)
 
         ##### SUBSTACK STATS ######
         
@@ -402,18 +469,18 @@ class Evaluate(object):
         # should help with noise primarily (other noise filters??)
 
         for iter1 in range(0, len(whole_volume_stats.gt_overlaps)):
-            ##### HISTOGRAM STATS #######
-            distgt = extract_distribution(whole_volume_stats.gt_overlaps[iter1].overlap_map)
-            distseg = extract_distribution(whole_volume_stats.seg_overlaps[iter1].overlap_map)
             # check for comparison and create if necessary
             comptype = whole_volume_stats.gt_overlaps[iter1].comparison_type
-            typename = comptype.typename+":"+comptype.instance_name
+            typename = str(comptype)
             if typename not in comparison_type_metrics:
                 comparison_type_metrics[typename] = {}
 
             if comptype.typename == "synapse":
                 synapse_index_position = iter1
-
+            
+            ##### HISTOGRAM STATS #######
+            distgt = self._extract_distribution(whole_volume_stats.gt_overlaps[iter1].overlap_map)
+            distseg = self_extract_distribution(whole_volume_stats.seg_overlaps[iter1].overlap_map)
 
             # TODO !! take subset of distribution
             comparison_type_metrics[typename]["dist-gt"] = distgt
@@ -422,6 +489,8 @@ class Evaluate(object):
             # TODO !! generate statitcs histogram
 
             ###### AGGREGATE STATS #######
+            # ?! TOTAL (ignore smallest bodies for aggregate)
+            
             gt_overlap = whole_volume_stats.gt_overlaps[iter1].overlap_map
             seg_overlap = whole_volume_stats.seg_overlaps[iter1].overlap_map
             
@@ -437,97 +506,21 @@ class Evaluate(object):
             statvi.write_to_dict(comparison_type_metrics)
             statrand.write_to_dict(comparison_type_metrics)
 
-
             ####### EDIT DISTANCE ######
-            # provide only 90% threshold (TODO: consider other thresholds)
-            # number of operations to get 90 percent correct for given comparison
-            # will not mean as much for sparse points, but per-body volumetric
-            # sparse should be reasonably good
-
-            # Assumptions: 1) 90% is a good threshold -- probably should vary
-            # depending on the biological goal and 2) greatest overlap is
-            # sufficient for assigment
-
-            # 1. Examine all test segs and find GT body it overlaps most
-            # 2. Examine all GT bodies, accumulate eligible test seg that overlaps most
-            # 3. Add eligible to merge list, add illegible to split list
-            # 4. Try a few ratios for optimizations (10:1, 5:1, 1:1)
-            # 5. Merge and split until 90% of volume is fixed
-
-            # 1
-            seg2bestgt = {}
-            target = 0
-            for body, overlapset in seg_overlap.items():
-                max_val = 0
-                max_id = 0
-                for body2, overlap in overlapset:
-                    target += overlap
-                    if overlap > max_val:
-                        max_val = overlap
-                        max_id = body2
-                seg2bestgt[max_id] = body2
-
-            target *= 0.90 # consider 90 percent correctness
            
-            # 2, 3
-            sorted_splits = []
-            sorted_mergers = []
-            current_accum = 0
-            for body, overlapset in gt_overlap.items():
-                temp_merge = []
-                for body2, overlap in overlapset:
-                    # doesn't own body
-                    if seg2bestgt[body2] != body:
-                        sorted_splits.append(overlap)
-                    else:
-                        temp_merge.append(overlap)
-                temp_merge.sort()
-                temp_merge.reverse()
-                current_accum += temp_merge[0]
-                sorted_mergers.extend(temp_merge[1:])
-
-            # actually sort lists for optimal traversal
-            sorted_splits.sort()
-            sorted_splits.reverse()
-            sorted_mergers.sort()
-            sorted_mergers.reverse()
-
-            # 4
-            comparison_type_metrics[typename]["edit-distance"] = {}
-            for ratio in [1, 5, 10]:
-                midx = 0
-                sidx = 0
-                current_accum_rat = current_accum
-
-                while current_accum_rat < target:
-                    take_split = False
-                    
-                    if midx == len(sorted_mergers):
-                        take_split = True
-                    elif sidx == len(sorted_splits):
-                        pass
-                    elif sorted_splits[sidx] / float(ratio) > sorted_mergers[midx]:
-                        take_split = True
-
-                    if take_split:
-                        current_accum_rat += sorted_splits[sidx]
-                        sidx += 1
-                    else:
-                        current_accum_rat += sorted_mergers[midx]
-                        midx += 1
-
-                # comparisontype -> edit-distance -> thres -> [merge, split]
-                comparison_type_metrics[typename]["edit-distance"][ratio] = [midx, sidx]
-
+            # pretty resistant to noise since not going to 100%
+            edit_distance = EditDistanceStat(comptype, gt_overlap, seg_overlap) 
+            edit_distance.write_to_dict(comparison_type_metrics)
+            
             ###### PER BODY VI STATS ######
             
-            # TODO!! Per body edit distance (probably pretty easy)
-
             # id -> [vifsplit, vitotal, size]
             comparison_type_metrics[typename]["gt-bodies"] = {}  # fsplit
             # id -> [vifmerge, vitotal, size]
             comparison_type_metrics[typename]["seg-bodies"] = {} # fmerge
-           
+          
+            # ?! TOTAL (ignore smallest bodies for print)
+
             # examine gt bodies
             worst_gt_body = 0
             worst_gt_val = 0
@@ -544,7 +537,7 @@ class Evaluate(object):
                 if fsplit > worst_fsplit:
                     worst_fsplit = fsplit
                     worst_fsplit_body = body
-                if vitot >  worst_gt_val:
+                if vitot > worst_gt_val:
                     worst_gt_val = vitot
                     worst_gt_body = body
 
@@ -559,9 +552,8 @@ class Evaluate(object):
                 for body2, overlap in overlapset:
                     total += overlap
                 fsplit = fsplit_bodies[body]
-                vitot = vi_bodies[body]
                 comparison_type_metrics[typename]["seg-bodies"][body] = \
-                        [fsplit, vitot, total]
+                        [fsplit, total]
                 
                 if fmerge > worst_fmerge:
                     worst_fmerge = fmerge
@@ -569,13 +561,15 @@ class Evaluate(object):
 
             comparison_type_metrics[typename]["worst-fmerge"] = [worst_fmerge, worst_fmerge_body]
      
+        #### Connection Matrix and Connection Stats ############
+
         gt_synapses = {}
         seg_synapses = {}
+        comparison_type_metrics["connection-matrix"] = {}
         if len(whole_volume_stats.seg_syn_connections) != 0:
             # grab non sparse synapse info if available
             # !! Assume first synapse file is the one used for the calculating the graph
-            r
-            comptype = whole_volume_stats.seg_gt_connections[0][0].comparison_type
+            comptype = whole_volume_stats.seg_syn_connections[0][0].comparison_type
             if comptype.typename == "synapse" and not comptype.sparse:
                 tgt_synapses = whole_volume_stats.gt_syn_connections[0][0].overlap_map
                 tseg_synapses = whole_volume_stats.seg_syn_connections[0][0].overlap_map
@@ -603,7 +597,7 @@ class Evaluate(object):
                         break
                     # find size of seg body
                     total2 = 0
-                    for seg2, overlap in seg_overlap[seg]:
+                    for seg2, overlap in seg_overlap[max_id]:
                         total2 += overlap 
                     
                     # match body if over half of the seg is in over half of the GT
@@ -629,62 +623,50 @@ class Evaluate(object):
                                 seg_synapses[pre] = set()
                             seg_synapses[pre].add((post, overlap))
 
-
         # look for synapse points and compute graph measure (different cut-offs?)
         # provide graph for matching bodies; provide stats at different thresholds
         if len(gt_synapses) != 0:
-            comparison_type_metrics["connection-matrix"] = {}
-            if len(important_gtbodies) == 0:
-                comparison_type_metrics["connection-matrix"]["gt"] = []
-                comparison_type_metrics["connection-matrix"]["seg"] = []
-                comparison_type_metrics["connection-matrix"]["thresholds"] = []
-            else:
-                gt_connection_matrix = []
-                gtpathway = {}
-                segpathway = {}
-                for gtbody, overlapset in gt_synapses.items():
-                    if gtbody not in important_gtbodies:
-                        continue
-                    for (partner, overlap) in overlapset:
-                        if partner not in important_gtbodies:
-                            continue
-                        gt_connection_matrix.append([gt_body, partner, overlap])
-                        gtpathway[(gt_body, partner)] = overlap
-                seg_connection_matrix = []
-                for segbody, overlapset in seg_synapses.items():
-                    if segbody not in important_segbodies:
-                        continue
-                    for (partner, overlap) in overlapset:
-                        if partner not in important_segbodies:
-                            continue
-                        # add mapping to gt in matrix
-                        seg_connection_matrix.append([important_seg_bodies[seg_body],
-                            seg_body, important_seg_bodies[partner], partner, overlap])
-                        segpathway[(important_seg_bodies[seg_body],
-                            important_seg_bodies[partner])] = overlap
+            gt_connection_matrix = []
+            gtpathway = {}
+            segpathway = {}
+            for gtbody, overlapset in gt_synapses.items():
+                for (partner, overlap) in overlapset:
+                    gt_connection_matrix.append([gt_body, partner, overlap])
+                    gtpathway[(gt_body, partner)] = overlap
+            seg_connection_matrix = []
+            for segbody, overlapset in seg_synapses.items():
+                for (partner, overlap) in overlapset:
+                    # add mapping to gt in matrix
+                    seg_connection_matrix.append([important_seg_bodies[seg_body],
+                        seg_body, important_seg_bodies[partner], partner, overlap])
+                    segpathway[(important_seg_bodies[seg_body],
+                        important_seg_bodies[partner])] = overlap
 
-                # load stats        
-                comparison_type_metrics["connection-matrix"]["gt"] = gt_connection_matrix
-                comparison_type_metrics["connection-matrix"]["seg"] = seg_connection_matrix
-                # dump a few metrics to add to the master table
-                # ignroe connections <= threshold
-                for threshold in [0, 5, 10]:
-                    recalled_gt = 0
-                    for connection, weight in gtpathway.items():
-                        if weight <= threshold:
-                            continue
-                        if connection in segpathway and segpathway[connection] > threshold:
-                            recalled_gt += 1
-                    false_conn = 0
-                    for connection, weight in segpathway.items():
-                        if weight <= threshold:
-                            continue
-                        if connection not in gtpathway or gtpathway[connection] < threshold:
-                            false_conn += 1
-                    comparison_type_metrics["connection-matrix"]["thresholds"].append[false_conn, recalled_gt, threshold]
+            # load stats        
+            comparison_type_metrics["connection-matrix"]["gt"] = gt_connection_matrix
+            comparison_type_metrics["connection-matrix"]["seg"] = seg_connection_matrix
+            # dump a few metrics to add to the master table
+            # ignroe connections <= threshold
+            for threshold in [0, 5, 10]:
+                recalled_gt = 0
+                for connection, weight in gtpathway.items():
+                    if weight <= threshold:
+                        continue
+                    if connection in segpathway and segpathway[connection] > threshold:
+                        recalled_gt += 1
+                false_conn = 0
+                for connection, weight in segpathway.items():
+                    if weight <= threshold:
+                        continue
+                    if connection not in gtpathway or gtpathway[connection] < threshold:
+                        false_conn += 1
+                comparison_type_metrics["connection-matrix"]["thresholds"].append[false_conn, recalled_gt, threshold]
+        else:
+            comparison_type_metrics["connection-matrix"]["gt"] = []
+            comparison_type_metrics["connection-matrix"]["seg"] = []
+            comparison_type_metrics["connection-matrix"]["thresholds"] = []
 
 
         metric_results["types"] = comparison_type_metrics
         return metric_results
-
 

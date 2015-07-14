@@ -104,7 +104,37 @@ class EvaluateSeg(DVIDWorkflow):
 
     def __init__(self, config_filename):
         super(EvaluateSeg, self).__init__(config_filename, self.Schema, "Evaluate Segmentation")
+   
+    def _split_disjoint_labels(label_pairs):
+        """Helper function: map subvolumes so disconnected bodies are different labels.
+
+        Function preserves partitioner.
+
+        Args:
+            label_pairs (rdd): RDD is of (subvolume id, data)
+   
+        Returns:
+            Original RDD including mappings for gt and the test seg.
     
+        """
+        from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
+        
+        subvolume, labelgtc, label2c = label_pairs
+
+        # extract numpy arrays
+        labelgt = labelgtc.deserialize()
+        label2 = label2c.deserialize()
+
+        # split bodies up
+        labelgt_split, labelgt_map = split_disconnected_bodies(labelgt)
+        label2_split, label2_map = split_disconnected_bodies(label2)
+       
+        # compress results
+        return (subvolume, labelgt_map, label2_map,
+                CompressedNumpyArray(labelgt_split),
+                CompressedNumpyArray(label2_split))
+
+
     def execute(self):
         # imports here so that schema can be retrieved without installation
         from DVIDSparkServices.reconutils import Evaluate
@@ -134,14 +164,14 @@ class EvaluateSeg(DVIDWorkflow):
                 self.config_data["dvid-info-comp"]["uuid"],
                 self.config_data["dvid-info-comp"]["label-name"])
         
-        # evaluation tool (support RAND, VI, per body, graph, and
-        # histogram stats over different sets of points)
-        evaluator = Evaluate.Evaluate(self.config_data)
-
         # split bodies that are merged outside of the subvolume
         # (preserves partitioner)
         # => (key, (subvolume, seggt-split, seg2-split, seggt-map, seg2-map))
-        lpairs_split = evaluator.split_disjoint_labels(lpairs) # could be moved to general utils
+        lpairs_split = lpairs.mapValues(_split_disjoint)
+
+        # evaluation tool (support RAND, VI, per body, graph, and
+        # histogram stats over different sets of points)
+        evaluator = Evaluate.Evaluate(self.config_data)
 
         ### VOLUMETRIC ANALYSIS ###
 
@@ -163,6 +193,7 @@ class EvaluateSeg(DVIDWorkflow):
                 raise Exception(str(point_list_name) + "point list key value not properly specified")
 
             # is this too large to broadcast?? -- default lz4 should help quite a bit
+            # TODO: send only necessary data to each job through join might help
             point_data[keyvalue[1]] = node_service.get_json(keyvalue[0], keyvalue[1])
             
             # Generate per substack and global stats for given points.
@@ -170,74 +201,8 @@ class EvaluateSeg(DVIDWorkflow):
             # (preserve partitioner)
             lpairs_proc = evaluator.calcoverlap_pts(lpairs_proc, keyvalue[1], point_data[keyvalue[1]])
 
-        """
-        Extract stats by retrieving substacks and stats info
-        and loading indto data structures on the driver.
-
-        Stats retrieved for volume and each set of points:
-
-        * Rand and VI across whole set -- a few GT body thresholds
-        * Per body VI (fragmentation factors and GT body quality) -- a few thresholds
-        * Per body VI (at different filter thresholds) -- a few filter thresholds
-        * Histogram of #bodies vs #points/annotations for GT and test
-        * Approx edit distance (no filter) 
-        * Per body edit distance 
-        (both sides for recompute of global, plus GT)
-        * Show connectivity graph of best bodies (correspond bodies and then show matrix)
-        (P/R computed for different thresholds but easily handled client side; number
-        of best bodies also good)
-        * TODO Per body largest corrected -- a few filter thresholds (separate filter?)
-        (could be useful for understanding best-case scenarios) -- skeleton version?
-        * TODO Best body metrics
-        * TODD: dilate points within GT body ?? -- might not really add, an arbitrary but
-        well chosen point might be best
-        * TODO?? (synapse points only) Synapse graph stat (at different thresholds) -- hard
-        to figure out what node correpodence would be -- what does it mean to say that a pathway
-        is found by test segmentation? -- probably useless, alternative ...
-
-
-        Importance GT selections, GT noise filters, and importance filters (test seg side):
-        
-        * (client) Body stats can be selected by GT size or other preference client side.
-        * (client) Bodies selected can be used to compute cumulative VI -- (just have sum
-        under GT body list)
-        * (client-side bio select): P/R for connectivity graph appox (importance filter could
-        be used for what is similar but probably hard-code >50% of body since that will allow
-        us to loosely correspond things)
-        * (pre-computed) Small bodies can be filtered from GT to reduce noise per body/accum
-        (this can be done just by percentages and just record what the threshold was)
-        * (pre-computed) Edit distance until body is within a certain threshold. ?? (test seg side)
-        Maybe try to get body 90%, 95%, 100% correct -- report per body and total (for convenience);
-        compute for bodies that make up 90%, 100% of total volume?
-        * (client) ?? Use slider to filter edit distance by body size
-        (appoximate edit distance since splits can help multiple bodies?
-
-        Advances:
-
-        * Extensive breakdowns by body, opportunity for average body and outliers
-        * Breakdown by different types of points
-        * Explicit pruning by bio size
-        * Edit distance (TODO: more realistic edit distance)
-        * Thresholded synapse measures (graph measures ??) -- probably not
-        * Histogram views and comparisons
-        * Subvolume breakdowns for 'heat-map'
-        (outliers are important, identify pathological mergers)
-        * Ability to handle very large datasets
-        * Display bodies that are good, help show best-case scenarios (substacks
-        inform this as well)
-
-        Note:
-
-        * Filter for accumulative VI total is not needed since per body VI
-        cna just be summed at different thresholds
-        * GT body VI will be less meaningful over sparse point datasets
-        * Test body fragmentation will be less meaningful over sparse point datasets
-        * Edit distance can be made better.  Presumably, the actual
-        nuisance metric is higher since proofreaders need to verify more than
-        they actually correct.  The difference of work at different thresholds
-        will indicate that one needs to be careful what one considers important.
-        * TODO: compute only over important body list (probably just filter client side)
-        """
+        # Extract stats by retrieving substacks and stats info and
+        # loading into data structures on the driver.
         stats = evaluator.calculate_stats(lpairs_proc)
 
         # TODO: !! maybe generate a summary view from stats, write that back
