@@ -1,5 +1,6 @@
 import json
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
+from CompressedNumpyArray import CompressedNumpyArray
 
 class sparkdvid(object):
     BLK_SIZE = 32
@@ -28,7 +29,10 @@ class sparkdvid(object):
             # use substack id as key
             subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border))) 
             substack_id += 1
-    
+   
+            #if substack_id == 2:
+            #    break
+
         # grab all neighbors for each substack
         if find_neighbors:
             # inefficient search for all boundaries
@@ -137,7 +141,7 @@ class sparkdvid(object):
             # retrieve data from roi start position
             label_volume = node_service.get_labels3D(str(label_name),
                 (size1,size2,size3),
-                (subvolume.roi[0],subvolume. subvolume.roi[1],
+                (subvolume.roi[0], subvolume.roi[1],
                 subvolume. roi[2]))
 
             # flip to be in C-order (no performance penalty)
@@ -147,9 +151,9 @@ class sparkdvid(object):
             node_service2 = DVIDNodeService(str(server2), str(uuid2))
  
             # retrieve data from roi start position
-            label_volume2 = node_service.get_labels3D(str(label_name2),
+            label_volume2 = node_service2.get_labels3D(str(label_name2),
                 (size1,size2,size3),
-                (subvolume.roi[0],subvolume. subvolume.roi[1],
+                (subvolume.roi[0], subvolume.roi[1],
                 subvolume. roi[2]))
 
             # flip to be in C-order (no performance penalty)

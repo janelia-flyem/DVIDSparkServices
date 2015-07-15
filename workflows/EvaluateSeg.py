@@ -46,7 +46,7 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "string"
         }
       },
-      "required" : ["dvid-server", "uuid", "label-name", "roi", "point-lists"]
+      "required" : ["dvid-server", "uuid", "label-name", "roi", "point-lists", "user-name", "stats-location"]
     },
     "dvid-info-comp": {
       "description": "Contains DVID information for comparison/test volume",
@@ -88,7 +88,8 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "integer",
           "default": 2
         }
-      }
+      },
+      "required" : ["body-threshold", "chunk-size", "boundary-size"]
     }
   }
 }
@@ -107,36 +108,6 @@ class EvaluateSeg(DVIDWorkflow):
     def __init__(self, config_filename):
         super(EvaluateSeg, self).__init__(config_filename, self.Schema, "Evaluate Segmentation")
    
-    def _split_disjoint_labels(label_pairs):
-        """Helper function: map subvolumes so disconnected bodies are different labels.
-
-        Function preserves partitioner.
-
-        Args:
-            label_pairs (rdd): RDD is of (subvolume id, data)
-   
-        Returns:
-            Original RDD including mappings for gt and the test seg.
-    
-        """
-        from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
-        
-        subvolume, labelgtc, label2c = label_pairs
-
-        # extract numpy arrays
-        labelgt = labelgtc.deserialize()
-        label2 = label2c.deserialize()
-
-        # split bodies up
-        labelgt_split, labelgt_map = split_disconnected_bodies(labelgt)
-        label2_split, label2_map = split_disconnected_bodies(label2)
-       
-        # compress results
-        return (subvolume, labelgt_map, label2_map,
-                CompressedNumpyArray(labelgt_split),
-                CompressedNumpyArray(label2_split))
-
-
     def execute(self):
         # imports here so that schema can be retrieved without installation
         from DVIDSparkServices.reconutils import Evaluate
@@ -147,7 +118,8 @@ class EvaluateSeg(DVIDWorkflow):
         import datetime
         import json
 
-        node_service = DVIDNodeService(self.server, self.uuid)
+        node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]),
+                                       str(self.config_data["dvid-info"]["uuid"]))
 
         if "chunk-size" in self.config_data["options"]:
             self.chunksize = self.config_data["options"]["chunk-size"]
@@ -165,11 +137,42 @@ class EvaluateSeg(DVIDWorkflow):
                 self.config_data["dvid-info-comp"]["dvid-server"],
                 self.config_data["dvid-info-comp"]["uuid"],
                 self.config_data["dvid-info-comp"]["label-name"])
+       
+        def _split_disjoint_labels(label_pairs):
+            """Helper function: map subvolumes so disconnected bodies are different labels.
+
+            Function preserves partitioner.
+
+            Args:
+                label_pairs (rdd): RDD is of (subvolume id, data)
+       
+            Returns:
+                Original RDD including mappings for gt and the test seg.
         
+            """
+            from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
+            from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+            
+            subvolume, labelgtc, label2c = label_pairs
+
+            # extract numpy arrays
+            labelgt = labelgtc.deserialize()
+            label2 = label2c.deserialize()
+
+            # split bodies up
+            labelgt_split, labelgt_map = split_disconnected_bodies(labelgt)
+            label2_split, label2_map = split_disconnected_bodies(label2)
+            
+            # compress results
+            return (subvolume, labelgt_map, label2_map,
+                    CompressedNumpyArray(labelgt_split),
+                    CompressedNumpyArray(label2_split))
+
+
         # split bodies that are merged outside of the subvolume
         # (preserves partitioner)
         # => (key, (subvolume, seggt-split, seg2-split, seggt-map, seg2-map))
-        lpairs_split = lpairs.mapValues(_split_disjoint)
+        lpairs_split = lpairs.mapValues(_split_disjoint_labels)
 
         # evaluation tool (support RAND, VI, per body, graph, and
         # histogram stats over different sets of points)
@@ -207,6 +210,11 @@ class EvaluateSeg(DVIDWorkflow):
         # loading into data structures on the driver.
         stats = evaluator.calculate_stats(lpairs_proc)
 
+
+        if self.config_data["debug"]:
+            print "DEBUG:", json.dumps(stats)
+
+
         # TODO: !! maybe generate a summary view from stats, write that back
         # with simplify output, dump the more complicated file to keyvalue as well
 
@@ -216,18 +224,19 @@ class EvaluateSeg(DVIDWorkflow):
         stats["time-analyzed"] = \
             datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
         stats["config-file"] = self.config_data
-        current_time = time.time()
+        current_time = int(time.time())
 
         username = str(self.config_data["dvid-info"]["user-name"])
-        username = username.split('.').join('__')
+        username = "__".join(username.split('.'))
         
         location = str(self.config_data["dvid-info"]["stats-location"])
-        location = location.split('.').join('__')
+        location = "__".join(location.split('.'))
     
-        fileloc = str(location + "--" + user_name + "--" + str(current_time))
+        fileloc = str(location + "--" + username + "--" + str(current_time))
 
-        node_service.create_keyvalue(writelocation)
-        node_service.put(writelocation, fileloc, json.dumps(stats))
+        node_service.create_keyvalue(self.writelocation)
+        node_service.put(self.writelocation, fileloc, json.dumps(stats))
+
 
     @staticmethod
     def dumpschema():

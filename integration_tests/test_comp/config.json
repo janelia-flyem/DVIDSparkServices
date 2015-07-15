@@ -3,7 +3,10 @@
         "dvid-server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "label-name": "labels",
-        "roi": "temproi"
+        "roi": "temproi",
+        "point-lists": [],
+        "user-name": "plazas",
+        "stats-location": "off1.seg"
     },
     "dvid-info-comp": {
         "dvid-server": "127.0.0.1:8000",
@@ -11,6 +14,8 @@
         "label-name": "labels"
     },
     "options": {
+        "body-threshold": 1000,
+        "boundary-size": 2,
         "chunk-size": 64
     },
     "debug": true

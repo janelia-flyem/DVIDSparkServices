@@ -98,12 +98,12 @@ class VIStat(StatType):
                     globalmap["types"][tname]["VI"]["fsplit-worst"] = [self.fsplit,sid]
 
                 # get average
-                num_subvolumes = len(globalmap["id"])
+                num_subvolumes = len(globalmap["ids"])
                 fmerge = globalmap["types"][tname]["VI"]["average"][0] 
                 fsplit = globalmap["types"][tname]["VI"]["average"][1]
 
-                fmerge = (num_subvolumes*fmerge + self.fmerge)/(num_subvolumes+1)
-                fsplit = (num_subvolumes*fsplit + self.fsplit)/(num_subvolumes+1)
+                fmerge = (num_subvolumes*fmerge + self.fmerge)/float(num_subvolumes+1)
+                fsplit = (num_subvolumes*fsplit + self.fsplit)/float(num_subvolumes+1)
 
                 globalmap["types"][tname]["VI"]["average"] = [fmerge, fsplit]
 
@@ -148,12 +148,12 @@ class RandStat(StatType):
                     globalmap["types"][tname]["rand"]["fsplit-worst"] = [self.fsplit,sid]
 
                 # get average
-                num_subvolumes = len(globalmap["id"])
+                num_subvolumes = len(globalmap["ids"])
                 fmerge = globalmap["types"][tname]["rand"]["average"][0] 
                 fsplit = globalmap["types"][tname]["rand"]["average"][1]
 
-                fmerge = (num_subvolumes*fmerge + self.fmerge)/(num_subvolumes+1)
-                fsplit = (num_subvolumes*fsplit + self.fsplit)/(num_subvolumes+1)
+                fmerge = (num_subvolumes*fmerge + self.fmerge)/float(num_subvolumes+1)
+                fsplit = (num_subvolumes*fsplit + self.fsplit)/float(num_subvolumes+1)
 
                 globalmap["types"][tname]["rand"]["average"] = [fmerge, fsplit]
 
@@ -161,6 +161,7 @@ class RandStat(StatType):
 class EditDistanceStat(StatType):
     def __init__(self, comptype, gt_overlap, seg_overlap):
         StatType.__init__(self, comptype)
+        self.results = []
 
         # provide only 90% threshold (TODO: consider other thresholds)
         # number of operations to get 90 percent correct for given comparison
@@ -188,7 +189,7 @@ class EditDistanceStat(StatType):
                 if overlap > max_val:
                     max_val = overlap
                     max_id = body2
-            seg2bestgt[max_id] = body2
+            seg2bestgt[body] = max_id
 
         target *= 0.90 # consider 90 percent correctness
        
@@ -206,8 +207,10 @@ class EditDistanceStat(StatType):
                     temp_merge.append(overlap)
             temp_merge.sort()
             temp_merge.reverse()
-            current_accum += temp_merge[0]
-            sorted_mergers.extend(temp_merge[1:])
+            if len(temp_merge) > 0:
+                current_accum += temp_merge[0]
+            if len(temp_merge) > 1:
+                sorted_mergers.extend(temp_merge[1:])
 
         # actually sort lists for optimal traversal
         sorted_splits.sort()
@@ -228,7 +231,7 @@ class EditDistanceStat(StatType):
                     take_split = True
                 elif sidx == len(sorted_splits):
                     pass
-                elif sorted_splits[sidx] / float(ratio) > sorted_mergers[midx]:
+                elif (sorted_splits[sidx] / float(ratio)) > sorted_mergers[midx]:
                     take_split = True
 
                 if take_split:
@@ -238,20 +241,20 @@ class EditDistanceStat(StatType):
                     current_accum_rat += sorted_mergers[midx]
                     midx += 1
 
-            # comparisontype -> edit-distance -> thres -> [merge, split]
-            comparison_type_metrics[typename]["edit-distance"][ratio] = [midx, sidx]
+            self.results.append((ratio, midx, sidx))
 
     def write_to_dict(self, localmap, globalmap = None, sid=0):
         tname = self.comptype.get_name()
         if tname not in localmap:
             localmap[tname] = {}
-        localmap[typename]["edit-distance"] = {} 
+        localmap[tname]["edit-distance"] = {} 
         
+        # comparisontype -> edit-distance -> thres -> [merge, split]
         for (ratio, midx, sidx) in self.results:
-            localmap[typename]["edit-distance"][ratio] = [midx, sidx]
+            localmap[tname]["edit-distance"][ratio] = [midx, sidx]
 
 class OverlapTable(object):
-    def __init__(self, overlaps, comarison_type):
+    def __init__(self, overlaps, comparison_type):
         self.comparison_type = comparison_type
         self.overlap_map = {}
 
@@ -321,9 +324,9 @@ class OverlapTable(object):
 
             # handle new overlaps since mapping could cause merge
             for (key2, val2) in val:
-                newkey = key2
+                new_key = key2
                 if key2 in mapping2:
-                    newkey = mapping2[key2]
+                    new_key = mapping2[key2]
                 if new_key not in new_overlap:
                     new_overlap[new_key] = 0
                 new_overlap[new_key] += val2
@@ -338,7 +341,7 @@ class OverlapTable(object):
         for newbody, bodylist in del_keys.items():
             self.overlap_map[newbody] = set()
             for bodyold in bodylist:
-                self.merge_row(self.overlap_map[new_body], self.overlap_map[bodyold])
+                self.merge_row(self.overlap_map[newbody], self.overlap_map[bodyold])
                 del self.overlap_map[bodyold]
 
     def num_bodies(self):
@@ -396,7 +399,7 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
             ignore_bodies.add(gtbody)
             continue
 
-        vi_unorm, total, dummy = body_vi(overlapset)
+        vi_unnorm, total, dummy = body_vi(overlapset)
         fsplit_bodies[gtbody] = vi_unnorm
         perbody[gtbody] = vi_unnorm
         glb_total += total
@@ -410,7 +413,7 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
             if gtbody not in ignore_bodies:
                 filtered_overlapset.add((gtbody, overlap))
 
-        vi_unorm, total, gtcontribs = body_vi(filtered_overlapset)
+        vi_unnorm, total, gtcontribs = body_vi(filtered_overlapset)
         fmerge_bodies[segbody] = vi_unnorm
         fsplit_vi += vi_unnorm
 
@@ -418,13 +421,16 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
             perbody[key] += val
 
     for key, val in fsplit_bodies.items():
-        fsplit_bodies[key] = val/glb_total
+        fsplit_bodies[key] = val/float(glb_total)
     
     for key, val in fmerge_bodies.items():
-        fmerge_bodies[key] = val/glb_total
+        fmerge_bodies[key] = val/float(glb_total)
+    
+    for key, val in perbody.items():
+        perbody[key] = val/float(glb_total)
 
     # TODO !! Add per body
-    return fmerge_vi/glb_total, fsplit_vi/glb_total, fmerge_bodies, fsplit_bodies, perbody 
+    return fmerge_vi/float(glb_total), fsplit_vi/float(glb_total), fmerge_bodies, fsplit_bodies, perbody 
 
 # calculate Rand Index
 def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
@@ -460,7 +466,7 @@ def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
 
         fmerge_total += (total*(total-1)/2)
 
-    return overlap_total / fmerge_total, overlap_total / fsplit_total
+    return overlap_total / float(fmerge_total), overlap_total / float(fsplit_total)
 
 class SubvolumeStats(object):
     def __init__(self, subvolume):

@@ -51,7 +51,7 @@ class Evaluate(object):
                 count += overlap
                 cumdisttemp.append(overlap)
 
-        cumdist = [val/count for val in cumdist]
+        cumdist = [val/float(count) for val in cumdisttemp]
         cumdist.sort()
         cumdist.reverse()
         return cumdist
@@ -134,7 +134,7 @@ class Evaluate(object):
                                 calculate_vi(gt_overlap, seg_overlap) 
         fmerge_rand, fsplit_rand  = \
                                 calculate_rand(gt_overlap, seg_overlap)
-        
+
         # load substack stats
         stats.add_stat(VIStat(comparison_type, fmerge_vi, fsplit_vi))
         stats.add_stat(RandStat(comparison_type, fmerge_rand, fsplit_rand))
@@ -195,14 +195,15 @@ class Evaluate(object):
             stats = SubvolumeStats(subvolume)
             
             # ?? should I return stats back
-            self._load_subvolume_stats(stats, overlap12, overlap21,
+            self._load_subvolume_stats(stats, overlaps12, overlaps21,
                     ComparisonType(), labelgt_map, label2_map)
 
             # TODO:!! Add more distribution stats 
            
             # keep volumes for subsequent point queries
             return (stats, labelgt_map, label2_map,
-                    CompressedNumpyArray(labelgt), CompresedNumpyArray(label2))
+                    CompressedNumpyArray(labelgt.astype(numpy.uint64)),
+                    CompressedNumpyArray(label2.astype(numpy.uint64)))
             
         return lpairs_split.mapValues(_calcoverlap)
 
@@ -332,7 +333,7 @@ class Evaluate(object):
 
         return lpairs_split.mapValues(_calcoverlap_pts)
 
-    def calculate_stats(lpairs_splits):
+    def calculate_stats(self, lpairs_splits):
         """Generates subvolume and aggregate stats.
 
         Stats retrieved for volume and each set of points:
@@ -410,7 +411,7 @@ class Evaluate(object):
         metric_results = {}
 
         # accumulate all subvolume stats
-        whole_volume_stats = SubvolumeStats(None)
+        whole_volume_stats = None # SubvolumeStats(None)
 
         ##### SUBSTACK STATS ######
         
@@ -447,7 +448,10 @@ class Evaluate(object):
             allsubvolume_metrics["ids"][subvol_stats.subvolume.roi_id] = subvolume_metrics
             
             # accumulate stats
-            whole_volume_stats.merge_stats(subvol_stat)
+            if whole_volume_stats is None:
+                whole_volume_stats = subvol_stats
+            else:
+                whole_volume_stats.merge_stats(subvol_stats)
 
         # verify that leftover list is empty
         for connections in whole_volume_stats.gt_syn_connections:
@@ -477,7 +481,7 @@ class Evaluate(object):
             
             ##### HISTOGRAM STATS #######
             distgt = self._extract_distribution(whole_volume_stats.gt_overlaps[iter1].overlap_map)
-            distseg = self_extract_distribution(whole_volume_stats.seg_overlaps[iter1].overlap_map)
+            distseg = self._extract_distribution(whole_volume_stats.seg_overlaps[iter1].overlap_map)
 
             # TODO !! take subset of distribution
             comparison_type_metrics[typename]["dist-gt"] = distgt
@@ -486,17 +490,19 @@ class Evaluate(object):
             # TODO !! generate statitcs histogram
 
             ###### AGGREGATE STATS #######
-            gt_overlap = whole_volume_stats.gt_overlaps[iter1].overlap_map
-            seg_overlap = whole_volume_stats.seg_overlaps[iter1].overlap_map
+            gt_table = whole_volume_stats.gt_overlaps[iter1]
+            seg_table = whole_volume_stats.seg_overlaps[iter1]
+            gt_overlap = gt_table.overlap_map
+            seg_overlap = seg_table.overlap_map
             
             # TODO !! Add normalized per body vi by body size
             
             # ignore smallest bodies (GT noise could complicate comparisons)
             fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, vi_bodies = \
-                                    calculate_vi(gt_overlap, seg_overlap,
+                                    calculate_vi(gt_table, seg_table,
                                             self.body_threshold)
             fmerge_rand, fsplit_rand  = \
-                                    calculate_rand(gt_overlap, seg_overlap,
+                                    calculate_rand(gt_table, seg_table,
                                             self.body_threshold)
            
             # add rand, vi global,  for each type
@@ -553,9 +559,9 @@ class Evaluate(object):
                     total += overlap
                 if total < self.body_threshold:
                     continue
-                fsplit = fsplit_bodies[body]
+                fmerge = fmerge_bodies[body]
                 comparison_type_metrics[typename]["seg-bodies"][body] = \
-                        [fsplit, total]
+                        [fmerge, total]
                 
                 if fmerge > worst_fmerge:
                     worst_fmerge = fmerge
