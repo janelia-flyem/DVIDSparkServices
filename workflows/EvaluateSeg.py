@@ -210,7 +210,8 @@ class EvaluateSeg(DVIDWorkflow):
         # Extract stats by retrieving substacks and stats info and
         # loading into data structures on the driver.
         stats = evaluator.calculate_stats(lpairs_proc)
-
+        
+        # none or false
         if self.config_data["debug"]:
             print "DEBUG:", json.dumps(stats)
 

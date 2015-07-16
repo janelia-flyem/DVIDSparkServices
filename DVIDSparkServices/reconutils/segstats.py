@@ -517,7 +517,7 @@ class SubvolumeStats(object):
                     if index in prop1:
                         if body not in table1.overlap_map:
                             # add one point
-                            table1.overlap_map[body] = set((prop1[index],1))
+                            table1.overlap_map[body] = set([(prop1[index],1)])
                         else:
                             rm_overlap = None
                             for (body2, overlap) in table1.overlap_map[body]:
@@ -534,7 +534,7 @@ class SubvolumeStats(object):
                         if body not in new_leftovers:
                             new_leftovers[body] = set()
                         new_leftovers[body].add(index)
-            
+          
             # update list
             connections1[iter1] = (table1, (new_leftovers, prop1))
 
@@ -566,7 +566,7 @@ class SubvolumeStats(object):
 
     def add_gt_syn_connections(self, stats, leftover):
         self.gt_syn_connections.append((stats, leftover))
-    
+
     def add_seg_syn_connections(self, stats, leftover):
         self.seg_syn_connections.append((stats, leftover))
 

@@ -34,6 +34,9 @@ class Evaluate(object):
         self.server = config["dvid-info"]["dvid-server"]
         self.uuid = config["dvid-info"]["uuid"]
         self.body_threshold = config["options"]["body-threshold"]
+        self.debug = False
+        if config["debug"]:
+            self.debug = True 
 
     def _extract_distribution(self, body_overlap):
         """Helper function: extracts sorted list of body sizes.
@@ -68,7 +71,7 @@ class Evaluate(object):
 
         Args:
             index2body_seg (dict): point index -> body id
-            parent_list (dict): point -> parent/ancestor point 
+            parent_list (set): local children without local parents 
             adjacency_list (dict): point -> set of child points
 
         Returns:
@@ -84,11 +87,13 @@ class Evaluate(object):
         seg_connections = {}
         prop_indices = {}
 
-        for index, body in index2body_seg.items():
-            # propagate indices that have unassigned parent
-            if index in parent_list and parent_list[index] not in index2body_seg:
-                prop_indices[index] = body
+        # if a child is not in this subvolume and its parent is
+        # propagate parent id
+        for child in parent_list:
+            # should be in index2body_seg by construction
+            prop_indices[child] = index2body_seg[child]
 
+        for index, body in index2body_seg.items():
             for index2 in adjacency_list[index]:
                 if index2 not in index2body_seg:
                     # resolve index later in reduce
@@ -99,14 +104,14 @@ class Evaluate(object):
                     # add connection
                     body2 = index2body_seg[index2]
                     if (body, body2) not in seg_connections:
-                        seg_connections[(body1, body2)] = 0
-                    seg_connections[(body1,body2)] += 1
+                        seg_connections[(body, body2)] = 0
+                    seg_connections[(body,body2)] += 1
 
         # put in same format as other overlap structures
         seg_overlap_syn = []
         for (body1, body2), overlap in seg_connections.items():
             seg_overlap_syn.append((body1, body2, overlap))
-   
+  
         return seg_overlap_syn, (leftover_seg, prop_indices)
 
     def _load_subvolume_stats(self, stats, overlap_gt, overlap_seg, comparison_type,
@@ -255,8 +260,8 @@ class Evaluate(object):
             # synapses encoded as presynapse -> PSD
             adjacency_list = {}
     
-            # unique parents for each point
-            parent_list = {}
+            # children without local parents
+            parent_list = set()
 
             subvolume_pts = {}
             roi = stats.subvolume.roi
@@ -267,7 +272,13 @@ class Evaluate(object):
                     adjacency_list[index] = set()
                     for iter1 in range(3, len(point)):
                         adjacency_list[index].add(point[iter1])
-                        parent_list[point[iter1]] = index
+
+            # find points that have a parent (connection) outside of subvolume
+            for index, point in enumerate(point_data["point-list"]):
+                if point[0] >= roi.x2 or point[0] < roi.x1 or point[1] >= roi.y2 or point[1] < roi.y1 or point[2] >= roi.z2 or point[2] < roi.z1:
+                    for iter1 in range(3, len(point)):
+                        if point[iter1] in adjacency_list:
+                            parent_list.add(point[iter1])
 
             # find overlap for set of points (density should be pretty low)
             overlap_gt = []
@@ -590,7 +601,7 @@ class Evaluate(object):
             # grab non sparse synapse info if available
             # !! Assume first synapse file is the one used for the calculating the graph
             comptype = whole_volume_stats.seg_syn_connections[0][0].comparison_type
-            if comptype.typename == "synapse" and not comptype.sparse:
+            if not comptype.sparse:
                 tgt_synapses = whole_volume_stats.gt_syn_connections[0][0].overlap_map
                 tseg_synapses = whole_volume_stats.seg_syn_connections[0][0].overlap_map
 
@@ -600,7 +611,9 @@ class Evaluate(object):
 
                 # TODO: !! better strategy than taking simple threshold for important
                 # bodies -- for now only take GT > 50 synapses
-                importance_threshold = 50
+                importance_threshold = 50 # just hard code something reasonable
+                if self.debug: # examine all synapses for small example
+                    importance_threshold = 0
 
                 important_gtbodies = set() 
                 important_segbodies = {}
@@ -628,7 +641,7 @@ class Evaluate(object):
                 for pre, overlapset in tgt_synapses.items():
                     if pre not in important_gtbodies:
                         continue
-                    for post, overlap in overlapset:
+                    for (post, overlap) in overlapset:
                         if post in important_gtbodies:
                             if pre not in gt_synapses:
                                 gt_synapses[pre] = set()
@@ -651,22 +664,22 @@ class Evaluate(object):
             segpathway = {}
             for gtbody, overlapset in gt_synapses.items():
                 for (partner, overlap) in overlapset:
-                    gt_connection_matrix.append([gt_body, partner, overlap])
-                    gtpathway[(gt_body, partner)] = overlap
+                    gt_connection_matrix.append([gtbody, partner, overlap])
+                    gtpathway[(gtbody, partner)] = overlap
             seg_connection_matrix = []
             for segbody, overlapset in seg_synapses.items():
                 for (partner, overlap) in overlapset:
                     # add mapping to gt in matrix
-                    seg_connection_matrix.append([important_seg_bodies[seg_body],
-                        seg_body, important_seg_bodies[partner], partner, overlap])
-                    segpathway[(important_seg_bodies[seg_body],
-                        important_seg_bodies[partner])] = overlap
+                    seg_connection_matrix.append([important_segbodies[segbody],
+                        segbody, important_segbodies[partner], partner, overlap])
+                    segpathway[(important_segbodies[segbody],
+                        important_segbodies[partner])] = overlap
 
             # load stats        
             comparison_type_metrics["connection-matrix"]["gt"] = gt_connection_matrix
             comparison_type_metrics["connection-matrix"]["seg"] = seg_connection_matrix
             # dump a few metrics to add to the master table
-            # ignroe connections <= threshold
+            # ignore connections <= threshold
             for threshold in [0, 5, 10]:
                 recalled_gt = 0
                 for connection, weight in gtpathway.items():
@@ -680,7 +693,9 @@ class Evaluate(object):
                         continue
                     if connection not in gtpathway or gtpathway[connection] < threshold:
                         false_conn += 1
-                comparison_type_metrics["connection-matrix"]["thresholds"].append[false_conn, recalled_gt, threshold]
+                if "thresholds" not in comparison_type_metrics["connection-matrix"]:
+                    comparison_type_metrics["connection-matrix"]["thresholds"] = []
+                comparison_type_metrics["connection-matrix"]["thresholds"].append([false_conn, recalled_gt, threshold])
         else:
             comparison_type_metrics["connection-matrix"]["gt"] = []
             comparison_type_metrics["connection-matrix"]["seg"] = []
