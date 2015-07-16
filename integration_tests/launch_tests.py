@@ -141,6 +141,17 @@ load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi/roi --data-
 p = subprocess.Popen(load_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 dummy, err = p.communicate()
 
+# create synapse key value
+create_synapse_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
+create_synapse_command.append("{\"typename\": \"keyvalue\", \"dataname\" : \"annotations\"}")
+p = subprocess.Popen(create_synapse_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dummy, err = p.communicate()
+
+# load synapses
+load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key/syn --data-binary @%s/resources/synapse_small.json' % (uuid1, testpath)).split()
+p = subprocess.Popen(load_synapse_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dummy, err = p.communicate()
+
 #####  run tests ####
 
 # test 1 label comparison

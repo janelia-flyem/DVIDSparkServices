@@ -191,7 +191,7 @@ class EvaluateSeg(DVIDWorkflow):
        
         point_data = {}
         ### POINT ANALYSIS ###
-        for point_list in self.config_data["dvid-info"]["point-lists"]:
+        for point_list_name in self.config_data["dvid-info"]["point-lists"]:
             # grab point list from DVID
             keyvalue = point_list_name.split('/')
             if len(keyvalue) != 2:
@@ -199,7 +199,8 @@ class EvaluateSeg(DVIDWorkflow):
 
             # is this too large to broadcast?? -- default lz4 should help quite a bit
             # TODO: send only necessary data to each job through join might help
-            point_data[keyvalue[1]] = node_service.get_json(keyvalue[0], keyvalue[1])
+            point_data[keyvalue[1]] = node_service.get_json(str(keyvalue[0]),
+                    str(keyvalue[1]))
             
             # Generate per substack and global stats for given points.
             # Querying will just be done on the local labels stored.
@@ -210,10 +211,8 @@ class EvaluateSeg(DVIDWorkflow):
         # loading into data structures on the driver.
         stats = evaluator.calculate_stats(lpairs_proc)
 
-
         if self.config_data["debug"]:
             print "DEBUG:", json.dumps(stats)
-
 
         # TODO: !! maybe generate a summary view from stats, write that back
         # with simplify output, dump the more complicated file to keyvalue as well

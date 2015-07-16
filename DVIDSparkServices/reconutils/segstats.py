@@ -430,6 +430,9 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
         perbody[key] = val/float(glb_total)
 
     # TODO !! Add per body
+    if glb_total == 0:
+        return 0, 0, fmerge_bodies, fsplit_bodies, perbody
+
     return fmerge_vi/float(glb_total), fsplit_vi/float(glb_total), fmerge_bodies, fsplit_bodies, perbody 
 
 # calculate Rand Index
@@ -466,7 +469,14 @@ def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
 
         fmerge_total += (total*(total-1)/2)
 
-    return overlap_total / float(fmerge_total), overlap_total / float(fsplit_total)
+    merge = 1
+    split = 1
+
+    if fmerge_total != 0:
+        merge  = overlap_total / float(fmerge_total)
+    if  fsplit_total != 0:
+        split = overlap_total / float(fsplit_total)
+    return merge, split
 
 class SubvolumeStats(object):
     def __init__(self, subvolume):
@@ -491,7 +501,7 @@ class SubvolumeStats(object):
             table1, (leftover1, prop1) = connections1[iter1]
             table2, (leftover2, prop2) = connections2[iter1]
         
-            table1.combine_table(table2)
+            table1.combine_tables(table2)
             prop1.update(prop2)
 
             for body, indexset in leftover2.items():
@@ -526,7 +536,7 @@ class SubvolumeStats(object):
                         new_leftovers[body].add(index)
             
             # update list
-            connections[iter1] = (table1, (new_leftovers, prop1))
+            connections1[iter1] = (table1, (new_leftovers, prop1))
 
 
 

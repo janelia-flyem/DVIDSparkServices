@@ -208,7 +208,7 @@ class Evaluate(object):
         return lpairs_split.mapValues(_calcoverlap)
 
 
-    def calcoverlap_pts(lpairs_split, point_list_name, point_data):
+    def calcoverlap_pts(self, lpairs_split, point_list_name, point_data):
         """Calculates point overlap across RDD and records subvolume stats.
 
         This function can be called over any list of points.  "synapse" points
@@ -239,11 +239,11 @@ class Evaluate(object):
         comparsison_type = ComparisonType(str(point_data["type"]),
                 str(point_list_name), point_data["sparse"])
 
-        # combine labels with relevant points 
-        lpairs_split = lpairs_split.join(distpoints)
+        # TODO combine labels with relevant points 
+        #lpairs_split = lpairs_split.join(distpoints)
         
         def _calcoverlap_pts(label_pairs):
-            stats, labelgt_map, label2_map, labelgtc, label2c, points = label_pairs
+            stats, labelgt_map, label2_map, labelgtc, label2c = label_pairs
             
             # decompression
             labelgt = labelgtc.deserialize()
@@ -261,7 +261,7 @@ class Evaluate(object):
             subvolume_pts = {}
             roi = stats.subvolume.roi
             # grab points that overlap
-            for index, point in enumerate(points["point-list"]):
+            for index, point in enumerate(point_data["point-list"]):
                 if point[0] < roi.x2 and point[0] >= roi.x1 and point[1] < roi.y2 and point[1] >= roi.y1 and point[2] < roi.z2 and point[2] >= roi.z1:
                     subvolume_pts[index] = [point[0]-roi.x1, point[1]-roi.y1, point[2]-roi.z1]
                     adjacency_list[index] = set()
@@ -281,8 +281,10 @@ class Evaluate(object):
             for index, point in subvolume_pts.items():
                 # z,y,x -- c order
                 # get bodies on points
-                gtbody = labelgt[(point[2], point[1], point[0])]
-                segbody = label2[(point[2], point[1], point[0])]
+
+                # ints are json serializable
+                gtbody = int(labelgt[(point[2], point[1], point[0])])
+                segbody = int(label2[(point[2], point[1], point[0])])
            
                 # get point index to actual global body 
                 gtbody_mapped = gtbody
@@ -296,15 +298,17 @@ class Evaluate(object):
                 index2body_seg[index] = segbody_mapped
 
                 # load overlaps
-                if (gtbody, segbody) not in temp_overlap_gt:
+                if (gtbody, segbody) not in temp_overlap:
                     temp_overlap[(gtbody,segbody)] = 0
                 temp_overlap[(gtbody,segbody)] += 1
                 
-            for (gt, seg), overlap in temp_overlap_gt.items():
+            for (gt, seg), overlap in temp_overlap.items():
                 overlap_gt.append((gt,seg,overlap))
                 overlap_seg.append((seg,gt,overlap))
 
-            self._load_subvolume_stats(stats, overlap_gt, overalp_seg,
+            comparison_type = ComparisonType(str(point_data["type"]),
+                    str(point_list_name), point_data["sparse"])
+            self._load_subvolume_stats(stats, overlap_gt, overlap_seg,
                     comparison_type, labelgt_map, label2_map)
 
             # if synapse type load total pair matches (save boundary point deps) 
@@ -316,7 +320,7 @@ class Evaluate(object):
                 # add custom synapse type
                 stats.add_gt_syn_connections(OverlapTable(gt_overlap_syn,
                         ComparisonType("synapse-graph", str(point_list_name),
-                        point_data["sparse"], leftover_gt)))
+                        point_data["sparse"])), leftover_gt)
 
                 # grab partial connectivity graph for seg
                 seg_overlap_syn, leftover_seg = \
@@ -326,7 +330,7 @@ class Evaluate(object):
                 # add custom synapse type
                 stats.add_seg_syn_connections(OverlapTable(seg_overlap_syn,
                         ComparisonType("synapse-graph", str(point_list_name),
-                        point_data["sparse"], leftover_seg)))
+                        point_data["sparse"])), leftover_seg)
 
             # points no longer needed
             return (stats, labelgt_map, label2_map, labelgtc, label2c)
@@ -353,7 +357,9 @@ class Evaluate(object):
             * TODO Per body largest corrected -- (could be useful for
             understanding best-case scenarios) -- skeleton version?
             * TODO Best body metrics
-
+            * TODO P/R type metric on clusterings run over connectivity graph??
+            (perhaps run K-means on both sides and then do synapse VI, or agglomerative
+            clustering with a touching or locality constraints )
         
         Importance GT selections, GT noise filters, and importance filters
         (test seg side):
@@ -385,6 +391,8 @@ class Evaluate(object):
             * Ability to handle very large datasets
             * Display bodies that are good, help show best-case scenarios (substacks
             inform this as well)
+            * Multiple metrics that help to inform biology, instruct where to
+            impove, what can be used automatically, etc
 
         Note:
             * Filter for accumulative VI total is not needed since per body VI
@@ -455,11 +463,11 @@ class Evaluate(object):
 
         # verify that leftover list is empty
         for connections in whole_volume_stats.gt_syn_connections:
-            stats, leftovers, props = connections
+            stats, (leftovers, props) = connections
             if len(leftovers) != 0:
                 raise Exception("Synapse leftovers are non-empty")
         for connections in whole_volume_stats.seg_syn_connections:
-            stats, leftovers, props = connections
+            stats, (leftovers, props) = connections
             if len(leftovers) != 0:
                 raise Exception("Synapse leftovers are non-empty")
 
@@ -496,14 +504,18 @@ class Evaluate(object):
             seg_overlap = seg_table.overlap_map
             
             # TODO !! Add normalized per body vi by body size
-            
+           
+            body_threshold_loc = self.body_threshold
+            if comptype.typename != "voxels":
+                body_threshold_loc = 0
+
             # ignore smallest bodies (GT noise could complicate comparisons)
             fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, vi_bodies = \
                                     calculate_vi(gt_table, seg_table,
-                                            self.body_threshold)
+                                            body_threshold_loc)
             fmerge_rand, fsplit_rand  = \
                                     calculate_rand(gt_table, seg_table,
-                                            self.body_threshold)
+                                            body_threshold_loc)
            
             # add rand, vi global,  for each type
             statvi = VIStat(comptype, fmerge_vi, fsplit_vi)
@@ -526,15 +538,15 @@ class Evaluate(object):
           
             # Do not report smallest bodies 
             # examine gt bodies
-            worst_gt_body = -1
-            worst_gt_val = -1
-            worst_fsplit = -1
-            worst_fsplit_body = -1
+            worst_gt_body = 0 
+            worst_gt_val = 0
+            worst_fsplit = 0
+            worst_fsplit_body = 0
             for body, overlapset in gt_overlap.items():
                 total = 0
                 for body2, overlap in overlapset:
                     total += overlap
-                if total < self.body_threshold:
+                if total < body_threshold_loc:
                     continue
                 fsplit = fsplit_bodies[body]
                 vitot = vi_bodies[body]
@@ -551,13 +563,13 @@ class Evaluate(object):
             comparison_type_metrics[typename]["worst-fsplit"] = [worst_fsplit, worst_fsplit_body]
            
             # examine seg bodies
-            worst_fmerge = -1
-            worst_fmerge_body = -1
+            worst_fmerge = 0
+            worst_fmerge_body = 0
             for body, overlapset in seg_overlap.items():
                 total = 0
                 for body2, overlap in overlapset:
                     total += overlap
-                if total < self.body_threshold:
+                if total < body_threshold_loc:
                     continue
                 fmerge = fmerge_bodies[body]
                 comparison_type_metrics[typename]["seg-bodies"][body] = \
