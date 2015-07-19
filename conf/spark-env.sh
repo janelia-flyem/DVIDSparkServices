@@ -55,6 +55,6 @@ export SPARK_WORKER_MEMORY=90g
 export SPARK_LOCAL_DIRS=/scratch/spark/tmp
 
 #export PYSPARK_PYTHON=/usr/local/python-2.7.6/bin/python
-export PYSPARK_PYTHON=/groups/scheffer/home/plazas/development/buildem_sparkcluster/bin/python
+#export PYSPARK_PYTHON=/groups/scheffer/home/plazas/development/buildem_sparkcluster/bin/python
 export SPARK_SLAVES=/scratch/spark/tmp/slaves
 export SPARK_SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=30"

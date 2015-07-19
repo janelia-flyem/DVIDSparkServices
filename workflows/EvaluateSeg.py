@@ -136,7 +136,7 @@ class EvaluateSeg(DVIDWorkflow):
                 distrois, self.config_data["dvid-info"]["label-name"],
                 self.config_data["dvid-info-comp"]["dvid-server"],
                 self.config_data["dvid-info-comp"]["uuid"],
-                self.config_data["dvid-info-comp"]["label-name"])
+                self.config_data["dvid-info-comp"]["label-name"], self.config_data["dvid-info"]["roi"])
        
         def _split_disjoint_labels(label_pairs):
             """Helper function: map subvolumes so disconnected bodies are different labels.

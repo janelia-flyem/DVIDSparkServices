@@ -75,7 +75,7 @@ class ComputeGraph(DVIDWorkflow):
                 self.chunksize)
 
         # map ROI to label volume (1 pixel overlap)
-        label_chunks = self.sparkdvid_context.map_labels64(distrois, self.config_data["dvid-info"]["label-name"], 1)
+        label_chunks = self.sparkdvid_context.map_labels64(distrois, self.config_data["dvid-info"]["label-name"], 1, self.config_data["dvid-info"]["roi"])
 
         # map labels to graph data -- external program (eventually convert neuroproof metrics and graph to a python library) ?!
         sg = SimpleGraph.SimpleGraph(self.config_data["options"]) 

@@ -95,7 +95,7 @@ class sparkdvid(object):
 
 
     # produce mapped ROI RDDs
-    def map_labels64(self, distrois, label_name, border):
+    def map_labels64(self, distrois, label_name, border, roiname=""):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
@@ -111,7 +111,7 @@ class sparkdvid(object):
             size3 = roi[5]+2*border-roi[2]
 
             # retrieve data from roi start position considering border
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-border, roi[1]-border, roi[2]-border), compress=True )
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-border, roi[1]-border, roi[2]-border), compress=True, roi=str(roiname) )
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -121,7 +121,7 @@ class sparkdvid(object):
         return distrois.map(mapper)
 
     # produce mapped ROI RDDs
-    def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2):
+    def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):
         # copy local context to minimize sent data
         server = self.dvid_server
         server2 = dvidserver2
@@ -142,7 +142,7 @@ class sparkdvid(object):
             label_volume = node_service.get_labels3D(str(label_name),
                 (size1,size2,size3),
                 (subvolume.roi[0], subvolume.roi[1],
-                subvolume. roi[2]))
+                subvolume. roi[2]), roi=str(roiname))
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -158,6 +158,9 @@ class sparkdvid(object):
 
             # flip to be in C-order (no performance penalty)
             label_volume2 = label_volume2.transpose((2,1,0))
+
+            # zero out label_volume2 where GT is 0'd out !!
+            label_volume2[label_volume==0] = 0
 
             return (subvolume, CompressedNumpyArray(label_volume),
                                CompressedNumpyArray(label_volume2))
