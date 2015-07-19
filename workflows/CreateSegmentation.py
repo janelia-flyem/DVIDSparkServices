@@ -112,7 +112,7 @@ class CreateSegmentation(DVIDWorkflow):
         # check for custom segmentation plugin 
         segmentation_plugin = ""
         if "segmentation-plugin" in self.config_data["options"]:
-            segmentation_plugin = self.config_data["options"]["segmentation-plugin"]
+            segmentation_plugin = str(self.config_data["options"]["segmentation-plugin"])
 
         # grab seg options
         seg_options = []
@@ -121,7 +121,7 @@ class CreateSegmentation(DVIDWorkflow):
 
         # call the correct segmentation plugin (must be installed)
         segmentor = None
-        if segmentation_plugin == "":
+        if segmentation_plugin == "default":
             segmentor = Segmentor(self.sparkdvid_context, self.config_data, seg_options)
         else:
             import importlib
