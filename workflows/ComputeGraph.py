@@ -74,6 +74,8 @@ class ComputeGraph(DVIDWorkflow):
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
                 self.chunksize)
 
+        num_partitions = distrois.getNumPartitions()
+
         # map ROI to label volume (1 pixel overlap)
         label_chunks = self.sparkdvid_context.map_labels64(distrois, self.config_data["dvid-info"]["label-name"], 1, self.config_data["dvid-info"]["roi"])
 
@@ -85,6 +87,11 @@ class ComputeGraph(DVIDWorkflow):
 
         # group data for vertices and edges
         graph_elements_red = graph_elements.reduceByKey(lambda a, b: a + b) 
+       
+        # repartition by first vertex to better group edges together
+        graph_elements_red = graph_elements_red.partitionBy(num_partitions,
+                lambda a: hash(a[0]))
+        
         graph_elements_red.persist(StorageLevel.MEMORY_ONLY) # ??
         graph_vertices = graph_elements_red.filter(sg.is_vertex)
         graph_edges = graph_elements_red.filter(sg.is_edge)
