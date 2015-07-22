@@ -515,20 +515,21 @@ class SubvolumeStats(object):
             for body, indexset in leftover1.items():
                 for index in indexset:
                     if index in prop1:
-                        if body not in table1.overlap_map:
-                            # add one point
-                            table1.overlap_map[body] = set([(prop1[index],1)])
-                        else:
-                            rm_overlap = None
-                            for (body2, overlap) in table1.overlap_map[body]:
-                                if body2 == prop1[index]:
-                                    rm_overlap = (body2, overlap)
-                                    break
-                            overlap = 0
-                            if rm_overlap is not None:
-                                table1.overlap_map[body].remove(rm_overlap)
-                                overlap = rm_overlap[1]
-                            table1.overlap_map[body].add((prop1[index], overlap+1))
+                        if prop1[index] != -1:
+                            if body not in table1.overlap_map:
+                                # add one point
+                                table1.overlap_map[body] = set([(prop1[index],1)])
+                            else:
+                                rm_overlap = None
+                                for (body2, overlap) in table1.overlap_map[body]:
+                                    if body2 == prop1[index]:
+                                        rm_overlap = (body2, overlap)
+                                        break
+                                overlap = 0
+                                if rm_overlap is not None:
+                                    table1.overlap_map[body].remove(rm_overlap)
+                                    overlap = rm_overlap[1]
+                                table1.overlap_map[body].add((prop1[index], overlap+1))
                     else:
                         # repopulate
                         if body not in new_leftovers:

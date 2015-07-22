@@ -47,8 +47,11 @@ def split_disconnected_bodies(label2):
     # needed to remap split labels into original coordinates
     remapping = {}
     label2_map = {}
-    remap_id = int(label2.max() + 1)
 
+    # 0=>0
+    remapping[0] = 0
+    remap_id = int(label2.max() + 1)
+    
     for orig, newset in stats2.overlap_map.items():
         if len(newset) == 1:
             remapping[next(iter(newset))[0]] = orig

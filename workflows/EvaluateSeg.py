@@ -212,7 +212,12 @@ class EvaluateSeg(DVIDWorkflow):
         stats = evaluator.calculate_stats(lpairs_proc)
         
         # none or false
-        if self.config_data["debug"]:
+
+        debug = False
+        if "debug" in self.config_data:
+            debug = self.config_data["debug"]
+
+        if debug:
             print "DEBUG:", json.dumps(stats)
 
         # TODO: !! maybe generate a summary view from stats, write that back

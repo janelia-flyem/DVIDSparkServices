@@ -35,8 +35,8 @@ class Evaluate(object):
         self.uuid = config["dvid-info"]["uuid"]
         self.body_threshold = config["options"]["body-threshold"]
         self.debug = False
-        if config["debug"]:
-            self.debug = True 
+        if "debug" in config:
+            self.debug = config["debug"]
 
     def _extract_distribution(self, body_overlap):
         """Helper function: extracts sorted list of body sizes.
@@ -103,9 +103,10 @@ class Evaluate(object):
                 else:
                     # add connection
                     body2 = index2body_seg[index2]
-                    if (body, body2) not in seg_connections:
-                        seg_connections[(body, body2)] = 0
-                    seg_connections[(body,body2)] += 1
+                    if body2 != -1:
+                        if (body, body2) not in seg_connections:
+                            seg_connections[(body, body2)] = 0
+                        seg_connections[(body,body2)] += 1
 
         # put in same format as other overlap structures
         seg_overlap_syn = []
@@ -296,7 +297,13 @@ class Evaluate(object):
                 # ints are json serializable
                 gtbody = int(labelgt[(point[2], point[1], point[0])])
                 segbody = int(label2[(point[2], point[1], point[0])])
-           
+          
+                # ignore all 0 points
+                if gtbody == 0:
+                    index2body_gt[index] = -1
+                    index2body_seg[index] = -1
+                    continue
+
                 # get point index to actual global body 
                 gtbody_mapped = gtbody
                 if gtbody in labelgt_map:
