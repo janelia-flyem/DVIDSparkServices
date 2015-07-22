@@ -539,7 +539,29 @@ class Evaluate(object):
             # pretty resistant to noise since not going to 100%
             edit_distance = EditDistanceStat(comptype, gt_overlap, seg_overlap) 
             edit_distance.write_to_dict(comparison_type_metrics)
-            
+           
+            ###### BEST BODY STATS ######
+            # just use max overlap if >50%
+            important_segbodies = {}
+            for gt, overlapset in gt_overlap.items():
+                total = 0
+                max_id = 0
+                max_val = 0
+                for seg, overlap in overlapset:
+                    total += overlap
+                    if overlap > max_val:
+                        max_val = overlap
+                        max_id = seg
+                # find size of seg body
+                total2 = 0
+                for seg2, overlap in seg_overlap[max_id]:
+                    total2 += overlap 
+                
+                # match body if over half of the seg
+                if max_val > total2/2:
+                    important_segbodies[max_id] = max_val
+
+
             ###### PER BODY VI STATS ######
             
             # id -> [vifsplit, vitotal, size]
@@ -576,6 +598,10 @@ class Evaluate(object):
             # examine seg bodies
             worst_fmerge = 0
             worst_fmerge_body = 0
+
+            best_size = 0
+            best_body_id = 0
+
             for body, overlapset in seg_overlap.items():
                 total = 0
                 for body2, overlap in overlapset:
@@ -583,14 +609,24 @@ class Evaluate(object):
                 if total < body_threshold_loc:
                     continue
                 fmerge = fmerge_bodies[body]
+
+                maxoverlap = 0
+                if body in important_segbodies:
+                    maxoverlap = important_segbodies[body]
+
+                if maxoverlap > best_size:
+                    best_size = maxoverlap
+                    best_body_id = body
+
                 comparison_type_metrics[typename]["seg-bodies"][body] = \
-                        [fmerge, total]
+                        [fmerge, maxoverlap, total]
                 
                 if fmerge > worst_fmerge:
                     worst_fmerge = fmerge
                     worst_fmerge_body = body
 
             comparison_type_metrics[typename]["worst-fmerge"] = [worst_fmerge, worst_fmerge_body]
+            comparison_type_metrics[typename]["greatest-overlap"] = [best_size, best_body_id]
      
         #### Connection Matrix and Connection Stats ############
 
