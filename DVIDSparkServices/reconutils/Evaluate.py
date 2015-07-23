@@ -94,19 +94,20 @@ class Evaluate(object):
             prop_indices[child] = index2body_seg[child]
 
         for index, body in index2body_seg.items():
-            for index2 in adjacency_list[index]:
-                if index2 not in index2body_seg:
-                    # resolve index later in reduce
-                    if body not in leftover_seg:
-                        leftover_seg[body] = set()
-                    leftover_seg[body].add(index2)
-                else:
-                    # add connection
-                    body2 = index2body_seg[index2]
-                    if body2 != -1:
-                        if (body, body2) not in seg_connections:
-                            seg_connections[(body, body2)] = 0
-                        seg_connections[(body,body2)] += 1
+            if body != -1:
+                for index2 in adjacency_list[index]:
+                    if index2 not in index2body_seg:
+                        # resolve index later in reduce
+                        if body not in leftover_seg:
+                            leftover_seg[body] = set()
+                        leftover_seg[body].add(index2)
+                    else:
+                        # add connection
+                        body2 = index2body_seg[index2]
+                        if body2 != -1:
+                            if (body, body2) not in seg_connections:
+                                seg_connections[(body, body2)] = 0
+                            seg_connections[(body,body2)] += 1
 
         # put in same format as other overlap structures
         seg_overlap_syn = []
@@ -479,15 +480,19 @@ class Evaluate(object):
             else:
                 whole_volume_stats.merge_stats(subvol_stats)
 
+
+
+
         # verify that leftover list is empty
-        for connections in whole_volume_stats.gt_syn_connections:
-            stats, (leftovers, props) = connections
-            if len(leftovers) != 0:
-                raise Exception("Synapse leftovers are non-empty")
         for connections in whole_volume_stats.seg_syn_connections:
             stats, (leftovers, props) = connections
             if len(leftovers) != 0:
                 raise Exception("Synapse leftovers are non-empty")
+        for connections in whole_volume_stats.gt_syn_connections:
+            stats, (leftovers, props) = connections
+            if len(leftovers) != 0:
+                raise Exception("Synapse leftovers are non-empty")
+
 
         # store subvolume results 
         metric_results['subvolumes'] = allsubvolume_metrics

@@ -393,6 +393,12 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
     ignore_bodies = set()
 
     # examine fragmentation of gt (fsplit=oversegmentation)
+    # filtering bodies will bias things to oversegmentation errors
+    # since we are ignoring small errors in GT which would have
+    # otherwise been mostly good in the other segmentation -- this
+    # is appropriate since the filtering is to handle inacuracies
+    # in the voxel ground truth -- needing filtering might result in
+    # less useable total VI body metrics since the GT is sparser
     for (gtbody, overlapset) in gtoverlap.overlap_map.items():
         if get_body_volume(overlapset) < body_threshold:
             # ignore as if it never existed
@@ -403,7 +409,7 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
         fsplit_bodies[gtbody] = vi_unnorm
         perbody[gtbody] = vi_unnorm
         glb_total += total
-        fmerge_vi += vi_unnorm
+        fsplit_vi += vi_unnorm
 
     # examine fragmentation of seg (fmerge=undersegmentation)
     for (segbody, overlapset) in segoverlap.overlap_map.items():
@@ -415,7 +421,7 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
 
         vi_unnorm, total, gtcontribs = body_vi(filtered_overlapset)
         fmerge_bodies[segbody] = vi_unnorm
-        fsplit_vi += vi_unnorm
+        fmerge_vi += vi_unnorm
 
         for key, val in gtcontribs.items():
             perbody[key] += val
@@ -505,10 +511,10 @@ class SubvolumeStats(object):
             prop1.update(prop2)
 
             for body, indexset in leftover2.items():
-                if body not in leftovers1:
+                if body not in leftover1:
                     leftover1[body] = indexset
                 else:
-                    leftover1[body].union(indexset)
+                    leftover1[body] = leftover1[body].union(indexset)
 
             new_leftovers = {} 
             # try to resolve more unknown values
