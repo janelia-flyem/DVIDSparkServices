@@ -50,11 +50,14 @@ class Evaluate(object):
         count = 0
         cumdisttemp = []
         for body, overlapset in body_overlap.items():
+            localcount = 0
             for (body2, overlap) in overlapset:
-                count += overlap
-                cumdisttemp.append(overlap)
+                localcount += overlap
+            count += localcount
+            cumdisttemp.append(localcount)
 
-        cumdist = [val/float(count) for val in cumdisttemp]
+        # round to 4 decimals
+        cumdist = [round(val/float(count),4) for val in cumdisttemp]
         cumdist.sort()
         cumdist.reverse()
         return cumdist
