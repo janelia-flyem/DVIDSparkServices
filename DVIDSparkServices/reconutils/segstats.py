@@ -427,19 +427,19 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
             perbody[key] += val
 
     for key, val in fsplit_bodies.items():
-        fsplit_bodies[key] = val/float(glb_total)
+        fsplit_bodies[key] = round(val/float(glb_total),4)
     
     for key, val in fmerge_bodies.items():
-        fmerge_bodies[key] = val/float(glb_total)
+        fmerge_bodies[key] = round(val/float(glb_total),4)
     
     for key, val in perbody.items():
-        perbody[key] = val/float(glb_total)
+        perbody[key] = round(val/float(glb_total),4)
 
     # TODO !! Add per body
     if glb_total == 0:
         return 0, 0, fmerge_bodies, fsplit_bodies, perbody
 
-    return fmerge_vi/float(glb_total), fsplit_vi/float(glb_total), fmerge_bodies, fsplit_bodies, perbody 
+    return round(fmerge_vi/float(glb_total),4), round(fsplit_vi/float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
 
 # calculate Rand Index
 def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
@@ -479,9 +479,9 @@ def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
     split = 1
 
     if fmerge_total != 0:
-        merge  = overlap_total / float(fmerge_total)
+        merge  = round(overlap_total / float(fmerge_total),4)
     if  fsplit_total != 0:
-        split = overlap_total / float(fsplit_total)
+        split = round(overlap_total / float(fsplit_total),4)
     return merge, split
 
 class SubvolumeStats(object):
