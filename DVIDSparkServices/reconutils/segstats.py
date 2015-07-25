@@ -365,10 +365,10 @@ def body_vi(overlapset):
     decomp_bodies = {}
     vi_unnorm = 0
     for (segid, overlap) in overlapset:
-        vi_unnorm += overlap*log(total/overlap)/log(2.0)
+        vi_unnorm += overlap*log(total/float(overlap))/log(2.0)
         if segid not in decomp_bodies:
             decomp_bodies[segid] = 0
-        decomp_bodies[segid] += overlap*log(total/overlap)/log(2.0)
+        decomp_bodies[segid] += overlap*log(total/float(overlap))/log(2.0)
 
     return vi_unnorm, total, decomp_bodies
 
