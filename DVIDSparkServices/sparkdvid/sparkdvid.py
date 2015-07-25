@@ -13,7 +13,7 @@ class sparkdvid(object):
     # Produce RDDs for each subvolume partition (this will replace default implementation)
     # Treats subvolum index as the RDD key and maximizes partition count for now
     # Assumes disjoint subsvolumes in ROI
-    def parallelize_roi_new(self, roi, chunk_size, border=0, find_neighbors=True):
+    def parallelize_roi(self, roi, chunk_size, border=0, find_neighbors=False):
         # function will export and should include dependencies
         subvolumes = [] # x,y,z,x2,y2,z2
 
@@ -24,14 +24,10 @@ class sparkdvid(object):
         substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE) 
        
         # create roi array giving unique substack ids
-        substack_id = 0
-        for substack in substacks:
+        for substack_id, substack in enumerate(substacks):
             # use substack id as key
             subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border))) 
-            substack_id += 1
    
-            #if substack_id == 2:
-            #    break
 
         # grab all neighbors for each substack
         if find_neighbors:
@@ -43,24 +39,6 @@ class sparkdvid(object):
         # Potential TODO: custom partitioner for grouping close regions
         return self.sc.parallelize(subvolumes, len(subvolumes))
 
-    # produce RDDs for each ROI partition -- should there be an option for number of slices?
-    def parallelize_roi(self, roi, chunk_size):
-        # function will export and should include dependencies
-        rois = [] # x,y,z,x2,y2,z2
-
-        from libdvid import DVIDNodeService, SubstackXYZ
-        
-        # extract roi
-        node_service = DVIDNodeService(str(self.dvid_server), str(self.uuid))
-
-        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE) 
-        for substack in substacks:
-            rois.append((substack[0], substack[1], substack[2],
-                    substack[0] + chunk_size,
-                    substack[1] + chunk_size,
-                    substack[2] + chunk_size)) 
-
-        return self.sc.parallelize(rois, len(rois))
 
 
     # (key, ROI) => (key, ROI, grayscale)
@@ -100,25 +78,25 @@ class sparkdvid(object):
         server = self.dvid_server
         uuid = self.uuid
 
-        def mapper(roi):
+        def mapper(subvolume):
             from libdvid import DVIDNodeService
             # extract labels 64
             node_service = DVIDNodeService(str(server), str(uuid))
           
             # get sizes of roi
-            size1 = roi[3]+2*border-roi[0]
-            size2 = roi[4]+2*border-roi[1]
-            size3 = roi[5]+2*border-roi[2]
+            size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
+            size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
+            size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
 
             # retrieve data from roi start position considering border
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (roi[0]-border, roi[1]-border, roi[2]-border), compress=True, roi=str(roiname) )
+            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (subvolume.roi[0]-border, subvolume.roi[1]-border, subvolume.roi[2]-border), compress=True, roi=str(roiname) )
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
             
             return label_volume
 
-        return distrois.map(mapper)
+        return distrois.mapValues(mapper)
 
     # produce mapped ROI RDDs
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):

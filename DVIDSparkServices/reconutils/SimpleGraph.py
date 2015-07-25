@@ -46,12 +46,12 @@ class SimpleGraph(object):
         return elements
 
 
-    def build_graph(self, label_chunk):
+    def build_graph(self, key_label_chunk):
         if self.external_prog == "":
             # TODO: default slow python implementation ??
             #return []
             import numpy
-            vertices = numpy.unique(label_chunk)
+            vertices = numpy.unique(key_label_chunk[1])
            
             # just add a vertex of size 1 for each
             elements = []
@@ -66,7 +66,7 @@ class SimpleGraph(object):
             # call program that expects label stdin and produces graph stdout
             from subprocess import Popen, PIPE, STDOUT
             p = Popen([self.external_prog], stdout=PIPE, stdin=PIPE, stderr=PIPE)
-            graphstr = p.communicate(input=self.vol2string(label_chunk))[0]
+            graphstr = p.communicate(input=self.vol2string(key_label_chunk[1]))[0]
             return self.string2graph(graphstr) 
         
     def is_vertex(self, element_pair):

@@ -125,8 +125,8 @@ class EvaluateSeg(DVIDWorkflow):
             self.chunksize = self.config_data["options"]["chunk-size"]
 
         #  grab ROI (no overlap and no neighbor checking)
-        distrois = self.sparkdvid_context.parallelize_roi_new(self.config_data["dvid-info"]["roi"],
-                self.chunksize, 0, False)
+        distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
+                self.chunksize)
 
         # map ROI to two label volumes (0 overlap)
         # this will be used for all volume and point overlaps

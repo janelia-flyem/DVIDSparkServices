@@ -101,9 +101,9 @@ class CreateSegmentation(DVIDWorkflow):
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
         # grab ROI subvolumes and find neighbors
-        distsubvolumes = self.sparkdvid_context.parallelize_roi_new(
+        distsubvolumes = self.sparkdvid_context.parallelize_roi(
                 self.config_data["dvid-info"]["roi"],
-                self.chunksize, self.overlap/2)
+                self.chunksize, self.overlap/2, True)
 
         # get grayscale chunks with specified overlap
         gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes,
