@@ -1,4 +1,18 @@
+"""Defines base class for segmentation plugins."""
+
+
 class Segmentor(object):
+    """Contains functionality for segmenting large datasets.
+    
+    It implements a very crude watershed algorithm by default.
+    Users are expected to overwrite the segmentation function
+    at least.  The other functions involving stitching the
+    subvolumes and performing other RDD and DVID manipulations.
+
+    Plugins should be placed in DVIDSparkServices.reconutils.plugins.
+
+    """
+
     # determines what pixels are used as seeds (0-255 8-bit range)
     SEED_THRES = 150 
    
@@ -23,9 +37,13 @@ class Segmentor(object):
         else:
             raise Exception("Invalid stitch mode specified")
 
-
-    # simple, default seeded watershed-based segmentation
     def segment(self, gray_chunks):
+        """Simple, default seeded watershed off of grayscale
+
+        Overwrite with custom implementation.
+
+        """
+        
         from scipy.ndimage import label
         from scipy.ndimage.morphology import binary_closing
         from numpy import bincount 

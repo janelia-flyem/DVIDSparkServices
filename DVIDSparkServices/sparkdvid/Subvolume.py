@@ -1,17 +1,36 @@
+"""Defines Subvolume class
+
+Many DVID operations involve working on a large 3D dataset.
+The subvolumes frequently define the RDD partitioning for
+different transformations in sparkdvid.
+
+"""
+
 import collections
     
 SubvolumeNamedTuple = collections.namedtuple('SubvolumeNamedTuple',
             'x1 y1 z1 x2 y2 z2')
 
 class Subvolume(object):
-    """
-    Contains subvolume for DVID ROI datatype.  It also adds an
-    index which can be used with a spark partitioner
-    and provides functionality for some Subvolume based operations.
-    Assume neighboring Subvolumes are disjoint.
+    """Define subvolume datatype.
+
+    The subvolume provides X,Y,Z locations in DVID coordinates
+    and has other information like neighboring substacks
+    (if this infor is computed).  It has several functions for
+    helping to determine overlap between substacks.
+    
     """
 
     def __init__(self, roi_id, roi, chunk_size, border):
+        """Initializes subvolume.
+
+        Args:
+            roi_id (int): identifier key for subvolume (must be unique)
+            roi ([]): x,y,z array
+            chunk_size (int): dimension of subvolume (assume isotropic)
+            border (int): border size surrounding core subvolume    
+        """
+
         self.roi_id = roi_id
         self.max_id = 0
         self.roi = SubvolumeNamedTuple(roi[0],

@@ -1,3 +1,10 @@
+"""Defines the a workflow within the context of DVIDSparkServices.
+
+This module only contains the Workflow class and a sepcial
+exception type for workflow errors.
+
+"""
+
 from jsonschema import validate
 from jsonschema import ValidationError
 import json
@@ -10,8 +17,24 @@ class WorkflowError(Exception):
 
 # defines workflows that work over DVID
 class Workflow(object):
+    """Base class for all DVIDSparkServices workflow.
+
+    The class handles general workflow functionality such
+    as handling the json schema interface required by
+    all workflows and starting a spark context.
+
+    """
+
     def __init__(self, jsonfile, schema, appname):
-        
+        """Initialization of workflow object.
+
+        Args:
+            jsonfile (dict): json config data for workflow
+            schema (dict): json schema for workflow
+            appname (str): name of the spark application
+
+        """
+
         self.config_data = None
         schema_data = json.loads(schema)
 
@@ -31,10 +54,13 @@ class Workflow(object):
         # create spark context
         self.sc = self._init_spark(appname)
 
-
-    # initialize spark context
     def _init_spark(self, appname):
-        # only load spark when creating a workflow
+        """Internal function to setup spark context
+        
+        Note: only include spark modules here so that
+        the interface can be queried outside of pyspark.
+
+        """
         from pyspark import SparkContext, SparkConf
         from DVIDSparkServices.sparkdvid.CompressedSerializerLZ4 import CompressedSerializerLZ4
 
@@ -52,16 +78,23 @@ class Workflow(object):
                        ]
                       )
 
+        # currently using LZ4 compression: should not degrade runtime much
+        # but will help with some operations like shuffling, especially when
+        # dealing with things object like highly compressible label volumes
+        # NOTE: objects > INT_MAX will cause problems for LZ4
         return SparkContext(conf=sconfig, serializer=CompressedSerializerLZ4())
-
 
     # make this an explicit abstract method ??
     def execute(self):
+        """Children must provide their own execution code"""
+        
         raise WorkflowError("No execution function provided")
 
     # make this an explicit abstract method ??
     @staticmethod
     def dumpschema():
+        """Children must provide their own json specification"""
+
         raise WorkflowError("Derived class must provide a schema")
          
 

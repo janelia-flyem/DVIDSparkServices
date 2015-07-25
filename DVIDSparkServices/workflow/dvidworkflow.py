@@ -1,3 +1,5 @@
+"""Contains information for DVID-related workflows"""
+
 import json
 from jsonschema import validate
 from jsonschema import ValidationError
@@ -10,6 +12,13 @@ from DVIDSparkServices.sparkdvid import sparkdvid
 
 # defines workflows that work over DVID
 class DVIDWorkflow(Workflow):
+    """ A type of workflow for DVID-specific workflows.
+
+    Provides functionality that constrains/conforms the
+    json schema interface and creates a sparkdvid instance.
+
+    """
+
     # must specify server and uuid
     DVIDSchema = """
 { "$schema": "http://json-schema.org/schema#",

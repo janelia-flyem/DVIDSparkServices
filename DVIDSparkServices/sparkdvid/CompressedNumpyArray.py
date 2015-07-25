@@ -1,20 +1,44 @@
+"""Defines class for compressing/decompressing numpy arrays.
+
+Some numpy datasets are very large but sparse in label information.
+For instance, segmentation label volumes are highly compressible
+(for instance 1GB can be losslessly compressed <50 MB).  The cPickler
+and default Spark does not compress serialized data.
+
+The LZ4 compressor defined in CompressedSerializerLZ4 could be
+used by itself but the cPickler is really slow.  It makes sense
+to make a specific serialization/deserialization routine for
+numpy arrays.  Then the cPickler works much faster over a much
+smaller binary string.  The double LZ4 compression will also
+lead to additional compression and is only a small fraction
+of the original compression by construction.
+
+Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
+
+"""
+
 import numpy
 import lz4
 import struct
 import StringIO
 
 class CompressedNumpyArray(object):
-    """
-    Serialize/deserialize and compress/decompress numpy array.
+    """ Serialize/deserialize and compress/decompress numpy array.
+    
     This should speed up cPickling for large arrays for
     compressible arrays and improve cluster memory performance.
-    LZ4 can still be implemented after RDD serialization as LZ4
-    is very fast and multiple passes will lead to better compression.
+    
+    Note: The lz4 is limited to INT_MAX size.  Since labelvolumes
+    can be much smaller in compressed space, this function
+    supports arbitrarily large numpy arrays.  They are serialized
+    as a list of LZ4 chunks where each chunk decompressed is 1GB.
+
     """
     lz4_chunk = 1000000000
    
-    # serializes and compresses numpy array with lz4
     def __init__(self, numpy_array):
+        """Serializes and compresses the numpy array with LZ4"""
+        
         # write numpy to memory using StringIO
         memfile = StringIO.StringIO()
         numpy.save(memfile, numpy_array)
@@ -28,8 +52,9 @@ class CompressedNumpyArray(object):
         for index in range(0, len(numpy_array_binary), self.lz4_chunk):
             self.serialized_data.append(lz4.dumps(numpy_array_binary[index:index+self.lz4_chunk]))
         
-    # extract numpy array
     def deserialize(self):
+        """Extract the numpy array"""
+        
         index = 0
         deserialized_data = ""
 

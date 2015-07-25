@@ -1,3 +1,12 @@
+"""Framework for general subvolume-based segmentation.
+
+Segmentation is defined over overlapping subvolumes.  The user
+can provide a custom algorithm for handling subvolume segmentation.
+This workflow will run this algorithm (or its default) and stitch
+the results together.
+
+"""
+
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class CreateSegmentation(DVIDWorkflow):

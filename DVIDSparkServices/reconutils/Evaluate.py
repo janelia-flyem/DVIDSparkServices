@@ -13,8 +13,6 @@ import numpy
 from segstats import *
 from morpho import *
 
-# TODO!! add stat jsonschema
-
 class Evaluate(object):
     """Class to handle various aspects of segmentation evaluation workflow.
 

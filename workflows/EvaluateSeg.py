@@ -1,3 +1,5 @@
+"""Defines workflow for extracting stats to compare two segmentations."""
+
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class EvaluateSeg(DVIDWorkflow):
@@ -103,6 +105,8 @@ class EvaluateSeg(DVIDWorkflow):
     # view -- but summary numbers can mostly be computed from scratch
 
     chunksize = 256
+    
+    # 'seg-metrics' at the specified UUID will contain the evaluation results
     writelocation = "seg-metrics"
 
     def __init__(self, config_filename):
