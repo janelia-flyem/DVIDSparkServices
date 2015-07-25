@@ -1,8 +1,9 @@
 # Spark Implemented EM Reconstruction Workflows  [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/HHMI_Janelia_Color_Alternate_180x40.png)](http://www.janelia.org)
 
-Provides python utitlies for interacting with EM data stored in DVID.
-Several sample workflows are provided as well as infrastructure for custom
-plugin modules.
+Provides python Spark utitlies for interacting with EM data stored in [DVID](https://github.com/janelia-flyem/dvid).
+Several workflows are provided, such as large-scale image segmentation, region-adjacency-graph building, and evaluating the similarity between two image segmentaitons.  DVIDSparkServices provide an infrastructure for custom workflow and segmentation plugins and a library for accessing DVID through Spark RDDs.
+
+The primary goal of this package is to better analyze and manipulate large EM datasets used in Connectomics (such as those needed for the [the Fly EM project](https://www.janelia.org/project-team/fly-em)).  Other applications that leverage DVID might also benefit from this infrastructure.
 
 ## Installation
 
