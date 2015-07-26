@@ -42,6 +42,11 @@ class Segmentor(object):
 
         Overwrite with custom implementation.
 
+        Args:
+            gray_chunks (RDD) = (subvolume key, (subvolume, numpy grayscale))
+        Returns:
+            segmentation (RDD) as (subvolume key, (subvolume, numpy compressed array))
+
         """
         
         from scipy.ndimage import label
