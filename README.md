@@ -5,23 +5,75 @@ Several workflows are provided, such as large-scale image segmentation, region-a
 
 The primary goal of this package is to better analyze and manipulate large EM datasets used in Connectomics (such as those needed for the [the Fly EM project](https://www.janelia.org/project-team/fly-em)).  Other applications that leverage DVID might also benefit from this infrastructure.
 
+Please consult the corresponding wiki for more details on the implemented plugins and other architectural discussions: [https://github.com/janelia-flyem/DVIDSparkServices/wiki](https://github.com/janelia-flyem/DVIDSparkServices/wiki)
+
 ## Installation
+To simplify the build we now use the [conda-build](http://conda.pydata.org/docs/build.html) tool.
+The resulting binary is uploaded to the [flyem binstar channel](https://binstar.org/flyem),
+and can be installed using the [conda](http://conda.pydata.org/) package manager (instructions below).  The installation
+will install all of the DVIDSparkServices dependencies including python.
 
-Python dependences: jsonschema, [libdvidcpp](https://github.com/janelia-flyem/libdvid-cpp), argparse, importlib, requests
+If one desires to build all the dependencies outside of conda, please consult the recipe found in [Fly EM's conda recipes](https://github.com/janelia-flyem/flyem-build-conda.git) under *dvidsparkservices*/meta.yaml.
 
-    % python setup build
-    % python setup install
+*Other dependencies might be required for custom plugin workflows.*
 
-*Other dependencies might be required for certain workflows.*
+### CONDA Installation
+The [Miniconda](http://conda.pydata.org/miniconda.html) tool first needs to installed:
 
-A pre-built spark binary can be downloaded from [http://spark.apache.org/downloads.html](http://spark.apache.org/downloads.html)
+```
+# Install miniconda to the prefix of your choice, e.g. /my/miniconda
+
+# LINUX:
+wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh
+bash Miniconda-latest-Linux-x86_64.sh
+
+# MAC:
+wget https://repo.continuum.io/miniconda/Miniconda-latest-MacOSX-x86_64.sh
+bash Miniconda-latest-MacOSX-x86_64.sh
+
+# Activate conda
+CONDA_ROOT=`conda info --root`
+source ${CONDA_ROOT}/bin/activate root
+```
+Once conda is in your system path, call the following to install neuroproof:
+
+    % conda create -n <NAME> -c flyem dvidsparkservices
+    
+Conda allows builders to create multiple environments.  To use DVIDSparkServices
+set your executable path to PREFIX/< NAME >/ bin.
+
+### Installation Part 2
+
+The conda package builder is needed primarily to build DVIDSparkServices' dependencies.  Once the package is installed, it is recommended that users clone this repo and then install the latest python files:
+
+    % python setup.py build
+    % python setup.py install
+    
+One needs to make sure their path is set (mentioned in the previous section) to use the python installed with Conda.
+
+### PySpark
+
+To use the libraries, Spark needs to be installed [http://spark.apache.org/downloads.html](http://spark.apache.org/downloads.html).  To facilitate debugging, use
+a pre-built version of Spark.
+
+## General Usage
+
+Once installed, the workflows can be called with even a local spark context.  This is very useful for debugging and analyzing the performance of small jobs.
 
 Example command:
 
-    % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c example/config_example.json
+    % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c <configfile>.json
 
-This calls the module ComputeGraph with the provide configuration in JSON.  One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input. 
+This calls the module ComputeGraph with the provided configuration in JSON.  Each plugin defines its own configuration.
+One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input.  
 
+For examples of how to run the various workflow, please consult the integration_tests.
+
+## Testing
+
+To test the correctness of the package, an integration test is supplied for most of the available workflows.  To run the regressions, one must have a local version of the DVID server running on port 8000 and spark-submit must be in the runtime path.  Then the following command initializes DVID datastrucutres and runs different workflows:
+
+    % python integration_tests/launch_tests.py PREFIX/integration_tests/
 
 ## Workflow Plugins
 
