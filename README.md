@@ -1,115 +1,133 @@
 # Spark Implemented EM Reconstruction Workflows  [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/HHMI_Janelia_Color_Alternate_180x40.png)](http://www.janelia.org)
 
-Provides python utitlies for interacting with EM data stored in DVID.
-Several sample workflows are provided as well as infrastructure for custom
-plugin modules.
+This package provides python Spark utilities for interacting with EM data stored in [DVID](https://github.com/janelia-flyem/dvid).
+Several workflows are provided, such as large-scale image segmentation, region-adjacency-graph building, and evaluating the similarity between two image segmentations.  DVIDSparkServices provides an infrastructure for custom workflow and segmentation plugins and a library for accessing DVID through Spark RDDs.
+
+The primary goal of this package is to better analyze and manipulate large EM datasets used in Connectomics (such as those needed for the [the Fly EM project](https://www.janelia.org/project-team/fly-em)).  Other applications that leverage DVID might also benefit from this infrastructure.
+
+Please consult the corresponding wiki for more details on the implemented plugins and other architectural discussions: [https://github.com/janelia-flyem/DVIDSparkServices/wiki](https://github.com/janelia-flyem/DVIDSparkServices/wiki)
 
 ## Installation
+To simplify the build we now use the [conda-build](http://conda.pydata.org/docs/build.html) tool.
+The resulting binary is uploaded to the [flyem binstar channel](https://binstar.org/flyem),
+and can be installed using the [conda](http://conda.pydata.org/) package manager (instructions below).  The installation
+will install all of the DVIDSparkServices dependencies including python.
 
-Python dependences: jsonschema, [libdvidcpp](https://github.com/janelia-flyem/libdvid-cpp), argparse, importlib, requests
+If one desires to build all the dependencies outside of conda, please consult the recipe found in [Fly EM's conda recipes](https://github.com/janelia-flyem/flyem-build-conda.git) under *dvidsparkservices*/meta.yaml.
 
-    % python setup build
-    % python setup install
+*Note: other dependencies might be required for custom plugin workflows.*
 
-*Other dependencies might be required for certain workflows.*
+### CONDA Installation
+The [Miniconda](http://conda.pydata.org/miniconda.html) tool first needs to installed:
 
-A pre-built spark binary can be downloaded from [http://spark.apache.org/downloads.html](http://spark.apache.org/downloads.html)
+```
+# Install miniconda to the prefix of your choice, e.g. /my/miniconda
+
+# LINUX:
+wget https://repo.continuum.io/miniconda/Miniconda-latest-Linux-x86_64.sh
+bash Miniconda-latest-Linux-x86_64.sh
+
+# MAC:
+wget https://repo.continuum.io/miniconda/Miniconda-latest-MacOSX-x86_64.sh
+bash Miniconda-latest-MacOSX-x86_64.sh
+
+# Activate conda
+CONDA_ROOT=`conda info --root`
+source ${CONDA_ROOT}/bin/activate root
+```
+Once conda is in your system path, call the following to install dvidsparkservices:
+
+    % conda create -n <NAME> -c flyem dvidsparkservices
+    
+Conda allows builders to create multiple environments (< NAME >).  To use DVIDSparkServices
+set your executable path to PREFIX/< NAME >/ bin.
+
+### Installation Part 2
+
+The conda package builder is needed primarily to build DVIDSparkServices' dependencies.  Once the package is installed, it is recommended that users clone this repo and then install the latest python files:
+
+    % python setup.py build
+    % python setup.py install
+    
+One needs to make sure their path is set (mentioned in the previous section) to use the python installed with Conda.
+
+### PySpark
+
+To use the libraries, Spark needs to be installed [http://spark.apache.org/downloads.html](http://spark.apache.org/downloads.html).  To facilitate debugging, use
+a pre-built version of Spark.
+
+## General Usage
+
+Once installed, the workflows can be called even with a local spark context.  This is very useful for debugging and analyzing the performance of small jobs.
 
 Example command:
 
-    % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c example/config_example.json
+    % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c <configfile>.json
 
-This calls the module ComputeGraph with the provide configuration in JSON.  One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input. 
+This calls the module ComputeGraph with the provided configuration in JSON.  Each plugin defines its own configuration.
+One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input.  
 
+For examples of how to run the various workflow, please consult the integration_tests and the corresponding wiki.
+
+## Testing
+
+To test the correctness of the package, integration tests are supplied for most of the available workflows.  To run the regressions, one must have a local version of the DVID server running on port 8000 and spark-submit must be in the runtime path.  Then the following command initializes DVID datastructures and runs different workflows:
+
+    % python integration_tests/launch_tests.py integration_tests/
 
 ## Workflow Plugins
 
-This section describes some of the workflows available in recospark and the plugin architecture.
+This section describes some of the workflows available in DVIDSparkServices and the plugin architecture.  For more details, please consult the corresponding [wiki](https://github.com/janelia-flyem/DVIDSparkServices/wiki).
 
 **Plugin Architecture**
 
-Recospark python workflows all have the same pattern:
+DVIDSparkServices python workflows all have the same pattern:
 
-    % workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
+    % spark-submit workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
 
 Where WORKFLOWNAME should exist as a python file in the module *workflows* and define a class with the same name that inherits from
-the python object *recospark.reconutils.workflow.Workflow* or *recospark.reconutils.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
+the python object *DVIDSparkServices.workflow.Workflow* or *DVIDSparkServices.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
 
 ### Evaluate Segmentation (plugin: EvaluateSeg)
 
 This workflow takes the location of two DVID segmentations and computes quality metrics over them.
 An ROI is provided and is split up between spark workers.  Each worker fetches two volumes corresponding to the baseline/ground truth volume and
-the comparison volume.  Variation of Information metric is computed by finding the overlap of labels
-in each subvolume and then combining the overlap results together.
-[NeuroProof](https://github.com/janelia-flyem/NeuroProof) must be installed.
+the comparison volume. 
 
-Currently, evaluating segmentation is limited by the throughput of the databases behind DVID.  If the DVID backend is not clustered,
-the accesses will be throttled and slow.
-
-Example configuration JSON (comments added for convenience but is not valid JSON)
-
-    {
-        "dvid-server": "127.0.0.1:8000", # DVID server for baseline
-        "uuid": "UUID", # DVID uuid
-        "label-name": "label-name",
-        "roi": "temproi", # ROI should have coordinates that can be used by both volumes
-        "dvid-server-comp": "127.0.0.1:8000", # DVID server for comparison stack
-        "uuid-comp": "UUID2", # comparison UUID
-        "label-name-comp": "label-name2"
-    }
-
-
-TODO:
-
-* Refactor to reduce code footprint
-* Add body size filter to reduce noise from imperfect ground truth
-* Options for anisotropic datasets
-* Add contiguous neurite length metric for skeleton point type (store edges in point file): the largest contiguously length completely within GT body
 
 ### Segmentation (plugin: CreateSegmentation)
 
+Performs segmentation on overlapping grayscale subvolumes fetched from DVID using a supplied segmentation plugin (or falls back to a simple default watershed implementation).  The subvolumes are then stitched together using conservative overlap rules to form a global segmentation.  This segmentation is then read back into DVID.
+
 TODO:
 
-* Refactor morphology routines for package reuseability
-* Make segmentation plugins easier (create no-op seg and watershed plugin)
+* Make segmentation workflow more modular
 * Add options for anisotropic volumes
+* Add NeuroProof segmentation
 
 
 ### Compute Graph (plugin: ComputeGraph)
 
 This workflow takes a DVID labelsblock volume and ROI and computes a DVID labelgraph.
-The ROI is split into several substacks.  Spark will process each substack (plus a 1 pixel overlap)
+The ROI is split into several substacks.  Spark will process each subvolume (plus a 1 pixel overlap)
 to compute the size of each vertex and its overlap with neighboring vertices.  This graph information
-is aggregated by key across all substacks and written to DVID.  The actual graph construction can be
-done with a third-party binary.  In this workflow, it is recommended that [NeuroProof](https://github.com/janelia-flyem/NeuroProof) is installed.
+is aggregated by key across all substacks and written to DVID.  The actual graph construction per subvolume is done
+using [NeuroProof](https://github.com/janelia-flyem/NeuroProof).
 
-Compute Graph is limited by the throughput of databases behind DVID.  If the DVID backend is not clustered, the accesses
-will be throttled and slow.  The algorithm has linear complexity and should otherwise scale to very large datasets.
-
-Example configuration JSON (comments added for convenience but is not valid JSON)
-
-    {
-        "dvid-server": "127.0.0.1:8000", # DVID server
-        "uuid": "UUID", # DVID uuid
-        "label-name": "label-name",
-        "roi": "roi-name",
-        "graph-name": "graph-name",
-        "graph-builder-exe": "neuroproof_graph_build_stream" # binary that builds the graph
-    }
 
 ### DVID Block Ingest (plugin: IngestGrayscale)
 
 This workflow takes a stack of 2D images and produces binary chunks of DVID blocks.  The script does not
-actually communicate with DVID and can be called independent of some of the recospark libraries.
+actually communicate with DVID and can be called independent sparkdvid.
 A separate script is necessary to write the DVID blocks to DVID.  An example of one such script is provided,
 in the example directory.  The blocks will be padded with black (0) pixels, so that all blocks are 32x32x32
 in size.
 
-Example configuration JSON:
+TODO: Add option to write blocks directly to DVID.
 
-    {
-        "minslice" : MINZ, # minimum stack slice number examined
-        "maxslice" : MAXZ, # maximum stack slice number examined
-        "basename": IMAGEPATH, # image name template
-        "output-dir": OUTDIR # directory where the blocks are written to
-    }
+
+## TODO
+
+* Change compute graph to have idempotent edge and vertex insertion to guard against any Spark task failure.
+* Increase modularity of the segmentation workflow to allow for easier plugins.
+* Expand the sparkdvid API to handle more DVID datatypes
