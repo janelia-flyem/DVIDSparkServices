@@ -103,6 +103,7 @@ TODO:
 
 * Make segmentation workflow more modular
 * Add options for anisotropic volumes
+* Add NeuroProof segmentation
 
 
 ### Compute Graph (plugin: ComputeGraph)
