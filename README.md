@@ -1,7 +1,7 @@
 # Spark Implemented EM Reconstruction Workflows  [![Picture](https://raw.github.com/janelia-flyem/janelia-flyem.github.com/master/images/HHMI_Janelia_Color_Alternate_180x40.png)](http://www.janelia.org)
 
-Provides python Spark utitlies for interacting with EM data stored in [DVID](https://github.com/janelia-flyem/dvid).
-Several workflows are provided, such as large-scale image segmentation, region-adjacency-graph building, and evaluating the similarity between two image segmentaitons.  DVIDSparkServices provide an infrastructure for custom workflow and segmentation plugins and a library for accessing DVID through Spark RDDs.
+This package provides python Spark utilities for interacting with EM data stored in [DVID](https://github.com/janelia-flyem/dvid).
+Several workflows are provided, such as large-scale image segmentation, region-adjacency-graph building, and evaluating the similarity between two image segmentations.  DVIDSparkServices provides an infrastructure for custom workflow and segmentation plugins and a library for accessing DVID through Spark RDDs.
 
 The primary goal of this package is to better analyze and manipulate large EM datasets used in Connectomics (such as those needed for the [the Fly EM project](https://www.janelia.org/project-team/fly-em)).  Other applications that leverage DVID might also benefit from this infrastructure.
 
@@ -15,7 +15,7 @@ will install all of the DVIDSparkServices dependencies including python.
 
 If one desires to build all the dependencies outside of conda, please consult the recipe found in [Fly EM's conda recipes](https://github.com/janelia-flyem/flyem-build-conda.git) under *dvidsparkservices*/meta.yaml.
 
-*Other dependencies might be required for custom plugin workflows.*
+*Note: other dependencies might be required for custom plugin workflows.*
 
 ### CONDA Installation
 The [Miniconda](http://conda.pydata.org/miniconda.html) tool first needs to installed:
@@ -35,11 +35,11 @@ bash Miniconda-latest-MacOSX-x86_64.sh
 CONDA_ROOT=`conda info --root`
 source ${CONDA_ROOT}/bin/activate root
 ```
-Once conda is in your system path, call the following to install neuroproof:
+Once conda is in your system path, call the following to install dvidsparkservices:
 
     % conda create -n <NAME> -c flyem dvidsparkservices
     
-Conda allows builders to create multiple environments.  To use DVIDSparkServices
+Conda allows builders to create multiple environments (< NAME >).  To use DVIDSparkServices
 set your executable path to PREFIX/< NAME >/ bin.
 
 ### Installation Part 2
@@ -58,7 +58,7 @@ a pre-built version of Spark.
 
 ## General Usage
 
-Once installed, the workflows can be called with even a local spark context.  This is very useful for debugging and analyzing the performance of small jobs.
+Once installed, the workflows can be called even with a local spark context.  This is very useful for debugging and analyzing the performance of small jobs.
 
 Example command:
 
@@ -67,26 +67,26 @@ Example command:
 This calls the module ComputeGraph with the provided configuration in JSON.  Each plugin defines its own configuration.
 One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input.  
 
-For examples of how to run the various workflow, please consult the integration_tests.
+For examples of how to run the various workflow, please consult the integration_tests and the corresponding wiki.
 
 ## Testing
 
-To test the correctness of the package, an integration test is supplied for most of the available workflows.  To run the regressions, one must have a local version of the DVID server running on port 8000 and spark-submit must be in the runtime path.  Then the following command initializes DVID datastrucutres and runs different workflows:
+To test the correctness of the package, integration tests are supplied for most of the available workflows.  To run the regressions, one must have a local version of the DVID server running on port 8000 and spark-submit must be in the runtime path.  Then the following command initializes DVID datastructures and runs different workflows:
 
-    % python integration_tests/launch_tests.py PREFIX/integration_tests/
+    % python integration_tests/launch_tests.py integration_tests/
 
 ## Workflow Plugins
 
-This section describes some of the workflows available in recospark and the plugin architecture.
+This section describes some of the workflows available in DVIDSparkServices and the plugin architecture.  For more details, please consult the corresponding [wiki](https://github.com/janelia-flyem/DVIDSparkServices/wiki).
 
 **Plugin Architecture**
 
-Recospark python workflows all have the same pattern:
+DVIDSparkServices python workflows all have the same pattern:
 
-    % workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
+    % spark-submit workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
 
 Where WORKFLOWNAME should exist as a python file in the module *workflows* and define a class with the same name that inherits from
-the python object *recospark.reconutils.workflow.Workflow* or *recospark.reconutils.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
+the python object *DVIDSparkServices.workflow.Workflow* or *DVIDSparkServices.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
 
 ### Evaluate Segmentation (plugin: EvaluateSeg)
 
@@ -166,3 +166,9 @@ Example configuration JSON:
         "basename": IMAGEPATH, # image name template
         "output-dir": OUTDIR # directory where the blocks are written to
     }
+
+## TODO
+
+* Change compute graph to have idempotent edge and vertex insertion to guard against any Spark task failure.
+* Increase modularity of the segmentation workflow to allow for easier plugins.
+* Expand the sparkdvid API to handle more DVID datatypes
