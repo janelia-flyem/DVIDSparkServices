@@ -3,15 +3,15 @@
 Some numpy datasets are very large but sparse in label information.
 For instance, segmentation label volumes are highly compressible
 (for instance 1GB can be losslessly compressed <50 MB).  The cPickler
-and default Spark does not compress serialized data.
+and default Spark do not compress serialized data.
 
 The LZ4 compressor defined in CompressedSerializerLZ4 could be
-used by itself but the cPickler is really slow.  It makes sense
-to make a specific serialization/deserialization routine for
-numpy arrays.  Then the cPickler works much faster over a much
-smaller binary string.  The double LZ4 compression will also
-lead to additional compression and is only a small fraction
-of the original compression by construction.
+used by itself but cPickle is very slow on large data.  It makes sense
+to have a specific serialization/deserialization routine for
+numpy arrays.  The cPickler works much faster over a much
+smaller binary string.  The double LZ4 compression also
+leads to additional compression and may only require a
+small runtime fraction of the original compression.
 
 Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 

@@ -3,16 +3,16 @@
 There are numerous challenges with using python for large datasets
 in Spark.  In Spark, RDDs frequently need to be serialized/deserialized
 as data is shuffled or cached.  However, in python, all cached
-data is serialize (unlike in Java).  Futhermore, the flexibility
-in python often results in inefficiently stored data.
+data is serialized (unlike in Java).  Futhermore, the flexibility in
+representing data often results in inefficiently stored data.
 
 To help reduce the size of the shuffled data, we look to compression.
 While limited compression is available in pyspark, the following
 is a very light-weight compression, lz4, that appears to negligibly impact
 runtime while leading to good compression (for instance sparse
-numpy array volumes can be shrunk by over 10x is a fraction of the
+numpy array volumes can be shrunk by over 10x in a fraction of the
 time it takes to cPickle the object).  While extensive performance
-tests have not been performed, it seems likely to not be any bottleneck
+tests have not been performed, it is not likely to be the bottleneck
 compared to the pickler's performance.
 
 """
