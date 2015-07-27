@@ -8,7 +8,7 @@ The primary goal of this package is to better analyze and manipulate large EM da
 Please consult the corresponding wiki for more details on the implemented plugins and other architectural discussions: [https://github.com/janelia-flyem/DVIDSparkServices/wiki](https://github.com/janelia-flyem/DVIDSparkServices/wiki)
 
 ## Installation
-To simplify the build we now use the [conda-build](http://conda.pydata.org/docs/build.html) tool.
+To simplify the build process, we now use the [conda-build](http://conda.pydata.org/docs/build.html) tool.
 The resulting binary is uploaded to the [flyem binstar channel](https://binstar.org/flyem),
 and can be installed using the [conda](http://conda.pydata.org/) package manager (instructions below).  The installation
 will install all of the DVIDSparkServices dependencies including python.
@@ -64,10 +64,10 @@ Example command:
 
     % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c <configfile>.json
 
-This calls the module ComputeGraph with the provided configuration in JSON.  Each plugin defines its own configuration.
+This calls the module ComputeGraph with the provided configuration in JSON using 4 spark workers.  Each plugin defines its own configuration.
 One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input.  
 
-For examples of how to run the various workflow, please consult the integration_tests and the corresponding wiki.
+For examples of how to run the various workflows, please consult the integration_tests and below.
 
 ## Testing
 
@@ -86,14 +86,13 @@ DVIDSparkServices python workflows all have the same pattern:
     % spark-submit workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
 
 Where WORKFLOWNAME should exist as a python file in the module *workflows* and define a class with the same name that inherits from
-the python object *DVIDSparkServices.workflow.Workflow* or *DVIDSparkServices.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provide module.
+the python object *DVIDSparkServices.workflow.Workflow* or *DVIDSparkServices.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provided module.
 
 ### Evaluate Segmentation (plugin: EvaluateSeg)
 
 This workflow takes the location of two DVID segmentations and computes quality metrics over them.
 An ROI is provided and is split up between spark workers.  Each worker fetches two volumes corresponding to the baseline/ground truth volume and
 the comparison volume. 
-
 
 ### Segmentation (plugin: CreateSegmentation)
 
@@ -118,13 +117,12 @@ using [NeuroProof](https://github.com/janelia-flyem/NeuroProof).
 ### DVID Block Ingest (plugin: IngestGrayscale)
 
 This workflow takes a stack of 2D images and produces binary chunks of DVID blocks.  The script does not
-actually communicate with DVID and can be called independent sparkdvid.
+actually communicate with DVID and can be called independent of sparkdvid.
 A separate script is necessary to write the DVID blocks to DVID.  An example of one such script is provided,
 in the example directory.  The blocks will be padded with black (0) pixels, so that all blocks are 32x32x32
 in size.
 
 TODO: Add option to write blocks directly to DVID.
-
 
 ## TODO
 
