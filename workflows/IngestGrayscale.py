@@ -38,7 +38,7 @@ class IngestGrayscale(Workflow):
     # handles stacks that are not multiples of the block dim
     # assumes all images are the same size and the same offeset
     def execute(self):
-        import Image
+        from PIL import Image
         import numpy
         import os
         
