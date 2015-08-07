@@ -53,8 +53,12 @@ One needs to make sure their path is set (mentioned in the previous section) to 
 
 ### PySpark
 
-To use the libraries, Spark needs to be installed [http://spark.apache.org/downloads.html](http://spark.apache.org/downloads.html).  To facilitate debugging, use
-a pre-built version of Spark.
+To use the libraries, you need to [download][spark-downloads] Spark.
+To facilitate debugging, use a pre-built version of Spark.
+The "[Pre-built for Hadoop 2.6 and later][spark-tarball]" version is recommended if you aren't sure which version to download.
+
+[spark-downloads]: http://spark.apache.org/downloads.html
+[spark-tarball]: http://www.apache.org/dyn/closer.cgi/spark/spark-1.4.1/spark-1.4.1-bin-hadoop2.6.tgz
 
 ## General Usage
 
