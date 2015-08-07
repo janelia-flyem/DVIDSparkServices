@@ -77,6 +77,10 @@ For examples of how to run the various workflows, please consult the integration
 
 To test the correctness of the package, integration tests are supplied for most of the available workflows.  To run the regressions, one must have a local version of the DVID server running on port 8000 and spark-submit must be in the runtime path.  Then the following command initializes DVID datastructures and runs different workflows:
 
+    # Prerequisite: Unzip the test data
+    % gunzip integration_tests/resources/*.gz
+    
+    # Run tests 
     % python integration_tests/launch_tests.py integration_tests/
 
 ## Workflow Plugins
