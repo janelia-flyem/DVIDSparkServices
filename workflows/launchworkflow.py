@@ -59,14 +59,11 @@ def main(argv):
             workflow_inst = workflow_cls(args.config_file)
             workflow_inst.execute()
 
-    # handle exceptions
-    except WorkflowError, e:
-        print "Workflow exception: ", str(e)
-        traceback.print_exc(file=sys.stdout)
-    except Exception, e:
-        print "General exception: ", str(e)
-        traceback.print_exc(file=sys.stdout)
-
+    # TODO: handle exceptions here
+    except WorkflowError as e:
+        raise
+    except Exception as e:
+        raise
 
 if __name__ == "__main__":
     DEBUG_LOGGING = True
