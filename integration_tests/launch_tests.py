@@ -152,15 +152,44 @@ load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key
 p = subprocess.Popen(load_synapse_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 dummy, err = p.communicate()
 
+# create grayscale data
+create_gray = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
+typedata = "{\"typename\": \"uint8blk\", \"dataname\" : \"grayscale\"}"
+create_gray1_command = (create_gray % uuid1).split()
+create_gray1_command.append(typedata)
+
+p = subprocess.Popen(create_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dummy, err = p.communicate()
+
+# load grayscale data
+load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale.bin' % (uuid1, testpath)).split()
+p = subprocess.Popen(load_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dummy, err = p.communicate()
+
+# create 256 ROI datatype
+create_roi_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
+create_roi_command.append("{\"typename\": \"roi\", \"dataname\" : \"temproi256\"}")
+p = subprocess.Popen(create_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dummy, err = p.communicate()
+
+# load 256 ROI
+load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi256/roi --data-binary @%s/resources/256roi.json' % (uuid1, testpath)).split()
+p = subprocess.Popen(load_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+dummy, err = p.communicate()
+
+
 #####  run tests ####
 
-# test 1 label comparison
+# test 1 segmentation
+run_test("test_seg", "CreateSegmentation", testpath, uuid1, uuid2) 
+
+# test 2 label comparison
 run_test("test_comp", "EvaluateSeg", testpath, uuid1, uuid2) 
 
-# test 2 graph compute
+# test 3 graph compute
 run_test("test_graph", "ComputeGraph", testpath, uuid1, uuid2) 
 
-# test 3 grayscale ingestion
+# test 4 grayscale ingestion
 run_test("test_ingest", "IngestGrayscale", testpath, uuid1, uuid2) 
 
 

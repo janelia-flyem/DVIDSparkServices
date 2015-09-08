@@ -109,6 +109,9 @@ class CreateSegmentation(DVIDWorkflow):
         from pyspark.storagelevel import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
+        if "chunk-size" in self.config_data["options"]:
+            self.chunksize = self.config_data["options"]["chunk-size"]
+
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
                 self.config_data["dvid-info"]["roi"],
@@ -119,7 +122,7 @@ class CreateSegmentation(DVIDWorkflow):
                 self.config_data["dvid-info"]["grayscale"])
 
         # check for custom segmentation plugin 
-        segmentation_plugin = ""
+        segmentation_plugin = "default"
         if "segmentation-plugin" in self.config_data["options"]:
             segmentation_plugin = str(self.config_data["options"]["segmentation-plugin"])
 
@@ -160,6 +163,23 @@ class CreateSegmentation(DVIDWorkflow):
         seg_chunks.unpersist()
         
         self.logger.write_data("Wrote DVID labels") # write to logger after spark job
+
+        if "debug" in self.config_data["options"] and self.config_data["options"]["debug"]:
+            # grab 256 cube from ROI 
+            from libdvid import DVIDNodeService
+            node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]),
+                    str(self.config_data["dvid-info"]["uuid"]))
+            substacks, packing_factor = node_service.get_roi_partition(str(self.config_data["dvid-info"]["roi"]), 256/self.blocksize)
+            label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 
+                    (256,256,256), (substacks[0][0], substacks[0][1], substacks[0][2]), compress=True )
+             
+            # retrieve string
+            from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+            vol_compressed = CompressedNumpyArray(label_volume)
+           
+            # dump checksum
+            import md5
+            print "DEBUG: ", str(md5.new(vol_compressed.serialized_data[0]).digest())
 
     @staticmethod
     def dumpschema():
