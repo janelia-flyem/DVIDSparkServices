@@ -69,7 +69,7 @@ def split_disconnected_bodies(label2):
     return label2_split, label2_map
 
 
-def seeded_watershed(boundary, seed_threshold = 5, seed_size = 0, mask=None):
+def seeded_watershed(boundary, seed_threshold = 0, seed_size = 5, mask=None):
     """Extract seeds from boundary prediction and runs seeded watershed.
 
     Args:
@@ -82,12 +82,14 @@ def seeded_watershed(boundary, seed_threshold = 5, seed_size = 0, mask=None):
     """
     
     from skimage import morphology as skmorph
+    from numpy import bincount 
 
     # get seeds
-    seeds = label(boundary <= seed_threshold)[0]
+    from scipy.ndimage import label as label2
+    seeds = label2(boundary <= seed_threshold)[0]
 
     # remove small seeds
-    if options.seed_size > 0:
+    if seed_size > 0:
         component_sizes = bincount(seeds.ravel())
         small_components = component_sizes < seed_size 
         small_locations = small_components[seeds]

@@ -42,9 +42,14 @@ class Segmentor(object):
         Takes an RDD of grayscale numpy volumes and produces
         an RDD of predictions (z,y,x,ch) and a watershed mask.
         """
+        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+        from scipy.ndimage import label
+        from numpy import bincount 
+        background_size = self.BACKGROUND_SIZE
         
         def _grayscale_identity(gray_chunk):
             (subvolume, gray) = gray_chunk
+            import numpy
 
             # mask out background (don't have to 0 out seeds since)
             mask_mask = numpy.zeros(gray.shape).astype(numpy.uint8)
@@ -63,7 +68,7 @@ class Segmentor(object):
             pred = numpy.expand_dims(new_gray, 3) 
             
             pred_compressed = CompressedNumpyArray(pred)
-            mask_compressed = CompressedNumpyArray(pred)
+            mask_compressed = CompressedNumpyArray(mask)
 
             return (subvolume, pred_compressed, mask_compressed)
         
@@ -89,24 +94,26 @@ class Segmentor(object):
             watershed+predictions (RDD) as (subvolume key, (subvolume, 
                 (numpy compressed array, numpy compressed array)))
         """
+        from DVIDSparkServices.reconutils.morpho import seeded_watershed
+        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+        
         def _watershed(prediction_chunks):
-            from DVIDSparkServices.reconutils.morpho import seeded_watershed
             (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
             prediction = prediction_compressed.deserialize()
             mask = mask_compressed.deserialize()
-
             # grab boundary data
-            boundary = prediction[...,seed_channels[0]] 
+            boundary = prediction[:,:,:,seed_channels[0]] 
+           
             for bch in range(1, len(seed_channels)):
-                boundary += prediction[...,seed_channels[bch]]
+                boundary += prediction[:,:,:,seed_channels[bch]]
 
             supervoxels = seeded_watershed(boundary, seed_threshold,
-                self.SEED_SIZE_THRES, mask)
+                seed_size, mask)
 
             max_id = supervoxels.max()
             supervoxels_compressed = CompressedNumpyArray(supervoxels)
             subvolume.set_max_id(max_id)
-
+            
             return (subvolume, prediction_compressed, supervoxels_compressed)
             
         # preserver partitioner
@@ -149,12 +156,12 @@ class Segmentor(object):
 
         # run watershed from voxel prediction
         # and use the first channel for determing seeds
-        sp_chunks = self.create_supervoxels(pred_chunks, 0, 5, [0])
+        sp_chunks = self.create_supervoxels(pred_chunks, 0, self.SEED_SIZE_THRES, [0])
 
         # run agglomeration (default = none)
         segmentation = self.agglomerate_supervoxels(sp_chunks) 
 
-        return segmentation
+        return segmentation 
 
 
     # label volumes to label volumes remapped, preserves partitioner 
