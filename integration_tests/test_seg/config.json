@@ -8,6 +8,7 @@
     },
     "options": {
         "stitch-algorithm": "medium",
+        "segmentation-plugin": "DefaultGrayOnly",
         "chunk-size": 128,
         "debug": true
     }

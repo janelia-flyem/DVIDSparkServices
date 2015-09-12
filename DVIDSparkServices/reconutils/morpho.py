@@ -67,3 +67,35 @@ def split_disconnected_bodies(label2):
     label2_split = vectorized_relabel(label2_split).astype(numpy.uint64)
 
     return label2_split, label2_map
+
+
+def seeded_watershed(boundary, seed_threshold = 5, seed_size = 0, mask=None):
+    """Extract seeds from boundary prediction and runs seeded watershed.
+
+    Args:
+        boundary (3D numpy array) = boundary predictions
+        seed_threshold (int) = Add seeds where boundary prob is <= threshold
+        seed_size (int) = seeds must be >= seed size
+        mask (3D numpy array) = true to watershed, false to ignore
+    Returns:
+        3d watershed
+    """
+    
+    from skimage import morphology as skmorph
+
+    # get seeds
+    seeds = label(boundary <= seed_threshold)[0]
+
+    # remove small seeds
+    if options.seed_size > 0:
+        component_sizes = bincount(seeds.ravel())
+        small_components = component_sizes < seed_size 
+        small_locations = small_components[seeds]
+        seeds[small_locations] = 0
+
+    # mask out background (don't have to 0 out seeds since)
+    supervoxels = skmorph.watershed(boundary, seeds,
+            None, None, mask)
+
+    return supervoxels
+

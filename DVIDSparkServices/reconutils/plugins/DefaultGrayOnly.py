@@ -8,9 +8,9 @@ plugin architecture.
 
 from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
-class CrudeWatershed(Segmentor):
-    def __init__(self):
-        super(CrudeWatershed, self).__init__()
+class DefaultGrayOnly(Segmentor):
+    def __init__(self, context, config, options):
+        super(DefaultGrayOnly, self).__init__(context, config, options)
     
     def segment(self, gray_chunks):
         """Simple, default seeded watershed off of grayscale

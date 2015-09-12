@@ -55,7 +55,7 @@ class CreateSegmentation(DVIDWorkflow):
         "segmentation-plugin": {
           "description": "segmentation plugin to run",
           "type": "string",
-          "default": "default",
+          "default": "DefaultGrayOnly",
           "minLength": 1
         },
         "stitch-algorithm": {
@@ -122,7 +122,7 @@ class CreateSegmentation(DVIDWorkflow):
                 self.config_data["dvid-info"]["grayscale"])
 
         # check for custom segmentation plugin 
-        segmentation_plugin = "default"
+        segmentation_plugin = ""
         if "segmentation-plugin" in self.config_data["options"]:
             segmentation_plugin = str(self.config_data["options"]["segmentation-plugin"])
 
@@ -133,7 +133,7 @@ class CreateSegmentation(DVIDWorkflow):
 
         # call the correct segmentation plugin (must be installed)
         segmentor = None
-        if segmentation_plugin == "default":
+        if segmentation_plugin == "":
             segmentor = Segmentor(self.sparkdvid_context, self.config_data, seg_options)
         else:
             import importlib
@@ -142,7 +142,7 @@ class CreateSegmentation(DVIDWorkflow):
 
             segmentor_mod = importlib.import_module("DVIDSparkServices.reconutils.plugins." + segmentation_plugin)
             segmentor_class = getattr(segmentor_mod, segmentation_plugin)
-            segmentor = segmentor_class(self.sparkdvid_context, seg_options)
+            segmentor = segmentor_class(self.sparkdvid_context, self.config_data, seg_options)
 
         # convert grayscale to compressed segmentation, maintain partitioner
         # save max id as well in substack info
