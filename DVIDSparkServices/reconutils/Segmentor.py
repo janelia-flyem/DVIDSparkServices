@@ -36,8 +36,19 @@ class Segmentor(object):
         else:
             raise Exception("Invalid stitch mode specified")
 
+        # set default watershed options (add option to use distance transform)
+        self.seed_threshold = 0
+        self.seed_size = 5
+        self.seed_channels = [0]
+        if "seed-threshold" in options:
+            self.seed_threshold = options["seed-threshold"]
+        if "seed-size" in options:
+            self.seed_size = options["seed-size"]
+        if "seed-channels" in options:
+            self.seed_channels = options["seed-channels"]
+
     def predict_voxels(self, gray_chunks): 
-        """Create a dummy prediction from grayscale.
+        """Create a dummy placeholder boundary channel from grayscale.
 
         Takes an RDD of grayscale numpy volumes and produces
         an RDD of predictions (z,y,x,ch) and a watershed mask.
@@ -75,28 +86,35 @@ class Segmentor(object):
         # preserver partitioner
         return gray_chunks.mapValues(_grayscale_identity)
 
-    def create_supervoxels(self, prediction_chunks, seed_threshold = 0,
-            seed_size = 5, seed_channels = [0]):
+    def create_supervoxels(self, prediction_chunks):
         """Performs watershed based on voxel prediction.
 
         Takes an RDD of numpy volumes with multiple prediction
         channels and produces an RDD of label volumes.  A mask must
         be provided indicating which parts of the volume should
-        have a supervoxels (true to keep, false to ignore) 
+        have a supervoxels (true to keep, false to ignore).  Currently,
+        this is a seeded watershed, an option to use the distance transform
+        for the watershed is forthcoming.  There are 3 hidden options
+        that can be specified:
+        
+        Options (specified in JSON):
+            seed-threshold = add seeds where boundary prob is <= threshold
+            seed-size = seeds must be >= seed size to keep
+            seed-channels (list[int]) = array of channels to use for watershed
 
         Args:
             prediction_chunks (RDD) = (subvolume key, (subvolume, 
                 compressed numpy predictions, compressed numpy mask))
-            seed_threshold (int) = Add seeds where boundary prob is <= threshold
-            seed_size (int) = seeds must be >= seed size
-            seed_channels (list[int]) = array of channels to use for boundary channel
         Returns:
             watershed+predictions (RDD) as (subvolume key, (subvolume, 
                 (numpy compressed array, numpy compressed array)))
         """
         from DVIDSparkServices.reconutils.morpho import seeded_watershed
         from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        
+        seed_threshold = self.seed_threshold
+        seed_size = self.seed_size
+        seed_channels = self.seed_channels
+
         def _watershed(prediction_chunks):
             (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
             prediction = prediction_compressed.deserialize()
@@ -120,7 +138,7 @@ class Segmentor(object):
         return prediction_chunks.mapValues(_watershed)
 
     def agglomerate_supervoxels(self, sp_chunks):
-        """No-op agglomeration of supervoxels.
+        """No-op placeholder agglomeration of supervoxels.
 
         Args:
             seg_chunks (RDD) = (subvolume key, (subvolume, numpy compressed array, 
@@ -137,12 +155,13 @@ class Segmentor(object):
         return sp_chunks.mapValues(_noop_agglom)
     
     def segment(self, gray_chunks):
-        """Top-level pipeline (simple, default seeded watershed from grayscale).
+        """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
         Defines a segmentation workflow consisting of voxel prediction,
         watershed, and agglomeration.  One can overwrite specific functions
         or the entire workflow as long as RDD input and output constraints
-        are statisfied.  Operation should preserve the partitioner.
+        are statisfied.  RDD transforms should preserve the partitioner -- 
+        subvolume id is the key.
 
         Args:
             gray_chunks (RDD) = (subvolume key, (subvolume, numpy grayscale))
@@ -151,14 +170,13 @@ class Segmentor(object):
 
         """
         
-        # run voxel prediction
+        # run voxel prediction (default: grayscale is boundary)
         pred_chunks = self.predict_voxels(gray_chunks)
 
-        # run watershed from voxel prediction
-        # and use the first channel for determing seeds
-        sp_chunks = self.create_supervoxels(pred_chunks, 0, self.SEED_SIZE_THRES, [0])
+        # run watershed from voxel prediction (default: seeded watershed)
+        sp_chunks = self.create_supervoxels(pred_chunks)
 
-        # run agglomeration (default = none)
+        # run agglomeration (default: none)
         segmentation = self.agglomerate_supervoxels(sp_chunks) 
 
         return segmentation 
@@ -442,7 +460,6 @@ class Segmentor(object):
         for (substack_id, mapping) in all_mappings:
             merge_list.extend(mapping)
 
-
         # make a body2body map
         body1body2 = {}
         body2body1 = {}
@@ -469,10 +486,10 @@ class Segmentor(object):
                     body1body2[tbody] = body2
 
         body2body = zip(body1body2.keys(), body1body2.values())
-        
+       
         # potentially costly broadcast
         # (possible to split into substack to make more efficient but compression should help)
-        master_merge_list = self.context.sc.broadcast(merge_list)
+        master_merge_list = self.context.sc.broadcast(body2body)
 
         # use offset and mappings to relabel volume
         def relabel(key_label_mapping):
@@ -491,7 +508,7 @@ class Segmentor(object):
             # create default map 
             mapping_col = numpy.unique(labels)
             label_mappings = dict(zip(mapping_col, mapping_col))
-            
+           
             # create maps from merge list
             for mapping in master_merge_list.value:
                 if mapping[0] in label_mappings:
