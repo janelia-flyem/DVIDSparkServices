@@ -104,11 +104,11 @@ the comparison volume.
 
 ### Segmentation (plugin: CreateSegmentation)
 
-Performs segmentation on overlapping grayscale subvolumes fetched from DVID using a supplied segmentation plugin (or falls back to a simple default watershed implementation).  The subvolumes are then stitched together using conservative overlap rules to form a global segmentation.  This segmentation is then read back into DVID.
+Performs segmentation on overlapping grayscale subvolumes fetched from DVID using a supplied segmentation plugin (or falls back to a simple default watershed implementation).  The subvolumes are then stitched together using conservative overlap rules to form a global segmentation.  This segmentation is then read back into DVID.  The default segmentation algorithm
+is essentially a no-op and requires the implementation of custom segmentation plugins.  Please see the wiki.
 
 TODO:
 
-* Make segmentation workflow more modular
 * Add options for anisotropic volumes
 * Add NeuroProof segmentation
 
