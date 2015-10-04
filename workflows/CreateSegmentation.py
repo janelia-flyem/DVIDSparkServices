@@ -76,6 +76,17 @@ class CreateSegmentation(DVIDWorkflow):
           },
           "minItems": 0,
           "uniqueItems": true
+        },
+        "iteration-size": {
+          "description": "Number of tasks per iteration (0 -- max size)",
+          "type": "integer",
+          "default": 0
+        },
+        "checkpoint": {
+          "description": "Reuse previous results",
+          "type": "string",
+          "enum": ["none", "voxel", "segmentation"],
+          "default": "none"
         }
       },
       "required": ["stitch-algorithm"]
@@ -117,9 +128,10 @@ class CreateSegmentation(DVIDWorkflow):
                 self.config_data["dvid-info"]["roi"],
                 self.chunksize, self.overlap/2, True)
 
-        # get grayscale chunks with specified overlap
-        gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes,
-                self.config_data["dvid-info"]["grayscale"])
+        # do not recompute ROI for each iteration
+        distsubvolumes.persist()
+
+        num_parts = len(distsubvolumes.collect())
 
         # check for custom segmentation plugin 
         segmentation_plugin = ""
@@ -144,10 +156,51 @@ class CreateSegmentation(DVIDWorkflow):
             segmentor_class = getattr(segmentor_mod, segmentation_plugin)
             segmentor = segmentor_class(self.sparkdvid_context, self.config_data, seg_options)
 
-        # convert grayscale to compressed segmentation, maintain partitioner
-        # save max id as well in substack info
-        seg_chunks = segmentor.segment(gray_chunks)
+        # determine number of iterations
+        iteration_size = num_parts
+        if self.config_data["options"]["iteration-size"] != 0:
+            iteration_size = self.config_data["options"]["iteration-size"]
 
+        num_iters = num_parts/iteration_size
+        if num_parts % iteration_size > 0:
+            num_iters += 1
+
+        seg_chunks_list = []
+
+        for iternum in range(0, num_iters):
+            # it might make sense to randomly map partitions for selection
+            # in case something pathological is happening -- if original partitioner
+            # is randomish than this should be fine
+            def subset_part(roi):
+                s_id, data = roi
+                if (s_id % num_iters) == iternum:
+                    return True
+                return False
+            
+            # should preserve partitioner
+            distsubvolumes_part = distsubvolumes.filter(subset_part)
+
+            # get grayscale chunks with specified overlap
+            gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes_part,
+                    self.config_data["dvid-info"]["grayscale"])
+
+
+            # convert grayscale to compressed segmentation, maintain partitioner
+            # save max id as well in substack info
+            seg_chunks = segmentor.segment(gray_chunks)
+
+            # any forced persistence will result in costly
+            # pickling, lz4 compressed numpy array should help
+            seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+            seg_chunks_list.append(seg_chunks)
+
+        seg_chunks = seg_chunks_list[0]
+
+        for iter1 in range(1, len(seg_chunks_list)):
+            # ?? does this preserve the partitioner (yes, if num partitions is the same)
+            seg_chunks = seg_chunks.union(seg_chunks_list[iter1])
+            
         # any forced persistence will result in costly
         # pickling, lz4 compressed numpy array should help
         seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)

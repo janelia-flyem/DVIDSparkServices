@@ -1,13 +1,16 @@
 Initializing DVID Database
 Starting test:  test_seg
 SUCCESS
-Finished test:  test_seg  in  73.1389839649  seconds
+Finished test:  test_seg  in  70.293735981  seconds
+Starting test:  test_seg2
+SUCCESS
+Finished test:  test_seg2  in  69.6773149967  seconds
 Starting test:  test_comp
 SUCCESS
-Finished test:  test_comp  in  78.4398059845  seconds
+Finished test:  test_comp  in  72.152559042  seconds
 Starting test:  test_graph
 SUCCESS
-Finished test:  test_graph  in  41.5972840786  seconds
+Finished test:  test_graph  in  42.7667779922  seconds
 Starting test:  test_ingest
 SUCCESS
-Finished test:  test_ingest  in  15.1999340057  seconds
+Finished test:  test_ingest  in  15.5115191936  seconds

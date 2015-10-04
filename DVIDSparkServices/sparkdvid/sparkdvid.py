@@ -67,7 +67,7 @@ class sparkdvid(object):
             find_neighbors (bool): whether to identify neighbors
 
         Returns:
-            RDD as [(subvolume id, subvolume)]
+            RDD as [(subvolume id, subvolume)] and # of subvolumes
 
         """
 

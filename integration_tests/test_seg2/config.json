@@ -2,7 +2,7 @@
     "dvid-info": {
         "dvid-server": "127.0.0.1:8000",
         "uuid": "UUID1",
-        "segmentation-name": "seglabels",
+        "segmentation-name": "seglabels2",
         "roi": "temproi256",
         "grayscale": "grayscale"
     },
@@ -11,7 +11,7 @@
         "segmentation-plugin": "DefaultGrayOnly",
         "chunk-size": 128,
         "checkpoint": "none",
-        "iteration-size": 0,
+        "iteration-size": 2,
         "debug": true
     }
 }
