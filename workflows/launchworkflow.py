@@ -5,6 +5,8 @@ import traceback
 import glob
 import json
 import os
+import logging
+logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.workflow.workflow import WorkflowError
 
@@ -41,7 +43,10 @@ def main(argv):
 
         # import plugin and grab class
         # assume plugin name and class name are the same
-        workflow_mod = imp.load_source("workflows." + args.workflow, workflowpath + args.workflow + '.py')
+        workflow_source = workflowpath + args.workflow + '.py'
+        workflow_name = "workflows." + args.workflow
+        logger.info("Loading workflow: " + workflow_source + "as: " + workflow_name)
+        workflow_mod = imp.load_source(workflow_name, workflow_source)
         workflow_cls = getattr(workflow_mod, args.workflow)
 
         # print the json schema for the given workflow
@@ -64,4 +69,17 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    DEBUG_LOGGING = True
+    if DEBUG_LOGGING:
+        handler = logging.StreamHandler(sys.stdout)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+
+    DEBUG_WITH_PYDEV = False
+    if DEBUG_WITH_PYDEV:
+        sys.path.append("/Applications/eclipse/plugins/org.python.pydev_4.1.0.201505270003/pysrc")
+        import pydevd
+        print "Waiting for PyDev debugger..."
+        pydevd.settrace(stdoutToServer=True, stderrToServer=True)
+
     main(sys.argv)
