@@ -56,7 +56,7 @@ class CreateSegmentation(DVIDWorkflow):
           "description": "segmentation plugin to run",
           "type": "string",
           "default": "DefaultGrayOnly",
-          "minLength": 1
+          "minLength": 0
         },
         "stitch-algorithm": {
           "description": "determines aggressiveness of segmentation stitching",
