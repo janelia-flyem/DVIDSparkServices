@@ -14,7 +14,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     start = time.time()
     print "Starting test: ", test_name
 
-    num_jobs = 1
+    num_jobs = 8
     config_json = test_dir+"/"+test_name+"/temp_data/config.json"
     job_command = 'spark-submit --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {config_json}'\
                    .format(**locals()).split()
