@@ -183,16 +183,19 @@ dummy, err = p.communicate()
 # test 1 segmentation
 run_test("test_seg", "CreateSegmentation", testpath, uuid1, uuid2) 
 
-# test 2 segmentation
-run_test("test_seg2", "CreateSegmentation", testpath, uuid1, uuid2) 
+# test 2 segmentation iteration
+run_test("test_seg_iteration", "CreateSegmentation", testpath, uuid1, uuid2) 
 
-# test 3 label comparison
+# test 3 segmentation rollback
+run_test("test_seg_rollback", "CreateSegmentation", testpath, uuid1, uuid2) 
+
+# test 4 label comparison
 run_test("test_comp", "EvaluateSeg", testpath, uuid1, uuid2) 
 
-# test 4 graph compute
+# test 5 graph compute
 run_test("test_graph", "ComputeGraph", testpath, uuid1, uuid2) 
 
-# test 5 grayscale ingestion
+# test 6 grayscale ingestion
 run_test("test_ingest", "IngestGrayscale", testpath, uuid1, uuid2) 
 
 

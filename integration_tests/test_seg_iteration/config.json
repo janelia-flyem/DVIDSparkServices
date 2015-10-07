@@ -11,6 +11,7 @@
         "segmentation-plugin": "DefaultGrayOnly",
         "chunk-size": 128,
         "checkpoint": "none",
+        "checkpoint-dir": "/tmp/segrun/",
         "iteration-size": 2,
         "debug": true
     }
