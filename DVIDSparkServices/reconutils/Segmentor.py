@@ -118,7 +118,12 @@ class Segmentor(object):
         def _watershed(prediction_chunks):
             (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
             prediction = prediction_compressed.deserialize()
-            mask = mask_compressed.deserialize()
+            if mask_compressed is None:
+                mask = None
+            else:
+                assert isinstance( mask, CompressedNumpyArray )
+                mask = mask_compressed.deserialize()
+
             # grab boundary data
             boundary = prediction[:,:,:,seed_channels[0]] 
            
