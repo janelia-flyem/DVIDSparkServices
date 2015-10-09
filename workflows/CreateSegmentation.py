@@ -11,7 +11,7 @@ from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
-    Schema = """
+    Schema = """\
 { "$schema": "http://json-schema.org/schema#",
   "title": "Service to create image segmentation from grayscale data",
   "type": "object",
@@ -66,16 +66,7 @@ class CreateSegmentation(DVIDWorkflow):
         },
         "plugin-configuration": {
           "description": "custom configuration as a list of key/values for plugins",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "name": { "type": "string" },
-              "value": { "type": "string" }
-            }
-          },
-          "minItems": 0,
-          "uniqueItems": true
+          "type": "object"
         },
         "iteration-size": {
           "description": "Number of tasks per iteration (0 -- max size)",
@@ -92,8 +83,7 @@ class CreateSegmentation(DVIDWorkflow):
       "required": ["stitch-algorithm"]
     }
   }
-}
-    """
+}"""
 
     # choose reasonably big subvolume to minimize stitching effects
     #chunksize = 128 
