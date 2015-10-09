@@ -73,6 +73,11 @@ class CreateSegmentation(DVIDWorkflow):
           "type": "integer",
           "default": 0
         },
+        "checkpoint-loc": {
+          "description": "Specify checkpoint directory",
+          "type": "string",
+          "default": ""
+        },
         "checkpoint": {
           "description": "Reuse previous results",
           "type": "string",
@@ -157,6 +162,14 @@ class CreateSegmentation(DVIDWorkflow):
 
         seg_chunks_list = []
 
+        # enable checkpointing if not empty
+        checkpoint_dir = self.config_data["options"]["checkpoint-dir"]
+
+        # enable rollback of iterations if necessary
+        rollback_seg = False
+        if self.config_data["options"]["checkpoint"] == "segmentation":
+            rollback_seg = True
+
         for iternum in range(0, num_iters):
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
@@ -178,6 +191,11 @@ class CreateSegmentation(DVIDWorkflow):
             # convert grayscale to compressed segmentation, maintain partitioner
             # save max id as well in substack info
             seg_chunks = segmentor.segment(gray_chunks)
+           
+            # retrieve previously computed RDD or save current RDD
+            if checkpoint_dir != "":
+                seg_chunks = self.sparkdvid_context.checkpointRDD(seg_chunks, 
+                        checkpoint_dir + "/segiter-" + str(iternum), rollback_seg)  
 
             # any forced persistence will result in costly
             # pickling, lz4 compressed numpy array should help

@@ -96,6 +96,27 @@ class sparkdvid(object):
         # Potential TODO: custom partitioner for grouping close regions
         return self.sc.parallelize(subvolumes, len(subvolumes))
 
+    def checkpointRDD(self, rdd, checkpoint_loc, enable_rollback):
+        """Defines functionality for checkpointing an RDD.
+
+        Future implementation should be a member function of RDD.
+
+        """
+        import os
+        from pyspark import StorageLevel
+        from pyspark.storagelevel import StorageLevel
+
+        if not enable_rollback or not os.path.exists(checkpoint_loc): 
+            if os.path.exists(checkpoint_loc):
+                import shutil
+                shutil.rmtree(checkpoint_loc)
+            rdd.persist(StorageLevel.MEMORY_AND_DISK_SER)
+            rdd.saveAsPickleFile(checkpoint_loc)
+            return rdd
+        else:
+            newrdd = self.sc.pickleFile(checkpoint_loc)
+            return newrdd
+
 
     def map_grayscale8(self, distsubvolumes, gray_name):
         """Creates RDD of grayscale data from subvolumes.
