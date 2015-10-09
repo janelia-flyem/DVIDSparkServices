@@ -82,7 +82,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     print "Finished test: ", test_name, " in ", finish-start, " seconds"
 
 
-def init_dvid_database(testpath):
+def init_dvid_database(test_dir):
     print "Initializing DVID Database"
     
     # initialize DVID datastore and call tests 
@@ -121,12 +121,12 @@ def init_dvid_database(testpath):
     dummy, err = p.communicate()
     
     # load binary label data into uuid1
-    load_data1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels.bin' % (uuid1, testpath)).split()
+    load_data1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels.bin' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_data1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
     # load binary label data into uuid2
-    load_data2_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels_comp.bin' % (uuid2, testpath)).split()
+    load_data2_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels_comp.bin' % (uuid2, test_dir)).split()
     p = subprocess.Popen(load_data2_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
@@ -137,7 +137,7 @@ def init_dvid_database(testpath):
     dummy, err = p.communicate()
     
     # load ROI
-    load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi/roi --data-binary @%s/resources/500roi.json' % (uuid1, testpath)).split()
+    load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi/roi --data-binary @%s/resources/500roi.json' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
@@ -148,7 +148,7 @@ def init_dvid_database(testpath):
     dummy, err = p.communicate()
     
     # load synapses
-    load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key/syn --data-binary @%s/resources/synapse_small.json' % (uuid1, testpath)).split()
+    load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key/syn --data-binary @%s/resources/synapse_small.json' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_synapse_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
@@ -162,7 +162,7 @@ def init_dvid_database(testpath):
     dummy, err = p.communicate()
     
     # load grayscale data
-    load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale.bin' % (uuid1, testpath)).split()
+    load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale.bin' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
@@ -173,29 +173,29 @@ def init_dvid_database(testpath):
     dummy, err = p.communicate()
     
     # load 256 ROI
-    load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi256/roi --data-binary @%s/resources/256roi.json' % (uuid1, testpath)).split()
+    load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi256/roi --data-binary @%s/resources/256roi.json' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
     return uuid1, uuid2
 
-def run_tests(testpath, uuid1, uuid2):
+def run_tests(test_dir, uuid1, uuid2):
     #####  run tests ####
     
     # test 1 segmentation
-    run_test("test_seg", "CreateSegmentation", testpath, uuid1, uuid2)
-     
+    run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
+      
     # test 2 segmentation
-    run_test("test_seg2", "CreateSegmentation", testpath, uuid1, uuid2) 
-
+    run_test("test_seg2", "CreateSegmentation", test_dir, uuid1, uuid2) 
+ 
     # test 3 label comparison
-    run_test("test_comp", "EvaluateSeg", testpath, uuid1, uuid2)
-    
+    run_test("test_comp", "EvaluateSeg", test_dir, uuid1, uuid2)
+     
     # test 4 graph compute
-    run_test("test_graph", "ComputeGraph", testpath, uuid1, uuid2)
-    
+    run_test("test_graph", "ComputeGraph", test_dir, uuid1, uuid2)
+     
     # test 5 grayscale ingestion
-    run_test("test_ingest", "IngestGrayscale", testpath, uuid1, uuid2)
+    run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2)
 
 if __name__ == "__main__":
     import sys
@@ -205,6 +205,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # It is assumed that this script lives in the integration_tests directory
-    testpath = os.path.split(__file__)[0]
-    uuid1, uuid2 = init_dvid_database(testpath)
-    run_tests(testpath, uuid1, uuid2)
+    test_dir = os.path.split(__file__)[0]
+    uuid1, uuid2 = init_dvid_database(test_dir)
+    run_tests(test_dir, uuid1, uuid2)
