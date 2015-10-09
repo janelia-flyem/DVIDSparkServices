@@ -81,7 +81,7 @@ To test the correctness of the package, integration tests are supplied for most 
     % gunzip integration_tests/resources/*.gz
     
     # Run tests 
-    % python integration_tests/launch_tests.py integration_tests/
+    % python integration_tests/launch_tests.py
 
 ## Workflow Plugins
 
