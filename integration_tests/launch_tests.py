@@ -197,11 +197,25 @@ def run_tests(test_dir, uuid1, uuid2):
     # test 5 grayscale ingestion
     run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2)
 
+    # test 6: segmentation with ilastik
+    # First, verify that ilastik is available
+    try:
+        import ilastik_main
+    except ImportError:
+        sys.stderr.write("Skipping ilastik segmentation test")
+    else:
+        test_ilp = test_dir + '/test_seg_ilastik/test-project.ilp'
+        if not os.path.exists(test_ilp):
+            sys.path.append(test_dir + '/test_seg_ilastik')
+            from generate_test_ilp import generate_test_ilp
+            generate_test_ilp(test_dir + '/test_seg_ilastik')
+        run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
+
 if __name__ == "__main__":
     import sys
     
     if len(sys.argv) != 1:
-        sys.stderr.write("This script takes no arguments.")
+        sys.stderr.write("This script takes no arguments.\n")
         sys.exit(1)
 
     # It is assumed that this script lives in the integration_tests directory
