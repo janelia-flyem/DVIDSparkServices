@@ -1,7 +1,6 @@
 import argparse
 import sys
 import imp
-import traceback
 import glob
 import json
 import os
