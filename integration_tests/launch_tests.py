@@ -161,7 +161,7 @@ def init_dvid_database(test_dir):
     dummy, err = p.communicate()
     
     # load grayscale data
-    load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale.bin' % (uuid1, test_dir)).split()
+    load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale-256-256-256-uint8.bin' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
