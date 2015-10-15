@@ -52,6 +52,8 @@ def ilastik_predict_with_array(project_file_path, raw_data_array, lazyflow_threa
     
     raw_data_array: A 3D numpy array with axes zyx
     """
+    print "ilastik_predict_with_array(): Starting with raw data: dtype={}, shape={}".format(str(raw_data_array.dtype), raw_data_array.shape)
+
     import os
     from collections import OrderedDict
     import vigra
@@ -59,6 +61,8 @@ def ilastik_predict_with_array(project_file_path, raw_data_array, lazyflow_threa
     import ilastik_main
     from ilastik.applets.dataSelection import DatasetInfo
     from ilastik.workflows.pixelClassification import PixelClassificationWorkflow
+
+    print "ilastik_predict_with_array(): Done with imports"
 
     # Before we start ilastik, prepare the environment variable settings.
     os.environ["LAZYFLOW_THREADS"] = str(lazyflow_threads)
@@ -69,6 +73,8 @@ def ilastik_predict_with_array(project_file_path, raw_data_array, lazyflow_threa
     args.headless = True
     args.project = project_file_path
     args.readonly = True
+
+    print "ilastik_predict_with_array(): Creating shell..."
 
     # Instantiate the 'shell', (in this case, an instance of ilastik.shell.HeadlessShell)
     # This also loads the project file into shell.projectManager
@@ -86,6 +92,8 @@ def ilastik_predict_with_array(project_file_path, raw_data_array, lazyflow_threa
     # (See PixelClassificationWorkflow.ROLE_NAMES)
     raw_data_array = vigra.taggedView(raw_data_array, 'zyx')
     role_data_dict = OrderedDict([ ("Raw Data", [ DatasetInfo(preloaded_array=raw_data_array) ]) ]) 
+
+    print "ilastik_predict_with_array(): Starting export..."
 
     # Run the export via the BatchProcessingApplet
     prediction_list = shell.workflow.batchProcessingApplet.run_export(role_data_dict, export_to_array=True)
