@@ -22,6 +22,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     fin = open(test_dir+"/"+test_name+"/config.json")
     data = fin.read()
     fin.close()
+    print job_command
     data = data.replace("UUID1", uuid1)
     data = data.replace("UUID2", uuid2)
     data = data.replace("DIR", test_dir)
