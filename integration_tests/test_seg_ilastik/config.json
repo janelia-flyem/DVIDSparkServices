@@ -1,19 +1,21 @@
 {
     "dvid-info" : {
         "dvid-server" : "127.0.0.1:8000",
-        "uuid" : "cab81de394ba4e858819489600250aaf",
-        "roi" : "full_roi_2",
+        "uuid" : "UUID1",
+        "roi" : "temproi256",
         "grayscale" : "grayscale",
-        "segmentation-name" : "segmentation-result"
+        "segmentation-name" : "test-segmentation-result"
     },
     "options" : {
         "segmentation-plugin" : "IlastikSegmentor",
         "stitch-algorithm" : "none",
         "iteration-size" : 0,
+        "checkpoint-dir" : "",
+        "checkpoint" : "none",
         "plugin-configuration" : { 
-            "ilp-path" : "integration_tests/test_seg_ilastik/test-project.ilp",
+            "ilp-path" : "integration_tests/resources/tiny-pc.ilp",
             "LAZYFLOW_THREADS" : "1",
-            "LAZYFLOW_TOTAL_RAM_MB" : "1000",
+            "LAZYFLOW_TOTAL_RAM_MB" : "500",
             "seed-channels" : [0]
         }
     }
