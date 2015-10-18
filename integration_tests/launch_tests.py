@@ -19,24 +19,23 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     job_command = 'spark-submit --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {config_json}'\
                    .format(**locals()).split()
 
-    fin = open(test_dir+"/"+test_name+"/config.json")
-    data = fin.read()
-    fin.close()
     print job_command
+    with open(test_dir+"/"+test_name+"/config.json") as fin:
+        data = fin.read()
+
     data = data.replace("UUID1", uuid1)
     data = data.replace("UUID2", uuid2)
     data = data.replace("DIR", test_dir)
-    fout = open(test_dir+"/"+test_name+"/temp_data/config.json", 'w')
-    fout.write(data)
-    fout.close()
+
+    with open(test_dir+"/"+test_name+"/temp_data/config.json", 'w') as fout:
+        fout.write(data)
 
     p = subprocess.Popen(job_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results, err = p.communicate()
     
     # write results out
-    fout = open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w')
-    fout.write(results)
-    fout.close()
+    with open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w') as fout:
+        fout.write(results)
     
     # compare results to results in output
     result_lines = results.splitlines()
