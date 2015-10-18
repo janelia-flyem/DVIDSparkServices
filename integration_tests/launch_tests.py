@@ -37,46 +37,49 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     with open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w') as fout:
         fout.write(results)
     
-    # compare results to results in output
-    result_lines = results.splitlines()
-    correct = True
-
-    with open(test_dir+"/"+test_name+"/outputs/results.txt") as fin:
-        correctoutput = fin.read()
-        correct_lines = correctoutput.splitlines()
-        debug1 = []
-        debug2 = []
-
-        for line in result_lines:
-            if string.find(line, "DEBUG:") != -1:
-                debug1.append(line)
-        for line in correct_lines:
-            if string.find(line, "DEBUG:") != -1:
-                debug2.append(line)
-       
-        if len(debug1) != len(debug2):
-            correct = False
-        else:
-            for iter1 in range(0, len(debug1)):
-                if debug1[iter1] != debug2[iter1]:
-                    correct = False
-                    break
-    
-    # verify output using custom python script if it exists
-    if os.path.exists(test_dir+"/"+test_name+"/checkoutput.py"):
-        checkoutput = ("python " + test_dir + "/" + test_name + "/checkoutput.py " + test_dir+"/"+test_name).split()
-        
-        p = subprocess.Popen(checkoutput, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        dummy, err = p.communicate()
-
-        if p.returncode != 0:
-            correct = False
-
-    if not correct:
-        print "FAILED"
+    if p.returncode != 0:
+        print "BAD RETURN CODE:", p.returncode
     else:
-        print "SUCCESS"
-
+        # compare results to results in output
+        result_lines = results.splitlines()
+        correct = True
+    
+        with open(test_dir+"/"+test_name+"/outputs/results.txt") as fin:
+            correctoutput = fin.read()
+            correct_lines = correctoutput.splitlines()
+            debug1 = []
+            debug2 = []
+    
+            for line in result_lines:
+                if string.find(line, "DEBUG:") != -1:
+                    debug1.append(line)
+            for line in correct_lines:
+                if string.find(line, "DEBUG:") != -1:
+                    debug2.append(line)
+           
+            if len(debug1) != len(debug2):
+                correct = False
+            else:
+                for iter1 in range(0, len(debug1)):
+                    if debug1[iter1] != debug2[iter1]:
+                        correct = False
+                        break
+        
+        # verify output using custom python script if it exists
+        if os.path.exists(test_dir+"/"+test_name+"/checkoutput.py"):
+            checkoutput = ("python " + test_dir + "/" + test_name + "/checkoutput.py " + test_dir+"/"+test_name).split()
+            
+            p = subprocess.Popen(checkoutput, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            dummy, err = p.communicate()
+    
+            if p.returncode != 0:
+                correct = False
+    
+        if not correct:
+            print "FAILED"
+        else:
+            print "SUCCESS"
+    
     finish = time.time()
 
     print "Finished test: ", test_name, " in ", finish-start, " seconds"
