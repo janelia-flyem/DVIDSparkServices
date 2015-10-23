@@ -17,7 +17,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     num_jobs = 8
     config_json = test_dir+"/"+test_name+"/temp_data/config.json"
     job_command = 'spark-submit --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {config_json}'\
-                   .format(**locals()).split()
+                   .format(**locals())
 
     print job_command
     with open(test_dir+"/"+test_name+"/config.json") as fin:
@@ -30,7 +30,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     with open(test_dir+"/"+test_name+"/temp_data/config.json", 'w') as fout:
         fout.write(data)
 
-    p = subprocess.Popen(job_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p = subprocess.Popen(job_command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results, err = p.communicate()
     
     # write results out
@@ -184,24 +184,27 @@ def init_dvid_database(test_dir):
 def run_tests(test_dir, uuid1, uuid2):
     #####  run tests ####
 
-    # test 1 segmentation
+    # test 1 segmentation with DefaultGrayOnly Segmentor
     run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
+
+    # test 1.5 segmentation with Segmentor (base class)
+    run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
       
     # test 2 segmentation iteration
     run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
- 
+  
     # test 3 segmentation rollback
     run_test("test_seg_rollback", "CreateSegmentation", test_dir, uuid1, uuid2) 
-
+ 
     # test 4 label comparison
     run_test("test_comp", "EvaluateSeg", test_dir, uuid1, uuid2) 
-
+ 
     # test 5 graph compute
     run_test("test_graph", "ComputeGraph", test_dir, uuid1, uuid2) 
-
+ 
     # test 6 grayscale ingestion
     run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2) 
-
+ 
     # test 7: segmentation with ilastik
     # First, verify that ilastik is available
     try:

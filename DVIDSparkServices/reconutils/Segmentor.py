@@ -1,28 +1,31 @@
 """Defines base class for segmentation plugins."""
+import importlib
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 class Segmentor(object):
-    """Contains functionality for segmenting large datasets.
+    """
+    Contains functionality for segmenting large datasets.
     
     It implements a very crude watershed algorithm by default.
-    Users are expected to overwrite the segmentation function
-    at least.  The other functions involving stitching the
+
+    This class's segment() functionality can be customized in one of two ways:
+    
+    1. Override segment() directly in a subclass.
+    2. Instead of implementing a subclass, use the default segment() 
+        implementation, which breaks the segmentation problem into separate
+        steps, each of which can be overridden via the config file: 
+        - "background-mask"
+        - "predict-voxels"
+        - "create-supervoxels"
+
+    The other functions involve stitching the
     subvolumes and performing other RDD and DVID manipulations.
 
-    Plugins should be placed in DVIDSparkServices.reconutils.plugins.
-
+    Plugins such as this class (or subclasses of it) must reside in DVIDSparkServices.reconutils.plugins.
     """
-
-    # determines what pixels are used as seeds (0-255 8-bit range)
-    SEED_THRES = 150 
-   
-    # the size of the seed needed
-    SEED_SIZE_THRES = 5
-
-    # background size (what to completely ignore)
-    BACKGROUND_SIZE = 100
-
     def __init__(self, context, config, options):
         self.context = context
+        self.config = config
 
         mode = config["options"]["stitch-algorithm"]
         if mode == "none":
@@ -35,130 +38,15 @@ class Segmentor(object):
             self.stitch_mode = 3
         else:
             raise Exception("Invalid stitch mode specified")
-
-        # set default watershed options (add option to use distance transform)
-        self.seed_threshold = 0
-        self.seed_size = 5
-        self.seed_channels = [0]
-        if "seed-threshold" in options:
-            self.seed_threshold = options["seed-threshold"]
-        if "seed-size" in options:
-            self.seed_size = options["seed-size"]
-        if "seed-channels" in options:
-            self.seed_channels = options["seed-channels"]
-
-    def predict_voxels(self, gray_chunks): 
-        """Create a dummy placeholder boundary channel from grayscale.
-
-        Takes an RDD of grayscale numpy volumes and produces
-        an RDD of predictions (z,y,x,ch) and a watershed mask.
-        """
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        from scipy.ndimage import label
-        from numpy import bincount 
-        background_size = self.BACKGROUND_SIZE
         
-        def _grayscale_identity(gray_chunk):
-            (subvolume, gray) = gray_chunk
-            import numpy
+        # Start with default functions, overwrite with user's functions
+        segmentation_functions = { "background-mask"         : "DVIDSparkServices.reconutils.misc.find_large_empty_regions",
+                                   "predict-voxels"          : "DVIDSparkServices.reconutils.misc.naive_membrane_predictions",
+                                   "create-supervoxels"      : "DVIDSparkServices.reconutils.misc.seeded_watershed",
+                                   "agglomerate-supervoxels" : "DVIDSparkServices.reconutils.misc.noop_aggolmeration" }
+        segmentation_functions.update( config["options"] )
+        self.segmentation_functions = segmentation_functions
 
-            # mask out background (don't have to 0 out seeds since)
-            mask_mask = numpy.zeros(gray.shape).astype(numpy.uint8)
-            mask_mask[gray == 0] = 1
-            mask_mask = label(mask_mask)[0]
-            mask_sizes = bincount(mask_mask.ravel())
-            mask_components = mask_sizes < background_size 
-            small_mask_locations = mask_components[mask_mask]
-            mask_mask[small_mask_locations] = 0
-            mask = mask_mask == 0 
-
-            # invert and convert to 0 to 1 range for watershed
-            new_gray = (255.0-gray)/255.0
-            
-            # convert it to a 1 channel prediction format
-            pred = numpy.expand_dims(new_gray, 3) 
-            
-            pred_compressed = CompressedNumpyArray(pred)
-            mask_compressed = CompressedNumpyArray(mask)
-
-            return (subvolume, pred_compressed, mask_compressed)
-        
-        # preserver partitioner
-        return gray_chunks.mapValues(_grayscale_identity)
-
-    def create_supervoxels(self, prediction_chunks):
-        """Performs watershed based on voxel prediction.
-
-        Takes an RDD of numpy volumes with multiple prediction
-        channels and produces an RDD of label volumes.  A mask must
-        be provided indicating which parts of the volume should
-        have a supervoxels (true to keep, false to ignore).  Currently,
-        this is a seeded watershed, an option to use the distance transform
-        for the watershed is forthcoming.  There are 3 hidden options
-        that can be specified:
-        
-        Options (specified in JSON):
-            seed-threshold = add seeds where boundary prob is <= threshold
-            seed-size = seeds must be >= seed size to keep
-            seed-channels (list[int]) = array of channels to use for watershed
-
-        Args:
-            prediction_chunks (RDD) = (subvolume key, (subvolume, 
-                compressed numpy predictions, compressed numpy mask))
-        Returns:
-            watershed+predictions (RDD) as (subvolume key, (subvolume, 
-                (numpy compressed array, numpy compressed array)))
-        """
-        from DVIDSparkServices.reconutils.morpho import seeded_watershed
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        seed_threshold = self.seed_threshold
-        seed_size = self.seed_size
-        seed_channels = self.seed_channels
-
-        def _watershed(prediction_chunks):
-            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
-            prediction = prediction_compressed.deserialize()
-            if mask_compressed is None:
-                mask = None
-            else:
-                assert isinstance( mask, CompressedNumpyArray )
-                mask = mask_compressed.deserialize()
-
-            # grab boundary data
-            boundary = prediction[:,:,:,seed_channels[0]] 
-           
-            for bch in range(1, len(seed_channels)):
-                boundary += prediction[:,:,:,seed_channels[bch]]
-
-            supervoxels = seeded_watershed(boundary, seed_threshold,
-                seed_size, mask)
-
-            max_id = supervoxels.max()
-            supervoxels_compressed = CompressedNumpyArray(supervoxels)
-            subvolume.set_max_id(max_id)
-            
-            return (subvolume, prediction_compressed, supervoxels_compressed)
-            
-        # preserver partitioner
-        return prediction_chunks.mapValues(_watershed)
-
-    def agglomerate_supervoxels(self, sp_chunks):
-        """No-op placeholder agglomeration of supervoxels.
-
-        Args:
-            seg_chunks (RDD) = (subvolume key, (subvolume, numpy compressed array, 
-                numpy compressed array))
-        Returns:
-            segmentation (RDD) = (subvolume key, (subvolume, numpy compressed array))
-        """
-        
-        def _noop_agglom(sp_chunk):
-            (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
-            return (subvolume, supervoxels_compressed)
-
-        # preserver partitioner
-        return sp_chunks.mapValues(_noop_agglom)
-    
     def segment(self, gray_chunks):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
@@ -174,9 +62,11 @@ class Segmentor(object):
             segmentation (RDD) as (subvolume key, (subvolume, numpy compressed array))
 
         """
+        # Compute mask of background area that can be skipped (if any)
+        gray_mask_chunks = self.compute_background_mask(gray_chunks)
         
         # run voxel prediction (default: grayscale is boundary)
-        pred_chunks = self.predict_voxels(gray_chunks)
+        pred_chunks = self.predict_voxels(gray_mask_chunks)
 
         # run watershed from voxel prediction (default: seeded watershed)
         sp_chunks = self.create_supervoxels(pred_chunks)
@@ -186,11 +76,125 @@ class Segmentor(object):
 
         return segmentation 
 
+    def _get_segmentation_function(self, segmentation_step):
+        """
+        Read the user's config and return the image processing
+        function specified for the given segmentation step.
+        
+        The function should accept and return plain numpy arrays, 
+        as well as a 'parameters' dict for optional settings.
+        """
+        full_function_name = self.segmentation_functions[segmentation_step]
+        module_name = '.'.join(full_function_name.split('.')[:-1])
+        function_name = full_function_name.split('.')[-1]
+        module = importlib.import_module(module_name)
+        return getattr(module, function_name)
+        
+    def compute_background_mask(self, gray_chunks):
+        """
+        Detect large 'background' regions that lie outside the area of interest for segmentation.
+        """
+        mask_function = self._get_segmentation_function('background-mask')
+        parameters = self.config["options"] # FIXME
+        def _execute_for_chunk(gray_chunk):
+            (subvolume, gray) = gray_chunk
+
+            # Call the (custom) function
+            mask = mask_function(gray, parameters)
+            
+            if mask is None:
+                return (subvolume, None)
+            return (subvolume, gray, CompressedNumpyArray(mask))
+
+        return gray_chunks.mapValues(_execute_for_chunk)
+
+    def predict_voxels(self, gray_mask_chunks): 
+        """Create a dummy placeholder boundary channel from grayscale.
+
+        Takes an RDD of grayscale numpy volumes and produces
+        an RDD of predictions (z,y,x).
+        """
+        prediction_function = self._get_segmentation_function('predict-voxels')
+        parameters = self.config["options"] # FIXME
+        def _execute_for_chunk(gray_mask_chunk):
+            (subvolume, gray, mask_compressed) = gray_mask_chunk
+            # mask can be None
+            assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
+            mask = mask_compressed and mask_compressed.deserialize()
+
+            # Call the (custom) function
+            predictions = prediction_function(gray, mask, parameters)
+            assert predictions.ndim == 3, "Predictions have too many dimensions."
+
+            return ( subvolume, CompressedNumpyArray(predictions), mask_compressed )
+
+        return gray_mask_chunks.mapValues(_execute_for_chunk)
+
+    def create_supervoxels(self, prediction_chunks):
+        """Performs watershed based on voxel prediction.
+
+        Takes an RDD of numpy volumes with multiple prediction
+        channels and produces an RDD of label volumes.  A mask must
+        be provided indicating which parts of the volume should
+        have a supervoxels (true to keep, false to ignore).  Currently,
+        this is a seeded watershed, an option to use the distance transform
+        for the watershed is forthcoming.  There are 3 hidden options
+        that can be specified:
+        
+        Args:
+            prediction_chunks (RDD) = (subvolume key, (subvolume, 
+                compressed numpy predictions, compressed numpy mask))
+        Returns:
+            watershed+predictions (RDD) as (subvolume key, (subvolume, 
+                (numpy compressed array, numpy compressed array)))
+        """
+        supervoxel_function = self._get_segmentation_function('create-supervoxels')
+        parameters = self.config["options"] # FIXME
+        def _execute_for_chunk(prediction_chunks):
+            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
+            # mask can be None
+            assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
+            mask = mask_compressed and mask_compressed.deserialize()
+            prediction = prediction_compressed.deserialize()
+
+            # Call the (custom) function
+            supervoxels = supervoxel_function(prediction, mask, parameters)
+            
+            supervoxels_compressed = CompressedNumpyArray(supervoxels)
+            subvolume.set_max_id( supervoxels.max() )            
+            return (subvolume, prediction_compressed, supervoxels_compressed)
+
+        return prediction_chunks.mapValues(_execute_for_chunk)
+
+    def agglomerate_supervoxels(self, sp_chunks):
+        """Agglomerate supervoxels
+
+        Args:
+            seg_chunks (RDD) = (subvolume key, (subvolume, numpy compressed array, 
+                numpy compressed array))
+        Returns:
+            segmentation (RDD) = (subvolume key, (subvolume, numpy compressed array))
+        """
+        
+        agglomeration_function = self._get_segmentation_function('agglomerate-supervoxels')
+        parameters = self.config["options"] # FIXME
+        def _execute_for_chunk(sp_chunk):
+            (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
+            supervoxels = supervoxels_compressed.deserialize()
+            predictions = prediction_compressed.deserialize()
+            
+            # Call the (custom) function
+            agglomerated = agglomeration_function(predictions, supervoxels, parameters)
+            agglomerated_compressed = CompressedNumpyArray(agglomerated)
+
+            return (subvolume, agglomerated_compressed)
+
+        # preserver partitioner
+        return sp_chunks.mapValues(_execute_for_chunk)
+    
 
     # label volumes to label volumes remapped, preserves partitioner 
     def stitch(self, label_chunks):
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        
         def example(stuff):
             return stuff[1][0]
         
