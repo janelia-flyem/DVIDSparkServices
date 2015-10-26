@@ -50,6 +50,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
             debug1 = []
             debug2 = []
     
+            # Compare only DEBUG lines, ignore everything else.
             for line in result_lines:
                 if string.find(line, "DEBUG:") != -1:
                     debug1.append(line)
