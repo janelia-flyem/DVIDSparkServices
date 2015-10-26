@@ -238,8 +238,11 @@ class CreateSegmentation(DVIDWorkflow):
             vol_compressed = CompressedNumpyArray(label_volume)
            
             # dump checksum
-            import md5
-            print "DEBUG: ", str(md5.new(vol_compressed.serialized_data[0]).digest())
+            import hashlib
+            md5 = hashlib.md5()
+            md5.update(vol_compressed.serialized_data[0])
+            checksum_text = md5.hexdigest()
+            print "DEBUG: ", checksum_text
 
     @staticmethod
     def dumpschema():
