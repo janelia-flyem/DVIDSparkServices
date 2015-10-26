@@ -112,7 +112,6 @@ class CreateSegmentation(DVIDWorkflow):
     def execute(self):
         from pyspark import SparkContext
         from pyspark import StorageLevel
-        from pyspark.storagelevel import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
         if "chunk-size" in self.config_data["options"]:
