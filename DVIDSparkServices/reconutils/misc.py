@@ -54,7 +54,7 @@ def seeded_watershed(boundary_volume, mask, parameters={}):
     Seeds are generated using a seed-threshold and minimum seed-size.
     """
     # Start with defaults, then update with user's
-    all_parameters = { 'seed-threshold' : 0,
+    all_parameters = { 'seed-threshold' : 0.5,
                        'seed-size' : 5 }
     all_parameters.update(parameters)
 
