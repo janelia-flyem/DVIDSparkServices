@@ -1,6 +1,6 @@
 import argparse
 import sys
-import imp
+import importlib
 import glob
 import json
 import os
@@ -42,10 +42,8 @@ def main(argv):
 
         # import plugin and grab class
         # assume plugin name and class name are the same
-        workflow_source = workflowpath + args.workflow + '.py'
-        workflow_name = "workflows." + args.workflow
-        logger.info("Loading workflow: " + workflow_source + "as: " + workflow_name)
-        workflow_mod = imp.load_source(workflow_name, workflow_source)
+        module_name = "workflows." + args.workflow
+        workflow_mod = importlib.import_module(module_name)
         workflow_cls = getattr(workflow_mod, args.workflow)
 
         # print the json schema for the given workflow
