@@ -44,8 +44,8 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None, parameters={} ):
     Simply returns the inverted grayscale as our 'predictions'
     """
     # Just use inverted intensity as a proxy for membrane probability
-    inverted = (255-grayscale_vol)
-    inverted = inverted / 255.0 # Scale: Watershed step expects range 0.0-1.0
+    inverted = (255-grayscale_vol).astype(numpy.float32)
+    inverted[:] /= 255 # Scale: Watershed step expects range 0.0-1.0
     return inverted
 
 def seeded_watershed(boundary_volume, mask, parameters={}):
