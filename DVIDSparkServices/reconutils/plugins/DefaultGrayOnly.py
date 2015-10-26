@@ -23,7 +23,7 @@ class DefaultGrayOnly(Segmentor):
 
             mask = misc.find_large_empty_regions(gray)
             predictions = misc.naive_membrane_predictions(gray, mask)
-            supervoxels = misc.seeded_watershed(predictions, mask, { 'seed-threshold' : 150, 'seed-size' : 5 })
+            supervoxels = misc.seeded_watershed(predictions, mask, { 'seed-threshold' : 0.5, 'seed-size' : 5 })
             agglomerated_sp = misc.noop_aggolmeration(predictions, supervoxels)
             
             max_id = agglomerated_sp.max()
