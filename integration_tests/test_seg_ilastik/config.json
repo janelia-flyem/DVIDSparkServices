@@ -1,22 +1,31 @@
 {
-    "dvid-info" : {
-        "dvid-server" : "127.0.0.1:8000",
-        "uuid" : "UUID1",
-        "roi" : "temproi256",
-        "grayscale" : "grayscale",
-        "segmentation-name" : "test-segmentation-result"
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "ilastik-segmentation-result",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
     },
-    "options" : {
-        "segmentation-plugin" : "IlastikSegmentor",
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "predict-voxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
+                    "parameters": {
+                        "ilp_path": "integration_tests/resources/tiny-pc.ilp",
+                        "boundary_channels": [0, 3],
+                        "LAZYFLOW_THREADS": 4,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                    }
+                }
+            }
+        },
         "stitch-algorithm" : "none",
-        "iteration-size" : 0,
-        "checkpoint-dir" : "",
+        "chunk-size": 128,
         "checkpoint" : "none",
-        "plugin-configuration" : { 
-            "ilp-path" : "integration_tests/resources/tiny-pc.ilp",
-            "LAZYFLOW_THREADS" : "1",
-            "LAZYFLOW_TOTAL_RAM_MB" : "500",
-            "seed-channels" : [0]
-        }
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+    	"debug": true
     }
 }

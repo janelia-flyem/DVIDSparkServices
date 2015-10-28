@@ -6,93 +6,111 @@ This workflow will run this algorithm (or its default) and stitch
 the results together.
 
 """
-
+import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
-    Schema = """\
-{ "$schema": "http://json-schema.org/schema#",
-  "title": "Service to create image segmentation from grayscale data",
-  "type": "object",
-  "properties": {
-    "dvid-info" : {
+    Schema = textwrap.dedent("""\
+    {
+      "$schema": "http://json-schema.org/schema#",
+      "title": "Service to create image segmentation from grayscale data",
       "type": "object",
       "properties": {
-        "dvid-server": {
-          "description": "location of DVID server",
-          "type": "string",
-          "minLength": 1,
-          "property": "dvid-server"
+        "dvid-info" : {
+          "type": "object",
+          "properties": {
+            "dvid-server": {
+              "description": "location of DVID server",
+              "type": "string",
+              "minLength": 1,
+              "property": "dvid-server"
+            },
+            "uuid": {
+              "description": "version node to store segmentation",
+              "type": "string",
+              "minLength": 1
+            },
+            "roi": {
+              "description": "region of interest to segment",
+              "type": "string",
+              "minLength": 1
+            },
+            "grayscale": {
+              "description": "grayscale data to segment",
+              "type": "string",
+              "minLength": 1,
+              "default": "grayscale"
+            },
+            "segmentation-name": {
+              "description": "location for segmentation result",
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name"],
+          "additionalProperties": false
         },
-        "uuid": {
-          "description": "version node to store segmentation",
-          "type": "string",
-          "minLength": 1
-        },
-        "roi": {
-          "description": "region of interest to segment",
-          "type": "string",
-          "minLength": 1
-        },
-        "grayscale": {
-          "description": "grayscale data to segment",
-          "type": "string",
-          "minLength": 1,
-          "default": "grayscale"
-        },
-        "segmentation-name": {
-          "description": "location for segmentation result",
-          "type": "string",
-          "minLength": 1
+        "options" : {
+          "type": "object",
+          "properties": {
+            "segmentor": {
+              "description": "Custom configuration for segmentor subclass.",
+              "type": "object",
+              "properties" : {
+                "class": {
+                  "description": "segmentation plugin to run",
+                  "type": "string",
+                  "default": "DVIDSparkServices.reconutils.Segmentor.Segmentor"
+                },
+                "configuration" : {
+                  "description": "custom configuration for subclass. Schema should be supplied in subclass source.",
+                  "type" : "object",
+                  "default" : {}
+                }
+              },
+              "additionalProperties": false,
+              "default": {}
+            },
+            "stitch-algorithm": {
+              "description": "determines aggressiveness of segmentation stitching",
+              "type": "string",
+              "enum": ["none", "conservative", "medium", "aggressive"],
+              "default": "medium"
+            },
+            "chunk-size": {
+              "description": "Size of blocks to process independently (and then stitched together).",
+              "type": "integer",
+              "default": 512
+            },
+            "iteration-size": {
+              "description": "Number of tasks per iteration (0 -- max size)",
+              "type": "integer",
+              "default": 0
+            },
+            "checkpoint-dir": {
+              "description": "Specify checkpoint directory",
+              "type": "string",
+              "default": ""
+            },
+            "checkpoint": {
+              "description": "Reuse previous results",
+              "type": "string",
+              "enum": ["none", "voxel", "segmentation"],
+              "default": "none"
+            },
+            "debug": {
+              "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": ["stitch-algorithm"],
+          "additionalProperties": false
         }
-      },
-      "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name"]
-    },
-    "options" : {
-      "type": "object",
-      "properties": {
-        "segmentation-plugin": {
-          "description": "segmentation plugin to run",
-          "type": "string",
-          "default": "DefaultGrayOnly",
-          "minLength": 0
-        },
-        "stitch-algorithm": {
-          "description": "determines aggressiveness of segmentation stitching",
-          "type": "string",
-          "enum": ["none", "conservative", "medium", "aggressive"],
-          "default": "medium"
-        },
-        "plugin-configuration": {
-          "description": "custom configuration as a list of key/values for plugins",
-          "type": "object"
-        },
-        "iteration-size": {
-          "description": "Number of tasks per iteration (0 -- max size)",
-          "type": "integer",
-          "default": 0
-        },
-        "checkpoint-loc": {
-          "description": "Specify checkpoint directory",
-          "type": "string",
-          "default": ""
-        },
-        "checkpoint": {
-          "description": "Reuse previous results",
-          "type": "string",
-          "enum": ["none", "voxel", "segmentation"],
-          "default": "none"
-        }
-      },
-      "required": ["stitch-algorithm"]
+      }
     }
-  }
-}"""
-
-    # choose reasonably big subvolume to minimize stitching effects
-    #chunksize = 128 
-    chunksize = 512 
+    """)
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -114,8 +132,7 @@ class CreateSegmentation(DVIDWorkflow):
         from pyspark import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
-        if "chunk-size" in self.config_data["options"]:
-            self.chunksize = self.config_data["options"]["chunk-size"]
+        self.chunksize = self.config_data["options"]["chunk-size"]
 
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
@@ -127,33 +144,19 @@ class CreateSegmentation(DVIDWorkflow):
 
         num_parts = len(distsubvolumes.collect())
 
-        # check for custom segmentation plugin 
-        segmentation_plugin = ""
-        if "segmentation-plugin" in self.config_data["options"]:
-            segmentation_plugin = str(self.config_data["options"]["segmentation-plugin"])
-
-        # grab seg options
-        seg_options = []
-        if "plugin-configuration" in self.config_data["options"]:
-            seg_options = self.config_data["options"]["plugin-configuration"]
-
-        # call the correct segmentation plugin (must be installed)
-        segmentor = None
-        if segmentation_plugin == "":
-            segmentor = Segmentor(self.sparkdvid_context, self.config_data, seg_options)
-        else:
-            import importlib
-            # assume there is a plugin folder in reconutil
-            # with a module with the provided name
-
-            segmentor_mod = importlib.import_module("DVIDSparkServices.reconutils.plugins." + segmentation_plugin)
-            segmentor_class = getattr(segmentor_mod, segmentation_plugin)
-            segmentor = segmentor_class(self.sparkdvid_context, self.config_data, seg_options)
+        # Instantiate the correct Segmentor subclass (must be installed)
+        import importlib
+        full_segmentor_classname = self.config_data["options"]["segmentor"]["class"]
+        segmentor_classname = full_segmentor_classname.split('.')[-1]
+        module_name = '.'.join(full_segmentor_classname.split('.')[:-1])
+        segmentor_mod = importlib.import_module(module_name)
+        segmentor_class = getattr(segmentor_mod, segmentor_classname)
+        segmentor = segmentor_class(self.sparkdvid_context, self.config_data)
 
         # determine number of iterations
-        iteration_size = num_parts
-        if self.config_data["options"]["iteration-size"] != 0:
-            iteration_size = self.config_data["options"]["iteration-size"]
+        iteration_size = self.config_data["options"]["iteration-size"]
+        if iteration_size == 0:
+            iteration_size = num_parts
 
         num_iters = num_parts/iteration_size
         if num_parts % iteration_size > 0:
@@ -224,14 +227,19 @@ class CreateSegmentation(DVIDWorkflow):
         
         self.logger.write_data("Wrote DVID labels") # write to logger after spark job
 
-        if "debug" in self.config_data["options"] and self.config_data["options"]["debug"]:
+        if self.config_data["options"]["debug"]:
             # grab 256 cube from ROI 
             from libdvid import DVIDNodeService
             node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]),
-                    str(self.config_data["dvid-info"]["uuid"]))
-            substacks, packing_factor = node_service.get_roi_partition(str(self.config_data["dvid-info"]["roi"]), 256/self.blocksize)
+                                           str(self.config_data["dvid-info"]["uuid"]))
+            
+            substacks, packing_factor = node_service.get_roi_partition(str(self.config_data["dvid-info"]["roi"]),
+                                                                       256/self.blocksize)
+
             label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 
-                    (256,256,256), (substacks[0][0], substacks[0][1], substacks[0][2]), compress=True )
+                                                      (256,256,256),
+                                                      (substacks[0][0], substacks[0][1], substacks[0][2]),
+                                                      compress=True )
              
             # retrieve string
             from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
@@ -247,4 +255,3 @@ class CreateSegmentation(DVIDWorkflow):
     @staticmethod
     def dumpschema():
         return CreateSegmentation.Schema
-

@@ -7,8 +7,10 @@
         "grayscale": "grayscale"
     },
     "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.plugins.DefaultGrayOnly"
+        },
         "stitch-algorithm": "medium",
-        "segmentation-plugin": "DefaultGrayOnly",
         "chunk-size": 128,
         "checkpoint": "segmentation",
         "checkpoint-dir": "/tmp/segrun/",

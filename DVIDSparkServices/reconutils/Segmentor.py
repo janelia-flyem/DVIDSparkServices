@@ -1,6 +1,10 @@
 """Defines base class for segmentation plugins."""
+import json
 import importlib
+import textwrap
+from functools import partial
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from DVIDSparkServices.json_util import validate_and_inject_defaults
 
 class Segmentor(object):
     """
@@ -23,29 +27,65 @@ class Segmentor(object):
 
     Plugins such as this class (or subclasses of it) must reside in DVIDSparkServices.reconutils.plugins.
     """
-    def __init__(self, context, config, options):
-        self.context = context
-        self.config = config
 
-        mode = config["options"]["stitch-algorithm"]
-        if mode == "none":
-            self.stitch_mode = 0
-        elif mode == "conservative":
-            self.stitch_mode = 1
-        elif mode == "medium":
-            self.stitch_mode = 2
-        elif mode == "aggressive":
-            self.stitch_mode = 3
-        else:
-            raise Exception("Invalid stitch mode specified")
+    SegmentorSchema = textwrap.dedent("""\
+        {
+          "$schema": "http://json-schema.org/schema#",
+          "title": "Plugin configuration options for the Segmentor base class",
+          "type": "object",
+        """
         
-        # Start with default functions, overwrite with user's functions
-        segmentation_functions = { "background-mask"         : "DVIDSparkServices.reconutils.misc.find_large_empty_regions",
-                                   "predict-voxels"          : "DVIDSparkServices.reconutils.misc.naive_membrane_predictions",
-                                   "create-supervoxels"      : "DVIDSparkServices.reconutils.misc.seeded_watershed",
-                                   "agglomerate-supervoxels" : "DVIDSparkServices.reconutils.misc.noop_aggolmeration" }
-        segmentation_functions.update( config["options"] )
-        self.segmentation_functions = segmentation_functions
+        # This subschema is for referencing custom functions for various steps in the pipeline.
+        # Example: { "function": "skimage.filters.threshold_otsu",
+        #            "parameters": {"nbins": 256 } }
+        """          
+          "definitions" : {
+            "custom-function" : {
+              "description": "Configuration for a custom function to replace a segmentation step.",
+              "type": "object",
+              "properties": {
+                "function": {
+                  "description": "Name of a python function.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "parameters" : {
+                  "description": "Arbitrary dict of parameters.",
+                  "type": "object",
+                  "default" : {}
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+        """
+
+        # Functions for each segmentation step are provided directly in the json config.
+        # If not, these defaults from this schema are used.
+        """
+          "properties": {
+            "background-mask"         : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.find_large_empty_regions" } },
+            "predict-voxels"          : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.naive_membrane_predictions" } },
+            "create-supervoxels"      : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.seeded_watershed" } },
+            "agglomerate-supervoxels" : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.noop_aggolmeration" } }
+          },
+          "default": {}
+        }
+        """)
+
+    def __init__(self, context, workflow_config):
+        self.context = context
+        self.segmentor_config = workflow_config["options"]["segmentor"]["configuration"]
+
+        segmentor_schema = json.loads(Segmentor.SegmentorSchema)
+        validate_and_inject_defaults(self.segmentor_config, segmentor_schema)        
+
+        stitch_modes = { "none" : 0, "conservative" : 1, "medium" : 2, "aggressive" : 3 }
+        self.stitch_mode = stitch_modes[ workflow_config["options"]["stitch-algorithm"] ]
 
     def segment(self, gray_chunks):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
@@ -80,27 +120,28 @@ class Segmentor(object):
         """
         Read the user's config and return the image processing
         function specified for the given segmentation step.
-        
-        The function should accept and return plain numpy arrays, 
-        as well as a 'parameters' dict for optional settings.
+
+        If the user provided a dict of parameters, then they will be
+        bound into the returned function as keyword args.
         """
-        full_function_name = self.segmentation_functions[segmentation_step]
+        full_function_name = self.segmentor_config[segmentation_step]["function"]
         module_name = '.'.join(full_function_name.split('.')[:-1])
         function_name = full_function_name.split('.')[-1]
         module = importlib.import_module(module_name)
-        return getattr(module, function_name)
+        
+        parameters = self.segmentor_config[segmentation_step]["parameters"]
+        return partial( getattr(module, function_name), **parameters )
         
     def compute_background_mask(self, gray_chunks):
         """
         Detect large 'background' regions that lie outside the area of interest for segmentation.
         """
         mask_function = self._get_segmentation_function('background-mask')
-        parameters = self.config["options"] # FIXME
         def _execute_for_chunk(gray_chunk):
             (subvolume, gray) = gray_chunk
 
             # Call the (custom) function
-            mask = mask_function(gray, parameters)
+            mask = mask_function(gray)
             
             if mask is None:
                 return (subvolume, None)
@@ -108,14 +149,13 @@ class Segmentor(object):
 
         return gray_chunks.mapValues(_execute_for_chunk)
 
-    def predict_voxels(self, gray_mask_chunks): 
+    def predict_voxels(self, gray_mask_chunks):
         """Create a dummy placeholder boundary channel from grayscale.
 
         Takes an RDD of grayscale numpy volumes and produces
         an RDD of predictions (z,y,x).
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
-        parameters = self.config["options"] # FIXME
         def _execute_for_chunk(gray_mask_chunk):
             (subvolume, gray, mask_compressed) = gray_mask_chunk
             # mask can be None
@@ -123,7 +163,7 @@ class Segmentor(object):
             mask = mask_compressed and mask_compressed.deserialize()
 
             # Call the (custom) function
-            predictions = prediction_function(gray, mask, parameters)
+            predictions = prediction_function(gray, mask)
             assert predictions.ndim == 3, "Predictions have too many dimensions."
 
             return ( subvolume, CompressedNumpyArray(predictions), mask_compressed )
@@ -149,7 +189,6 @@ class Segmentor(object):
                 (numpy compressed array, numpy compressed array)))
         """
         supervoxel_function = self._get_segmentation_function('create-supervoxels')
-        parameters = self.config["options"] # FIXME
         def _execute_for_chunk(prediction_chunks):
             (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
             # mask can be None
@@ -158,7 +197,7 @@ class Segmentor(object):
             prediction = prediction_compressed.deserialize()
 
             # Call the (custom) function
-            supervoxels = supervoxel_function(prediction, mask, parameters)
+            supervoxels = supervoxel_function(prediction, mask)
             
             supervoxels_compressed = CompressedNumpyArray(supervoxels)
             subvolume.set_max_id( supervoxels.max() )            
@@ -177,14 +216,13 @@ class Segmentor(object):
         """
         
         agglomeration_function = self._get_segmentation_function('agglomerate-supervoxels')
-        parameters = self.config["options"] # FIXME
         def _execute_for_chunk(sp_chunk):
             (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
             supervoxels = supervoxels_compressed.deserialize()
             predictions = prediction_compressed.deserialize()
             
             # Call the (custom) function
-            agglomerated = agglomeration_function(predictions, supervoxels, parameters)
+            agglomerated = agglomeration_function(predictions, supervoxels)
             agglomerated_compressed = CompressedNumpyArray(agglomerated)
 
             return (subvolume, agglomerated_compressed)
@@ -197,10 +235,10 @@ class Segmentor(object):
     def stitch(self, label_chunks):
         def example(stuff):
             return stuff[1][0]
-        
+        subvolumes = label_chunks.map(example).collect()
+
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
-        subvolumes = label_chunks.map(example).collect()
         offsets = {}
         offset = 0
         for subvolume in subvolumes:
@@ -212,10 +250,8 @@ class Segmentor(object):
         def extract_boundaries(key_labels):
             # compute overlap -- assume first point is less than second
             def intersects(pt1, pt2, pt1_2, pt2_2):
-                if pt1 > pt2:
-                    raise Exception("point 1 greater than point 2")
-                if pt1_2 > pt2_2:
-                    raise Exception("point 1 greater than point 2")
+                assert pt1 <= pt2, "point 1 greater than point 2: {} > {}".format( pt1, pt2 )
+                assert pt1_2 <= pt2_2, "point 1_2 greater than point 2_2: {} > {}".format( pt1_2, pt2_2 )
 
                 val1 = max(pt1, pt1_2)
                 val2 = min(pt2, pt2_2)

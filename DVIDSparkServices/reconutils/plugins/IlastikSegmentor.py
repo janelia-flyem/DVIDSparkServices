@@ -1,5 +1,5 @@
 
-def ilastik_predict_with_array(gray_vol, mask, parameters={}):
+def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=1024):
     """
     Using ilastik's python API, open the given project 
     file and run a prediction on the given raw data array.
@@ -9,13 +9,6 @@ def ilastik_predict_with_array(gray_vol, mask, parameters={}):
     
     raw_data_array: A 3D numpy array with axes zyx
     """
-    # Start with defaults, then update with user's
-    all_parameters = {"ilp-path" : None,
-                      "LAZYFLOW_THREADS" : 1,
-                      "LAZYFLOW_TOTAL_RAM_MB" : 1024 }
-    all_parameters.update( parameters["plugin-configuration"] )
-    assert all_parameters['ilp-path'], "No project file specified!"
-    
     print "ilastik_predict_with_array(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape)
 
     import os
@@ -29,13 +22,13 @@ def ilastik_predict_with_array(gray_vol, mask, parameters={}):
     print "ilastik_predict_with_array(): Done with imports"
 
     # Before we start ilastik, prepare the environment variable settings.
-    os.environ["LAZYFLOW_THREADS"] = str(all_parameters["LAZYFLOW_THREADS"])
-    os.environ["LAZYFLOW_TOTAL_RAM_MB"] = str(all_parameters["LAZYFLOW_TOTAL_RAM_MB"])
+    os.environ["LAZYFLOW_THREADS"] = str(LAZYFLOW_THREADS)
+    os.environ["LAZYFLOW_TOTAL_RAM_MB"] = str(LAZYFLOW_TOTAL_RAM_MB)
 
     # Prepare ilastik's "command-line" arguments, as if they were already parsed.
     args = ilastik_main.parser.parse_args([])
     args.headless = True
-    args.project = all_parameters["ilp-path"]
+    args.project = ilp_path
     args.readonly = True
 
     print "ilastik_predict_with_array(): Creating shell..."
@@ -57,7 +50,7 @@ def ilastik_predict_with_array(gray_vol, mask, parameters={}):
     raw_data_array = vigra.taggedView(gray_vol, 'zyx')
     role_data_dict = OrderedDict([ ("Raw Data", [ DatasetInfo(preloaded_array=raw_data_array) ]) ])
     
-    if mask:
+    if mask is not None:
         # If there's a mask, we might be able to save some computation time.
         mask = vigra.taggedView(mask, 'zyx')
         role_data_dict["Prediction Mask"] = [ DatasetInfo(preloaded_array=mask) ]
@@ -72,4 +65,11 @@ def ilastik_predict_with_array(gray_vol, mask, parameters={}):
     # Sanity checks
     label_names = opPixelClassification.LabelNames.value
     assert predictions.shape[-1] == len(label_names)
+    
+    assert all(c < len(label_names) for c in boundary_channels), \
+        "Specified boundary channels ({}) exceed number of prediction classes ({})"\
+        .format( boundary_channels, len(label_names) )
+
+    # Select/sum channels and reduce from 4D to 3D
+    predictions = predictions[..., boundary_channels].sum(axis=-1)
     return predictions
