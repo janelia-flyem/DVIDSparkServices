@@ -159,7 +159,7 @@ class Segmentor(object):
         # preserver partitioner
         return sp_chunks.mapValues(_noop_agglom)
     
-    def segment(self, gray_chunks):
+    def segment(self, gray_chunks, checkpoint_dir = "", enable_pred_rollback = False):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
         Defines a segmentation workflow consisting of voxel prediction,
@@ -170,6 +170,8 @@ class Segmentor(object):
 
         Args:
             gray_chunks (RDD) = (subvolume key, (subvolume, numpy grayscale))
+            checkpoint_dir (str) = enables checkpointing for boundary prediction if not empty
+            enable_pred_rollback (boolean) = enables rollback of prediction if available
         Returns:
             segmentation (RDD) as (subvolume key, (subvolume, numpy compressed array))
 
@@ -177,6 +179,11 @@ class Segmentor(object):
         
         # run voxel prediction (default: grayscale is boundary)
         pred_chunks = self.predict_voxels(gray_chunks)
+
+        # retrieve previously computed RDD or save current RDD
+        if checkpoint_dir != "":
+            pred_chunks = self.context.checkpointRDD(pred_chunks, 
+                    checkpoint_dir, enable_pred_rollback)  
 
         # run watershed from voxel prediction (default: seeded watershed)
         sp_chunks = self.create_supervoxels(pred_chunks)

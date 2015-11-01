@@ -73,7 +73,7 @@ class CreateSegmentation(DVIDWorkflow):
           "type": "integer",
           "default": 0
         },
-        "checkpoint-loc": {
+        "checkpoint-dir": {
           "description": "Specify checkpoint directory",
           "type": "string",
           "default": ""
@@ -169,6 +169,11 @@ class CreateSegmentation(DVIDWorkflow):
         rollback_seg = False
         if self.config_data["options"]["checkpoint"] == "segmentation":
             rollback_seg = True
+       
+        # enable rollback of boundary prediction if necessary
+        rollback_pred = False
+        if self.config_data["options"]["checkpoint"] == "voxel":
+            rollback_pred = True
 
         for iternum in range(0, num_iters):
             # it might make sense to randomly map partitions for selection
@@ -190,8 +195,25 @@ class CreateSegmentation(DVIDWorkflow):
 
             # convert grayscale to compressed segmentation, maintain partitioner
             # save max id as well in substack info
-            seg_chunks = segmentor.segment(gray_chunks)
-           
+            pred_checkpoint_dir = checkpoint_dir
+            if checkpoint_dir != "":
+                pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
+
+            # disable prediction checkpointing if rolling back at the iteration level
+            # as this will cause unnecessary jobs to execute.  In principle, the
+            # prediction could be rolled back as well which would only add some
+            # unnecessary overhead to the per iteration rollback
+            if rollback_seg:
+                pred_checkpoint_dir = ""
+
+            # small hack since segmentor is unaware for current iteration
+            # perhaps just declar the segment function to have an arbitrary number of parameters
+            if segmentation_plugin == "":
+                seg_chunks = segmentor.segment(gray_chunks, pred_checkpoint_dir, rollback_pred)
+            else:
+                seg_chunks = segmentor.segment(gray_chunks)
+
+
             # retrieve previously computed RDD or save current RDD
             if checkpoint_dir != "":
                 seg_chunks = self.sparkdvid_context.checkpointRDD(seg_chunks, 
