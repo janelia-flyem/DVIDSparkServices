@@ -26,6 +26,6 @@
         "checkpoint" : "none",
         "checkpoint-dir" : "",
         "iteration-size" : 0,
-    	"debug": true
+        "debug": false
     }
 }
