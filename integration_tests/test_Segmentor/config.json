@@ -1,0 +1,17 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "seglabels",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "stitch-algorithm": "medium",
+        "chunk-size": 128,
+        "checkpoint": "none",
+        "checkpoint-dir": "",
+        "iteration-size": 0,
+        "debug": true
+    }
+}
