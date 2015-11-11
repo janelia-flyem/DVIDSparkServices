@@ -74,6 +74,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
             dummy, err = p.communicate()
     
             if p.returncode != 0:
+                print "FAIL: checkoutput.py returned bad status: {}".format(p.returncode)
                 correct = False
     
         if not correct:
