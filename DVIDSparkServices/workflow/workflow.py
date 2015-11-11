@@ -5,9 +5,9 @@ exception type for workflow errors.
 
 """
 
-from jsonschema import validate
 from jsonschema import ValidationError
 import json
+from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
 #  workflow exception
@@ -45,7 +45,7 @@ class Workflow(object):
 
         # validate JSON
         try:
-            validate(self.config_data, schema_data)
+            validate_and_inject_defaults(self.config_data, schema_data)
         except ValidationError, e:
             raise WorkflowError("Validation error: ", str(e))
 

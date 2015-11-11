@@ -7,14 +7,11 @@
         "grayscale": "grayscale"
     },
     "options": {
-        "segmentor": {
-            "class" : "DVIDSparkServices.reconutils.plugins.DefaultGrayOnly"
-        },
         "stitch-algorithm": "medium",
         "chunk-size": 128,
-        "iteration-size": 0,
         "checkpoint": "none",
         "checkpoint-dir": "",
+        "iteration-size": 0,
         "debug": true
     }
 }

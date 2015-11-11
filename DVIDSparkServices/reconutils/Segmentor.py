@@ -1,164 +1,93 @@
 """Defines base class for segmentation plugins."""
+import json
+import importlib
+import textwrap
+from functools import partial
+import numpy as np
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from DVIDSparkServices.json_util import validate_and_inject_defaults
 
 class Segmentor(object):
-    """Contains functionality for segmenting large datasets.
+    """
+    Contains functionality for segmenting large datasets.
     
     It implements a very crude watershed algorithm by default.
-    Users are expected to overwrite the segmentation function
-    at least.  The other functions involving stitching the
+
+    This class's segment() functionality can be customized in one of two ways:
+    
+    1. Override segment() directly in a subclass.
+    2. Instead of implementing a subclass, use the default segment() 
+        implementation, which breaks the segmentation problem into separate
+        steps, each of which can be overridden via the config file: 
+        - "background-mask"
+        - "predict-voxels"
+        - "create-supervoxels"
+
+    The other functions involve stitching the
     subvolumes and performing other RDD and DVID manipulations.
 
-    Plugins should be placed in DVIDSparkServices.reconutils.plugins.
-
+    Plugins such as this class (or subclasses of it) must reside in DVIDSparkServices.reconutils.plugins.
     """
 
-    # determines what pixels are used as seeds (0-255 8-bit range)
-    SEED_THRES = 150 
-   
-    # the size of the seed needed
-    SEED_SIZE_THRES = 5
+    SegmentorSchema = textwrap.dedent("""\
+        {
+          "$schema": "http://json-schema.org/schema#",
+          "title": "Plugin configuration options for the Segmentor base class",
+          "type": "object",
+        """
+        
+        # This subschema is for referencing custom functions for various steps in the pipeline.
+        # Example: { "function": "skimage.filters.threshold_otsu",
+        #            "parameters": {"nbins": 256 } }
+        """          
+          "definitions" : {
+            "custom-function" : {
+              "description": "Configuration for a custom function to replace a segmentation step.",
+              "type": "object",
+              "properties": {
+                "function": {
+                  "description": "Name of a python function.",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "parameters" : {
+                  "description": "Arbitrary dict of parameters.",
+                  "type": "object",
+                  "default" : {}
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+        """
 
-    # background size (what to completely ignore)
-    BACKGROUND_SIZE = 100
+        # Functions for each segmentation step are provided directly in the json config.
+        # If not, these defaults from this schema are used.
+        """
+          "properties": {
+            "background-mask"         : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.find_large_empty_regions" } },
+            "predict-voxels"          : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.naive_membrane_predictions" } },
+            "create-supervoxels"      : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.seeded_watershed" } },
+            "agglomerate-supervoxels" : { "$ref": "#/definitions/custom-function",
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.noop_aggolmeration" } }
+          },
+          "default": {}
+        }
+        """)
 
-    def __init__(self, context, config, options):
+    def __init__(self, context, workflow_config):
         self.context = context
+        self.segmentor_config = workflow_config["options"]["segmentor"]["configuration"]
 
-        mode = config["options"]["stitch-algorithm"]
-        if mode == "none":
-            self.stitch_mode = 0
-        elif mode == "conservative":
-            self.stitch_mode = 1
-        elif mode == "medium":
-            self.stitch_mode = 2
-        elif mode == "aggressive":
-            self.stitch_mode = 3
-        else:
-            raise Exception("Invalid stitch mode specified")
+        segmentor_schema = json.loads(Segmentor.SegmentorSchema)
+        validate_and_inject_defaults(self.segmentor_config, segmentor_schema)        
 
-        # set default watershed options (add option to use distance transform)
-        self.seed_threshold = 0
-        self.seed_size = 5
-        self.seed_channels = [0]
-        if "seed-threshold" in options:
-            self.seed_threshold = options["seed-threshold"]
-        if "seed-size" in options:
-            self.seed_size = options["seed-size"]
-        if "seed-channels" in options:
-            self.seed_channels = options["seed-channels"]
+        stitch_modes = { "none" : 0, "conservative" : 1, "medium" : 2, "aggressive" : 3 }
+        self.stitch_mode = stitch_modes[ workflow_config["options"]["stitch-algorithm"] ]
 
-    def predict_voxels(self, gray_chunks): 
-        """Create a dummy placeholder boundary channel from grayscale.
-
-        Takes an RDD of grayscale numpy volumes and produces
-        an RDD of predictions (z,y,x,ch) and a watershed mask.
-        """
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        from scipy.ndimage import label
-        from numpy import bincount 
-        background_size = self.BACKGROUND_SIZE
-        
-        def _grayscale_identity(gray_chunk):
-            (subvolume, gray) = gray_chunk
-            import numpy
-
-            # mask out background (don't have to 0 out seeds since)
-            mask_mask = numpy.zeros(gray.shape).astype(numpy.uint8)
-            mask_mask[gray == 0] = 1
-            mask_mask = label(mask_mask)[0]
-            mask_sizes = bincount(mask_mask.ravel())
-            mask_components = mask_sizes < background_size 
-            small_mask_locations = mask_components[mask_mask]
-            mask_mask[small_mask_locations] = 0
-            mask = mask_mask == 0 
-
-            # invert and convert to 0 to 1 range for watershed
-            new_gray = (255.0-gray)/255.0
-            
-            # convert it to a 1 channel prediction format
-            pred = numpy.expand_dims(new_gray, 3) 
-            
-            pred_compressed = CompressedNumpyArray(pred)
-            mask_compressed = CompressedNumpyArray(mask)
-
-            return (subvolume, pred_compressed, mask_compressed)
-        
-        # preserver partitioner
-        return gray_chunks.mapValues(_grayscale_identity)
-
-    def create_supervoxels(self, prediction_chunks):
-        """Performs watershed based on voxel prediction.
-
-        Takes an RDD of numpy volumes with multiple prediction
-        channels and produces an RDD of label volumes.  A mask must
-        be provided indicating which parts of the volume should
-        have a supervoxels (true to keep, false to ignore).  Currently,
-        this is a seeded watershed, an option to use the distance transform
-        for the watershed is forthcoming.  There are 3 hidden options
-        that can be specified:
-        
-        Options (specified in JSON):
-            seed-threshold = add seeds where boundary prob is <= threshold
-            seed-size = seeds must be >= seed size to keep
-            seed-channels (list[int]) = array of channels to use for watershed
-
-        Args:
-            prediction_chunks (RDD) = (subvolume key, (subvolume, 
-                compressed numpy predictions, compressed numpy mask))
-        Returns:
-            watershed+predictions (RDD) as (subvolume key, (subvolume, 
-                (numpy compressed array, numpy compressed array)))
-        """
-        from DVIDSparkServices.reconutils.morpho import seeded_watershed
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        seed_threshold = self.seed_threshold
-        seed_size = self.seed_size
-        seed_channels = self.seed_channels
-
-        def _watershed(prediction_chunks):
-            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
-            prediction = prediction_compressed.deserialize()
-            if mask_compressed is None:
-                mask = None
-            else:
-                assert isinstance( mask, CompressedNumpyArray )
-                mask = mask_compressed.deserialize()
-
-            # grab boundary data
-            boundary = prediction[:,:,:,seed_channels[0]] 
-           
-            for bch in range(1, len(seed_channels)):
-                boundary += prediction[:,:,:,seed_channels[bch]]
-
-            supervoxels = seeded_watershed(boundary, seed_threshold,
-                seed_size, mask)
-
-            max_id = supervoxels.max()
-            supervoxels_compressed = CompressedNumpyArray(supervoxels)
-            subvolume.set_max_id(max_id)
-            
-            return (subvolume, prediction_compressed, supervoxels_compressed)
-            
-        # preserver partitioner
-        return prediction_chunks.mapValues(_watershed)
-
-    def agglomerate_supervoxels(self, sp_chunks):
-        """No-op placeholder agglomeration of supervoxels.
-
-        Args:
-            seg_chunks (RDD) = (subvolume key, (subvolume, numpy compressed array, 
-                numpy compressed array))
-        Returns:
-            segmentation (RDD) = (subvolume key, (subvolume, numpy compressed array))
-        """
-        
-        def _noop_agglom(sp_chunk):
-            (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
-            return (subvolume, supervoxels_compressed)
-
-        # preserver partitioner
-        return sp_chunks.mapValues(_noop_agglom)
-    
     def segment(self, gray_chunks, checkpoint_dir = "", enable_pred_rollback = False):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
@@ -176,14 +105,16 @@ class Segmentor(object):
             segmentation (RDD) as (subvolume key, (subvolume, numpy compressed array))
 
         """
+        # Compute mask of background area that can be skipped (if any)
+        gray_mask_chunks = self.compute_background_mask(gray_chunks)
         
         # run voxel prediction (default: grayscale is boundary)
-        pred_chunks = self.predict_voxels(gray_chunks)
+        pred_chunks = self.predict_voxels(gray_mask_chunks)
 
         # retrieve previously computed RDD or save current RDD
         if checkpoint_dir != "":
             pred_chunks = self.context.checkpointRDD(pred_chunks, 
-                    checkpoint_dir, enable_pred_rollback)  
+                    checkpoint_dir, enable_pred_rollback)
 
         # run watershed from voxel prediction (default: seeded watershed)
         sp_chunks = self.create_supervoxels(pred_chunks)
@@ -193,17 +124,137 @@ class Segmentor(object):
 
         return segmentation 
 
+    def _get_segmentation_function(self, segmentation_step):
+        """
+        Read the user's config and return the image processing
+        function specified for the given segmentation step.
+
+        If the user provided a dict of parameters, then they will be
+        bound into the returned function as keyword args.
+        """
+        full_function_name = self.segmentor_config[segmentation_step]["function"]
+        module_name = '.'.join(full_function_name.split('.')[:-1])
+        function_name = full_function_name.split('.')[-1]
+        module = importlib.import_module(module_name)
+        
+        parameters = self.segmentor_config[segmentation_step]["parameters"]
+        return partial( getattr(module, function_name), **parameters )
+        
+    def compute_background_mask(self, gray_chunks):
+        """
+        Detect large 'background' regions that lie outside the area of interest for segmentation.
+        """
+        mask_function = self._get_segmentation_function('background-mask')
+        def _execute_for_chunk(gray_chunk):
+            (subvolume, gray) = gray_chunk
+
+            # Call the (custom) function
+            mask = mask_function(gray)
+            
+            if mask is None:
+                return (subvolume, None)
+            else:
+                assert mask.dtype == np.bool, "Mask array should be boolean"
+                assert mask.ndim == 3
+            return (subvolume, gray, CompressedNumpyArray(mask))
+
+        return gray_chunks.mapValues(_execute_for_chunk)
+
+    def predict_voxels(self, gray_mask_chunks):
+        """Create a dummy placeholder boundary channel from grayscale.
+
+        Takes an RDD of grayscale numpy volumes and produces
+        an RDD of predictions (z,y,x).
+        """
+        prediction_function = self._get_segmentation_function('predict-voxels')
+        def _execute_for_chunk(gray_mask_chunk):
+            (subvolume, gray, mask_compressed) = gray_mask_chunk
+            # mask can be None
+            assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
+            mask = mask_compressed and mask_compressed.deserialize()
+
+            # Call the (custom) function
+            predictions = prediction_function(gray, mask)
+            assert predictions.ndim == 4, "Predictions volume should be 4D: z-y-x-c"
+            assert predictions.dtype == np.float32, "Predicgtions should be float32"
+
+            return ( subvolume, CompressedNumpyArray(predictions), mask_compressed )
+
+        return gray_mask_chunks.mapValues(_execute_for_chunk)
+
+    def create_supervoxels(self, prediction_chunks):
+        """Performs watershed based on voxel prediction.
+
+        Takes an RDD of numpy volumes with multiple prediction
+        channels and produces an RDD of label volumes.  A mask must
+        be provided indicating which parts of the volume should
+        have a supervoxels (true to keep, false to ignore).  Currently,
+        this is a seeded watershed, an option to use the distance transform
+        for the watershed is forthcoming.  There are 3 hidden options
+        that can be specified:
+        
+        Args:
+            prediction_chunks (RDD) = (subvolume key, (subvolume, 
+                compressed numpy predictions, compressed numpy mask))
+        Returns:
+            watershed+predictions (RDD) as (subvolume key, (subvolume, 
+                (numpy compressed array, numpy compressed array)))
+        """
+        supervoxel_function = self._get_segmentation_function('create-supervoxels')
+        def _execute_for_chunk(prediction_chunks):
+            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
+            # mask can be None
+            assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
+            mask = mask_compressed and mask_compressed.deserialize()
+            prediction = prediction_compressed.deserialize()
+
+            # Call the (custom) function
+            supervoxels = supervoxel_function(prediction, mask)
+            assert supervoxels.ndim == 3, "Supervoxels should be 3D (no channel dimension)"
+            assert supervoxels.dtype == np.uint32, "Supervoxels for a single chunk should be uint32"
+            
+            supervoxels_compressed = CompressedNumpyArray(supervoxels)
+            subvolume.set_max_id( supervoxels.max() )            
+            return (subvolume, prediction_compressed, supervoxels_compressed)
+
+        return prediction_chunks.mapValues(_execute_for_chunk)
+
+    def agglomerate_supervoxels(self, sp_chunks):
+        """Agglomerate supervoxels
+
+        Args:
+            seg_chunks (RDD) = (subvolume key, (subvolume, numpy compressed array, 
+                numpy compressed array))
+        Returns:
+            segmentation (RDD) = (subvolume key, (subvolume, numpy compressed array))
+        """
+        
+        agglomeration_function = self._get_segmentation_function('agglomerate-supervoxels')
+        def _execute_for_chunk(sp_chunk):
+            (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
+            supervoxels = supervoxels_compressed.deserialize()
+            predictions = prediction_compressed.deserialize()
+
+            # Call the (custom) function
+            agglomerated = agglomeration_function(predictions, supervoxels)
+            assert agglomerated.ndim == 3, "Agglomerated supervoxels should be 3D (no channel dimension)"
+            assert agglomerated.dtype == np.uint32, "Agglomerated supervoxels for a single chunk should be uint32"
+
+            agglomerated_compressed = CompressedNumpyArray(agglomerated)
+            return (subvolume, agglomerated_compressed)
+
+        # preserver partitioner
+        return sp_chunks.mapValues(_execute_for_chunk)
+    
 
     # label volumes to label volumes remapped, preserves partitioner 
     def stitch(self, label_chunks):
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-        
         def example(stuff):
             return stuff[1][0]
-        
+        subvolumes = label_chunks.map(example).collect()
+
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
-        subvolumes = label_chunks.map(example).collect()
         offsets = {}
         offset = 0
         for subvolume in subvolumes:
@@ -215,10 +266,8 @@ class Segmentor(object):
         def extract_boundaries(key_labels):
             # compute overlap -- assume first point is less than second
             def intersects(pt1, pt2, pt1_2, pt2_2):
-                if pt1 > pt2:
-                    raise Exception("point 1 greater than point 2")
-                if pt1_2 > pt2_2:
-                    raise Exception("point 1 greater than point 2")
+                assert pt1 <= pt2, "point 1 greater than point 2: {} > {}".format( pt1, pt2 )
+                assert pt1_2 <= pt2_2, "point 1_2 greater than point 2_2: {} > {}".format( pt1_2, pt2_2 )
 
                 val1 = max(pt1, pt1_2)
                 val2 = min(pt2, pt2_2)

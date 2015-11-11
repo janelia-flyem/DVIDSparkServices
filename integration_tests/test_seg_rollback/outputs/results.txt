@@ -1,23 +1,4 @@
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:10: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
-Create segmentation: Started [2015-10-06 23:38:27]
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:123: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from pyspark import SparkContext
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:124: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from pyspark import StorageLevel
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:125: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from pyspark.storagelevel import StorageLevel
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:126: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from DVIDSparkServices.reconutils.Segmentor import Segmentor
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:156: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  import importlib
-Create segmentation: Wrote DVID labels [2015-10-06 23:39:23]
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:240: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from libdvid import DVIDNodeService
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:248: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-/Users/plazas/development/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:252: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  import md5
-DEBUG:  .”_Þó§
-“Äš¢ÅCÜ”½
-Create segmentation: Finished [2015-10-06 23:39:24]
+Create segmentation: Started [2015-10-27 21:44:03]
+Create segmentation: Wrote DVID labels [2015-10-27 21:45:01]
+DEBUG:  c7b4c2dee35e7fba7a9104bca624ed72
+Create segmentation: Finished [2015-10-27 21:45:02]

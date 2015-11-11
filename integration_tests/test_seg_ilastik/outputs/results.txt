@@ -1,16 +1,4 @@
-Loading workflow: /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.pyas: workflows.CreateSegmentation
-/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:10: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
-Create segmentation: Started [2015-10-08 21:56:26]
-/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:108: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from pyspark import SparkContext
-/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:109: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from pyspark import StorageLevel
-/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:110: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from pyspark.storagelevel import StorageLevel
-/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:111: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  from DVIDSparkServices.reconutils.Segmentor import Segmentor
-/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/CreateSegmentation.py:141: RuntimeWarning: Parent module 'workflows' not found while handling absolute import
-  import importlib
-Create segmentation: Wrote DVID labels [2015-10-08 22:26:28]
-Create segmentation: Finished [2015-10-08 22:26:28]
+Create segmentation: Started [2015-10-27 22:27:47]
+Create segmentation: Wrote DVID labels [2015-10-27 22:29:19]
+DEBUG:  45d9edc6a6fcf76e8df192b0d3e2ec5e
+Create segmentation: Finished [2015-10-27 22:29:20]

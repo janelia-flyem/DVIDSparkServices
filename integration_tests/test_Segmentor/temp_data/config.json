@@ -1,20 +1,17 @@
 {
     "dvid-info": {
         "dvid-server": "127.0.0.1:8000",
-        "uuid": "UUID1",
+        "uuid": "daf0205932a0452da78c84100291a51f",
         "segmentation-name": "seglabels",
         "roi": "temproi256",
         "grayscale": "grayscale"
     },
     "options": {
-        "segmentor": {
-            "class" : "DVIDSparkServices.reconutils.plugins.DefaultGrayOnly"
-        },
         "stitch-algorithm": "medium",
         "chunk-size": 128,
-        "iteration-size": 0,
         "checkpoint": "none",
         "checkpoint-dir": "",
+        "iteration-size": 0,
         "debug": true
     }
 }

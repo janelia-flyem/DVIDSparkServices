@@ -1,8 +1,8 @@
 {
     "dvid-info": {
         "dvid-server": "127.0.0.1:8000",
-        "uuid": "UUID1",
-        "segmentation-name": "ilastik-segmentation-result",
+        "uuid": "d7f655a826854aff9743f8f69f0fe60b",
+        "segmentation-name": "wsdt-segmentation-result",
         "roi": "temproi256",
         "grayscale": "grayscale"
     },
@@ -10,13 +10,14 @@
         "segmentor": {
             "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
             "configuration": {
-                "predict-voxels" : {
-                    "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
+                "create-supervoxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.create_supervoxels_with_wsdt.create_supervoxels_with_wsdt",
                     "parameters": {
-                        "ilp_path": "integration_tests/resources/tiny-pc.ilp",
-                        "boundary_channels": [0, 3],
-                        "LAZYFLOW_THREADS": 4,
-                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                        "pmin": 0.5,
+                        "minMembraneSize": 10000,
+                        "minSegmentSize": 300,
+                        "sigmaMinima": 3,
+                        "sigmaWeights": 1.6
                     }
                 }
             }
@@ -26,6 +27,6 @@
         "checkpoint" : "none",
         "checkpoint-dir" : "",
         "iteration-size" : 0,
-        "debug": false
+        "debug": true
     }
 }

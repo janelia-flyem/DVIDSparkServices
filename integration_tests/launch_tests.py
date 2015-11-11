@@ -17,66 +17,70 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     num_jobs = 8
     config_json = test_dir+"/"+test_name+"/temp_data/config.json"
     job_command = 'spark-submit --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {config_json}'\
-                   .format(**locals()).split()
+                   .format(**locals())
 
-    fin = open(test_dir+"/"+test_name+"/config.json")
-    data = fin.read()
-    fin.close()
+    print job_command
+    with open(test_dir+"/"+test_name+"/config.json") as fin:
+        data = fin.read()
+
     data = data.replace("UUID1", uuid1)
     data = data.replace("UUID2", uuid2)
     data = data.replace("DIR", test_dir)
-    fout = open(test_dir+"/"+test_name+"/temp_data/config.json", 'w')
-    fout.write(data)
-    fout.close()
 
-    p = subprocess.Popen(job_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with open(test_dir+"/"+test_name+"/temp_data/config.json", 'w') as fout:
+        fout.write(data)
+
+    p = subprocess.Popen(job_command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     results, err = p.communicate()
     
     # write results out
-    fout = open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w')
-    fout.write(results)
-    fout.close()
+    with open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w') as fout:
+        fout.write(results)
     
-    # compare results to results in output
-    result_lines = results.splitlines()
-    correct = True
-
-    with open(test_dir+"/"+test_name+"/outputs/results.txt") as fin:
-        correctoutput = fin.read()
-        correct_lines = correctoutput.splitlines()
-        debug1 = []
-        debug2 = []
-
-        for line in result_lines:
-            if string.find(line, "DEBUG:") != -1:
-                debug1.append(line)
-        for line in correct_lines:
-            if string.find(line, "DEBUG:") != -1:
-                debug2.append(line)
-       
-        if len(debug1) != len(debug2):
-            correct = False
-        else:
-            for iter1 in range(0, len(debug1)):
-                if debug1[iter1] != debug2[iter1]:
-                    correct = False
-                    break
-    
-    # verify output using custom python script if it exists
-    if os.path.exists(test_dir+"/"+test_name+"/checkoutput.py"):
-        checkoutput = ("python " + test_dir + "/" + test_name + "/checkoutput.py " + test_dir+"/"+test_name).split()
-        
-        p = subprocess.Popen(checkoutput, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        dummy, err = p.communicate()
-
-        if p.returncode != 0:
-            correct = False
-
-    if not correct:
-        print "FAILED"
+    if p.returncode != 0:
+        print "BAD RETURN CODE:", p.returncode
     else:
-        print "SUCCESS"
-
+        # compare results to results in output
+        result_lines = results.splitlines()
+        correct = True
+    
+        with open(test_dir+"/"+test_name+"/outputs/results.txt") as fin:
+            correctoutput = fin.read()
+            correct_lines = correctoutput.splitlines()
+            debug1 = []
+            debug2 = []
+    
+            # Compare only DEBUG lines, ignore everything else.
+            for line in result_lines:
+                if string.find(line, "DEBUG:") != -1:
+                    debug1.append(line)
+            for line in correct_lines:
+                if string.find(line, "DEBUG:") != -1:
+                    debug2.append(line)
+           
+            if len(debug1) != len(debug2):
+                correct = False
+            else:
+                for iter1 in range(0, len(debug1)):
+                    if debug1[iter1] != debug2[iter1]:
+                        correct = False
+                        break
+        
+        # verify output using custom python script if it exists
+        if os.path.exists(test_dir+"/"+test_name+"/checkoutput.py"):
+            checkoutput = ("python " + test_dir + "/" + test_name + "/checkoutput.py " + test_dir+"/"+test_name).split()
+            
+            p = subprocess.Popen(checkoutput, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            dummy, err = p.communicate()
+    
+            if p.returncode != 0:
+                correct = False
+    
+        if not correct:
+            print "FAILED"
+        else:
+            print "SUCCESS"
+    
     finish = time.time()
 
     print "Finished test: ", test_name, " in ", finish-start, " seconds"
@@ -161,7 +165,7 @@ def init_dvid_database(test_dir):
     dummy, err = p.communicate()
     
     # load grayscale data
-    load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale.bin' % (uuid1, test_dir)).split()
+    load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale-256-256-256-uint8.bin' % (uuid1, test_dir)).split()
     p = subprocess.Popen(load_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     dummy, err = p.communicate()
     
@@ -181,12 +185,15 @@ def init_dvid_database(test_dir):
 def run_tests(test_dir, uuid1, uuid2):
     #####  run tests ####
 
-    # test 1 segmentation
+    # test 1 segmentation with DefaultGrayOnly Segmentor
     run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
-      
+
+    # test 1.5 segmentation with Segmentor (base class)
+    run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
+
     # test 2 segmentation iteration
     run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
- 
+
     # test 3 segmentation rollback
     run_test("test_seg_rollback", "CreateSegmentation", test_dir, uuid1, uuid2) 
 
@@ -199,19 +206,22 @@ def run_tests(test_dir, uuid1, uuid2):
     # test 6 grayscale ingestion
     run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2) 
 
-    # test 6: segmentation with ilastik
+    # test 7: segmentation with ilastik
     # First, verify that ilastik is available
     try:
         import ilastik_main
     except ImportError:
         sys.stderr.write("Skipping ilastik segmentation test")
     else:
-        test_ilp = test_dir + '/test_seg_ilastik/test-project.ilp'
-        if not os.path.exists(test_ilp):
-            sys.path.append(test_dir + '/test_seg_ilastik')
-            from generate_test_ilp import generate_test_ilp
-            generate_test_ilp(test_dir + '/test_seg_ilastik')
         run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
+
+    # test 8: Generate supervoxels with the wsdt module
+    try:
+        import wsdt
+    except ImportError:
+        sys.stderr.write("Skipping wsdt supervoxel test")
+    else:
+        run_test("test_seg_wsdt", "CreateSegmentation", test_dir, uuid1, uuid2)
 
 if __name__ == "__main__":
     import sys
