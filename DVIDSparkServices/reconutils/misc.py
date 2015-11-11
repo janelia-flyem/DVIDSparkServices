@@ -32,7 +32,7 @@ def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     
     # Now background_mask == 1 for background and 0 elsewhere, so invert.
     numpy.logical_not(background_mask, out=background_mask)
-    return background_mask
+    return background_mask.view(numpy.bool_)
 
 def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     """
@@ -48,7 +48,7 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
 
     # Low intensity means high probability of membrane.
     inverted = (1.0-grayscale_vol)
-    return inverted
+    return inverted[..., None] # Segmentor wants 4D predictions, so append channel axis
 
 def seeded_watershed(boundary_volume, mask, seed_threshold=0.2, seed_size=5):
     """

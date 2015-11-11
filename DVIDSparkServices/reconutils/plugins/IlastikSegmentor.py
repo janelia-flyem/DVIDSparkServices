@@ -70,6 +70,6 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
         "Specified boundary channels ({}) exceed number of prediction classes ({})"\
         .format( boundary_channels, len(label_names) )
 
-    # Select/sum channels and reduce from 4D to 3D
-    predictions = predictions[..., boundary_channels].sum(axis=-1)
-    return predictions
+    # Select channels for predictions
+    # Elsewhere, this will be aggregated from 4D (with channel) to 3D (channels combined)
+    return predictions[..., boundary_channels]

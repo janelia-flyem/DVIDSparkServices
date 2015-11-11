@@ -3,6 +3,7 @@ import json
 import importlib
 import textwrap
 from functools import partial
+import numpy as np
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 
@@ -145,6 +146,9 @@ class Segmentor(object):
             
             if mask is None:
                 return (subvolume, None)
+            else:
+                assert mask.dtype == np.bool, "Mask array should be boolean"
+                assert mask.ndim == 3
             return (subvolume, gray, CompressedNumpyArray(mask))
 
         return gray_chunks.mapValues(_execute_for_chunk)
@@ -164,7 +168,8 @@ class Segmentor(object):
 
             # Call the (custom) function
             predictions = prediction_function(gray, mask)
-            assert predictions.ndim == 3, "Predictions have too many dimensions."
+            assert predictions.ndim == 4, "Predictions volume should be 4D: z-y-x-c"
+            assert predictions.dtype == np.float32, "Predicgtions should be float32"
 
             return ( subvolume, CompressedNumpyArray(predictions), mask_compressed )
 
@@ -198,6 +203,8 @@ class Segmentor(object):
 
             # Call the (custom) function
             supervoxels = supervoxel_function(prediction, mask)
+            assert supervoxels.ndim == 3, "Supervoxels should be 3D (no channel dimension)"
+            assert supervoxels.dtype == np.uint32, "Supervoxels for a single chunk should be uint32"
             
             supervoxels_compressed = CompressedNumpyArray(supervoxels)
             subvolume.set_max_id( supervoxels.max() )            
@@ -223,8 +230,10 @@ class Segmentor(object):
             
             # Call the (custom) function
             agglomerated = agglomeration_function(predictions, supervoxels)
-            agglomerated_compressed = CompressedNumpyArray(agglomerated)
+            assert agglomerated.ndim == 3, "Agglomerated supervoxels should be 3D (no channel dimension)"
+            assert agglomerated.dtype == np.uint32, "Agglomerated supervoxels for a single chunk should be uint32"
 
+            agglomerated_compressed = CompressedNumpyArray(agglomerated)
             return (subvolume, agglomerated_compressed)
 
         # preserver partitioner
