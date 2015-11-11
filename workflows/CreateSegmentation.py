@@ -8,6 +8,7 @@ the results together.
 """
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
+import DVIDSparkServices
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
@@ -209,12 +210,11 @@ class CreateSegmentation(DVIDWorkflow):
                 pred_checkpoint_dir = ""
 
             # small hack since segmentor is unaware for current iteration
-            # perhaps just declar the segment function to have an arbitrary number of parameters
-            if segmentation_plugin == "":
+            # perhaps just declare the segment function to have an arbitrary number of parameters
+            if type(segmentor) == Segmentor:
                 seg_chunks = segmentor.segment(gray_chunks, pred_checkpoint_dir, rollback_pred)
             else:
                 seg_chunks = segmentor.segment(gray_chunks)
-
 
             # retrieve previously computed RDD or save current RDD
             if checkpoint_dir != "":
