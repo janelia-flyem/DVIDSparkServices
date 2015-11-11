@@ -176,7 +176,7 @@ class Segmentor(object):
             # Call the (custom) function
             predictions = prediction_function(gray, mask)
             assert predictions.ndim == 4, "Predictions volume should be 4D: z-y-x-c"
-            assert predictions.dtype == np.float32, "Predicgtions should be float32"
+            assert predictions.dtype == np.float32, "Predictions should be float32"
 
             return ( subvolume, CompressedNumpyArray(predictions), mask_compressed )
 

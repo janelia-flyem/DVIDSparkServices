@@ -56,7 +56,7 @@ def seeded_watershed(boundary_volume, mask, seed_threshold=0.2, seed_size=5):
     Seeds are generated using a seed-threshold and minimum seed-size.
     """
     ws = DVIDSparkServices.reconutils.morpho.seeded_watershed
-    supervoxels = ws( boundary_volume, seed_threshold, seed_size, mask )
+    supervoxels = ws( boundary_volume.sum(axis=-1), seed_threshold, seed_size, mask )
     return supervoxels
 
 def noop_aggolmeration(bounary_volume, supervoxels):

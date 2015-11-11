@@ -86,7 +86,7 @@ def seeded_watershed(boundary, seed_threshold = 0, seed_size = 5, mask=None):
 
     # get seeds
     from scipy.ndimage import label as label2
-    seeds = label2(boundary <= seed_threshold)[0]
+    seeds = label2(boundary <= seed_threshold, output=numpy.uint32)[0]
 
     # remove small seeds
     if seed_size > 0:
