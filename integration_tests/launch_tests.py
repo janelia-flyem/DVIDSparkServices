@@ -190,22 +190,22 @@ def run_tests(test_dir, uuid1, uuid2):
 
     # test 1.5 segmentation with Segmentor (base class)
     run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
-      
+
     # test 2 segmentation iteration
     run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
-  
+
     # test 3 segmentation rollback
     run_test("test_seg_rollback", "CreateSegmentation", test_dir, uuid1, uuid2) 
- 
+
     # test 4 label comparison
     run_test("test_comp", "EvaluateSeg", test_dir, uuid1, uuid2) 
- 
+
     # test 5 graph compute
     run_test("test_graph", "ComputeGraph", test_dir, uuid1, uuid2) 
- 
+
     # test 6 grayscale ingestion
     run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2) 
- 
+
     # test 7: segmentation with ilastik
     # First, verify that ilastik is available
     try:
@@ -214,6 +214,14 @@ def run_tests(test_dir, uuid1, uuid2):
         sys.stderr.write("Skipping ilastik segmentation test")
     else:
         run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
+
+    # test 8: Generate supervoxels with the wsdt module
+    try:
+        import wsdt
+    except ImportError:
+        sys.stderr.write("Skipping wsdt supervoxel test")
+    else:
+        run_test("test_seg_wsdt", "CreateSegmentation", test_dir, uuid1, uuid2)
 
 if __name__ == "__main__":
     import sys

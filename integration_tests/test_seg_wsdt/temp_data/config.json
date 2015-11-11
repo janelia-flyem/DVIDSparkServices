@@ -1,0 +1,32 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "d7f655a826854aff9743f8f69f0fe60b",
+        "segmentation-name": "wsdt-segmentation-result",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "create-supervoxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.create_supervoxels_with_wsdt.create_supervoxels_with_wsdt",
+                    "parameters": {
+                        "pmin": 0.5,
+                        "minMembraneSize": 10000,
+                        "minSegmentSize": 300,
+                        "sigmaMinima": 3,
+                        "sigmaWeights": 1.6
+                    }
+                }
+            }
+        },
+        "stitch-algorithm" : "none",
+        "chunk-size": 128,
+        "checkpoint" : "none",
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": true
+    }
+}
