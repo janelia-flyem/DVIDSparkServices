@@ -40,6 +40,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
     args.headless = True
     args.project = ilp_path
     args.readonly = True
+    args.debug = True # ilastik's 'debug' flag enables special power features, including experimental workflows.
 
     print "ilastik_predict_with_array(): Creating shell..."
 
