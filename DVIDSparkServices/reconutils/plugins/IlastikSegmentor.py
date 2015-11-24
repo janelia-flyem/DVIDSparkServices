@@ -38,13 +38,6 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
     shell = ilastik_main.main( args )
     assert isinstance(shell.workflow, PixelClassificationWorkflow)
 
-    # Obtain the training operator
-    opPixelClassification = shell.workflow.pcApplet.topLevelOperator
-
-    # Sanity checks
-    assert len(opPixelClassification.InputImages) > 0
-    assert opPixelClassification.Classifier.ready()
-
     # Construct an OrderedDict of role-names -> DatasetInfos
     # (See PixelClassificationWorkflow.ROLE_NAMES)
     raw_data_array = vigra.taggedView(gray_vol, 'zyx')
@@ -57,18 +50,20 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
 
     print "ilastik_predict_with_array(): Starting export..."
 
+    # Sanity checks
+    opInteractiveExport = shell.workflow.batchProcessingApplet.dataExportApplet.topLevelOperator.getLane(0)
+    num_channels = opInteractiveExport.Inputs[0].meta.shape[-1]
+    
+    assert all(c < num_channels for c in boundary_channels), \
+        "Specified boundary channels ({}) exceed number of prediction classes ({})"\
+        .format( boundary_channels, num_channels )
+
     # Run the export via the BatchProcessingApplet
     prediction_list = shell.workflow.batchProcessingApplet.run_export(role_data_dict, export_to_array=True)
     assert len(prediction_list) == 1
     predictions = prediction_list[0]
 
-    # Sanity checks
-    label_names = opPixelClassification.LabelNames.value
-    assert predictions.shape[-1] == len(label_names)
-    
-    assert all(c < len(label_names) for c in boundary_channels), \
-        "Specified boundary channels ({}) exceed number of prediction classes ({})"\
-        .format( boundary_channels, len(label_names) )
+    assert predictions.shape[-1] == num_channels
 
     # Select channels for predictions
     # Elsewhere, this will be aggregated from 4D (with channel) to 3D (channels combined)
