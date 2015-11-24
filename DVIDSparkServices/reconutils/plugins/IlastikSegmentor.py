@@ -1,5 +1,4 @@
-
-def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=1024):
+def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None):
     """
     Using ilastik's python API, open the given project 
     file and run a prediction on the given raw data array.
@@ -13,6 +12,9 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
 
     import os
     from collections import OrderedDict
+
+    import multiprocessing
+    import psutil
     import vigra
 
     import ilastik_main
@@ -20,6 +22,14 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
     from ilastik.workflows.pixelClassification import PixelClassificationWorkflow
 
     print "ilastik_predict_with_array(): Done with imports"
+
+    if LAZYFLOW_TOTAL_RAM_MB is None:
+        # By default, assume our alotted RAM is proportional 
+        # to the CPUs we've been told to use
+        machine_ram = psutil.virtual_memory().total
+        machine_ram -= 1024**3 # Leave 1 GB RAM for the OS.
+
+        LAZYFLOW_TOTAL_RAM_MB = LAZYFLOW_THREADS * machine_ram / multiprocessing.cpu_count()
 
     # Before we start ilastik, prepare the environment variable settings.
     os.environ["LAZYFLOW_THREADS"] = str(LAZYFLOW_THREADS)
