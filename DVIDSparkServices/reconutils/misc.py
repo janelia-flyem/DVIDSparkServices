@@ -65,3 +65,48 @@ def noop_aggolmeration(bounary_volume, supervoxels):
     This function returns the supervoxels unchanged.
     """
     return supervoxels
+
+def compute_vi(seg1, seg2):
+    """ Compute VI between seg1 and seg2
+
+    Note:
+        Consider seg1 as the "ground truth"
+
+    Args:
+        seg1 (numpy): 3D array of seg1 labels
+        seg2 (numpy): 3D array of seg2 labels
+
+    Returns:
+        false merge vi, false split v
+
+    """
+    
+    # TODO !! avoid conversion
+    seg1 = seg1.astype(numpy.float64)
+    seg2 = seg2.astype(numpy.float64)
+
+    import libNeuroProofMetrics as np
+    from segstats import *
+
+    # creates stack and adds boundary padding
+    seg1 = np.Stack(seg1, 0)
+    seg2 = np.Stack(seg2, 0)
+
+    # returns list of (body1, body2, overlap)
+    overlaps12 = seg1.find_overlaps(seg2)
+
+    # reverse overlaps for mappings
+    overlaps21 = []
+    for (body1, body2, overlap) in overlaps12:
+        overlaps21.append((body2, body1, overlap))
+
+    # make mappings for overlaps
+    seg1_overlap = OverlapTable(overlaps12, None)
+    seg2_overlap = OverlapTable(overlaps21, None)
+
+
+    fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, dummy = \
+                                calculate_vi(seg1_overlap, seg2_overlap)
+    return fmerge_vi, fsplit_vi
+
+

@@ -186,6 +186,18 @@ def init_dvid_database(test_dir):
 def run_tests(test_dir, uuid1, uuid2):
     #####  run tests ####
 
+    # test 9: segmentation with neuroproof
+    # First, verify that ilastik and neuroproof is available
+    """
+    try:
+        import neuroproof
+        import ilastik_main
+    except ImportError:
+        sys.stderr.write("Skipping neuroproof segmentation test")
+    else:
+        run_test("test_seg_neuroproof", "CreateSegmentation", test_dir, uuid1, uuid2)
+    """
+
     # test 1 segmentation with DefaultGrayOnly Segmentor
     run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
 
