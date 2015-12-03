@@ -38,10 +38,17 @@ class Workflow(object):
         self.config_data = None
         schema_data = json.loads(schema)
 
-        try:
-            self.config_data = json.load(open(jsonfile))
-        except Exception, e:
-            raise WorkflowError("Coud not load file: ", str(e))
+        if jsonfile.startswith('http'):
+            try:
+                import requests
+                self.config_data = requests.get(jsonfile).json()
+            except Exception, e:
+                raise WorkflowError("Coud not load file: ", str(e))
+        else:
+            try:
+                self.config_data = json.load(open(jsonfile))
+            except Exception, e:
+                raise WorkflowError("Coud not load file: ", str(e))
 
         # validate JSON
         try:

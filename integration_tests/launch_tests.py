@@ -88,7 +88,12 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
 
 def init_dvid_database(test_dir):
     print "Initializing DVID Database"
-    
+   
+    os.system("gunzip -f --keep " + test_dir + "/resources/labels.bin.gz")
+    os.system("gunzip -f --keep " + test_dir + "/resources/labels_comp.bin.gz")
+    os.system("tar zxvf " + test_dir + "/resources/agglom.xml.tgz")
+    os.system("tar zxvf " + test_dir + "/resources/voxels.ilp.tgz")
+
     # initialize DVID datastore and call tests 
     # Curl must be available
     
