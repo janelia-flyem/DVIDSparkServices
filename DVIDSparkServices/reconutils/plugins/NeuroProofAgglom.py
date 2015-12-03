@@ -1,12 +1,12 @@
 """Implements agglomerations of supervoxels using Segmentor workflow and neuroproof.
 """
 
-def neuroproof_agglomerate(supervoxels, predictions, class_path, threshold = 0.20, mitochannel = 2):
+def neuroproof_agglomerate(predictions, supervoxels, classifier, threshold = 0.20, mitochannel = 2):
     """Main agglomeration function
 
    Args:
-        supervoxels = 3D uint32 numpy label array (z,y,x) 
         predictions = 4D float32 numpy label array (z, y, x, ch) 
+        supervoxels = 3D uint32 numpy label array (z,y,x) 
         classifier = file location or DVID (assume to be xml unless .h5 is explict in name)
         threshold = threshold (default = 0.20)
         mitochannel = prediction channel for mito (default 2) (empty means no mito mode)
@@ -16,6 +16,13 @@ def neuroproof_agglomerate(supervoxels, predictions, class_path, threshold = 0.2
     """
 
     print "neuroproof_agglomerate(): Starting with label data: dtype={}, shape={}".format(str(supervoxels.dtype), supervoxels.shape)
+
+
+    import numpy
+    # return immediately if no segmentation
+    if len(numpy.unique(supervoxels)) <= 1:
+        return supervoxels
+
 
     #from neuroproof import Classifier, Agglomeration
     from neuroproof import Agglomeration
@@ -29,15 +36,15 @@ def neuroproof_agglomerate(supervoxels, predictions, class_path, threshold = 0.2
         # make sure mito is in the second channel
         predictions[[[[2, mitochannel]]]] = predictions[[[[mitochannel, mitochannel]]]] 
 
-    pathname = str(class_path["path"])
+    pathname = str(classifier["path"])
     tempfilehold = None
     tclassfile = ""
 
     # write classifier to temporary file if stored on DVID
-    if "dvid-server" in class_path:
+    if "dvid-server" in classifier:
         # allow user to specify any server and version for the data
-        dvidserver = class_path["dvid-server"]
-        uuid = class_path["uuid"]
+        dvidserver = classifier["dvid-server"]
+        uuid = classifier["uuid"]
 
         # extract file and store into temporary location
         from libdvid import DVIDNodeService
@@ -70,7 +77,7 @@ def neuroproof_agglomerate(supervoxels, predictions, class_path, threshold = 0.2
     #classifier = loadClassifier(tclassfile)
 
     # run agglomeration (supervoxels must be 32 uint and predicitons must be float32)
-    segmentation = Agglomeration.agglomerate(supervoxels, predictions, tclassfile, threshold)
+    segmentation = Agglomeration.agglomerate(supervoxels.astype(numpy.uint32), predictions.astype(numpy.float32), tclassfile, threshold)
 
     if tempfilehold is not None:
         os.remove(tclassfile)
