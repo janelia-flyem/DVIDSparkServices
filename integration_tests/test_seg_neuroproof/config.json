@@ -14,7 +14,7 @@
                     "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
                     "parameters": {
                         "ilp_path": "integration_tests/resources/voxels.ilp",
-                        "boundary_channels": [0],
+                        "selected_channels": [0],
                         "LAZYFLOW_THREADS": 1,
                         "LAZYFLOW_TOTAL_RAM_MB": 1024
                     }

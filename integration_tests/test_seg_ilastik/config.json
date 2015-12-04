@@ -14,7 +14,7 @@
                     "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
                     "parameters": {
                         "ilp_path": "integration_tests/resources/tiny-pc.ilp",
-                        "boundary_channels": [0, 3],
+                        "selected_channels": [0, [1,2], 3],
                         "LAZYFLOW_THREADS": 4,
                         "LAZYFLOW_TOTAL_RAM_MB": 1024
                     }

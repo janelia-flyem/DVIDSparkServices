@@ -50,13 +50,13 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     inverted = (1.0-grayscale_vol)
     return inverted[..., None] # Segmentor wants 4D predictions, so append channel axis
 
-def seeded_watershed(boundary_volume, mask, seed_threshold=0.2, seed_size=5):
+def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0.2, seed_size=5):
     """
     Perform a seeded watershed on the given volume.
     Seeds are generated using a seed-threshold and minimum seed-size.
     """
     ws = DVIDSparkServices.reconutils.morpho.seeded_watershed
-    supervoxels = ws( boundary_volume.sum(axis=-1), seed_threshold, seed_size, mask )
+    supervoxels = ws( boundary_volume[..., boundary_channel], seed_threshold, seed_size, mask )
     return supervoxels
 
 def noop_aggolmeration(bounary_volume, supervoxels):

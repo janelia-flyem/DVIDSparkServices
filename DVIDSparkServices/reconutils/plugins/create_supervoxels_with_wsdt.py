@@ -3,6 +3,7 @@ import wsdt
 
 def create_supervoxels_with_wsdt( boundary_volume,
                                   mask,
+                                  boundary_channel=0,
                                   pmin=0.5,
                                   minMembraneSize=10000,
                                   minSegmentSize=300,
@@ -17,7 +18,7 @@ def create_supervoxels_with_wsdt( boundary_volume,
     # Mask is now inverted
     inverted_mask = np.logical_not(mask, out=mask)    
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
-    boundary_volume = boundary_volume.sum(axis=-1)
+    boundary_volume = boundary_volume[..., boundary_channel]
 
     np.save('/tmp/boundary.npy', boundary_volume)
 

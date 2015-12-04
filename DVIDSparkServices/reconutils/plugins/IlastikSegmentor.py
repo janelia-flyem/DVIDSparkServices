@@ -1,4 +1,6 @@
-def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None):
+from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
+
+def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None, normalize=True, LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None):
     """
     Using ilastik's python API, open the given project 
     file and run a prediction on the given raw data array.
@@ -6,7 +8,25 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
     Other than the project file, nothing is read or written 
     using the hard disk.
     
-    raw_data_array: A 3D numpy array with axes zyx
+    gray_vol: A 3D numpy array with axes zyx
+
+    mask: A binary image where 0 means "no prediction necessary".
+         'None' can be given, which means "predict everything".
+
+    ilp_path: Path to the project file.  ilastik also accepts a url to a DVID key-value, which will be downloaded and opened as an ilp
+    
+    selected_channels: A list of channel indexes to select and return from the prediction results.
+                       'None' can also be given, which means "return all prediction channels".
+                       You may also return a *nested* list, in which case groups of channels can be
+                       combined (summed) into their respective output channels.
+                       For example: selected_channels=[0,3,[2,4],7] means the output will have 4 channels:
+                                    0,3,2+4,7 (channels 5 and 6 are simply dropped).
+    
+    normalize: Renormalize all outputs so the channels sum to 1 everywhere.
+               That is, (predictions.sum(axis=-1) == 1.0).all()
+               Note: Pixels with 0.0 in all channels will be simply given a value of 1/N in all channels.
+    
+    LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB: Passed to ilastik via environment variables.
     """
     print "ilastik_predict_with_array(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape)
 
@@ -65,9 +85,19 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
     opInteractiveExport = shell.workflow.batchProcessingApplet.dataExportApplet.topLevelOperator.getLane(0)
     num_channels = opInteractiveExport.Inputs[0].meta.shape[-1]
     
-    assert all(c < num_channels for c in boundary_channels), \
-        "Specified boundary channels ({}) exceed number of prediction classes ({})"\
-        .format( boundary_channels, num_channels )
+    # For convenience, verify the selected channels before we run the export.
+    if selected_channels:
+        assert isinstance(selected_channels, list)
+        for selection in selected_channels:
+            if isinstance(selection, list):
+                assert all(c < num_channels for c in selection), \
+                    "Selected channels ({}) exceed number of prediction classes ({})"\
+                    .format( selected_channels, num_channels )
+            else:
+                assert selection < num_channels, \
+                    "Selected channels ({}) exceed number of prediction classes ({})"\
+                    .format( selected_channels, num_channels )
+                
 
     # Run the export via the BatchProcessingApplet
     prediction_list = shell.workflow.batchProcessingApplet.run_export(role_data_dict, export_to_array=True)
@@ -75,7 +105,9 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, boundary_channels=[0], 
     predictions = prediction_list[0]
 
     assert predictions.shape[-1] == num_channels
+    selected_predictions = select_channels(predictions, selected_channels)
 
-    # Select channels for predictions
-    # Elsewhere, this will be aggregated from 4D (with channel) to 3D (channels combined)
-    return predictions[..., boundary_channels]
+    if normalize:
+        normalize_channels_in_place(selected_predictions)
+    
+    return selected_predictions
