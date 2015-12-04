@@ -20,8 +20,6 @@ def create_supervoxels_with_wsdt( boundary_volume,
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
 
-    np.save('/tmp/boundary.npy', boundary_volume)
-
     # Forbid the watershed from bleeding into the masked area prematurely
     boundary_volume[inverted_mask] = 2.0
     watershed = wsdt.wsDtSegmentation( boundary_volume,
