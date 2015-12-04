@@ -110,3 +110,55 @@ def compute_vi(seg1, seg2):
     return fmerge_vi, fsplit_vi
 
 
+def select_channels( predictions, selected_channels ):
+    """
+    selected_channels: A list of channel indexes to select and return from the prediction results.
+                       'None' can also be given, which means "return all prediction channels".
+                       You may also return a *nested* list, in which case groups of channels can be
+                       combined (summed) into their respective output channels.
+                       For example: selected_channels=[0,3,[2,4],7] means the output will have 4 channels:
+                                    0,3,2+4,7 (channels 5 and 6 are simply dropped).
+    """
+    import numpy as np
+
+    if selected_channels is None:
+        return predictions
+    
+    # If a list of ints, then this is fast -- just select the channels we want.
+    assert isinstance(selected_channels, list)
+    if all(np.issubdtype(type(x), np.integer) for x in selected_channels):
+        return predictions[..., selected_channels]
+    
+    # The user gave us a nested list.
+    # We have to compute it channel-by-channel (the slow way).
+    output_shape = predictions.shape[:-1] + (len(selected_channels),)
+    combined_predictions = np.ndarray(shape=output_shape, dtype=predictions.dtype )
+    for output_channel, selection in enumerate(selected_channels):
+        if np.issubdtype(type(selection), np.integer):
+            combined_predictions[..., output_channel] = predictions[..., selection]
+        else:
+            # Selected channel is a list of channels to combine
+            assert isinstance(selection, list)
+            assert all(np.issubdtype(type(x), np.integer) for x in selection)
+            combined_predictions[..., output_channel] = predictions[..., selection].sum(axis=-1)
+    return combined_predictions
+
+def normalize_channels_in_place(predictions):
+    """
+    Renormalize all pixels so the channels sum to 1 everywhere.
+    That is, (predictions.sum(axis=-1) == 1.0).all()
+
+    Note: Pixels with 0.0 in all channels will be simply given a value of 1/N in all channels.
+    """
+    import numpy as np
+
+    channel_totals = predictions.sum(axis=-1)
+    
+    # Avoid divide-by-zero: Replace all-zero pixels with 1/N for all channels
+    num_channels = predictions.shape[-1]
+    predictions[:] = np.where( channel_totals[...,None] == 0.0, 1.0/num_channels, predictions )
+    channel_totals[:] = np.where( channel_totals == 0.0, 1.0, channel_totals )
+
+    # Normalize
+    predictions[:] /= channel_totals[...,None]
+
