@@ -68,12 +68,5 @@ if __name__ == "__main__":
         handler = logging.StreamHandler(sys.stdout)
         logger.addHandler(handler)
         logger.setLevel(logging.INFO)
-
-    DEBUG_WITH_PYDEV = False
-    if DEBUG_WITH_PYDEV:
-        sys.path.append("/Applications/eclipse/plugins/org.python.pydev_4.1.0.201505270003/pysrc")
-        import pydevd
-        print "Waiting for PyDev debugger..."
-        pydevd.settrace(stdoutToServer=True, stderrToServer=True)
-
+    
     main(sys.argv)
