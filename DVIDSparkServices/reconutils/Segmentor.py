@@ -88,6 +88,14 @@ class Segmentor(object):
         stitch_modes = { "none" : 0, "conservative" : 1, "medium" : 2, "aggressive" : 3 }
         self.stitch_mode = stitch_modes[ workflow_config["options"]["stitch-algorithm"] ]
 
+        # save masked bodies
+        self.pdconf = None
+        self.preserve_bodies = None
+        if "preserve-bodies" in self.segmentor_config:
+            self.pdconf = self.segmentor_config["preserve-bodies"]
+            self.preserve_bodies = set(self.pdconf["bodies"])
+
+
     def segment(self, gray_chunks, checkpoint_dir = "", enable_pred_rollback = False):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
@@ -201,6 +209,10 @@ class Segmentor(object):
                 (numpy compressed array, numpy compressed array)))
         """
         supervoxel_function = self._get_segmentation_function('create-supervoxels')
+
+        pdconf = self.pdconf
+        preserve_bodies = self.preserve_bodies
+
         def _execute_for_chunk(prediction_chunks):
             (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
             # mask can be None
@@ -208,8 +220,53 @@ class Segmentor(object):
             mask = mask_compressed and mask_compressed.deserialize()
             prediction = prediction_compressed.deserialize()
 
+            # add body mask
+            preserve_seg = None
+            mask_bodies = None
+            if pdconf is not None:
+                # extract labels 64
+                from libdvid import DVIDNodeService
+                node_service = DVIDNodeService(str(pdconf["dvid-server"]), 
+                        str(pdconf["uuid"]))
+
+                # get sizes of roi
+                size1 = subvolume.roi[3]-subvolume.roi[0]
+                size2 = subvolume.roi[4]-subvolume.roi[1]
+                size3 = subvolume.roi[5]-subvolume.roi[2]
+
+                # retrieve data from roi start position
+                preserve_seg = node_service.get_labels3D(str(label_name),
+                    (size1,size2,size3),
+                    (subvolume.roi[0], subvolume.roi[1],
+                    subvolume. roi[2]), roi=str(roiname))
+
+                # flip to be in C-order (no performance penalty)
+                preserve_seg = label_volume.transpose((2,1,0))
+
+                orig_bodies = set(np.unique(preserve_seg))
+
+                mask_bodies = preserve_bodies & orig_bodies
+
+                for body in mask_bodies:
+                    mask[preserve_seg == body] = False
+
             # Call the (custom) function
             supervoxels = supervoxel_function(prediction, mask)
+            
+            # insert bodies back and avoid conflicts with pre-existing bodies
+            if mask_bodies is not None:
+                curr_id = supervoxels.max() + 1
+                new_bodies = set(np.unique(supervoxels))
+                conf_bodies = new_bodies & preserve_bodies
+                for body in conf_bodies:
+                    # replace value with an unused id
+                    while curr_id in preserve_bodies:
+                        curr_id += 1
+                    supervoxels[supervoxels == body] = curr_id
+                    curr_id += 1
+                for body in mask_bodies:
+                    supervoxels[preserve_seg == body] = body
+            
             assert supervoxels.ndim == 3, "Supervoxels should be 3D (no channel dimension)"
             assert supervoxels.dtype == np.uint32, "Supervoxels for a single chunk should be uint32"
             
@@ -230,15 +287,39 @@ class Segmentor(object):
         """
         
         agglomeration_function = self._get_segmentation_function('agglomerate-supervoxels')
+
+        pdconf = self.pdconf
+        preserve_bodies = self.preserve_bodies
+
         def _execute_for_chunk(sp_chunk):
             (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
             supervoxels = supervoxels_compressed.deserialize()
             predictions = prediction_compressed.deserialize()
+            
+            # remove preserved bodies to ignore for agglomeration
+            curr_seg = None
+            mask_bodies = None
+            if pdconf is not None:
+                curr_seg = supervoxels.copy()
+                
+                curr_bodies = set(np.unique(supervoxels))
+                mask_bodies = preserve_bodies & curr_bodies
+            
+                # 0'd bodies will be ignored
+                for body in mask_bodies:
+                    supervoxels[curr_seg == body] = 0
+
 
             # Call the (custom) function
             agglomerated = agglomeration_function(predictions, supervoxels)
             assert agglomerated.ndim == 3, "Agglomerated supervoxels should be 3D (no channel dimension)"
             assert agglomerated.dtype == np.uint32, "Agglomerated supervoxels for a single chunk should be uint32"
+           
+            # ?! assumes that agglomeration function reuses label ids
+            # reinsert bodies
+            if mask_bodies is not None:
+                for body in mask_bodies:
+                    agglomerated[curr_seg == body] = body
 
             agglomerated_compressed = CompressedNumpyArray(agglomerated)
             return (subvolume, agglomerated_compressed)
@@ -257,9 +338,18 @@ class Segmentor(object):
         # create offset map (substack id => offset) and broadcast
         offsets = {}
         offset = 0
+
+        pdconf = self.pdconf
+        preserve_bodies = self.preserve_bodies
+        
+        num_preserve = 0
+        if pdconf is not None:
+            num_preserve = len(pdconf["bodies"])
+        
         for subvolume in subvolumes:
             offsets[subvolume.roi_id] = offset
             offset += subvolume.max_id
+            offset += num_preserve
         subvolume_offsets = self.context.sc.broadcast(offsets)
 
         # (key, subvolume, label chunk)=> (new key, (subvolume, boundary))
@@ -406,6 +496,7 @@ class Segmentor(object):
                     body2 = boundary2[z,y,x]
                     if body2 == 0 or body1 == 0:
                         continue
+                    
                     if body1 not in body2body[body2]:
                         body2body[body2][body1] = 0
                     body2body[body2][body1] += 1
@@ -496,6 +587,16 @@ class Segmentor(object):
                     else:
                         not_mutual += 1
             
+            # remove mergers that involve preserve bodies
+            if pdconf is not None: 
+                merge_list_temp = []
+ 
+                for merger in merge_list:
+                    if merger[0] not in preserve_bodies and merger[1] not in preserve_bodies:
+                        merger_list_temp.append(merger)
+                merge_list = merge_list_temp
+
+            
             # handle offsets in mergelist
             offset1 = subvolume_offsets.value[subvolume1.roi_id] 
             offset2 = subvolume_offsets.value[subvolume2.roi_id] 
@@ -524,6 +625,7 @@ class Segmentor(object):
         # make a body2body map
         body1body2 = {}
         body2body1 = {}
+
         for merger in merge_list:
             # body1 -> body2
             body1 = merger[0]
@@ -546,6 +648,22 @@ class Segmentor(object):
                     body2body1[body2].add(tbody)
                     body1body2[tbody] = body2
 
+        # avoid renumbering bodies that are to be preserved from previous segmentation
+        if self.preserve_bodies is not None:
+            # changing mappings to avoid map-to conflicts
+            relabel_confs = {}
+            body2body2_tmp = body2body.copy()
+
+            for key, val in body2body_tmp:
+                if val in self.preserve_bodies:
+                    if val not in relabelconfs:
+                        newval = val + 1
+                        while newval in self.preserve_bodies:
+                            newval += 1
+                        relabelconfs[val] = newval
+                        self.preserve_bodies.add(newval)
+                    body2body[key] = relabelconfs[val]
+
         body2body = zip(body1body2.keys(), body1body2.values())
        
         # potentially costly broadcast
@@ -562,9 +680,39 @@ class Segmentor(object):
             # grab broadcast offset
             offset = subvolume_offsets.value[subvolume.roi_id]
 
+            # check for body mask labels and protect from renumber
+            mask_bodies =  None
+            fix_bodies = []
+            
+            if pdconf is not None:
+                curr_bodies = set(np.unique(labels))
+                mask_bodies = preserve_bodies & curr_bodies
+                # see if offset will cause new conflicts 
+                for body in curr_bodies:
+                    if (body + offset) in preserve_bodies and body not in preserve_bodies:
+                        fix_bodies.append(body+offset)
+
+
             labels = labels + offset 
+            
             # make sure 0 is 0
             labels[labels == offset] = 0
+
+            # replace preserved body removing offset
+            if mask_bodies is not None:
+                for body in mask_bodies:
+                    labels[labels == (body+offset)] = body
+
+            # check for new body conflicts and remap
+            relabeled_bodies = {}
+            if pdconf is not None:
+                curr_id = labels.max() + 1
+                for body in fix_bodies:
+                    while curr_id in preserve_bodies:
+                        curr_id +=1
+                    labels[labels == body] = curr_id
+                    relabeled_bodies[body] = curr_id
+                    curr_id += 1
 
             # create default map 
             mapping_col = numpy.unique(labels)
@@ -574,6 +722,8 @@ class Segmentor(object):
             for mapping in master_merge_list.value:
                 if mapping[0] in label_mappings:
                     label_mappings[mapping[0]] = mapping[1]
+                elif mapping[0] in relabeled_bodies:
+                    label_mappings[relabeled_bodies[mapping[0]]] = mapping[1]
 
             # apply maps
             vectorized_relabel = numpy.frompyfunc(label_mappings.__getitem__, 1, 1)
