@@ -14,7 +14,8 @@
                     "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
                     "parameters": {
                         "ilp_path": "integration_tests/resources/voxels.ilp",
-                        "selected_channels": [0],
+                        "selected_channels": [0,1,2,3],
+                        "normalize": false,
                         "LAZYFLOW_THREADS": 1,
                         "LAZYFLOW_TOTAL_RAM_MB": 1024
                     }
@@ -23,7 +24,7 @@
                     "function": "DVIDSparkServices.reconutils.plugins.NeuroProofAgglom.neuroproof_agglomerate",
                     "parameters": {
                         "classifier": { "path" : "integration_tests/resources/agglom.xml"},
-                        "threshold": 0.3,
+                        "threshold": 0.2,
                         "mitochannel": 2
                     }
                 }
