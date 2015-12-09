@@ -1,0 +1,46 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "neuroproof-segmentation-result2",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "preserve-bodies" : {
+                    "dvid-server": "127.0.0.1:8000",
+                    "uuid": "UUID1",
+                    "segmentation-name": "seglabelsbase",
+                    "bodies": [18044, 42544, 31430] 
+                },
+                "predict-voxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
+                    "parameters": {
+                        "ilp_path": "integration_tests/resources/voxels.ilp",
+                        "selected_channels": [0,1,2,3],
+                        "normalize": false,
+                        "LAZYFLOW_THREADS": 1,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                    }
+                },
+                "agglomerate-supervoxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.NeuroProofAgglom.neuroproof_agglomerate",
+                    "parameters": {
+                        "classifier": { "path" : "integration_tests/resources/agglom.xml"},
+                        "threshold": 0.2,
+                        "mitochannel": 2
+                    }
+                }
+            }
+        },
+        "stitch-algorithm" : "none",
+        "chunk-size": 128,
+        "checkpoint" : "none",
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": true
+    }
+}

@@ -2,7 +2,7 @@
     "dvid-info": {
         "dvid-server": "127.0.0.1:8000",
         "uuid": "UUID1",
-        "segmentation-name": "seglabels",
+        "segmentation-name": "seglabelsbase",
         "roi": "temproi256",
         "grayscale": "grayscale"
     },

@@ -196,7 +196,7 @@ def run_tests(test_dir, uuid1, uuid2):
 
     # test 1.5 segmentation with Segmentor (base class)
     run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
-
+    
     # test 2 segmentation iteration
     run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
 
@@ -230,6 +230,7 @@ def run_tests(test_dir, uuid1, uuid2):
         run_test("test_seg_wsdt", "CreateSegmentation", test_dir, uuid1, uuid2)
 
     # test 9: segmentation with neuroproof
+    # test 10: segmentation with neuroproof where pre-existing bodies are preserved
     # First, verify that ilastik and neuroproof is available
     try:
         import neuroproof
@@ -238,6 +239,7 @@ def run_tests(test_dir, uuid1, uuid2):
         sys.stderr.write("Skipping neuroproof segmentation test")
     else:
         run_test("test_seg_neuroproof", "CreateSegmentation", test_dir, uuid1, uuid2)
+        run_test("test_seg_replace", "CreateSegmentation", test_dir, uuid1, uuid2)
 
 if __name__ == "__main__":
     import sys

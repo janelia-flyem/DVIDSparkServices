@@ -229,19 +229,20 @@ class Segmentor(object):
                 node_service = DVIDNodeService(str(pdconf["dvid-server"]), 
                         str(pdconf["uuid"]))
 
+                border = subvolume.border
                 # get sizes of roi
-                size1 = subvolume.roi[3]-subvolume.roi[0]
-                size2 = subvolume.roi[4]-subvolume.roi[1]
-                size3 = subvolume.roi[5]-subvolume.roi[2]
+                size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
+                size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
+                size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
 
                 # retrieve data from roi start position
-                preserve_seg = node_service.get_labels3D(str(label_name),
+                preserve_seg = node_service.get_labels3D(str(pdconf["segmentation-name"]),
                     (size1,size2,size3),
-                    (subvolume.roi[0], subvolume.roi[1],
-                    subvolume. roi[2]), roi=str(roiname))
+                    (subvolume.roi[0]-border, subvolume.roi[1]-border,
+                    subvolume. roi[2]-border))
 
                 # flip to be in C-order (no performance penalty)
-                preserve_seg = label_volume.transpose((2,1,0))
+                preserve_seg = preserve_seg.transpose((2,1,0))
 
                 orig_bodies = set(np.unique(preserve_seg))
 
@@ -278,6 +279,9 @@ class Segmentor(object):
 
     def agglomerate_supervoxels(self, sp_chunks):
         """Agglomerate supervoxels
+
+        Note: agglomeration should contain a subset of supervoxel
+        body ids.
 
         Args:
             seg_chunks (RDD) = (subvolume key, (subvolume, numpy compressed array, 
@@ -652,7 +656,7 @@ class Segmentor(object):
         if self.preserve_bodies is not None:
             # changing mappings to avoid map-to conflicts
             relabel_confs = {}
-            body2body2_tmp = body2body.copy()
+            body2body_tmp = body1body2.copy()
 
             for key, val in body2body_tmp:
                 if val in self.preserve_bodies:
@@ -662,7 +666,7 @@ class Segmentor(object):
                             newval += 1
                         relabelconfs[val] = newval
                         self.preserve_bodies.add(newval)
-                    body2body[key] = relabelconfs[val]
+                    body1body2[key] = relabelconfs[val]
 
         body2body = zip(body1body2.keys(), body1body2.values())
        
