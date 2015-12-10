@@ -22,13 +22,31 @@ class IngestGrayscale(Workflow):
     "output-dir": { 
       "description": "Directory where blocks will be written",
       "type": "string" 
+    },
+    "dvid-info": {
+      "type": "object",
+      "properties": {
+        "dvid-server": {
+          "description": "location of DVID server",
+          "type": "string",
+          "minLength": 1,
+          "property": "dvid-server"
+        },
+        "uuid": {
+          "description": "version node to store segmentation",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required" : ["dvid-server", "uuid"]
     }
+
   },
-  "required" : ["minslice", "maxslice", "basename", "output-dir"]
+  "required" : ["minslice", "maxslice", "basename"]
 }
     """
     # block size default
-    blocksize = 32
+    BLKSIZE = 32
    
     # calls the default initializer
     def __init__(self, config_filename):
@@ -42,9 +60,9 @@ class IngestGrayscale(Workflow):
         import numpy
         import os
         
-        for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.blocksize):
+        for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.BLKSIZE):
             # parallelize images across many machines
-            imgs = self.sc.parallelize(range(slice, slice+self.blocksize), self.blocksize)
+            imgs = self.sc.parallelize(range(slice, slice+self.BLKSIZE), self.BLKSIZE)
 
             minslice = self.config_data["minslice"]
 
@@ -61,7 +79,7 @@ class IngestGrayscale(Workflow):
             npy_images = imgs.map(img2npy) 
           
             # map numpy array into y lines of block height
-            blocksize = self.blocksize
+            blocksize = self.BLKSIZE
             def npy2lines(arrpair):
                 z, arr = arrpair
                 ysize, xsize = arr.shape
@@ -99,34 +117,70 @@ class IngestGrayscale(Workflow):
                 return y, blockdata
             
             yblocks = groupedlines.map(lines2blocks)
-          
-            # write blocks to disk for separte post-process -- write directly to DVID eventually?
-            output_dir = self.config_data["output-dir"]
-            def write2disk(yblocks):
-                zbindex = slice/blocksize 
-                ypos, blocks = yblocks
-                ybindex = ypos / blocksize
-                
-                zsize,ysize,xsize = blocks.shape
-                
-                outdir = output_dir 
-                outdir += "/" + ("%05d" % zbindex) + ".z/"
-                filename = outdir + ("%05d" % ybindex) + "-" + str(xsize/blocksize) + ".blocks"
+        
+            if "output-dir" in self.config_data and self.config_data["output-dir"] != "":
+                # write blocks to disk for separte post-process -- write directly to DVID eventually?
+                output_dir = self.config_data["output-dir"]
+                def write2disk(yblocks):
+                    zbindex = slice/blocksize 
+                    ypos, blocks = yblocks
+                    ybindex = ypos / blocksize
+                    
+                    zsize,ysize,xsize = blocks.shape
+                    
+                    outdir = output_dir 
+                    outdir += "/" + ("%05d" % zbindex) + ".z/"
+                    filename = outdir + ("%05d" % ybindex) + "-" + str(xsize/blocksize) + ".blocks"
 
-                try: 
-                    os.makedirs(outdir)
-                except Exception, e:
-                    pass
+                    try: 
+                        os.makedirs(outdir)
+                    except Exception, e:
+                        pass
 
-                # extract blocks from buffer and write to disk
-                fout = open(filename, 'w')
-                for iterx in range(0, xsize, blocksize):
-                    block = blocks[:,:,iterx:iterx+blocksize].copy()
-                    fout.write(numpy.getbuffer(block))
-                fout.close()
+                    # extract blocks from buffer and write to disk
+                    fout = open(filename, 'w')
+                    for iterx in range(0, xsize, blocksize):
+                        block = blocks[:,:,iterx:iterx+blocksize].copy()
+                        fout.write(numpy.getbuffer(block))
+                    fout.close()
 
-            yblocks.foreach(write2disk) 
-            
+                yblocks.foreach(write2disk) 
+            else:
+                # write to dvid
+                server = self.config_data["dvid-info"]["dvid-server"]
+                uuid = self.config_data["dvid-info"]["uuid"]
+                grayname = self.config_data["dvid-info"]["grayname"]
+
+                from libdvid import DVIDNodeService
+                # create grayscale type
+                node_service = DVIDNodeService(str(server), str(uuid))
+                node_service.create_grayscale8(str(grayname))
+
+
+                def write2dvid(yblocks):
+                    from libdvid import DVIDNodeService, ConnectionMethod
+                    import numpy
+                    node_service = DVIDNodeService(str(server), str(uuid))
+                    
+                    # get block coordinates
+                    zbindex = slice/blocksize 
+                    ypos, blocks = yblocks
+                    ybindex = ypos / blocksize
+                    zsize,ysize,xsize = blocks.shape
+                    xrun = xsize/blocksize
+                    xbindex = 0 # assume x starts at 0!!
+
+                    # retrieve blocks
+                    blockbuffer = ""
+                    for iterx in range(0, xsize, blocksize):
+                        block = blocks[:,:,iterx:iterx+blocksize].copy()
+                        blockbuffer += block.tostring() #numpy.getbuffer(block)
+
+                    node_service.custom_request(str((grayname + "/blocks/0_%d_%d/%d") % (ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+
+
+                yblocks.foreach(write2dvid)
+
     @staticmethod
     def dumpschema():
         return IngestGrayscale.Schema

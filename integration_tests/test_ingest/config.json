@@ -2,6 +2,10 @@
     "minslice" : 0,
     "maxslice" : 261,
     "basename" : "DIR/resources/grayscale_maps/iso.%05d.png",
-    "output-dir" : "DIR/test_ingest/temp_data/blocks"
-
+    "output-dir" : "DIR/test_ingest/temp_data/blocks", 
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID2",
+        "grayname": "grayscale"
+    }
 }
