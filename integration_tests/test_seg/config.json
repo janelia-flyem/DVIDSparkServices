@@ -12,6 +12,7 @@
         },
         "stitch-algorithm": "medium",
         "chunk-size": 128,
+        "label-offset": 0,
         "iteration-size": 0,
         "checkpoint": "none",
         "checkpoint-dir": "",

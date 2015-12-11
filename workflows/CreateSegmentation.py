@@ -84,6 +84,11 @@ class CreateSegmentation(DVIDWorkflow):
               "type": "integer",
               "default": 512
             },
+            "label-offset": {
+              "description": "Offset for first body id",
+              "type": "integer",
+              "default": 0
+            },
             "iteration-size": {
               "description": "Number of tasks per iteration (0 -- max size)",
               "type": "integer",

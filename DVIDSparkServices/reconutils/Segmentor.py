@@ -87,6 +87,10 @@ class Segmentor(object):
 
         stitch_modes = { "none" : 0, "conservative" : 1, "medium" : 2, "aggressive" : 3 }
         self.stitch_mode = stitch_modes[ workflow_config["options"]["stitch-algorithm"] ]
+        self.labeloffset = 0
+        if "label-offset" in workflow_config["options"]:
+            self.labeloffset = int(workflow_config["options"]["label-offset"])
+
 
         # save masked bodies
         self.pdconf = None
@@ -341,7 +345,7 @@ class Segmentor(object):
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
         offsets = {}
-        offset = 0
+        offset = self.labeloffset
 
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
