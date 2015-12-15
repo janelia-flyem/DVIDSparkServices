@@ -40,7 +40,6 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
 
     import ilastik_main
     from ilastik.applets.dataSelection import DatasetInfo
-    from ilastik.workflows.pixelClassification import PixelClassificationWorkflow
 
     print "ilastik_predict_with_array(): Done with imports"
 
@@ -68,7 +67,10 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     # Instantiate the 'shell', (in this case, an instance of ilastik.shell.HeadlessShell)
     # This also loads the project file into shell.projectManager
     shell = ilastik_main.main( args, extra_workflow_cmdline_args )
-    assert isinstance(shell.workflow, PixelClassificationWorkflow)
+
+    ## Need to find a better way to verify the workflow type
+    #from ilastik.workflows.pixelClassification import PixelClassificationWorkflow
+    #assert isinstance(shell.workflow, PixelClassificationWorkflow)
 
     # Construct an OrderedDict of role-names -> DatasetInfos
     # (See PixelClassificationWorkflow.ROLE_NAMES)
@@ -84,7 +86,8 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
 
     # Sanity checks
     opInteractiveExport = shell.workflow.batchProcessingApplet.dataExportApplet.topLevelOperator.getLane(0)
-    num_channels = opInteractiveExport.Inputs[0].meta.shape[-1]
+    selected_result = opInteractiveExport.InputSelection.value
+    num_channels = opInteractiveExport.Inputs[selected_result].meta.shape[-1]
     
     # For convenience, verify the selected channels before we run the export.
     if selected_channels:
