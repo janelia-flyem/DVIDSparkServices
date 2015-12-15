@@ -1,6 +1,7 @@
 from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
 
-def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None, normalize=True, LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None):
+def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None, normalize=True, 
+                               LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, extra_cmdline_args=[]):
     """
     Using ilastik's python API, open the given project 
     file and run a prediction on the given raw data array.
@@ -56,7 +57,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     os.environ["LAZYFLOW_TOTAL_RAM_MB"] = str(LAZYFLOW_TOTAL_RAM_MB)
 
     # Prepare ilastik's "command-line" arguments, as if they were already parsed.
-    args = ilastik_main.parser.parse_args([])
+    args, extra_workflow_cmdline_args = ilastik_main.parser.parse_known_args(extra_cmdline_args)
     args.headless = True
     args.project = ilp_path
     args.readonly = True
@@ -66,7 +67,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
 
     # Instantiate the 'shell', (in this case, an instance of ilastik.shell.HeadlessShell)
     # This also loads the project file into shell.projectManager
-    shell = ilastik_main.main( args )
+    shell = ilastik_main.main( args, extra_workflow_cmdline_args )
     assert isinstance(shell.workflow, PixelClassificationWorkflow)
 
     # Construct an OrderedDict of role-names -> DatasetInfos
