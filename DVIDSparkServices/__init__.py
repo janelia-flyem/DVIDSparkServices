@@ -1,10 +1,21 @@
 def connect_debugger():
     import sys
     import os
-    pydev_src_path = "/Applications/eclipse/plugins/org.python.pydev_4.1.0.201505270003/pysrc"
-    if not os.path.exists(pydev_src_path):
+    
+    # Possible paths to the pydev debugger module on your hard drive.
+    # Developers: Add your dev machine's pydev directory to this list.
+    pydev_src_paths = [ "/Applications/eclipse/plugins/org.python.pydev_4.1.0.201505270003/pysrc",
+                        "/usr/local/eclipse/plugins/org.python.pydev_4.2.0.201507041133/pysrc/" ]
+
+    pydev_src_paths = filter(os.path.exists, pydev_src_paths)
+    
+    if not pydev_src_paths:
         raise RuntimeError("Error: Couldn't find the path to the pydev module.  You can't use PYDEV_DEBUGGER_ENABLED.")
-    sys.path.append(pydev_src_path)
+    
+    if len(pydev_src_paths) > 1:
+        raise RuntimeError("Error: I found more than one pydev module.  I don't know which one to use.")
+    
+    sys.path.append(pydev_src_paths[0])
     import pydevd
     print "Waiting for PyDev debugger..."
     pydevd.settrace(stdoutToServer=True, stderrToServer=True, suspend=False)
