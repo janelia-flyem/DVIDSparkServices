@@ -164,7 +164,7 @@ class Segmentor(object):
             mask = mask_function(gray)
             
             if mask is None:
-                return (subvolume, None)
+                return (subvolume, gray, None)
             else:
                 assert mask.dtype == np.bool, "Mask array should be boolean"
                 assert mask.ndim == 3
