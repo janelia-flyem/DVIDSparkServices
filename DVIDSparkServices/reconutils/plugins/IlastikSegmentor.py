@@ -34,7 +34,9 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     import os
     from collections import OrderedDict
 
+    import uuid
     import multiprocessing
+    import platform
     import psutil
     import vigra
 
@@ -58,9 +60,19 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     # Prepare ilastik's "command-line" arguments, as if they were already parsed.
     args, extra_workflow_cmdline_args = ilastik_main.parser.parse_known_args(extra_cmdline_args)
     args.headless = True
+    args.debug = True # ilastik's 'debug' flag enables special power features, including experimental workflows.
     args.project = ilp_path
     args.readonly = True
-    args.debug = True # ilastik's 'debug' flag enables special power features, including experimental workflows.
+
+    # By default, all ilastik processes duplicate their console output to ~/.ilastik_log.txt
+    # Obviously, having all spark nodes write to a common file is a bad idea.
+    # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
+    args.logfile = "/dev/null"
+
+    # The process_name argument is prefixed to all log messages.
+    # For now, just use the machine name and a uuid
+    # FIXME: It would be nice to provide something more descriptive, like the ROI of the current spark job...
+    args.process_name = platform.node() + "-" + str(uuid.uuid1())
 
     print "ilastik_predict_with_array(): Creating shell..."
 
