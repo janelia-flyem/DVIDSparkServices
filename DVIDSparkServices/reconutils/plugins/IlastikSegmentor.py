@@ -1,7 +1,7 @@
 from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
 
 def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None, normalize=True, 
-                               LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, extra_cmdline_args=[]):
+                               LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, logfile="/dev/null", extra_cmdline_args=[]):
     """
     Using ilastik's python API, open the given project 
     file and run a prediction on the given raw data array.
@@ -67,7 +67,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     # By default, all ilastik processes duplicate their console output to ~/.ilastik_log.txt
     # Obviously, having all spark nodes write to a common file is a bad idea.
     # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
-    args.logfile = "/dev/null"
+    args.logfile = logfile
 
     # The process_name argument is prefixed to all log messages.
     # For now, just use the machine name and a uuid
