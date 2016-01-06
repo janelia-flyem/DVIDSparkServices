@@ -56,6 +56,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     # Before we start ilastik, prepare the environment variable settings.
     os.environ["LAZYFLOW_THREADS"] = str(LAZYFLOW_THREADS)
     os.environ["LAZYFLOW_TOTAL_RAM_MB"] = str(LAZYFLOW_TOTAL_RAM_MB)
+    os.environ["LAZYFLOW_STATUS_MONITOR_SECONDS"] = "10"
 
     # Prepare ilastik's "command-line" arguments, as if they were already parsed.
     args, extra_workflow_cmdline_args = ilastik_main.parser.parse_known_args(extra_cmdline_args)
