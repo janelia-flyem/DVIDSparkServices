@@ -31,22 +31,21 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
     
     LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB: Passed to ilastik via environment variables.
     """
-    print "two_stage_voxel_predictions(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape)
+    
+    print "two_stage_voxel_predictions(): Starting with raw data: dtype={}, shape={}"\
+          .format(str(gray_vol.dtype), gray_vol.shape)
 
     import tempfile
     import numpy as np
     import h5py
 
-    print "hey"
-
     scratch_dir = tempfile.mkdtemp()
+    print "Writing intermediate results to scratch directory: " + scratch_dir
 
     # Run predictions on the in-memory data.
     stage_1_output_path = scratch_dir + '/stage_1_predictions.h5'
     run_ilastik_stage(1, stage_1_ilp_path, gray_vol, None, stage_1_output_path,
                       LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
-    print "hey"
-
     stage_2_output_path = scratch_dir + '/stage_2_predictions.h5'
     run_ilastik_stage(2, stage_2_ilp_path, stage_1_output_path, mask, stage_2_output_path,
                       LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
@@ -117,8 +116,6 @@ def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
     import ilastik_main
     from ilastik.applets.dataSelection import DatasetInfo
 
-    print "done imports"
-
     if LAZYFLOW_TOTAL_RAM_MB is None:
         # By default, assume our alotted RAM is proportional 
         # to the CPUs we've been told to use
@@ -154,8 +151,6 @@ def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
     # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
     args.logfile = logfile
 
-    print "loading shell"
-
     # Instantiate the 'shell', (in this case, an instance of ilastik.shell.HeadlessShell)
     # This also loads the project file into shell.projectManager
     shell = ilastik_main.main( args, extra_workflow_cmdline_args )
@@ -172,8 +167,6 @@ def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
     selected_result = opInteractiveExport.InputSelection.value
     num_channels = opInteractiveExport.Inputs[selected_result].meta.shape[-1]
 
-    print "constructing input dict"
-
     # Construct an OrderedDict of role-names -> DatasetInfos
     # (See PixelClassificationWorkflow.ROLE_NAMES)
     if isinstance(input_vol, (str, unicode)):
@@ -188,11 +181,7 @@ def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
         mask = vigra.taggedView(mask, 'zyx')
         role_data_dict["Prediction Mask"] = [ DatasetInfo(preloaded_array=mask) ]
 
-    print "exporting..."
-
     # Run the export via the BatchProcessingApplet
     export_paths = shell.workflow.batchProcessingApplet.run_export(role_data_dict, export_to_array=False)
     assert len(export_paths) == 1
     assert export_paths[0] == output_path + '/predictions', "Output path was {}".format(export_paths[0])
-
-    print "done exporting"
