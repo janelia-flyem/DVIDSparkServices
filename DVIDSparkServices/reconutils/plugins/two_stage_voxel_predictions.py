@@ -36,71 +36,75 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
           .format(str(gray_vol.dtype), gray_vol.shape)
 
     import tempfile
+    import shutil
     import numpy as np
     import h5py
 
     scratch_dir = tempfile.mkdtemp()
     print "Writing intermediate results to scratch directory: " + scratch_dir
 
-    # Run predictions on the in-memory data.
-    stage_1_output_path = scratch_dir + '/stage_1_predictions.h5'
-    run_ilastik_stage(1, stage_1_ilp_path, gray_vol, None, stage_1_output_path,
-                      LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
-    stage_2_output_path = scratch_dir + '/stage_2_predictions.h5'
-    run_ilastik_stage(2, stage_2_ilp_path, stage_1_output_path, mask, stage_2_output_path,
-                      LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
-
-    combined_predictions_path = scratch_dir + '/combined_predictions.h5'
-
-    # Sadly, we must rewrite the predictions into a single file, because they might be combined together.
-    # Technically, we could avoid this with some fancy logic, but that would be really annoying.
-    with h5py.File(combined_predictions_path, 'w') as combined_predictions_file:
-        with h5py.File(stage_1_output_path, 'r') as stage_1_prediction_file, \
-             h5py.File(stage_2_output_path, 'r') as stage_2_prediction_file:
-            stage_1_predictions = stage_1_prediction_file['predictions']
-            stage_2_predictions = stage_2_prediction_file['predictions']
-
-            assert stage_1_predictions.dtype == stage_2_predictions.dtype, \
-                "Mismatched dtypes: {} vs {}".format( stage_1_predictions.dtype, stage_2_predictions.dtype )
+    try:
+        # Run predictions on the in-memory data.
+        stage_1_output_path = scratch_dir + '/stage_1_predictions.h5'
+        run_ilastik_stage(1, stage_1_ilp_path, gray_vol, None, stage_1_output_path,
+                          LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
+        stage_2_output_path = scratch_dir + '/stage_2_predictions.h5'
+        run_ilastik_stage(2, stage_2_ilp_path, stage_1_output_path, mask, stage_2_output_path,
+                          LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
     
-            stage_1_channels = stage_1_predictions.shape[-1]
-            stage_2_channels = stage_2_predictions.shape[-1]
-            
-            assert stage_1_predictions.shape[:-1] == stage_2_predictions.shape[:-1], \
-                "Non-channel dimensions must match.  shapes were: {} and {}"\
-                .format(stage_1_predictions.shape, stage_2_predictions.shape)
-            
-            combined_shape = stage_1_predictions.shape[:-1] + ((stage_1_channels + stage_2_channels),)
-            combined_predictions = combined_predictions_file.create_dataset('predictions',
-                                                                            dtype=stage_1_predictions.dtype,
-                                                                            shape=combined_shape,
-                                                                            chunks=(64,64,64,1) )
+        combined_predictions_path = scratch_dir + '/combined_predictions.h5'
     
-            combined_predictions[..., :stage_1_channels] = stage_1_predictions[:]
-            combined_predictions[..., stage_1_channels:] = stage_2_predictions[:]
-
-        num_channels = combined_predictions.shape[-1]
+        # Sadly, we must rewrite the predictions into a single file, because they might be combined together.
+        # Technically, we could avoid this with some fancy logic, but that would be really annoying.
+        with h5py.File(combined_predictions_path, 'w') as combined_predictions_file:
+            with h5py.File(stage_1_output_path, 'r') as stage_1_prediction_file, \
+                 h5py.File(stage_2_output_path, 'r') as stage_2_prediction_file:
+                stage_1_predictions = stage_1_prediction_file['predictions']
+                stage_2_predictions = stage_2_prediction_file['predictions']
     
-        if selected_channels:
-            assert isinstance(selected_channels, list)
-            for selection in selected_channels:
-                if isinstance(selection, list):
-                    assert all(c < num_channels for c in selection), \
-                        "Selected channels ({}) exceed number of prediction classes ({})"\
-                        .format( selected_channels, num_channels )
-                else:
-                    assert selection < num_channels, \
-                        "Selected channels ({}) exceed number of prediction classes ({})"\
-                        .format( selected_channels, num_channels )
-
-        # This will extract the channels we want, converting from hdf5 to numpy along the way.    
-        selected_predictions = select_channels(combined_predictions, selected_channels)
+                assert stage_1_predictions.dtype == stage_2_predictions.dtype, \
+                    "Mismatched dtypes: {} vs {}".format( stage_1_predictions.dtype, stage_2_predictions.dtype )
+        
+                stage_1_channels = stage_1_predictions.shape[-1]
+                stage_2_channels = stage_2_predictions.shape[-1]
+                
+                assert stage_1_predictions.shape[:-1] == stage_2_predictions.shape[:-1], \
+                    "Non-channel dimensions must match.  shapes were: {} and {}"\
+                    .format(stage_1_predictions.shape, stage_2_predictions.shape)
+                
+                combined_shape = stage_1_predictions.shape[:-1] + ((stage_1_channels + stage_2_channels),)
+                combined_predictions = combined_predictions_file.create_dataset('predictions',
+                                                                                dtype=stage_1_predictions.dtype,
+                                                                                shape=combined_shape,
+                                                                                chunks=(64,64,64,1) )
+        
+                combined_predictions[..., :stage_1_channels] = stage_1_predictions[:]
+                combined_predictions[..., stage_1_channels:] = stage_2_predictions[:]
     
-    if normalize:
-        normalize_channels_in_place(selected_predictions)
+            num_channels = combined_predictions.shape[-1]
+        
+            if selected_channels:
+                assert isinstance(selected_channels, list)
+                for selection in selected_channels:
+                    if isinstance(selection, list):
+                        assert all(c < num_channels for c in selection), \
+                            "Selected channels ({}) exceed number of prediction classes ({})"\
+                            .format( selected_channels, num_channels )
+                    else:
+                        assert selection < num_channels, \
+                            "Selected channels ({}) exceed number of prediction classes ({})"\
+                            .format( selected_channels, num_channels )
     
-    assert selected_predictions.dtype == np.float32
-    return selected_predictions
+            # This will extract the channels we want, converting from hdf5 to numpy along the way.    
+            selected_predictions = select_channels(combined_predictions, selected_channels)
+        
+        if normalize:
+            normalize_channels_in_place(selected_predictions)
+        
+        assert selected_predictions.dtype == np.float32
+        return selected_predictions
+    finally:
+        shutil.rmtree(scratch_dir)
 
 def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
                       LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, logfile="/dev/null", extra_cmdline_args=[]):
