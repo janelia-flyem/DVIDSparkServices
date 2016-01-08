@@ -60,11 +60,16 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
              h5py.File(stage_2_output_path, 'r') as stage_2_prediction_file:
             stage_1_predictions = stage_1_prediction_file['predictions']
             stage_2_predictions = stage_2_prediction_file['predictions']
+
+            assert stage_1_predictions.dtype == stage_2_predictions.dtype, \
+                "Mismatched dtypes: {} vs {}".format( stage_1_predictions.dtype, stage_2_predictions.dtype )
     
             stage_1_channels = stage_1_predictions.shape[-1]
             stage_2_channels = stage_2_predictions.shape[-1]
             
-            assert stage_1_predictions.shape[:-1] == stage_2_predictions.shape[:-1]
+            assert stage_1_predictions.shape[:-1] == stage_2_predictions.shape[:-1], \
+                "Non-channel dimensions must match.  shapes were: {} and {}"\
+                .format(stage_1_predictions.shape, stage_2_predictions.shape)
             
             combined_shape = stage_1_predictions.shape[:-1] + ((stage_1_channels + stage_2_channels),)
             combined_predictions = combined_predictions_file.create_dataset('predictions',
@@ -95,6 +100,7 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
     if normalize:
         normalize_channels_in_place(selected_predictions)
     
+    assert selected_predictions.dtype == np.float32
     return selected_predictions
 
 def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
