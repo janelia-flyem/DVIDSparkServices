@@ -105,6 +105,12 @@ class CreateSegmentation(DVIDWorkflow):
               "enum": ["none", "voxel", "segmentation"],
               "default": "none"
             },
+            "mutateseg": {
+              "description": "Yes to overwrite (mutate) previous segmentation in place; auto will check to see if output label destination already exists",
+              "type": "string",
+              "enum": ["auto", "no", "yes"],
+              "default": "auto"
+            },            
             "debug": {
               "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
               "type": "boolean",
@@ -247,7 +253,7 @@ class CreateSegmentation(DVIDWorkflow):
         mapped_seg_chunks = segmentor.stitch(seg_chunks)
 
         # write data to DVID
-        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"])
+        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], self.config_data["options"]["mutateseg"])
         
         # no longer need seg chunks
         seg_chunks.unpersist()

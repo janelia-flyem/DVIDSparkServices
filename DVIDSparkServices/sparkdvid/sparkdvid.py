@@ -324,7 +324,7 @@ class sparkdvid(object):
 
     # (key, (ROI, segmentation compressed+border))
     # => segmentation output in DVID
-    def foreach_write_labels3d(self, label_name, seg_chunks, roi_name=None):
+    def foreach_write_labels3d(self, label_name, seg_chunks, roi_name=None, mutateseg="auto"):
         """Writes RDD of label volumes to DVID.
 
         For each subvolume ID, this function writes the subvolume
@@ -335,6 +335,8 @@ class sparkdvid(object):
             label_name (str): name of already created DVID labelblk
             seg_chunks (RDD): (key, (subvolume, label volume)
             roi_name (str): restrict write to within this ROI
+            mutateseg (str): overwrite previous seg ("auto", "yes", "no"
+            "auto" will check existence of labels beforehand)
 
         """
 
@@ -345,7 +347,12 @@ class sparkdvid(object):
         from libdvid import DVIDNodeService
         # create labels type
         node_service = DVIDNodeService(str(server), str(uuid))
-        node_service.create_labelblk(str(label_name))
+        success = node_service.create_labelblk(str(label_name))
+
+        # check whether seg should be mutated
+        mutate=False
+        if (not success and mutateseg == "auto") or mutateseg == "yes":
+            mutate=True
 
         def writer(subvolume_seg):
             from libdvid import DVIDNodeService
@@ -370,7 +377,7 @@ class sparkdvid(object):
             # put in x,y,z and send (copy the slice to make contiguous) 
             seg = numpy.copy(seg.transpose((2,1,0)))
             # send data from roi start position
-            node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True, roi=str(roi_name))
+            node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True, roi=str(roi_name), mutate=mutate)
 
         return seg_chunks.foreach(writer)
 
