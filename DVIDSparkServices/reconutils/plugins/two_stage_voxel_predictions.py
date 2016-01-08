@@ -148,7 +148,7 @@ def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
     # To avoid conflicts between processes, give each process it's own logfile to write to.
     if logfile != "/dev/null":
         base, ext = os.path.splitext(logfile)
-        logfile += base + '.' + args.process_name + ext
+        logfile = base + '.' + args.process_name + ext
 
     # By default, all ilastik processes duplicate their console output to ~/.ilastik_log.txt
     # Obviously, having all spark nodes write to a common file is a bad idea.
