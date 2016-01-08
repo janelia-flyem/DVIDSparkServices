@@ -51,7 +51,7 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
     run_ilastik_stage(2, stage_2_ilp_path, stage_1_output_path, mask, stage_2_output_path,
                       LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, logfile, extra_cmdline_args)
 
-    combined_predictions_path = scratch_dir + 'combined_predictions.h5'
+    combined_predictions_path = scratch_dir + '/combined_predictions.h5'
 
     # Sadly, we must rewrite the predictions into a single file, because they might be combined together.
     # Technically, we could avoid this with some fancy logic, but that would be really annoying.
