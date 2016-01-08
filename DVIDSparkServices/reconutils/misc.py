@@ -112,6 +112,9 @@ def compute_vi(seg1, seg2):
 
 def select_channels( predictions, selected_channels ):
     """
+    predictions: Can be a numpy array OR an hdf5 dataset.
+                 (But in either case, numpy array is returned.)
+
     selected_channels: A list of channel indexes to select and return from the prediction results.
                        'None' can also be given, which means "return all prediction channels".
                        You may also return a *nested* list, in which case groups of channels can be
@@ -126,10 +129,10 @@ def select_channels( predictions, selected_channels ):
     
     # If a list of ints, then this is fast -- just select the channels we want.
     assert isinstance(selected_channels, list)
-    if all(np.issubdtype(type(x), np.integer) for x in selected_channels):
+    if isinstance(predictions, np.ndarray) and all(np.issubdtype(type(x), np.integer) for x in selected_channels):
         return predictions[..., selected_channels]
-    
-    # The user gave us a nested list.
+
+    # The user gave us a nested selection list, or the data is hdf5.
     # We have to compute it channel-by-channel (the slow way).
     output_shape = predictions.shape[:-1] + (len(selected_channels),)
     combined_predictions = np.ndarray(shape=output_shape, dtype=predictions.dtype )
@@ -140,6 +143,7 @@ def select_channels( predictions, selected_channels ):
             # Selected channel is a list of channels to combine
             assert isinstance(selection, list)
             assert all(np.issubdtype(type(x), np.integer) for x in selection)
+            selection = sorted(selection) # h5py requires that seletions are sorted
             combined_predictions[..., output_channel] = predictions[..., selection].sum(axis=-1)
     return combined_predictions
 

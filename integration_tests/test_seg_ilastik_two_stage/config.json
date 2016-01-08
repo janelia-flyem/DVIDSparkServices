@@ -1,0 +1,33 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "ilastik-2-stage-segmentation-result",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "predict-voxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.two_stage_voxel_predictions.two_stage_voxel_predictions",
+                    "parameters": {
+                        "stage_1_ilp_path": "integration_tests/resources/tiny-pc.ilp",
+                        "stage_2_ilp_path": "integration_tests/resources/tiny-pc-stage-2.ilp",
+                        "selected_channels": [4,2,3],
+                        "normalize": false,
+                        "LAZYFLOW_THREADS": 4,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                    }
+                }
+            }
+        },
+        "stitch-algorithm" : "none",
+        "chunk-size": 128,
+        "checkpoint" : "none",
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": false
+    }
+}

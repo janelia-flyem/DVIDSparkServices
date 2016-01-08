@@ -219,7 +219,13 @@ def run_tests(test_dir, uuid1, uuid2):
     except ImportError:
         sys.stderr.write("Skipping ilastik segmentation test")
     else:
+        # Voxel prediction with ilastik
         run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
+
+        print "RUNNING TWO-STAGE TEST"
+
+        # Two-stage voxel prediction with ilastik
+        run_test("test_seg_ilastik_two_stage", "CreateSegmentation", test_dir, uuid1, uuid2)
 
     # test 8: Generate supervoxels with the wsdt module
     try:
