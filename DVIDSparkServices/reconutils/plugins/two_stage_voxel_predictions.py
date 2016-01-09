@@ -77,9 +77,12 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
                                                                                 dtype=stage_1_predictions.dtype,
                                                                                 shape=combined_shape,
                                                                                 chunks=(64,64,64,1) )
-        
-                combined_predictions[..., :stage_1_channels] = stage_1_predictions[:]
-                combined_predictions[..., stage_1_channels:] = stage_2_predictions[:]
+
+                # Do this one channel at a time to save RAM
+                for c in range(stage_1_channels):
+                    combined_predictions[..., c] = stage_1_predictions[..., c]
+                for c in range(stage_2_channels):
+                    combined_predictions[..., stage_1_channels+c] = stage_2_predictions[..., c]
     
             num_channels = combined_predictions.shape[-1]
         
