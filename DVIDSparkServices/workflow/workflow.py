@@ -4,7 +4,7 @@ This module only contains the Workflow class and a sepcial
 exception type for workflow errors.
 
 """
-
+import os
 from jsonschema import ValidationError
 import json
 from DVIDSparkServices.json_util import validate_and_inject_defaults
@@ -89,7 +89,10 @@ class Workflow(object):
         # but will help with some operations like shuffling, especially when
         # dealing with things object like highly compressible label volumes
         # NOTE: objects > INT_MAX will cause problems for LZ4
-        return SparkContext(conf=sconfig, serializer=CompressedSerializerLZ4())
+        worker_env = {}
+        if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
+            worker_env["DVIDSPARK_WORKFLOW_TMPDIR"] = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
+        return SparkContext(conf=sconfig, serializer=CompressedSerializerLZ4(), environment=worker_env)
 
     # make this an explicit abstract method ??
     def execute(self):

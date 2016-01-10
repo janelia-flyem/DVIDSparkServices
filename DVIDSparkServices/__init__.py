@@ -1,3 +1,9 @@
+import os
+if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
+    # Override the tempfile location for all python functions
+    import tempfile
+    tempfile.tempdir = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
+
 def connect_debugger():
     import sys
     import os
