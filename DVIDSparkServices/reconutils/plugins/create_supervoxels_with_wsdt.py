@@ -13,15 +13,16 @@ def create_supervoxels_with_wsdt( boundary_volume,
     """
     Generate supervoxels using Timo's watershed of the distance-transform method.
     """
-    mask = mask.astype(np.bool, copy=False)
-    
-    # Mask is now inverted
-    inverted_mask = np.logical_not(mask, out=mask)    
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
 
-    # Forbid the watershed from bleeding into the masked area prematurely
-    boundary_volume[inverted_mask] = 2.0
+    if mask is not None:
+        # Forbid the watershed from bleeding into the masked area prematurely
+        mask = mask.astype(np.bool, copy=False)
+        # Mask is now inverted
+        inverted_mask = np.logical_not(mask, out=mask)
+        boundary_volume[inverted_mask] = 2.0
+
     watershed = wsdt.wsDtSegmentation( boundary_volume,
                                        pmin,
                                        minMembraneSize,
@@ -31,6 +32,7 @@ def create_supervoxels_with_wsdt( boundary_volume,
                                        cleanCloseSeeds=False,
                                        returnSeedsOnly=False )
 
-    watershed[inverted_mask] = 0
+    if mask is not None:
+        watershed[inverted_mask] = 0
     return watershed
     
