@@ -29,16 +29,13 @@ class IngestGrayscale(Workflow):
         "dvid-server": {
           "description": "location of DVID server",
           "type": "string",
-          "minLength": 1,
           "property": "dvid-server"
         },
         "uuid": {
           "description": "version node to store segmentation",
-          "type": "string",
-          "minLength": 1
+          "type": "string"
         }
-      },
-      "required" : ["dvid-server", "uuid"]
+      }
     }
 
   },
@@ -59,18 +56,43 @@ class IngestGrayscale(Workflow):
         from PIL import Image
         import numpy
         import os
+        import string
+            
+        minslice = self.config_data["minslice"]
+        # map file to numpy array
+        basename = self.config_data["basename"]
         
+        # format should be gs://<bucket>/path
+        gbucketname = ""
+        gpath = ""
+        if basename.startswith('gs://'):
+            # parse google bucket names
+            tempgs = basename.split('//')
+            bucketpath = tempgs[1].split('/')
+            gbucketname = bucketpath[0]
+            gpath = '/' + string.join(bucketpath[1:], '/')
+
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.BLKSIZE):
             # parallelize images across many machines
             imgs = self.sc.parallelize(range(slice, slice+self.BLKSIZE), self.BLKSIZE)
 
-            minslice = self.config_data["minslice"]
-
-            # map file to numpy array
-            basename = self.config_data["basename"]
             def img2npy(slicenum):
                 try:
-                    img = Image.open(basename % slicenum)
+                    img = None
+                    if gbucketname == "":
+                        img = Image.open(basename % slicenum)
+                    else:
+                        from gcloud import storage
+                        from io import BytesIO
+                        client = storage.Client()
+                        gbucket = client.get_bucket(gbucketname)
+                        gblob = bucket.get_blob(gpath)
+                        
+                        # write to bytes which implements file interface
+                        gblobfile = BytesIO()
+                        gblob.download_to_file(gblobfile)
+                        gblobfile.seek(0)
+                        img = Image.open(gblobfile)
                     return slicenum, numpy.array(img)
                 except Exception, e:
                     # just return a blank slice -- will be handled downstream
