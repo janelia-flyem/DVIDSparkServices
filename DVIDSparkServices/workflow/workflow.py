@@ -81,7 +81,8 @@ class Workflow(object):
         # memory situations
         sconfig.setAll([("spark.task.cpus", "1"),
                         ("spark.eventLog.enabled", "true"),
-                        ("spark.eventLog.dir", "/tmp") # is this a good idea -- really is temp
+                        ("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
+                        ("spark.task.maxFailures", "1")
                        ]
                       )
 
