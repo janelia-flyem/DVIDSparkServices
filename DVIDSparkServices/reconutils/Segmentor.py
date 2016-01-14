@@ -123,10 +123,10 @@ class Segmentor(object):
         # run voxel prediction (default: grayscale is boundary)
         pred_chunks = self.predict_voxels(gray_mask_chunks)
 
-        # retrieve previously computed RDD or save current RDD
-        if checkpoint_dir != "":
-            pred_chunks = self.context.checkpointRDD(pred_chunks, 
-                    checkpoint_dir, enable_pred_rollback)
+#         # retrieve previously computed RDD or save current RDD
+#         if checkpoint_dir != "":
+#             pred_chunks = self.context.checkpointRDD(pred_chunks, 
+#                     checkpoint_dir, enable_pred_rollback)
 
         # run watershed from voxel prediction (default: seeded watershed)
         sp_chunks = self.create_supervoxels(pred_chunks)

@@ -186,8 +186,8 @@ class CreateSegmentation(DVIDWorkflow):
        
         # enable rollback of boundary prediction if necessary
         rollback_pred = False
-        if self.config_data["options"]["checkpoint"] == "voxel":
-            rollback_pred = True
+#         if self.config_data["options"]["checkpoint"] == "voxel":
+#             rollback_pred = True
 
         for iternum in range(0, num_iters):
             # it might make sense to randomly map partitions for selection
