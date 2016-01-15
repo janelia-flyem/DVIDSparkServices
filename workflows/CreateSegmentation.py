@@ -242,6 +242,7 @@ class CreateSegmentation(DVIDWorkflow):
 
         for iter1 in range(1, len(seg_chunks_list)):
             # ?? does this preserve the partitioner (yes, if num partitions is the same)
+            # this could cause a serialization problems if there are a large number of iterations (>100)
             seg_chunks = seg_chunks.union(seg_chunks_list[iter1])
             
         # any forced persistence will result in costly
@@ -251,13 +252,15 @@ class CreateSegmentation(DVIDWorkflow):
         # stitch the segmentation chunks
         # (preserves initial partitioning)
         mapped_seg_chunks = segmentor.stitch(seg_chunks)
-
-        # write data to DVID
-        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], self.config_data["options"]["mutateseg"])
         
         # no longer need seg chunks
         seg_chunks.unpersist()
-        
+
+        # coalesce to fewer partitions (!!TEMPORARY SINCE THERE ARE WRITE BANDWIDTH LIMITS TO DVID)
+        mapped_seg_chunks = mapped_seg_chunks.coalesce(125)
+
+        # write data to DVID
+        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], self.config_data["options"]["mutateseg"])
         self.logger.write_data("Wrote DVID labels") # write to logger after spark job
 
         if self.config_data["options"]["debug"]:
