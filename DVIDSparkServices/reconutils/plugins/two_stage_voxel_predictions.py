@@ -1,5 +1,9 @@
 from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_path, selected_channels=None, normalize=True, 
                                 LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, logfile="/dev/null", extra_cmdline_args=[]):
     """
@@ -40,8 +44,12 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
     import numpy as np
     import h5py
 
-    scratch_dir = tempfile.mkdtemp()
-    print "Writing intermediate results to scratch directory: " + scratch_dir
+    scratch_dir = tempfile.mkdtemp(prefix='voxel_predictions_')
+    logger.info( "Writing intermediate results to scratch directory: " + scratch_dir )
+
+    #logger.info( "FIXME: Writing grayscale for debug purposes" )    
+    #with h5py.File(scratch_dir + '/grayscale.h5', 'w') as grayscale_file:
+    #    grayscale_file.create_dataset('grayscale', data=gray_vol)
 
     try:
         # Run predictions on the in-memory data.

@@ -1,6 +1,12 @@
 import numpy as np
 import wsdt
 
+import h5py
+import os
+import tempfile
+import logging
+logger = logging.getLogger(__name__)
+
 def create_supervoxels_with_wsdt( boundary_volume,
                                   mask,
                                   boundary_channel=0,
@@ -34,5 +40,12 @@ def create_supervoxels_with_wsdt( boundary_volume,
 
     if mask is not None:
         watershed[inverted_mask] = 0
+
+    #logger.warn("FIXME: Saving watershed to temporary file for debugging purposes...")
+    #tmpdir = tempfile.mkdtemp(prefix="wsdt_output_")
+    #watershed_path = os.path.join(tmpdir, 'watershed.h5')
+    #with h5py.File(watershed_path, 'w') as watershed_file:
+    #    watershed_file.create_dataset('watershed', data=watershed)
+    
     return watershed
     
