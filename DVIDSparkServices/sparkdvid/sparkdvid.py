@@ -155,7 +155,8 @@ class sparkdvid(object):
             logger = logging.getLogger(__name__)
             logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
             import time
-            time.sleep( subvolume.roi_id % 512 )
+            import random
+            time.sleep( random.randint(0,512) )
 
             # retrieve data from roi start position considering border
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
