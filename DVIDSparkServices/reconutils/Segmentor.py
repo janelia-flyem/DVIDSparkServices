@@ -223,6 +223,8 @@ class Segmentor(object):
             assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
             mask = mask_compressed and mask_compressed.deserialize()
             prediction = prediction_compressed.deserialize()
+            if mask is None:
+                mask = np.ones(shape=prediction.shape[:-1], dtype=np.uint8)
 
             # add body mask
             preserve_seg = None
