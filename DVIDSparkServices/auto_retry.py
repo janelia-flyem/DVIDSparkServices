@@ -1,5 +1,7 @@
 import functools
-def auto_retry(total_tries=1, pause_between_tries=10.0, logger=None):
+import logging
+
+def auto_retry(total_tries=1, pause_between_tries=10.0, logging_name=None):
     """
     Returns a decorator.
     If the decorated function fails for any reason,
@@ -17,7 +19,8 @@ def auto_retry(total_tries=1, pause_between_tries=10.0, logger=None):
                     remaining_tries -= 1
                     if total_tries == 0:
                         raise
-                    if logger:
+                    if logging_name:
+                        logger = logging.getLogger(logging_name)
                         logger.warn("Call to '{}' failed with error: {}.".format(func.func_name, repr(ex)))
                         logger.warn("Retrying {} more times".format( remaining_tries ))
                     import time

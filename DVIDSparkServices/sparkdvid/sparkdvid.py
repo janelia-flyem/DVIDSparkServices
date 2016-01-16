@@ -157,7 +157,7 @@ class sparkdvid(object):
             time.sleep( subvolume.roi_id % 512 )
 
             # retrieve data from roi start position considering border
-            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_gray():
                 return node_service.get_gray3D( str(gray_name),
                                                 (size1,size2,size3),
@@ -203,7 +203,7 @@ class sparkdvid(object):
             size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
             size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
 
-            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
                 # retrieve data from roi start position considering border
                 return node_service.get_labels3D( str(label_name),
@@ -258,7 +258,7 @@ class sparkdvid(object):
             size2 = subvolume.roi[4]-subvolume.roi[1]
             size3 = subvolume.roi[5]-subvolume.roi[2]
 
-            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
                 # retrieve data from roi start position
                 return node_service.get_labels3D( str(label_name),
@@ -273,7 +273,7 @@ class sparkdvid(object):
             # fetch second label volume
             node_service2 = DVIDNodeService(str(server2), str(uuid2))
  
-            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels2():
                 # retrieve data from roi start position
                 return node_service2.get_labels3D( str(label_name2),
