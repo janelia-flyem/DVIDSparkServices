@@ -152,6 +152,7 @@ class sparkdvid(object):
             size2 = subvolume.roi.y2+2*subvolume.border-subvolume.roi.y1
             size3 = subvolume.roi.z2+2*subvolume.border-subvolume.roi.z1
 
+            logger = logging.getLogger(__name__)
             logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
             import time
             time.sleep( subvolume.roi_id % 512 )
