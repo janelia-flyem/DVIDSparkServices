@@ -19,9 +19,13 @@ is backed by a clustered DB.
 
 """
 
-import json
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from CompressedNumpyArray import CompressedNumpyArray
+
+import logging
+logger = logging.getLogger(__name__)
+
+from DVIDSparkServices.auto_retry import auto_retry
 
 class sparkdvid(object):
     """Creates a spark dvid context that holds the spark context.
@@ -148,8 +152,13 @@ class sparkdvid(object):
             size2 = subvolume.roi.y2+2*subvolume.border-subvolume.roi.y1
             size3 = subvolume.roi.z2+2*subvolume.border-subvolume.roi.z1
 
-            # retrieve data from roi start position considering border 
-            gray_volume = node_service.get_gray3D( str(gray_name), (size1,size2,size3), (subvolume.roi.x1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.z1-subvolume.border) )
+            # retrieve data from roi start position considering border
+            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            def get_gray():
+                return node_service.get_gray3D( str(gray_name),
+                                                (size1,size2,size3),
+                                                (subvolume.roi.x1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.z1-subvolume.border) )
+            gray_volume = get_gray()
 
             # flip to be in C-order (no performance penalty)
             gray_volume = gray_volume.transpose((2,1,0))
@@ -190,8 +199,15 @@ class sparkdvid(object):
             size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
             size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
 
-            # retrieve data from roi start position considering border
-            label_volume = node_service.get_labels3D( str(label_name), (size1,size2,size3), (subvolume.roi[0]-border, subvolume.roi[1]-border, subvolume.roi[2]-border), compress=True, roi=str(roiname) )
+            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            def get_labels():
+                # retrieve data from roi start position considering border
+                return node_service.get_labels3D( str(label_name),
+                                                  (size1,size2,size3),
+                                                  (subvolume.roi[0]-border, subvolume.roi[1]-border, subvolume.roi[2]-border),
+                                                  compress=True,
+                                                  roi=str(roiname) )
+            label_volume = get_labels()
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -238,11 +254,14 @@ class sparkdvid(object):
             size2 = subvolume.roi[4]-subvolume.roi[1]
             size3 = subvolume.roi[5]-subvolume.roi[2]
 
-            # retrieve data from roi start position
-            label_volume = node_service.get_labels3D(str(label_name),
-                (size1,size2,size3),
-                (subvolume.roi[0], subvolume.roi[1],
-                subvolume. roi[2]), roi=str(roiname))
+            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            def get_labels():
+                # retrieve data from roi start position
+                return node_service.get_labels3D( str(label_name),
+                                                  (size1,size2,size3),
+                                                  (subvolume.roi[0], subvolume.roi[1],
+                                                  subvolume. roi[2]), roi=str(roiname))
+            label_volume = get_labels()
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
@@ -250,11 +269,14 @@ class sparkdvid(object):
             # fetch second label volume
             node_service2 = DVIDNodeService(str(server2), str(uuid2))
  
-            # retrieve data from roi start position
-            label_volume2 = node_service2.get_labels3D(str(label_name2),
-                (size1,size2,size3),
-                (subvolume.roi[0], subvolume.roi[1],
-                subvolume. roi[2]))
+            @auto_retry(3, pause_between_tries=60.0, logger=logger)
+            def get_labels2():
+                # retrieve data from roi start position
+                return node_service2.get_labels3D( str(label_name2),
+                                                   (size1,size2,size3),
+                                                   (subvolume.roi[0], subvolume.roi[1],
+                                                   subvolume. roi[2]))
+            label_volume2 = get_labels2()
 
             # flip to be in C-order (no performance penalty)
             label_volume2 = label_volume2.transpose((2,1,0))
@@ -376,8 +398,17 @@ class sparkdvid(object):
 
             # put in x,y,z and send (copy the slice to make contiguous) 
             seg = numpy.copy(seg.transpose((2,1,0)))
-            # send data from roi start position
-            node_service.put_labels3D(str(label_name), seg, (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1), compress=True, roi=str(roi_name), mutate=mutate)
+
+            @auto_retry(3, pause_between_tries=600.0, logger=logger)
+            def put_labels():
+                # send data from roi start position
+                node_service.put_labels3D( str(label_name),
+                                           seg,
+                                           (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1),
+                                           compress=True,
+                                           roi=str(roi_name),
+                                           mutate=mutate )
+            put_labels()
 
         return seg_chunks.foreach(writer)
 
