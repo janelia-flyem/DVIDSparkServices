@@ -152,6 +152,10 @@ class sparkdvid(object):
             size2 = subvolume.roi.y2+2*subvolume.border-subvolume.roi.y1
             size3 = subvolume.roi.z2+2*subvolume.border-subvolume.roi.z1
 
+            logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
+            import time
+            time.sleep( subvolume.roi_id % 512 )
+
             # retrieve data from roi start position considering border
             @auto_retry(3, pause_between_tries=60.0, logger=logger)
             def get_gray():
