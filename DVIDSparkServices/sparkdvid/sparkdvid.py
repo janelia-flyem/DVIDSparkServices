@@ -152,11 +152,11 @@ class sparkdvid(object):
             size2 = subvolume.roi.y2+2*subvolume.border-subvolume.roi.y1
             size3 = subvolume.roi.z2+2*subvolume.border-subvolume.roi.z1
 
-            logger = logging.getLogger(__name__)
-            logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
-            import time
-            import random
-            time.sleep( random.randint(0,512) )
+            #logger = logging.getLogger(__name__)
+            #logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
+            #import time
+            #import random
+            #time.sleep( random.randint(0,512) )
 
             # retrieve data from roi start position considering border
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
@@ -405,7 +405,7 @@ class sparkdvid(object):
             # put in x,y,z and send (copy the slice to make contiguous) 
             seg = numpy.copy(seg.transpose((2,1,0)))
 
-            @auto_retry(3, pause_between_tries=600.0, logger=logger)
+            @auto_retry(3, pause_between_tries=600.0, logging_name= __name__)
             def put_labels():
                 # send data from roi start position
                 node_service.put_labels3D( str(label_name),
