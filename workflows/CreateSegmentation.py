@@ -86,7 +86,7 @@ class CreateSegmentation(DVIDWorkflow):
             },
             "label-offset": {
               "description": "Offset for first body id",
-              "type": "integer",
+              "type": "number",
               "default": 0
             },
             "iteration-size": {
