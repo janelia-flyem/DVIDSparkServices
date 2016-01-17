@@ -6,6 +6,7 @@ from functools import partial
 import numpy as np
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.json_util import validate_and_inject_defaults
+from DVIDSparkServices.auto_retry import auto_retry
 
 class Segmentor(object):
     """
@@ -232,20 +233,24 @@ class Segmentor(object):
             if pdconf is not None:
                 # extract labels 64
                 from libdvid import DVIDNodeService
-                node_service = DVIDNodeService(str(pdconf["dvid-server"]), 
-                        str(pdconf["uuid"]))
 
                 border = subvolume.border
                 # get sizes of roi
                 size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
                 size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
                 size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
-
-                # retrieve data from roi start position
-                preserve_seg = node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                    (size1,size2,size3),
-                    (subvolume.roi[0]-border, subvolume.roi[1]-border,
-                    subvolume. roi[2]-border))
+                 
+                # retrieve data from roi start position considering border
+                @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+                def get_segmask():
+                    node_service = DVIDNodeService(str(pdconf["dvid-server"]), 
+                            str(pdconf["uuid"]))
+                    # retrieve data from roi start position
+                    return node_service.get_labels3D(str(pdconf["segmentation-name"]),
+                        (size1,size2,size3),
+                        (subvolume.roi[0]-border, subvolume.roi[1]-border,
+                        subvolume. roi[2]-border))
+                preserve_seg = get_segmask()
 
                 # flip to be in C-order (no performance penalty)
                 preserve_seg = preserve_seg.transpose((2,1,0))

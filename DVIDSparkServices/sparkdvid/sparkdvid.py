@@ -145,7 +145,6 @@ class sparkdvid(object):
         def mapper(subvolume):
             from libdvid import DVIDNodeService
             # extract grayscale x
-            node_service = DVIDNodeService(str(server), str(uuid))
           
             # get sizes of subvolume
             size1 = subvolume.roi.x2+2*subvolume.border-subvolume.roi.x1
@@ -161,6 +160,7 @@ class sparkdvid(object):
             # retrieve data from roi start position considering border
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_gray():
+                node_service = DVIDNodeService(str(server), str(uuid))
                 return node_service.get_gray3D( str(gray_name),
                                                 (size1,size2,size3),
                                                 (subvolume.roi.x1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.z1-subvolume.border) )
@@ -197,8 +197,6 @@ class sparkdvid(object):
 
         def mapper(subvolume):
             from libdvid import DVIDNodeService
-            # extract labels 64
-            node_service = DVIDNodeService(str(server), str(uuid))
           
             # get sizes of roi
             size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
@@ -207,6 +205,8 @@ class sparkdvid(object):
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
+                # extract labels 64
+                node_service = DVIDNodeService(str(server), str(uuid))
                 # retrieve data from roi start position considering border
                 return node_service.get_labels3D( str(label_name),
                                                   (size1,size2,size3),
@@ -252,9 +252,6 @@ class sparkdvid(object):
         def mapper(subvolume):
             from libdvid import DVIDNodeService
             
-            # extract labels 64
-            node_service = DVIDNodeService(str(server), str(uuid))
-
             # get sizes of roi
             size1 = subvolume.roi[3]-subvolume.roi[0]
             size2 = subvolume.roi[4]-subvolume.roi[1]
@@ -262,6 +259,8 @@ class sparkdvid(object):
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
+                # extract labels 64
+                node_service = DVIDNodeService(str(server), str(uuid))
                 # retrieve data from roi start position
                 return node_service.get_labels3D( str(label_name),
                                                   (size1,size2,size3),
@@ -271,12 +270,11 @@ class sparkdvid(object):
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
-            
-            # fetch second label volume
-            node_service2 = DVIDNodeService(str(server2), str(uuid2))
  
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels2():
+                # fetch second label volume
+                node_service2 = DVIDNodeService(str(server2), str(uuid2))
                 # retrieve data from roi start position
                 return node_service2.get_labels3D( str(label_name2),
                                                    (size1,size2,size3),
@@ -386,7 +384,6 @@ class sparkdvid(object):
             from libdvid import DVIDNodeService
             import numpy
             # write segmentation
-            node_service = DVIDNodeService(str(server), str(uuid))
             
             (key, (subvolume, segcomp)) = subvolume_seg
             # uncompress data
@@ -407,6 +404,7 @@ class sparkdvid(object):
 
             @auto_retry(3, pause_between_tries=600.0, logging_name= __name__)
             def put_labels():
+                node_service = DVIDNodeService(str(server), str(uuid))
                 # send data from roi start position
                 node_service.put_labels3D( str(label_name),
                                            seg,
