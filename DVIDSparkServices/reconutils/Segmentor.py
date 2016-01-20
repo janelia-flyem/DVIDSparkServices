@@ -608,7 +608,7 @@ class Segmentor(object):
  
                 for merger in merge_list:
                     if merger[0] not in preserve_bodies and merger[1] not in preserve_bodies:
-                        merger_list_temp.append(merger)
+                        merge_list_temp.append(merger)
                 merge_list = merge_list_temp
 
             
@@ -669,7 +669,7 @@ class Segmentor(object):
             relabel_confs = {}
             body2body_tmp = body1body2.copy()
 
-            for key, val in body2body_tmp:
+            for key, val in body2body_tmp.items():
                 if val in self.preserve_bodies:
                     if val not in relabelconfs:
                         newval = val + 1

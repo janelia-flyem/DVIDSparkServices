@@ -78,13 +78,15 @@ class Workflow(object):
         # always store job info for later retrieval on master
         # set 1 cpu per task for now but potentially allow
         # each workflow to overwrite this for certain high
-        # memory situations
+        # memory situations.  Maxfailures could probably be 1 if rollback
+        # mechanisms exist
         sconfig.setAll([("spark.task.cpus", "1"),
-                        ("spark.eventLog.enabled", "true"),
-                        ("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
-                        ("spark.task.maxFailures", "1")
+                        ("spark.task.maxFailures", "2")
                        ]
                       )
+        #("spark.eventLog.enabled", "true"),
+        #("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
+
 
         # currently using LZ4 compression: should not degrade runtime much
         # but will help with some operations like shuffling, especially when
