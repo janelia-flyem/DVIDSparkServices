@@ -703,6 +703,7 @@ class Segmentor(object):
 
             for key, val in body2body_tmp.items():
                 if val in self.preserve_bodies:
+                    assert False, "FIXME!"
                     if val not in relabelconfs:
                         newval = val + 1
                         while newval in self.preserve_bodies:
