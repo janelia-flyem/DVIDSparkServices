@@ -9,6 +9,7 @@ import os
 import json
 import time
 import string
+from collections import OrderedDict
 
 def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     start = time.time()
@@ -83,6 +84,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     finish = time.time()
 
     print "Finished test: ", test_name, " in ", finish-start, " seconds"
+    return correct
 
 def init_dvid_database(test_dir):
     print "Initializing DVID Database"
@@ -171,50 +173,54 @@ def init_dvid_database(test_dir):
 
 def run_tests(test_dir, uuid1, uuid2):
     #####  run tests ####
+    
+    results_summary = OrderedDict()
 
     # test 1 segmentation with DefaultGrayOnly Segmentor
-    run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
-
+    results_summary["test_seg"] = run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
+ 
     # test 1.5 segmentation with Segmentor (base class)
-    run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
-    
+    results_summary["test_Segmentor"] = run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
+     
     # test 2 segmentation iteration
-    run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
-
+    results_summary["test_seg_iteration"] = run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
+ 
     # test 3 segmentation rollback
-    run_test("test_seg_rollback", "CreateSegmentation", test_dir, uuid1, uuid2) 
-
+    results_summary["test_seg_rollback"] = run_test("test_seg_rollback", "CreateSegmentation", test_dir, uuid1, uuid2) 
+ 
     # test 4 label comparison
-    run_test("test_comp", "EvaluateSeg", test_dir, uuid1, uuid2) 
-
+    results_summary["test_comp"] = run_test("test_comp", "EvaluateSeg", test_dir, uuid1, uuid2) 
+ 
     # test 5 graph compute
-    run_test("test_graph", "ComputeGraph", test_dir, uuid1, uuid2) 
-
+    results_summary["test_graph"] = run_test("test_graph", "ComputeGraph", test_dir, uuid1, uuid2) 
+ 
     # test 6 grayscale ingestion
-    run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2) 
-
+    results_summary["test_ingest"] = run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2) 
+ 
     # test 7: segmentation with ilastik
     # First, verify that ilastik is available
     try:
         import ilastik_main
     except ImportError:
         sys.stderr.write("Skipping ilastik segmentation test")
+        results_summary["test_seg_ilastik"] = None
     else:
         # Voxel prediction with ilastik
-        run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
-
+        results_summary["test_seg_ilastik"] = run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
+ 
         print "RUNNING TWO-STAGE TEST"
-
+ 
         # Two-stage voxel prediction with ilastik
-        run_test("test_seg_ilastik_two_stage", "CreateSegmentation", test_dir, uuid1, uuid2)
-
+        results_summary["test_seg_ilastik_two_stage"] = run_test("test_seg_ilastik_two_stage", "CreateSegmentation", test_dir, uuid1, uuid2)
+ 
     # test 8: Generate supervoxels with the wsdt module
     try:
         import wsdt
     except ImportError:
         sys.stderr.write("Skipping wsdt supervoxel test")
+        results_summary["test_seg_wsdt"] = None
     else:
-        run_test("test_seg_wsdt", "CreateSegmentation", test_dir, uuid1, uuid2)
+        results_summary["test_seg_wsdt"] = run_test("test_seg_wsdt", "CreateSegmentation", test_dir, uuid1, uuid2)
 
     # test 9: segmentation with neuroproof
     # test 10: segmentation with neuroproof where pre-existing bodies are preserved
@@ -224,9 +230,19 @@ def run_tests(test_dir, uuid1, uuid2):
         import ilastik_main
     except ImportError:
         sys.stderr.write("Skipping neuroproof segmentation test")
+        results_summary["test_seg_neuroproof"] = None
+        results_summary["test_seg_replace"] = None
     else:
-        run_test("test_seg_neuroproof", "CreateSegmentation", test_dir, uuid1, uuid2)
-        run_test("test_seg_replace", "CreateSegmentation", test_dir, uuid1, uuid2)
+        results_summary["test_seg_neuroproof"] = run_test("test_seg_neuroproof", "CreateSegmentation", test_dir, uuid1, uuid2)
+        results_summary["test_seg_replace"] = run_test("test_seg_replace", "CreateSegmentation", test_dir, uuid1, uuid2)
+
+    print "*****************************************"
+    print "*****************************************"
+    print "SUMMARY OF ALL INTEGRATION TEST RESULTS:"
+    for k,v in results_summary.items():
+        print "{} : {}".format( k, {True: "success", False: "FAILED", None: "Skipped"}[v] )
+    print "*****************************************"
+    print "*****************************************"
 
 if __name__ == "__main__":
     import sys
