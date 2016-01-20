@@ -17,7 +17,7 @@ def auto_retry(total_tries=1, pause_between_tries=10.0, logging_name=None):
                     return func(*args, **kwargs)
                 except Exception as ex:
                     remaining_tries -= 1
-                    if total_tries == 0:
+                    if remaining_tries == 0:
                         raise
                     if logging_name:
                         logger = logging.getLogger(logging_name)
