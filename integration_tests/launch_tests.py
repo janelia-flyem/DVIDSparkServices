@@ -30,15 +30,14 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     with open(test_dir+"/"+test_name+"/temp_data/config.json", 'w') as fout:
         fout.write(data)
 
-    p = subprocess.Popen(job_command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    results, err = p.communicate()
-    
-    # write results out
-    with open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w') as fout:
-        fout.write(results)
-    
-    if p.returncode != 0:
-        print "BAD RETURN CODE:", p.returncode
+    try:
+        results = subprocess.check_output(job_command, shell=True)
+        
+        # write results out
+        with open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w') as fout:
+            fout.write(results)
+    except subprocess.CalledProcessError as ex:
+        print "BAD RETURN CODE:", ex.returncode
     else:
         # compare results to results in output
         result_lines = results.splitlines()
@@ -68,13 +67,12 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
         
         # verify output using custom python script if it exists
         if os.path.exists(test_dir+"/"+test_name+"/checkoutput.py"):
-            checkoutput = ("python " + test_dir + "/" + test_name + "/checkoutput.py " + test_dir+"/"+test_name).split()
-            
-            p = subprocess.Popen(checkoutput, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            dummy, err = p.communicate()
-    
-            if p.returncode != 0:
-                print "FAIL: checkoutput.py returned bad status: {}".format(p.returncode)
+            checkoutput_cmd = ("python " + test_dir + "/" + test_name + "/checkoutput.py " + test_dir+"/"+test_name).split()
+
+            try: 
+                subprocess.check_call(checkoutput_cmd)
+            except subprocess.CalledProcessError as ex:
+                print "FAIL: checkoutput.py returned bad status: {}".format(ex.returncode)
                 correct = False
     
         if not correct:
@@ -100,15 +98,12 @@ def init_dvid_database(test_dir):
     create_repo_command = "curl -X POST 127.0.0.1:8000/api/repos".split()
     
     # create first UUID
-    p = subprocess.Popen(create_repo_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    repoinfo, err = p.communicate()
+    repoinfo = subprocess.check_output(create_repo_command)
     data = json.loads(repoinfo)
     uuid1 = data["root"]
     
-    
     # create second UUID
-    p = subprocess.Popen(create_repo_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    repoinfo, err = p.communicate()
+    repoinfo = subprocess.check_output(create_repo_command)
     data = json.loads(repoinfo)
     uuid2 = data["root"]
     
@@ -122,69 +117,55 @@ def init_dvid_database(test_dir):
     
     create_instance1_command.append(typedata)
     create_instance2_command.append(typedata)
-    
-    p = subprocess.Popen(create_instance1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
-    
-    p = subprocess.Popen(create_instance2_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+
+    subprocess.check_call(create_instance1_command)
+    subprocess.check_call(create_instance2_command)
     
     # load binary label data into uuid1
     load_data1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels.bin' % (uuid1, test_dir)).split()
-    p = subprocess.Popen(load_data1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(load_data1_command)
     
     # load binary label data into uuid2
     load_data2_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels_comp.bin' % (uuid2, test_dir)).split()
-    p = subprocess.Popen(load_data2_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(load_data2_command)
     
     # create ROI datatype
     create_roi_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
     create_roi_command.append("{\"typename\": \"roi\", \"dataname\" : \"temproi\"}")
-    p = subprocess.Popen(create_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(create_roi_command)
     
     # load ROI
     load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi/roi --data-binary @%s/resources/500roi.json' % (uuid1, test_dir)).split()
-    p = subprocess.Popen(load_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(load_roi_command)
     
     # create synapse key value
     create_synapse_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
     create_synapse_command.append("{\"typename\": \"keyvalue\", \"dataname\" : \"annotations\"}")
-    p = subprocess.Popen(create_synapse_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(create_synapse_command)
     
     # load synapses
     load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key/syn --data-binary @%s/resources/synapse_small.json' % (uuid1, test_dir)).split()
-    p = subprocess.Popen(load_synapse_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(load_synapse_command)
     
     # create grayscale data
     create_gray = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
     typedata = "{\"typename\": \"uint8blk\", \"dataname\" : \"grayscale\"}"
     create_gray1_command = (create_gray % uuid1).split()
     create_gray1_command.append(typedata)
-    
-    p = subprocess.Popen(create_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(create_gray1_command)
     
     # load grayscale data
     load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale-256-256-256-uint8.bin' % (uuid1, test_dir)).split()
-    p = subprocess.Popen(load_gray1_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(load_gray1_command)
     
     # create 256 ROI datatype
     create_roi_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
     create_roi_command.append("{\"typename\": \"roi\", \"dataname\" : \"temproi256\"}")
-    p = subprocess.Popen(create_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(create_roi_command)
     
     # load 256 ROI
     load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi256/roi --data-binary @%s/resources/256roi.json' % (uuid1, test_dir)).split()
-    p = subprocess.Popen(load_roi_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    dummy, err = p.communicate()
+    subprocess.check_call(load_roi_command)
     
     return uuid1, uuid2
 
