@@ -73,8 +73,40 @@ class Segmentor(object):
             "create-supervoxels"      : { "$ref": "#/definitions/custom-function",
                                           "default": { "function": "DVIDSparkServices.reconutils.misc.seeded_watershed" } },
             "agglomerate-supervoxels" : { "$ref": "#/definitions/custom-function",
-                                          "default": { "function": "DVIDSparkServices.reconutils.misc.noop_aggolmeration" } }
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.noop_aggolmeration" } },
+            "preserve-bodies": {
+              "description": "Configuration to describe which bodies to preserve instead of overwriting with new segmentation.",
+              "type": "object",
+              "properties": {
+                "dvid-server": {
+                  "description": "DVID server from which to extract preserved bodies",
+                  "type": "string",
+                  "minLength": 1,
+                  "property": "dvid-server"
+                },
+                "uuid": {
+                  "description": "version node from which to extract preserved bodies",
+                  "type": "string",
+                  "minLength": 1
+                },
+                "segmentation-name": {
+                  "description": "labels instance from which to extract preserved bodies",
+                  "type": "string",
+                  "minLength": 1
+                }
+                "bodies": {
+                  "type": "array",
+                  "items": { "type": "integer" },
+                  "minItems": 0,
+                  "uniqueItems": true,
+                  "default": []
+                },
+              },
+              "additionalProperties": false,
+              "default": {}
+            }
           },
+          "additionalProperties": false,
           "default": {}
         }
         """)
@@ -96,7 +128,7 @@ class Segmentor(object):
         # save masked bodies
         self.pdconf = None
         self.preserve_bodies = None
-        if "preserve-bodies" in self.segmentor_config:
+        if self.segmentor_config["preserve-bodies"]["bodies"]:
             self.pdconf = self.segmentor_config["preserve-bodies"]
             self.preserve_bodies = set(self.pdconf["bodies"])
 
