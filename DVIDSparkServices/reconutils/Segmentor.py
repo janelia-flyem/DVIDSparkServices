@@ -93,14 +93,14 @@ class Segmentor(object):
                   "description": "labels instance from which to extract preserved bodies",
                   "type": "string",
                   "minLength": 1
-                }
+                },
                 "bodies": {
                   "type": "array",
                   "items": { "type": "integer" },
                   "minItems": 0,
                   "uniqueItems": true,
                   "default": []
-                },
+                }
               },
               "additionalProperties": false,
               "default": {}
