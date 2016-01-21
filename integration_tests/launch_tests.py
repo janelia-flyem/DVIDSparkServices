@@ -195,7 +195,7 @@ def init_dvid_database(test_dir, reuse_last=False):
 
     return uuid1, uuid2
 
-def run_tests(test_dir, uuid1, uuid2, selected=[]):
+def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     #####  run tests ####
 
     tests = OrderedDict()
@@ -222,6 +222,8 @@ def run_tests(test_dir, uuid1, uuid2, selected=[]):
     for test_name, workflow_name in tests.items():
         if test_name in selected:
             results[test_name] = run_test(test_name, workflow_name, test_dir, uuid1, uuid2)
+            if not results[test_name] and stop_after_fail:
+                break
         else:
             results[test_name] = None # Skipped
     
@@ -238,10 +240,11 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--reuse-uuids", action='store_true')
+    parser.add_argument("--stop-after-fail", action='store_true')
     parser.add_argument('selected_tests', nargs='*')
     args = parser.parse_args()
 
     # It is assumed that this script lives in the integration_tests directory
     test_dir = os.path.split(__file__)[0]
     uuid1, uuid2 = init_dvid_database(test_dir, args.reuse_uuids)
-    run_tests(test_dir, uuid1, uuid2, selected=args.selected_tests)
+    run_tests(test_dir, uuid1, uuid2, args.selected_tests, args.stop_after_fail)
