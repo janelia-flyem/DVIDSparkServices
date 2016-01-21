@@ -15,9 +15,13 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     start = time.time()
     print "Starting test: ", test_name
 
+    temp_data_dir = test_dir + "/" + test_name + "/temp_data"
+    if not os.path.exists(temp_data_dir):
+        os.makedirs(temp_data_dir)
+
     num_jobs = 8
-    config_json = test_dir+"/"+test_name+"/temp_data/config.json"
-    job_command = 'spark-submit --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {config_json}'\
+    temp_config_json = temp_data_dir + "/config.json"
+    job_command = 'spark-submit --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {temp_config_json}'\
                    .format(**locals())
 
     print job_command
@@ -28,17 +32,20 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     data = data.replace("UUID2", uuid2)
     data = data.replace("DIR", test_dir)
 
-    with open(test_dir+"/"+test_name+"/temp_data/config.json", 'w') as fout:
+    with open(temp_config_json, 'w') as fout:
         fout.write(data)
 
     try:
+        correct = False
         results = subprocess.check_output(job_command, shell=True)
-        
-        # write results out
-        with open(test_dir+"/"+test_name+"/temp_data/results.txt", 'w') as fout:
+        with open(temp_data_dir+"/results.txt", 'w') as fout:
             fout.write(results)
+        
     except subprocess.CalledProcessError as ex:
         print "BAD RETURN CODE:", ex.returncode
+        # write results out anyway
+        with open(temp_data_dir+"/results.txt", 'w') as fout:
+            fout.write(ex.output)
     else:
         # compare results to results in output
         result_lines = results.splitlines()
