@@ -1,9 +1,11 @@
 ### Notes #####
 
 # 1. spark-submit should be in the runtime PATH
-# 2. must specify directory to the integration tests
-# 3. integration tests must be in the same directory as the workflow scripts
+# 2. integration tests must be in the same directory as the workflow scripts
+# 3. optionally, specify a subset of tests to run via command-line args. (see below)
+# 4. optionally, skip repeated initialization of dvid setup. (see below)
 
+import sys
 import subprocess
 import os
 import json
@@ -93,7 +95,16 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     print "Finished test: ", test_name, " in ", finish-start, " seconds"
     return correct
 
-def init_dvid_database(test_dir):
+def init_dvid_database(test_dir, reuse_last=False):
+    uuid_file = test_dir + '/uuid-cache.txt'
+    if reuse_last:
+        if not os.path.exists(uuid_file):
+            sys.stderr.write("Could not determine previous test uuids.\n")
+            sys.exit(1)
+        with open(uuid_file, 'r') as f:
+            uuid1, uuid2 = f.read().split()
+            return uuid1, uuid2
+
     print "Initializing DVID Database"
    
     os.system("gunzip -f --keep " + test_dir + "/resources/labels.bin.gz")
@@ -108,15 +119,16 @@ def init_dvid_database(test_dir):
     
     # create first UUID
     repoinfo = subprocess.check_output(create_repo_command)
+    sys.stdout.write('\n')
     data = json.loads(repoinfo)
     uuid1 = data["root"]
     
     # create second UUID
     repoinfo = subprocess.check_output(create_repo_command)
+    sys.stdout.write('\n')
     data = json.loads(repoinfo)
     uuid2 = data["root"]
-    
-    
+
     # create labelblk instance for two uuids
     create_instance = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
     typedata = "{\"typename\": \"labelblk\", \"dataname\" : \"labels\"}"
@@ -176,89 +188,60 @@ def init_dvid_database(test_dir):
     load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi256/roi --data-binary @%s/resources/256roi.json' % (uuid1, test_dir)).split()
     subprocess.check_call(load_roi_command)
     
+    # Save the uuids to a file for debug and/or reuse
+    with open(uuid_file, 'w') as f:
+        f.write(uuid1 + '\n')
+        f.write(uuid2 + '\n')
+
     return uuid1, uuid2
 
-def run_tests(test_dir, uuid1, uuid2):
+def run_tests(test_dir, uuid1, uuid2, selected=[]):
     #####  run tests ####
+
+    tests = OrderedDict()
+    tests["test_seg"] = "CreateSegmentation"
+    tests["test_Segmentor"] = "CreateSegmentation"
+    tests["test_seg_iteration"] = "CreateSegmentation"
+    tests["test_seg_rollback"] = "CreateSegmentation"
+
+    tests["test_comp"] = "EvaluateSeg"
+    tests["test_graph"] = "ComputeGraph"
+    tests["test_ingest"] = "IngestGrayscale"
     
-    results_summary = OrderedDict()
+    tests["test_seg_ilastik"] = "CreateSegmentation"
+    tests["test_seg_ilastik_two_stage"] = "CreateSegmentation"
+    tests["test_seg_wsdt"] = "CreateSegmentation"
+    tests["test_seg_neuroproof"] = "CreateSegmentation"
+    tests["test_seg_replace"] = "CreateSegmentation"
+    
+    selected = set(selected or tests.keys())
+    assert selected.issubset( set(tests.keys()) ), \
+        "Invalid test selection.  You gave: {}".format(selected)
 
-    # test 1 segmentation with DefaultGrayOnly Segmentor
-    results_summary["test_seg"] = run_test("test_seg", "CreateSegmentation", test_dir, uuid1, uuid2)
- 
-    # test 1.5 segmentation with Segmentor (base class)
-    results_summary["test_Segmentor"] = run_test("test_Segmentor", "CreateSegmentation", test_dir, uuid1, uuid2)
-     
-    # test 2 segmentation iteration
-    results_summary["test_seg_iteration"] = run_test("test_seg_iteration", "CreateSegmentation", test_dir, uuid1, uuid2) 
- 
-    # test 3 segmentation rollback
-    results_summary["test_seg_rollback"] = run_test("test_seg_rollback", "CreateSegmentation", test_dir, uuid1, uuid2) 
- 
-    # test 4 label comparison
-    results_summary["test_comp"] = run_test("test_comp", "EvaluateSeg", test_dir, uuid1, uuid2) 
- 
-    # test 5 graph compute
-    results_summary["test_graph"] = run_test("test_graph", "ComputeGraph", test_dir, uuid1, uuid2) 
- 
-    # test 6 grayscale ingestion
-    results_summary["test_ingest"] = run_test("test_ingest", "IngestGrayscale", test_dir, uuid1, uuid2) 
- 
-    # test 7: segmentation with ilastik
-    # First, verify that ilastik is available
-    try:
-        import ilastik_main
-    except ImportError:
-        sys.stderr.write("Skipping ilastik segmentation test")
-        results_summary["test_seg_ilastik"] = None
-    else:
-        # Voxel prediction with ilastik
-        results_summary["test_seg_ilastik"] = run_test("test_seg_ilastik", "CreateSegmentation", test_dir, uuid1, uuid2)
- 
-        print "RUNNING TWO-STAGE TEST"
- 
-        # Two-stage voxel prediction with ilastik
-        results_summary["test_seg_ilastik_two_stage"] = run_test("test_seg_ilastik_two_stage", "CreateSegmentation", test_dir, uuid1, uuid2)
- 
-    # test 8: Generate supervoxels with the wsdt module
-    try:
-        import wsdt
-    except ImportError:
-        sys.stderr.write("Skipping wsdt supervoxel test")
-        results_summary["test_seg_wsdt"] = None
-    else:
-        results_summary["test_seg_wsdt"] = run_test("test_seg_wsdt", "CreateSegmentation", test_dir, uuid1, uuid2)
-
-    # test 9: segmentation with neuroproof
-    # test 10: segmentation with neuroproof where pre-existing bodies are preserved
-    # First, verify that ilastik and neuroproof is available
-    try:
-        import neuroproof
-        import ilastik_main
-    except ImportError:
-        sys.stderr.write("Skipping neuroproof segmentation test")
-        results_summary["test_seg_neuroproof"] = None
-        results_summary["test_seg_replace"] = None
-    else:
-        results_summary["test_seg_neuroproof"] = run_test("test_seg_neuroproof", "CreateSegmentation", test_dir, uuid1, uuid2)
-        results_summary["test_seg_replace"] = run_test("test_seg_replace", "CreateSegmentation", test_dir, uuid1, uuid2)
-
+    results = OrderedDict()
+    for test_name, workflow_name in tests.items():
+        if test_name in selected:
+            results[test_name] = run_test(test_name, workflow_name, test_dir, uuid1, uuid2)
+        else:
+            results[test_name] = None # Skipped
+    
     print "*****************************************"
     print "*****************************************"
-    print "SUMMARY OF ALL INTEGRATION TEST RESULTS:"
-    for k,v in results_summary.items():
-        print "{} : {}".format( k, {True: "success", False: "FAILED", None: "Skipped"}[v] )
+    print "SUMMARY OF ALL INTEGRATION TEST RESULTS: "
+    print "-----------------------------------------"
+    for k,v in results.items():
+        print "{:.<30s}{}".format( k, {True: "success", False: "FAILED", None: ""}[v] )
     print "*****************************************"
     print "*****************************************"
 
 if __name__ == "__main__":
-    import sys
-    
-    if len(sys.argv) != 1:
-        sys.stderr.write("This script takes no arguments.\n")
-        sys.exit(1)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--reuse-uuids", action='store_true')
+    parser.add_argument('selected_tests', nargs='*')
+    args = parser.parse_args()
 
     # It is assumed that this script lives in the integration_tests directory
     test_dir = os.path.split(__file__)[0]
-    uuid1, uuid2 = init_dvid_database(test_dir)
-    run_tests(test_dir, uuid1, uuid2)
+    uuid1, uuid2 = init_dvid_database(test_dir, args.reuse_uuids)
+    run_tests(test_dir, uuid1, uuid2, selected=args.selected_tests)

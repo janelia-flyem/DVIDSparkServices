@@ -10,3 +10,4 @@ integration_tests/test_ingest/temp_data/blocks
 .project
 .pydevproject
 *.egg-info
+*uuid-cache.txt
