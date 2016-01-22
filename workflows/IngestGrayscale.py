@@ -34,6 +34,10 @@ class IngestGrayscale(Workflow):
         "uuid": {
           "description": "version node to store segmentation",
           "type": "string"
+        },
+        "grayname": {
+          "description": "name of grayscale datatype",
+          "type": "string"
         }
       }
     }
