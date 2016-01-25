@@ -24,4 +24,5 @@ if score < 0.01:
     sys.exit(0)
 else:
     print("DEBUG: FAIL: Segmentation output does not match reference. vi {}".format(score))
+    np.savez_compressed(dirpath + "/temp_data/test_segmentation_zyx.npz", test_segmentation_xyz.transpose())
     sys.exit(1)
