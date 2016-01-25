@@ -296,6 +296,7 @@ class Segmentor(object):
 
             # Call the (custom) function
             supervoxels = supervoxel_function(prediction, mask)
+            subvolume.set_max_id( supervoxels.max() )
             
             # insert bodies back and avoid conflicts with pre-existing bodies
             if mask_bodies is not None:
@@ -315,7 +316,6 @@ class Segmentor(object):
             assert supervoxels.dtype == np.uint32, "Supervoxels for a single chunk should be uint32"
             
             supervoxels_compressed = CompressedNumpyArray(supervoxels)
-            subvolume.set_max_id( supervoxels.max() )            
             return (subvolume, prediction_compressed, supervoxels_compressed)
 
         return prediction_chunks.mapValues(_execute_for_chunk)
