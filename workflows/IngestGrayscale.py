@@ -74,7 +74,7 @@ class IngestGrayscale(Workflow):
             tempgs = basename.split('//')
             bucketpath = tempgs[1].split('/')
             gbucketname = bucketpath[0]
-            gpath = '/' + string.join(bucketpath[1:], '/')
+            gpath = string.join(bucketpath[1:], '/')
 
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.BLKSIZE):
             # parallelize images across many machines
@@ -90,7 +90,7 @@ class IngestGrayscale(Workflow):
                         from io import BytesIO
                         client = storage.Client()
                         gbucket = client.get_bucket(gbucketname)
-                        gblob = bucket.get_blob(gpath)
+                        gblob = gbucket.get_blob(gpath % slicenum)
                         
                         # write to bytes which implements file interface
                         gblobfile = BytesIO()
