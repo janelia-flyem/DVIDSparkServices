@@ -7,6 +7,7 @@ import numpy as np
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class Segmentor(object):
     """
@@ -264,8 +265,6 @@ class Segmentor(object):
             mask_bodies = None
             if pdconf is not None:
                 # extract labels 64
-                from libdvid import DVIDNodeService
-
                 border = subvolume.border
                 # get sizes of roi
                 size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
@@ -275,8 +274,8 @@ class Segmentor(object):
                 # retrieve data from roi start position considering border
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def get_segmask():
-                    node_service = DVIDNodeService(str(pdconf["dvid-server"]), 
-                            str(pdconf["uuid"]))
+                    node_service = retrieve_node_service(pdconf["dvid-server"], 
+                            pdconf["uuid"])
                     # retrieve data from roi start position
                     return node_service.get_labels3D(str(pdconf["segmentation-name"]),
                         (size1,size2,size3),

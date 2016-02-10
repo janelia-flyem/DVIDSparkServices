@@ -1,4 +1,5 @@
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class ComputeGraph(DVIDWorkflow):
     # schema for building graph
@@ -63,7 +64,6 @@ class ComputeGraph(DVIDWorkflow):
     # of voxels and overlap between them
     def execute(self):
         from DVIDSparkServices.reconutils import SimpleGraph
-        from libdvid import DVIDNodeService
         from pyspark import SparkContext
         from pyspark import StorageLevel
 
@@ -97,7 +97,8 @@ class ComputeGraph(DVIDWorkflow):
         graph_edges = graph_elements_red.filter(sg.is_edge)
 
         # create graph
-        node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]), str(self.config_data["dvid-info"]["uuid"]))
+        node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
+                self.config_data["dvid-info"]["uuid"])
         
         node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
 

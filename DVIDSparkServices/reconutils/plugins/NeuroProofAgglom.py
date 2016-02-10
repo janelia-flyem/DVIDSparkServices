@@ -1,5 +1,6 @@
 """Implements agglomerations of supervoxels using Segmentor workflow and neuroproof.
 """
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 def neuroproof_agglomerate(predictions, supervoxels, classifier, threshold = 0.20, mitochannel = 2):
     """Main agglomeration function
@@ -47,8 +48,7 @@ def neuroproof_agglomerate(predictions, supervoxels, classifier, threshold = 0.2
         uuid = classifier["uuid"]
 
         # extract file and store into temporary location
-        from libdvid import DVIDNodeService
-        node_service = DVIDNodeService(str(dvidserver), str(uuid))
+        node_service = retrieve_node_service(dvid_server, uuid)
 
         name_key = pathname.split('/')
         classfile = node_service.get(name_key[0], name_key[1])

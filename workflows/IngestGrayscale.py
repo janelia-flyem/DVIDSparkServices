@@ -1,4 +1,5 @@
 from DVIDSparkServices.workflow.workflow import Workflow
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class IngestGrayscale(Workflow):
     # schema for ingesting grayscale
@@ -176,17 +177,15 @@ class IngestGrayscale(Workflow):
                 server = self.config_data["dvid-info"]["dvid-server"]
                 uuid = self.config_data["dvid-info"]["uuid"]
                 grayname = self.config_data["dvid-info"]["grayname"]
-
-                from libdvid import DVIDNodeService
                 # create grayscale type
-                node_service = DVIDNodeService(str(server), str(uuid))
+                node_service = retrieve_node_service(server, uuid)
                 node_service.create_grayscale8(str(grayname))
 
 
                 def write2dvid(yblocks):
-                    from libdvid import DVIDNodeService, ConnectionMethod
+                    from libdvid import ConnectionMethod
                     import numpy
-                    node_service = DVIDNodeService(str(server), str(uuid))
+                    node_service = retrieve_node_service(server, uuid)
                     
                     # get block coordinates
                     zbindex = slice/blocksize 

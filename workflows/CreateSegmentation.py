@@ -9,6 +9,7 @@ the results together.
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 import DVIDSparkServices
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
@@ -265,9 +266,8 @@ class CreateSegmentation(DVIDWorkflow):
 
         if self.config_data["options"]["debug"]:
             # grab 256 cube from ROI 
-            from libdvid import DVIDNodeService
-            node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]),
-                                           str(self.config_data["dvid-info"]["uuid"]))
+            node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
+                    self.config_data["dvid-info"]["uuid"])
             
             substacks, packing_factor = node_service.get_roi_partition(str(self.config_data["dvid-info"]["roi"]),
                                                                        256/self.blocksize)

@@ -1,6 +1,7 @@
 """Defines workflow for extracting stats to compare two segmentations."""
 
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class EvaluateSeg(DVIDWorkflow):
     # schema for evaluating segmentation
@@ -115,15 +116,14 @@ class EvaluateSeg(DVIDWorkflow):
     def execute(self):
         # imports here so that schema can be retrieved without installation
         from DVIDSparkServices.reconutils import Evaluate
-        from libdvid import DVIDNodeService
         from pyspark import SparkContext
         from pyspark import StorageLevel
         import time
         import datetime
         import json
 
-        node_service = DVIDNodeService(str(self.config_data["dvid-info"]["dvid-server"]),
-                                       str(self.config_data["dvid-info"]["uuid"]))
+        node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"],
+                self.config_data["dvid-info"]["uuid"])
 
         if "chunk-size" in self.config_data["options"]:
             self.chunksize = self.config_data["options"]["chunk-size"]
