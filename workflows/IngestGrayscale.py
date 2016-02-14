@@ -120,7 +120,7 @@ class IngestGrayscale(Workflow):
 
                     line[0:uppery, 0:xsize] = arr[itery:itery+blocksize, 0:xsize]
 
-                    npylines.append((itery, (z, line)))
+                    npylines.append((itery/blocksize, (z, line)))
 
                 return npylines
 
@@ -150,8 +150,7 @@ class IngestGrayscale(Workflow):
                 output_dir = self.config_data["output-dir"]
                 def write2disk(yblocks):
                     zbindex = slice/blocksize 
-                    ypos, blocks = yblocks
-                    ybindex = ypos / blocksize
+                    ybindex, blocks = yblocks
                     
                     zsize,ysize,xsize = blocks.shape
                     
@@ -189,8 +188,7 @@ class IngestGrayscale(Workflow):
                     
                     # get block coordinates
                     zbindex = slice/blocksize 
-                    ypos, blocks = yblocks
-                    ybindex = ypos / blocksize
+                    ybindex, blocks = yblocks
                     zsize,ysize,xsize = blocks.shape
                     xrun = xsize/blocksize
                     xbindex = 0 # assume x starts at 0!!
