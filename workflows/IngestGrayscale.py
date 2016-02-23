@@ -77,6 +77,18 @@ class IngestGrayscale(Workflow):
             gbucketname = bucketpath[0]
             gpath = string.join(bucketpath[1:], '/')
 
+
+        # create metadata before workers start if using DVID
+        if "output-dir" not in self.config_data or self.config_data["output-dir"] == "":
+            # write to dvid
+            server = self.config_data["dvid-info"]["dvid-server"]
+            uuid = self.config_data["dvid-info"]["uuid"]
+            grayname = self.config_data["dvid-info"]["grayname"]
+            
+            # create grayscale type
+            node_service = retrieve_node_service(server, uuid)
+            node_service.create_grayscale8(str(grayname))
+
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.BLKSIZE):
             # parallelize images across many machines
             imgs = self.sc.parallelize(range(slice, slice+self.BLKSIZE), self.BLKSIZE)
@@ -176,10 +188,6 @@ class IngestGrayscale(Workflow):
                 server = self.config_data["dvid-info"]["dvid-server"]
                 uuid = self.config_data["dvid-info"]["uuid"]
                 grayname = self.config_data["dvid-info"]["grayname"]
-                # create grayscale type
-                node_service = retrieve_node_service(server, uuid)
-                node_service.create_grayscale8(str(grayname))
-
 
                 def write2dvid(yblocks):
                     from libdvid import ConnectionMethod
