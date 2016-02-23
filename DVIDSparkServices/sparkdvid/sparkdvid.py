@@ -36,12 +36,16 @@ def retrieve_node_service(server, uuid):
     if server.startswith("http://127.0.0.1") or  \
             server.startswith("http://localhost") or  \
             server.startswith("127.0.0.1") or server.startswith("localhost"):
-        import requests
-        addr = server + "/api/server/reload-metadata"
-        if not server.startswith("http://"):
-            addr = "http://" + addr
+        
+        import os
+        if not os.path.exists("/tmp/reloaded.hack"):
+            open("/tmp/reloaded.hack", 'w').close()
+            import requests
+            addr = server + "/api/server/reload-metadata"
+            if not server.startswith("http://"):
+                addr = "http://" + addr
 
-        requests.post(addr)
+            requests.post(addr)
 
     from libdvid import DVIDNodeService
     node_service = DVIDNodeService(server, str(uuid))
