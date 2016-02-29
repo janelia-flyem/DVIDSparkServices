@@ -115,7 +115,7 @@ class CreateTiles(DVIDWorkflow):
 
         # retrieve 32 slices at a time and generate all tiles
         # TODO: only fetch 1 slice at a time if 32 slices cannot fit in memory
-        blkiters = self.sparkdvid_context.sc.parallelize(range(0,numiters)) 
+        blkiters = self.sparkdvid_context.sc.parallelize(range(0,numiters), numiters) 
         
         def retrieveslices(blknum):
             # grab slice with 3d volume call
