@@ -157,7 +157,19 @@ class CreateTiles(DVIDWorkflow):
             from scipy import ndimage
             import StringIO
             import numpy
+            
+            # create thread pool for parallel
+            from multiprocessing.dummy import Pool as ThreadPool
+            NUM_THREADS = 4
+            ACTIVE_REQS = 16
+            #pool = ThreadPool(NUM_THREADS)
+             
+            # actually perform tile load
+            def loadTile(reqpair):
+                urlreq, reqbuff = reqpair 
+                requests.post(urlreq , data=reqbuff)
 
+            work_queue = []
             # iterate slice by slice
             for slicenum in range(0, BLKSIZE):
                 imslice = vol[slicenum, :, :]
@@ -200,13 +212,34 @@ class CreateTiles(DVIDWorkflow):
                             img.save(buf, format=imformatpil)
 
                             if axis == "xy":
-                                requests.post(server + "/api/node/" + uuid + "/" + tilename + "/tile/" + axis + "/" + str(levelnum) + "/" + str(iter2) + "_" + str(iter1) + "_" + str(slicenum+blknum*BLKSIZE) , data=buf.getvalue())
+                                work_queue.append((server + "/api/node/" + uuid + "/" + tilename + "/tile/" + axis + "/" + str(levelnum) + "/" + str(iter2) + "_" + str(iter1) + "_" + str(slicenum+blknum*BLKSIZE), buf.getvalue()))
                             elif axis == "xz":
-                                requests.post(server + "/api/node/" + uuid + "/" + tilename + "/tile/" + axis + "/" + str(levelnum) + "/" + str(iter2) + "_" + str(slicenum+blknum*BLKSIZE) + "_" + str(iter1) , data=buf.getvalue())
+                                work_queue.append((server + "/api/node/" + uuid + "/" + tilename + "/tile/" + axis + "/" + str(levelnum) + "/" + str(iter2) + "_" + str(slicenum+blknum*BLKSIZE) + "_" + str(iter1), buf.getvalue()))
                             else:
-                                requests.post(server + "/api/node/" + uuid + "/" + tilename + "/tile/" + axis + "/" + str(levelnum) + "/" + str(slicenum+blknum*BLKSIZE) + "_" + str(iter2) + "_" + str(iter1) , data=buf.getvalue())
-
+                                work_queue.append((server + "/api/node/" + uuid + "/" + tilename + "/tile/" + axis + "/" + str(levelnum) + "/" + str(slicenum+blknum*BLKSIZE) + "_" + str(iter2) + "_" + str(iter1), buf.getvalue()))
                             buf.close()
+
+                            # submit last jobs if any remain
+                            if len(work_queue) == ACTIVE_REQS:
+                                pool = ThreadPool(NUM_THREADS)
+                                pool.map(loadTile, work_queue)
+                    
+                                # close the pool to further requests
+                                pool.close()
+                                # wait for any remaining threads
+                                pool.join()
+                                work_queue = []
+
+                # submit last jobs if any remain
+                if len(work_queue) > 0:
+                    pool = ThreadPool(NUM_THREADS)
+                    pool.map(loadTile, work_queue)
+    
+                    # close the pool to further requests
+                    pool.close()
+                    # wait for any remaining threads
+                    pool.join()
+                
 
         imagedata.foreach(writeimagepyramid)
 
