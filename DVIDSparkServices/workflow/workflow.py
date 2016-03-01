@@ -25,7 +25,7 @@ class Workflow(object):
 
     """
 
-    def __init__(self, jsonfile, schema, appname):
+    def __init__(self, jsonfile, schema, appname, corespertask=1):
         """Initialization of workflow object.
 
         Args:
@@ -59,7 +59,9 @@ class Workflow(object):
         self.logger = WorkflowLogger(appname)
 
         # create spark context
+        self.corespertask=corespertask
         self.sc = self._init_spark(appname)
+
 
     def _init_spark(self, appname):
         """Internal function to setup spark context
@@ -80,7 +82,7 @@ class Workflow(object):
         # each workflow to overwrite this for certain high
         # memory situations.  Maxfailures could probably be 1 if rollback
         # mechanisms exist
-        sconfig.setAll([("spark.task.cpus", "1"),
+        sconfig.setAll([("spark.task.cpus", str(self.corespertask)),
                         ("spark.task.maxFailures", "2")
                        ]
                       )

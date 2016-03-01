@@ -54,7 +54,7 @@ class CreateTiles(DVIDWorkflow):
     
     # calls the default initializer
     def __init__(self, config_filename):
-        super(CreateTiles, self).__init__(config_filename, self.Schema, "Create Tiles")
+        super(CreateTiles, self).__init__(config_filename, self.Schema, "Create Tiles", 2)
 
     # creates tiles for dataset loaded as grayscale blocks
     def execute(self):
