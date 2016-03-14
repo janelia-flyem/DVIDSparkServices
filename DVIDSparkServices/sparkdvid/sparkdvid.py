@@ -197,7 +197,7 @@ class sparkdvid(object):
         return distsubvolumes.mapValues(mapper)
 
 
-    def map_labels64(self, distrois, label_name, border, roiname=""):
+    def map_labels64(self, distrois, label_name, border, roiname="", compress=False):
         """Creates RDD of labelblk data from subvolumes.
 
         Note: Numpy arrays are compressed which leads to some savings.
@@ -207,6 +207,7 @@ class sparkdvid(object):
             label_name (str): name of labelblk instance
             border (int): size of substack border
             roiname (str): name of the roi (to restrict fetch precisely)
+            compress (bool): true return compressed numpy
 
         Returns:
             RDD of compressed lableblk data (partitioner perserved)
@@ -238,8 +239,11 @@ class sparkdvid(object):
 
             # flip to be in C-order (no performance penalty)
             label_volume = label_volume.transpose((2,1,0))
-            
-            return label_volume
+        
+            if compress:
+                return CompressedNumpyArray(label_volume)
+            else:
+                return label_volume
 
         return distrois.mapValues(mapper)
 
@@ -423,12 +427,19 @@ class sparkdvid(object):
             def put_labels():
                 node_service = retrieve_node_service(server, uuid)
                 # send data from roi start position
-                node_service.put_labels3D( str(label_name),
-                                           seg,
-                                           (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1),
-                                           compress=True,
-                                           roi=str(roi_name),
-                                           mutate=mutate )
+                if roi_name is None:
+                    node_service.put_labels3D( str(label_name),
+                                               seg,
+                                               (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1),
+                                               compress=True,
+                                               mutate=mutate )
+                else: 
+                    node_service.put_labels3D( str(label_name),
+                                               seg,
+                                               (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1),
+                                               compress=True,
+                                               roi=str(roi_name),
+                                               mutate=mutate )
             put_labels()
 
         return seg_chunks.foreach(writer)
