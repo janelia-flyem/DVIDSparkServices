@@ -1,6 +1,6 @@
 import numpy
 import scipy.ndimage
-import DVIDSparkServices.reconutils.morpho
+import vigra
 
 def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     """
@@ -50,14 +50,52 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     inverted = (1.0-grayscale_vol)
     return inverted[..., None] # Segmentor wants 4D predictions, so append channel axis
 
+def vigra_bincount(labels):
+    """
+    A RAM-efficient implementation of numpy.bincount() when you're dealing with uint32 labels.
+    If your data isn't int64, numpy.bincount() will copy it internally -- a huge RAM overhead.
+    (This implementation may also need to make a copy, but it prefers uint32, not int64.)
+    """
+    labels = labels.astype(numpy.uint32, copy=False)
+    labels = labels.reshape((1,-1), order='A')
+    # We don't care what the 'image' parameter is, but we have to give something
+    image = labels.view(numpy.float32)
+    counts = vigra.analysis.extractRegionFeatures(image, labels, ['Count'])['Count']
+    return counts.astype(numpy.int64)
+
 def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0.2, seed_size=5):
-    """
-    Perform a seeded watershed on the given volume.
-    Seeds are generated using a seed-threshold and minimum seed-size.
-    """
-    ws = DVIDSparkServices.reconutils.morpho.seeded_watershed
-    supervoxels = ws( boundary_volume[..., boundary_channel], seed_threshold, seed_size, mask )
-    return supervoxels
+    assert boundary_volume.ndim == 4, "Expected a 4D volume."
+    boundary_volume = boundary_volume[..., boundary_channel]
+    boundary_volume = vigra.taggedView(boundary_volume, 'zyx')
+
+    if mask is not None:
+        # Forbid the watershed from bleeding into the masked area prematurely
+        mask = mask.astype(numpy.bool, copy=False)
+        # Mask is now inverted
+        inverted_mask = numpy.logical_not(mask, out=mask)
+        boundary_volume[inverted_mask] = 2.0
+
+    # get seeds
+    binary = (boundary_volume <= seed_threshold).astype(numpy.uint8)
+    seeds = vigra.analysis.labelVolumeWithBackground(binary)
+    del binary
+
+    # remove small seeds
+    if seed_size > 1:
+        component_sizes = vigra_bincount(seeds)
+        small_components = component_sizes < seed_size
+        small_locations = small_components[seeds]
+        seeds[small_locations] = 0
+        del component_sizes
+        del small_components
+        del small_locations
+    
+    watershed, _max_id = vigra.analysis.watershedsNew(boundary_volume, seeds=seeds, out=seeds)
+    
+    if mask is not None:
+        watershed[inverted_mask] = 0
+    return watershed
+
 
 def noop_aggolmeration(bounary_volume, supervoxels):
     """
