@@ -3,13 +3,12 @@ package:
   version: "0.1"
   
 source:
-  git_url: https://github.com/janelia-flyem/DVIDSparkServices
+  git_url: ../
   git_tag: HEAD
 
 build:
-  {% set build_num = 12 %}
-  number: {{ build_num }}
-  string: py{{CONDA_PY}}_{{build_num}}_g{{GIT_FULL_HASH[:7]}}
+  number: 13
+  string: py{{CONDA_PY}}_{{PKG_BUILDNUM}}_g{{GIT_FULL_HASH[:7]}}
   
   entry_points:
     #- launchworkflow = workflows.launchworkflow:main (TODO)
@@ -34,6 +33,10 @@ requirements:
     - wsdt
 
 test:
+  requires:
+    - nose
+    - numpy-allocation-tracking
+
   imports:
     - DVIDSparkServices
     - ilastik
@@ -41,4 +44,5 @@ test:
 about:
   home: http://github.com/janelia-flyem/DVIDSparkServices
   license: BSD (3-clause)
+  license_file: LICENSE.txt
   summary: Python framework for EM Spark-based services 
