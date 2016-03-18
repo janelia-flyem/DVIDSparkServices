@@ -1,12 +1,11 @@
 import numpy
-import scipy.ndimage
 import vigra
 
 def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     """
     Returns mask that excludes large background (0-valued) regions, if any exist.
     """    
-    if not (grayscale_vol == 0).any():
+    if grayscale_vol.all():
         # No background pixels.
         # We could return all ones, but we are also allowed
         # by convention to return 'None', which is faster.
@@ -18,8 +17,8 @@ def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     background_mask[grayscale_vol == 0] = 1
 
     # Compute connected components (cc) and toss out the small components
-    cc = scipy.ndimage.label(background_mask)[0]
-    cc_sizes = numpy.bincount(cc.ravel())
+    cc = vigra.analysis.labelVolumeWithBackground(background_mask)[0]
+    cc_sizes = vigra_bincount(cc)
     small_cc_selections = cc_sizes < min_background_voxel_count
     small_cc_locations = small_cc_selections[cc]
     background_mask[small_cc_locations] = 0
@@ -43,12 +42,24 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     high = grayscale_vol.max()
 
     # Predictions should be in range 0.0-1.0
-    grayscale_vol = grayscale_vol.astype(numpy.float32)
-    grayscale_vol[:] = (grayscale_vol-low)/(high-low)
+    grayscale_vol = grayscale_vol.astype(numpy.float32, copy=True)
+
+    # Not in-place
+    # grayscale_vol[:] = (grayscale_vol-low)/(high-low)
+
+    # in-place
+    grayscale_vol[:] -= low
+    grayscale_vol[:] /= (high-low)
 
     # Low intensity means high probability of membrane.
-    inverted = (1.0-grayscale_vol)
-    return inverted[..., None] # Segmentor wants 4D predictions, so append channel axis
+    
+    # Not in-place
+    # inverted = (1.0-grayscale_vol)
+
+    # in-place
+    grayscale_vol *= -1
+    grayscale_vol += 1.0
+    return grayscale_vol[..., None] # Segmentor wants 4D predictions, so append channel axis
 
 def vigra_bincount(labels):
     """
