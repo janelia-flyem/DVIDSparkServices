@@ -65,15 +65,20 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     args.project = ilp_path
     args.readonly = True
 
-    # By default, all ilastik processes duplicate their console output to ~/.ilastik_log.txt
-    # Obviously, having all spark nodes write to a common file is a bad idea.
-    # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
-    args.logfile = logfile
-
     # The process_name argument is prefixed to all log messages.
     # For now, just use the machine name and a uuid
     # FIXME: It would be nice to provide something more descriptive, like the ROI of the current spark job...
     args.process_name = platform.node() + "-" + str(uuid.uuid1())
+
+    # To avoid conflicts between processes, give each process it's own logfile to write to.
+    if logfile != "/dev/null":
+        base, ext = os.path.splitext(logfile)
+        logfile = base + '.' + args.process_name + ext
+
+    # By default, all ilastik processes duplicate their console output to ~/.ilastik_log.txt
+    # Obviously, having all spark nodes write to a common file is a bad idea.
+    # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
+    args.logfile = logfile
 
     print "ilastik_predict_with_array(): Creating shell..."
 
