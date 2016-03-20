@@ -19,8 +19,6 @@ Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 
 import numpy
 import lz4
-import struct
-import StringIO
 
 class CompressedNumpyArray(object):
     """ Serialize/deserialize and compress/decompress numpy array.
@@ -34,40 +32,51 @@ class CompressedNumpyArray(object):
     as a list of LZ4 chunks where each chunk decompressed is 1GB.
 
     """
-    lz4_chunk = 1000000000
+    MAX_LZ4_BUFFER_SIZE = 1000000000
    
     def __init__(self, numpy_array):
         """Serializes and compresses the numpy array with LZ4"""
+
+        # This would be easy to fix but I'm too lazy right now.
+        assert numpy_array.ndim > 1, \
+            "This class doesn't support 1D arrays."
+
+        self.serialized_subarrays = []
+        if numpy_array.flags['F_CONTIGUOUS']:
+            self.layout = 'F'
+        else:
+            self.layout = 'C'
+
+        if self.layout == 'F':
+            numpy_array = numpy_array.transpose()
+
+        self.dtype = numpy_array.dtype
+        self.shape = numpy_array.shape
+
+        for subarray in numpy_array:
+            self.serialized_subarrays.append( self.serialize_subarray(subarray) )
+
+    @classmethod
+    def serialize_subarray(cls, subarray):
+        if not subarray.flags['C_CONTIGUOUS']:
+            subarray = subarray.copy(order='C')
+
+        # Buffers larger than 1 GB would overflow
+        # We could fix this by slicing each slice into smaller pieces...
+        assert subarray.nbytes <= cls.MAX_LZ4_BUFFER_SIZE, \
+            "FIXME: This class doesn't support arrays whose slices are each > 1 GB"
         
-        # write numpy to memory using StringIO
-        memfile = StringIO.StringIO()
-        numpy.save(memfile, numpy_array)
-        memfile.seek(0)
-        numpy_array_binary = memfile.read()
-        memfile.close()
-
-        self.serialized_data = []
-
-        # write in chunks of 1 billion bytes to prevent overflow
-        for index in range(0, len(numpy_array_binary), self.lz4_chunk):
-            self.serialized_data.append(lz4.dumps(numpy_array_binary[index:index+self.lz4_chunk]))
+        return lz4.dumps( numpy.getbuffer(subarray) )
         
     def deserialize(self):
         """Extract the numpy array"""
+        numpy_array = numpy.ndarray( shape=self.shape, dtype=self.dtype )
         
-        index = 0
-        deserialized_data = ""
-
-        # retrieve lz4 chunks
-        for chunk in self.serialized_data:
-            deserialized_data += lz4.loads(chunk)
-                
-              
-        # use stringio to use numpy import
-        memfile = StringIO.StringIO()
-        memfile.write(deserialized_data)
-        memfile.seek(0)
-        
-        # memfile will close automatically
-        return numpy.load(memfile)
-
+        for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
+            buf = lz4.loads(serialized_subarray)
+            subarray[:] = numpy.frombuffer(buf, self.dtype).reshape( subarray.shape )
+         
+        if self.layout == 'F':
+            return numpy_array.transpose()
+        else:
+            return numpy_array

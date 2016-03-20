@@ -276,17 +276,13 @@ class CreateSegmentation(DVIDWorkflow):
                                                       (256,256,256),
                                                       (substacks[0][0], substacks[0][1], substacks[0][2]),
                                                       compress=True )
-             
-            # retrieve string
-            from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-            vol_compressed = CompressedNumpyArray(label_volume)
-           
+
             # dump checksum
+            import numpy
             import hashlib
             md5 = hashlib.md5()
-            md5.update(vol_compressed.serialized_data[0])
-            checksum_text = md5.hexdigest()
-            print "DEBUG: ", checksum_text
+            md5.update( numpy.getbuffer(label_volume) )
+            print "DEBUG: ", md5.hexdigest()
 
     @staticmethod
     def dumpschema():

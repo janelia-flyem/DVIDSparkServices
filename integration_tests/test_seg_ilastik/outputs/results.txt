@@ -1,3 +1,3 @@
-Create segmentation: Started [2016-03-17 18:31:44]
-Create segmentation: Wrote DVID labels [2016-03-17 18:34:53]
-Create segmentation: Finished [2016-03-17 18:34:53]
+Create segmentation: Started [2016-03-20 13:58:51]
+Create segmentation: Wrote DVID labels [2016-03-20 14:01:19]
+Create segmentation: Finished [2016-03-20 14:01:19]

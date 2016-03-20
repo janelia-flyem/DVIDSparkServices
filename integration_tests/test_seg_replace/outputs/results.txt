@@ -1,4 +1,4 @@
-Create segmentation: Started [2016-03-17 18:50:37]
-Create segmentation: Wrote DVID labels [2016-03-17 18:56:21]
-DEBUG:  16967d6ce7fe81635781fd5b513dcd44
-Create segmentation: Finished [2016-03-17 18:56:22]
+Create segmentation: Started [2016-03-20 14:13:51]
+Create segmentation: Wrote DVID labels [2016-03-20 14:17:58]
+DEBUG:  913867f50ae53112e4b7a028925b9652
+Create segmentation: Finished [2016-03-20 14:17:58]
