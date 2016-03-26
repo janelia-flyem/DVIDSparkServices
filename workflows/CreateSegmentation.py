@@ -117,6 +117,11 @@ class CreateSegmentation(DVIDWorkflow):
               "type": "integer",
               "default": 1
             },
+            "parallelwrites": {
+              "description": "Number volumes that can be simultaneously written to DVID (0 == all)",
+              "type": "integer",
+              "default": 125
+            },
             "debug": {
               "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
               "type": "boolean",
@@ -269,9 +274,10 @@ class CreateSegmentation(DVIDWorkflow):
         # stitch the segmentation chunks
         # (preserves initial partitioning)
         mapped_seg_chunks = segmentor.stitch(seg_chunks)
-        
-        # coalesce to fewer partitions (!!TEMPORARY SINCE THERE ARE WRITE BANDWIDTH LIMITS TO DVID)
-        mapped_seg_chunks = mapped_seg_chunks.coalesce(125)
+       
+        if self.config_data["options"]["parallelwrites"] > 0:
+            # coalesce to fewer partition if there is write bandwidth limits to DVID
+            mapped_seg_chunks = mapped_seg_chunks.coalesce(self.config_data["options"]["parallelwrites"])
 
         # write data to DVID
         self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
