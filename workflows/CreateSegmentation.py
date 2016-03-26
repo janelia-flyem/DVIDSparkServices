@@ -111,7 +111,12 @@ class CreateSegmentation(DVIDWorkflow):
               "type": "string",
               "enum": ["auto", "no", "yes"],
               "default": "auto"
-            },            
+            },
+            "corespertask": {
+              "description": "Number of cores for each task (use higher number for memory intensive tasks)",
+              "type": "integer",
+              "default": 1
+            },
             "debug": {
               "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
               "type": "boolean",

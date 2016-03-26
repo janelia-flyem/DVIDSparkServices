@@ -76,13 +76,18 @@ class Workflow(object):
         # set spark config
         sconfig = SparkConf()
         sconfig.setAppName(appname)
-        
+
+        # check config file for generic corespertask option
+        corespertask = self.corespertask
+        if "corespertask" in self.config_data["options"]:
+            corespertask = self.config_data["options"]["corespertask"]
+
         # always store job info for later retrieval on master
         # set 1 cpu per task for now but potentially allow
         # each workflow to overwrite this for certain high
         # memory situations.  Maxfailures could probably be 1 if rollback
         # mechanisms exist
-        sconfig.setAll([("spark.task.cpus", str(self.corespertask)),
+        sconfig.setAll([("spark.task.cpus", str(corespertask)),
                         ("spark.task.maxFailures", "2")
                        ]
                       )
