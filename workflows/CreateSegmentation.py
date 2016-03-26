@@ -135,7 +135,6 @@ class CreateSegmentation(DVIDWorkflow):
         # ?! set number of cpus per task to 2 (make dynamic?)
         super(CreateSegmentation, self).__init__(config_filename, self.Schema, "Create segmentation")
 
-
     # (stitch): => flatmap to boundary, id, cropped labels => reduce to common boundaries maps
     # => flatmap substack and boundary mappings => take ROI max id collect, join offsets with boundary
     # => join offsets and boundary mappings to persisted ROI+label, unpersist => map labels
@@ -146,6 +145,17 @@ class CreateSegmentation(DVIDWorkflow):
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
         self.chunksize = self.config_data["options"]["chunk-size"]
+
+        # create datatype in the beginning
+        mutateseg = self.config_data["options"]["mutateseg"]
+        node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
+                self.config_data["dvid-info"]["uuid"])
+        success = node_service.create_labelblk(str(self.config_data["dvid-info"]["segmentation-name"]))
+        # check whether seg should be mutated
+        if (not success and mutateseg == "auto") or mutateseg == "yes":
+            mutateseg = "yes"
+        else:
+            mutateseg = "no"
 
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
@@ -259,7 +269,7 @@ class CreateSegmentation(DVIDWorkflow):
         mapped_seg_chunks = mapped_seg_chunks.coalesce(125)
 
         # write data to DVID
-        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], self.config_data["options"]["mutateseg"])
+        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
         self.logger.write_data("Wrote DVID labels") # write to logger after spark job
         
         # no longer need seg chunks
