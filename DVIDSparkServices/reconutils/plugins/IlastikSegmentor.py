@@ -62,7 +62,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     args, extra_workflow_cmdline_args = ilastik_main.parser.parse_known_args(extra_cmdline_args)
     args.headless = True
     args.debug = True # ilastik's 'debug' flag enables special power features, including experimental workflows.
-    args.project = ilp_path
+    args.project = str(ilp_path)
     args.readonly = True
 
     # The process_name argument is prefixed to all log messages.
