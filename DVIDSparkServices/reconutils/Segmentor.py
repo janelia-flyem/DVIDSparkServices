@@ -24,6 +24,7 @@ class Segmentor(object):
         - "background-mask"
         - "predict-voxels"
         - "create-supervoxels"
+        - "agglomerate-supervoxels"
 
     The other functions involve stitching the
     subvolumes and performing other RDD and DVID manipulations.
