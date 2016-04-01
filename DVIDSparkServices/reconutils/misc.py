@@ -75,6 +75,25 @@ def vigra_bincount(labels):
     return counts.astype(numpy.int64)
 
 def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0.2, seed_size=5):
+    """
+    Compute a seeded watershed.
+
+    All pixels less than the given seed_threshold will be used as seeds,
+    except for connected components that are smaller than the given seed_size.
+    
+    Parameters
+    ----------
+    boundary_channel
+        Indicates which channel from boundary_volume contains the membrane predictions
+    
+    seed_threshold
+        Pixels lower than (or equal to) this value are considered to be potential seeds.
+        If your boundary predictions are good, then a good valud for seed_threshold might be 0.0
+    
+    seed_size
+        After thresholding, all connected components smaller than seed_size are removed
+        from the seeds before computing the watershed.
+    """
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
     boundary_volume = vigra.taggedView(boundary_volume, 'zyx')
