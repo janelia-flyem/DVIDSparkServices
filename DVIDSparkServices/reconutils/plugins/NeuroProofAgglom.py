@@ -48,7 +48,7 @@ def neuroproof_agglomerate(predictions, supervoxels, classifier, threshold = 0.2
         uuid = classifier["uuid"]
 
         # extract file and store into temporary location
-        node_service = retrieve_node_service(dvid_server, uuid)
+        node_service = retrieve_node_service(str(dvidserver), str(uuid))
 
         name_key = pathname.split('/')
         classfile = node_service.get(name_key[0], name_key[1])
