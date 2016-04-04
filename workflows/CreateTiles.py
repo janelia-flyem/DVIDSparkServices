@@ -122,28 +122,23 @@ class CreateTiles(DVIDWorkflow):
             node_service = retrieve_node_service(server, uuid)
             vol = None
            
-            if axis == "xy": 
-                vol = node_service.get_gray3D( str(grayname), (
-                                                (xmax+1)*BLKSIZE-xmin*BLKSIZE,
-                                                (ymax+1)*BLKSIZE-ymin*BLKSIZE,
-                                                BLKSIZE),
-                                                (xmin*BLKSIZE, ymin*BLKSIZE, blknum*BLKSIZE))
-                vol = vol.transpose((2,1,0))
+            # Note: libdvid uses zyx order for python functions
+            if axis == "xy":
+                shape_zyx = ( BLKSIZE, (ymax+1)*BLKSIZE-ymin*BLKSIZE, (xmax+1)*BLKSIZE-xmin*BLKSIZE )
+                offset_zyx = (blknum*BLKSIZE, ymin*BLKSIZE, xmin*BLKSIZE)
+                vol_zyx = node_service.get_gray3D( str(grayname), shape_zyx, offset_zyx)
+                vol = vol_zyx
             elif axis == "xz":
-                vol = node_service.get_gray3D( str(grayname), (
-                                                (xmax+1)*BLKSIZE-xmin*BLKSIZE,
-                                                BLKSIZE,
-                                                (zmax+1)*BLKSIZE-zmin*BLKSIZE),
-                                                (xmin*BLKSIZE, blknum*BLKSIZE, zmin*BLKSIZE))
-                vol = vol.transpose((1,2,0))
-            
+                shape_zyx = ( (zmax+1)*BLKSIZE-zmin*BLKSIZE, BLKSIZE, (xmax+1)*BLKSIZE-xmin*BLKSIZE )
+                offset_zyx = (zmin*BLKSIZE, blknum*BLKSIZE, xmin*BLKSIZE)
+                vol_zyx = node_service.get_gray3D( str(grayname), shape_zyx, offset_zyx )
+                vol_yzx = vol_zyx.transpose((1,0,2))
+                vol = vol_yzx
             else:
-                vol = node_service.get_gray3D( str(grayname), (
-                                                BLKSIZE,
-                                                (ymax+1)*BLKSIZE-ymin*BLKSIZE,
-                                                (zmax+1)*BLKSIZE-zmin*BLKSIZE),
-                                                (blknum*BLKSIZE, ymin*BLKSIZE, zmin*BLKSIZE))
-                vol = vol.transpose((0,2,1))
+                shape_zyx = ( (zmax+1)*BLKSIZE-zmin*BLKSIZE, (ymax+1)*BLKSIZE-ymin*BLKSIZE, BLKSIZE )
+                offset_zyx = ( zmin*BLKSIZE, ymin*BLKSIZE, blknum*BLKSIZE )
+                vol_zyx = node_service.get_gray3D( str(grayname), shape_zyx, offset_zyx )
+                vol = vol_zyx.transpose((2,0,1))
                 
             return (blknum, vol)
 

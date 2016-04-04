@@ -278,14 +278,11 @@ class Segmentor(object):
                     node_service = retrieve_node_service(pdconf["dvid-server"], 
                             pdconf["uuid"])
                     # retrieve data from roi start position
+                    # Note: libdvid uses zyx order for python functions
                     return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                        (size1,size2,size3),
-                        (subvolume.roi[0]-border, subvolume.roi[1]-border,
-                        subvolume. roi[2]-border))
+                        (size3,size2,size1),
+                        (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
                 preserve_seg = get_segmask()
-
-                # flip to be in C-order (no performance penalty)
-                preserve_seg = preserve_seg.transpose((2,1,0))
 
                 orig_bodies = set(np.unique(preserve_seg))
 

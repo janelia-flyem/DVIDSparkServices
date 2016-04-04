@@ -8,15 +8,15 @@ from libdvid import DVIDNodeService
 dirpath = sys.argv[1]
 
 reference_segmentation_path = dirpath + "/outputs/reference-segmentation.npz"
-reference_segmentation_xyz = np.load(reference_segmentation_path).items()[0][1].transpose()
+reference_segmentation_zyx = np.load(reference_segmentation_path).items()[0][1]
 
 with open(dirpath + "/temp_data/config.json") as f:
     config = json.load(f)
 
 node_service = DVIDNodeService(str(config['dvid-info']['dvid-server']), str(config['dvid-info']['uuid']))
-test_segmentation_xyz = node_service.get_labels3D(str(config['dvid-info']['segmentation-name']), reference_segmentation_xyz.shape, (0,0,0))
+test_segmentation_zyx = node_service.get_labels3D(str(config['dvid-info']['segmentation-name']), reference_segmentation_zyx.shape, (0,0,0))
 
-merge, split = compute_vi(reference_segmentation_xyz, test_segmentation_xyz)
+merge, split = compute_vi(reference_segmentation_zyx, test_segmentation_zyx)
 score = merge+split
 
 if score < 0.01:
@@ -24,5 +24,5 @@ if score < 0.01:
     sys.exit(0)
 else:
     print("DEBUG: FAIL: Segmentation output does not match reference. vi {}".format(score))
-    np.savez_compressed(dirpath + "/temp_data/test_segmentation_zyx.npz", test_segmentation_xyz.transpose())
+    np.savez_compressed(dirpath + "/temp_data/test_segmentation_zyx.npz", test_segmentation_zyx)
     sys.exit(1)
