@@ -41,8 +41,19 @@ class IngestGrayscale(Workflow):
           "type": "string"
         }
       }
+    },
+    "options" : {
+      "type": "object",
+      "properties": {
+        "corespertask": {
+          "description": "Number of cores for each task (use higher number for memory intensive tasks)",
+          "type": "integer",
+          "default": 1
+        }
+      },
+      "additionalProperties": false,
+      "default" : {}
     }
-
   },
   "required" : ["minslice", "maxslice", "basename"]
 }
