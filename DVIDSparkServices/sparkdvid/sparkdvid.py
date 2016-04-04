@@ -103,11 +103,12 @@ class sparkdvid(object):
         # function will export and should include dependencies
         subvolumes = [] # x,y,z,x2,y2,z2
 
-        from libdvid import SubstackXYZ
-        
         # extract roi for a given chunk size
         node_service = retrieve_node_service(self.dvid_server, self.uuid)
-        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE) 
+        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE)
+        
+        # libdvid returns substack namedtuples as (size, z, y, x), but we want (x,y,z)
+        substacks = map(lambda s: (s.x, s.y, s.z), substacks)
        
         # create roi array giving unique substack ids
         for substack_id, substack in enumerate(substacks):
@@ -184,14 +185,13 @@ class sparkdvid(object):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_gray():
                 node_service = retrieve_node_service(server, uuid)
+                
+                # Note: libdvid uses zyx order for python functions
                 return node_service.get_gray3D( str(gray_name),
-                                                (size1,size2,size3),
-                                                (subvolume.roi.x1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.z1-subvolume.border) )
+                                                (size3,size2,size1),
+                                                (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border) )
             gray_volume = get_gray()
 
-            # flip to be in C-order (no performance penalty)
-            gray_volume = gray_volume.transpose((2,1,0))
-            
             return (subvolume, gray_volume)
 
         return distsubvolumes.mapValues(mapper)
@@ -230,16 +230,14 @@ class sparkdvid(object):
                 # extract labels 64
                 node_service = retrieve_node_service(server, uuid)
                 # retrieve data from roi start position considering border
+                # Note: libdvid uses zyx order for python functions
                 return node_service.get_labels3D( str(label_name),
-                                                  (size1,size2,size3),
-                                                  (subvolume.roi[0]-border, subvolume.roi[1]-border, subvolume.roi[2]-border),
+                                                  (size3,size2,size1),
+                                                  (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
                                                   compress=True,
                                                   roi=str(roiname) )
             label_volume = get_labels()
 
-            # flip to be in C-order (no performance penalty)
-            label_volume = label_volume.transpose((2,1,0))
-        
             if compress:
                 return CompressedNumpyArray(label_volume)
             else:
@@ -285,28 +283,22 @@ class sparkdvid(object):
                 # extract labels 64
                 node_service = retrieve_node_service(server, uuid)
                 # retrieve data from roi start position
+                # Note: libdvid uses zyx order for python functions
                 return node_service.get_labels3D( str(label_name),
-                                                  (size1,size2,size3),
-                                                  (subvolume.roi[0], subvolume.roi[1],
-                                                  subvolume. roi[2]), roi=str(roiname))
+                                                  (size3,size2,size1),
+                                                  (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]), roi=str(roiname))
             label_volume = get_labels()
 
-            # flip to be in C-order (no performance penalty)
-            label_volume = label_volume.transpose((2,1,0))
- 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels2():
                 # fetch second label volume
                 node_service2 = retrieve_node_service(server2, uuid2)
                 # retrieve data from roi start position
+                # Note: libdvid uses zyx order for python functions
                 return node_service2.get_labels3D( str(label_name2),
-                                                   (size1,size2,size3),
-                                                   (subvolume.roi[0], subvolume.roi[1],
-                                                   subvolume. roi[2]))
+                                                   (size3,size2,size1),
+                                                   (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
             label_volume2 = get_labels2()
-
-            # flip to be in C-order (no performance penalty)
-            label_volume2 = label_volume2.transpose((2,1,0))
 
             # zero out label_volume2 where GT is 0'd out !!
             label_volume2[label_volume==0] = 0
@@ -420,23 +412,24 @@ class sparkdvid(object):
             # extract seg ignoring borders (z,y,x)
             seg = seg[border:size3+border, border:size2+border, border:size1+border]
 
-            # put in x,y,z and send (copy the slice to make contiguous) 
-            seg = numpy.copy(seg.transpose((2,1,0)))
+            # copy the slice to make contiguous before sending 
+            seg = numpy.copy(seg, order='C')
 
             @auto_retry(3, pause_between_tries=600.0, logging_name= __name__)
             def put_labels():
                 node_service = retrieve_node_service(server, uuid)
                 # send data from roi start position
+                # Note: libdvid uses zyx order for python functions
                 if roi_name is None:
                     node_service.put_labels3D( str(label_name),
                                                seg,
-                                               (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1),
+                                               (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1),
                                                compress=True,
                                                mutate=mutate )
                 else: 
                     node_service.put_labels3D( str(label_name),
                                                seg,
-                                               (subvolume.roi.x1, subvolume.roi.y1, subvolume.roi.z1),
+                                               (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1),
                                                compress=True,
                                                roi=str(roi_name),
                                                mutate=mutate )

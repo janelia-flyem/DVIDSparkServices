@@ -1,8 +1,6 @@
 """Framework for large-scale connected components over an ROI."""
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
-import DVIDSparkServices
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class ConnectedComponents(DVIDWorkflow):
     # schema for creating segmentation

@@ -296,7 +296,7 @@ class CreateSegmentation(DVIDWorkflow):
 
             label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 
                                                       (256,256,256),
-                                                      (substacks[0][0], substacks[0][1], substacks[0][2]),
+                                                      (substacks[0].z, substacks[0].y, substacks[0].x),
                                                       compress=True )
 
             # dump checksum
