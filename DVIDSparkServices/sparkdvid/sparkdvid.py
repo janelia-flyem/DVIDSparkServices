@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
 
-def retrieve_node_service(server, uuid):
+def retrieve_node_service(server, uuid, appname="sparkservices"):
     """Create a DVID node service object"""
 
     server = str(server)  
@@ -48,7 +48,9 @@ def retrieve_node_service(server, uuid):
             open("/tmp/reloaded.hack", 'w').close()
 
     from libdvid import DVIDNodeService
-    node_service = DVIDNodeService(server, str(uuid))
+    import os
+    username = os.environ["USER"]
+    node_service = DVIDNodeService(server, str(uuid), username, appname)
 
     return node_service
 

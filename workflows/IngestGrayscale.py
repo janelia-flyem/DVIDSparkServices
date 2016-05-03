@@ -45,6 +45,11 @@ class IngestGrayscale(Workflow):
     "options" : {
       "type": "object",
       "properties": {
+        "blocksize": {
+          "description": "Block size for uint8blk (default: 32x32x32)",
+          "type": "integer",
+          "default": 32
+        },
         "corespertask": {
           "description": "Number of cores for each task (use higher number for memory intensive tasks)",
           "type": "integer",
@@ -58,12 +63,16 @@ class IngestGrayscale(Workflow):
   "required" : ["minslice", "maxslice", "basename"]
 }
     """
-    # block size default
-    BLKSIZE = 32
-   
+
+    # name of application for DVID queries
+    APPNAME = "blockingest"
+
     # calls the default initializer
     def __init__(self, config_filename):
         super(IngestGrayscale, self).__init__(config_filename, self.Schema, "Ingest Grayscale")
+        
+        # block size default
+        self.BLKSIZE = self.config_data["options"]["blocksize"]
 
     # generates cubes of block size
     # handles stacks that are not multiples of the block dim
@@ -97,8 +106,8 @@ class IngestGrayscale(Workflow):
             grayname = self.config_data["dvid-info"]["grayname"]
             
             # create grayscale type
-            node_service = retrieve_node_service(server, uuid)
-            node_service.create_grayscale8(str(grayname))
+            node_service = retrieve_node_service(server, uuid, self.APPNAME)
+            node_service.create_grayscale8(str(grayname), self.BLKSIZE)
 
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.BLKSIZE):
             # parallelize images across many machines
@@ -199,11 +208,12 @@ class IngestGrayscale(Workflow):
                 server = self.config_data["dvid-info"]["dvid-server"]
                 uuid = self.config_data["dvid-info"]["uuid"]
                 grayname = self.config_data["dvid-info"]["grayname"]
+                appname = self.APPNAME
 
                 def write2dvid(yblocks):
                     from libdvid import ConnectionMethod
                     import numpy
-                    node_service = retrieve_node_service(server, uuid)
+                    node_service = retrieve_node_service(server, uuid, appname) 
                     
                     # get block coordinates
                     zbindex = slice/blocksize 
