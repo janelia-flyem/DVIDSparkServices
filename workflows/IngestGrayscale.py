@@ -45,6 +45,11 @@ class IngestGrayscale(Workflow):
     "options" : {
       "type": "object",
       "properties": {
+        "blankdelimiter": {
+          "description": "Delimiting value for a blank block",
+          "type": "integer",
+          "default": 0 
+        },
         "blocksize": {
           "description": "Block size for uint8blk (default: 32x32x32)",
           "type": "integer",
@@ -209,7 +214,8 @@ class IngestGrayscale(Workflow):
                 uuid = self.config_data["dvid-info"]["uuid"]
                 grayname = self.config_data["dvid-info"]["grayname"]
                 appname = self.APPNAME
-
+                delimiter = self.config_data["options"]["blankdelimiter"]
+                
                 def write2dvid(yblocks):
                     from libdvid import ConnectionMethod
                     import numpy
@@ -224,11 +230,35 @@ class IngestGrayscale(Workflow):
 
                     # retrieve blocks
                     blockbuffer = ""
+
+                    # skip blank blocks
+                    startblock = False
+                    xrun = 0
+                    xbindex = 0
+
                     for iterx in range(0, xsize, blocksize):
                         block = blocks[:,:,iterx:iterx+blocksize].copy()
-                        blockbuffer += block.tostring() #numpy.getbuffer(block)
+                        vals = numpy.unique(block)
+                        if len(vals) == 1 and vals[0] == delimiter:
+                            # check if the block is blank
+                            if startblock:
+                                # if the previous block has data, push blocks in current queue
+                                node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                                startblock = False
+                                xrun = 0
+                                blockbuffer = ""
 
-                    node_service.custom_request(str((grayname + "/blocks/0_%d_%d/%d") % (ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                        else:
+                            if startblock == False:
+                                xbindex = iterx/blocksize
+                            
+                            startblock = True
+                            blockbuffer += block.tostring() #numpy.getbuffer(block)
+                            xrun += 1
+
+                    # write-out leftover blocks
+                    if xrun > 0:
+                        node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
 
 
                 yblocks.foreach(write2dvid)
