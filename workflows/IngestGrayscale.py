@@ -262,6 +262,7 @@ class IngestGrayscale(Workflow):
 
 
                 yblocks.foreach(write2dvid)
+            self.logger.write_data("Ingested %d slices" % self.BLKSIZE)
 
     @staticmethod
     def dumpschema():
