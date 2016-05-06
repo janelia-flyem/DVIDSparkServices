@@ -50,6 +50,11 @@ class IngestGrayscale(Workflow):
           "type": "integer",
           "default": 0 
         },
+        "numblocklayers": {
+          "description": "Determine the number of block layers that should be procesed in each job",
+          "type": "integer",
+          "default": 1
+        },
         "blocksize": {
           "description": "Block size for uint8blk (default: 32x32x32)",
           "type": "integer",
@@ -87,7 +92,9 @@ class IngestGrayscale(Workflow):
         import numpy
         import os
         import string
-            
+       
+        iterslices = self.BLKSIZE * self.config_data["options"]["numblocklayers"]
+
         minslice = self.config_data["minslice"]
         # map file to numpy array
         basename = self.config_data["basename"]
@@ -114,9 +121,9 @@ class IngestGrayscale(Workflow):
             node_service = retrieve_node_service(server, uuid, self.APPNAME)
             node_service.create_grayscale8(str(grayname), self.BLKSIZE)
 
-        for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, self.BLKSIZE):
+        for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, iterslices):
             # parallelize images across many machines
-            imgs = self.sc.parallelize(range(slice, slice+self.BLKSIZE), self.BLKSIZE)
+            imgs = self.sc.parallelize(range(slice, slice+iterslices), iterslices)
 
             def img2npy(slicenum):
                 try:
@@ -175,20 +182,34 @@ class IngestGrayscale(Workflow):
                 for z, line in linesp:
                     if xsize is None:
                         _, xsize = line.shape
-                        blockdata = numpy.zeros((blocksize, blocksize, xsize), numpy.uint8)
+                        blockdata = numpy.zeros((iterslices, blocksize, xsize), numpy.uint8)
 
-                    blockdata[(z - minslice)%blocksize, :, :] = line
+                    blockdata[(z - minslice)%iterslices, :, :] = line
                 return y, blockdata
             
             yblocks = groupedlines.map(lines2blocks)
-        
+       
+            # map multilayer of blocks to an array of single layer blocks
+            def multi2single(yblocks):
+                ybindex, blocks = yblocks
+                blockarr = []
+                num_layers = iterslices / blocksize
+                for layer in range(0,num_layers):
+                    blockarr.append(((ybindex, layer), blocks[layer*blocksize:(layer*blocksize+blocksize),:,:]))
+
+                return blockarr
+
+            yblockssplit = yblocks.flatMap(multi2single)
+
+
             if "output-dir" in self.config_data and self.config_data["output-dir"] != "":
                 # write blocks to disk for separte post-process -- write directly to DVID eventually?
                 output_dir = self.config_data["output-dir"]
                 def write2disk(yblocks):
                     zbindex = slice/blocksize 
-                    ybindex, blocks = yblocks
-                    
+                    (ybindex, layer), blocks = yblocks
+                    zbindex += layer
+
                     zsize,ysize,xsize = blocks.shape
                     
                     outdir = output_dir 
@@ -207,7 +228,7 @@ class IngestGrayscale(Workflow):
                         fout.write(numpy.getbuffer(block))
                     fout.close()
 
-                yblocks.foreach(write2disk) 
+                yblockssplit.foreach(write2disk) 
             else:
                 # write to dvid
                 server = self.config_data["dvid-info"]["dvid-server"]
@@ -223,7 +244,8 @@ class IngestGrayscale(Workflow):
                     
                     # get block coordinates
                     zbindex = slice/blocksize 
-                    ybindex, blocks = yblocks
+                    (ybindex, layer), blocks = yblocks
+                    zbindex += layer
                     zsize,ysize,xsize = blocks.shape
                     xrun = xsize/blocksize
                     xbindex = 0 # assume x starts at 0!!
@@ -261,8 +283,8 @@ class IngestGrayscale(Workflow):
                         node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
 
 
-                yblocks.foreach(write2dvid)
-            self.logger.write_data("Ingested %d slices" % self.BLKSIZE)
+                yblockssplit.foreach(write2dvid)
+            self.logger.write_data("Ingested %d slices" % iterslices)
 
     @staticmethod
     def dumpschema():

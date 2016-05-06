@@ -9,6 +9,7 @@
         "grayname": "grayscale"
     },
     "options": {
+        "numblocklayers": 1,    
         "blocksize": 32 
     }
 }
