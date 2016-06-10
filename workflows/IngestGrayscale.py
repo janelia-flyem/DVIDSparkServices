@@ -60,6 +60,11 @@ class IngestGrayscale(Workflow):
           "type": "integer",
           "default": 32
         },
+        "blockwritelimit": {
+           "description": "Maximum number of blocks written per task request (0=no limit)",
+           "type": "integer",
+           "default": 0
+        },
         "corespertask": {
           "description": "Number of cores for each task (use higher number for memory intensive tasks)",
           "type": "integer",
@@ -83,6 +88,9 @@ class IngestGrayscale(Workflow):
         
         # block size default
         self.BLKSIZE = self.config_data["options"]["blocksize"]
+       
+        # num blocks per write
+        self.BLOCKLIMIT = self.config_data["options"]["blockwritelimit"]
 
     # generates cubes of block size
     # handles stacks that are not multiples of the block dim
@@ -151,6 +159,7 @@ class IngestGrayscale(Workflow):
           
             # map numpy array into y lines of block height
             blocksize = self.BLKSIZE
+            blocklimit = self.BLOCKLIMIT 
             def npy2lines(arrpair):
                 z, arr = arrpair
                 ysize, xsize = arr.shape
@@ -277,6 +286,13 @@ class IngestGrayscale(Workflow):
                             startblock = True
                             blockbuffer += block.tostring() #numpy.getbuffer(block)
                             xrun += 1
+
+                            if blocklimit > 0 and xrun >= blocklimit:
+                                # if the previous block has data, push blocks in current queue
+                                node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                                startblock = False
+                                xrun = 0
+                                blockbuffer = ""
 
                     # write-out leftover blocks
                     if xrun > 0:
