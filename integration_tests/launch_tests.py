@@ -213,7 +213,8 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_seg_wsdt"] = "CreateSegmentation"
     tests["test_seg_neuroproof"] = "CreateSegmentation"
     tests["test_seg_replace"] = "CreateSegmentation"
-    
+    tests["test_tiles"] = "CreateTiles"
+
     selected = set(selected or tests.keys())
     assert selected.issubset( set(tests.keys()) ), \
         "Invalid test selection.  You gave: {}".format(selected)

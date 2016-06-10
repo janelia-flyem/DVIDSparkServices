@@ -58,9 +58,6 @@ class CreateTiles(DVIDWorkflow):
 
     # creates tiles for dataset loaded as grayscale blocks
     def execute(self):
-        # block size default
-        BLKSIZE = 32
-        
         # tile size default
         TILESIZE = 512
         
@@ -79,10 +76,13 @@ class CreateTiles(DVIDWorkflow):
         
         xmin, ymin, zmin = graymeta["Extended"]["MinIndex"] 
         xmax, ymax, zmax = graymeta["Extended"]["MaxIndex"] 
+        
+        # !! always assume isotropic block
+        BLKSIZE = int(graymeta["Extended"]["BlockSize"][0])
 
         imformat = str(self.config_data["options"]["format"])
         # create tiles type and meta
-        requests.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "format": imformat})
+        requests.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "source": grayname, "format": imformat})
 
         MinTileCoord = [xmin*BLKSIZE/TILESIZE, ymin*BLKSIZE/TILESIZE, zmin*BLKSIZE/TILESIZE]
         MaxTileCoord = [xmax*BLKSIZE/TILESIZE, ymax*BLKSIZE/TILESIZE, zmax*BLKSIZE/TILESIZE]
