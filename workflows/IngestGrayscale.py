@@ -300,7 +300,41 @@ class IngestGrayscale(Workflow):
 
 
                 yblockssplit.foreach(write2dvid)
+        
             self.logger.write_data("Ingested %d slices" % iterslices)
+        
+        # just fetch one image at driver to get dims
+        width = height = 1
+        try:
+            img = None
+            if gbucketname == "":
+                img = Image.open(basename % minslice) 
+                width, height = img.width, img.height
+            else:
+                from gcloud import storage
+                from io import BytesIO
+                client = storage.Client()
+                gbucket = client.get_bucket(gbucketname)
+                gblob = gbucket.get_blob(gpath % minslice)
+                
+                # write to bytes which implements file interface
+                gblobfile = BytesIO()
+                gblob.download_to_file(gblobfile)
+                gblobfile.seek(0)
+                img = Image.open(gblobfile)
+                width, height = img.width, img.height
+        except Exception, e:
+            # just set size to 1 
+            pass
+
+        # update metadata
+        import requests
+        grayext = {}
+        grayext["MinPoint"] = [0,0,0] # for now no offset
+        grayext["MaxPoint"] = [width-1,height-1,self.config_data["maxslice"]]
+        if not server.startswith("http://"):
+            server = "http://" + server
+        requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
 
     @staticmethod
     def dumpschema():
