@@ -215,6 +215,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_seg_replace"] = "CreateSegmentation"
     #tests["test_tiles"] = "CreateTiles"
     #tests["test_tiles2"] = "CreateTiles2"
+    #tests["test_pyramid"] = "CreatePyramid"
 
     selected = set(selected or tests.keys())
     assert selected.issubset( set(tests.keys()) ), \
