@@ -33,6 +33,7 @@ def retrieve_node_service(server, uuid, appname="sparkservices"):
     server = str(server)  
    
     # refresh dvid server meta if localhost (since it is exclusive or points to global db)
+    """
     if server.startswith("http://127.0.0.1") or  \
             server.startswith("http://localhost") or  \
             server.startswith("127.0.0.1") or server.startswith("localhost"):
@@ -46,6 +47,7 @@ def retrieve_node_service(server, uuid, appname="sparkservices"):
 
             requests.post(addr)
             open("/tmp/reloaded.hack", 'w').close()
+    """
 
     from libdvid import DVIDNodeService
     import os

@@ -98,7 +98,7 @@ class Segmentor(object):
                 },
                 "bodies": {
                   "type": "array",
-                  "items": { "type": "integer" },
+                  "items": { "type": "number" },
                   "minItems": 0,
                   "uniqueItems": true,
                   "default": []

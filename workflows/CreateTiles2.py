@@ -51,6 +51,11 @@ class CreateTiles2(DVIDWorkflow):
           "type": "string",
           "enum": ["png", "jpg"],
           "default": "png"
+        },
+        "corespertask": {
+          "description": "Number of cores for each task (use higher number for memory intensive tasks)",
+          "type": "integer",
+          "default": 1
         }
       }
     }
@@ -58,7 +63,9 @@ class CreateTiles2(DVIDWorkflow):
   "required" : ["minslice", "maxslice", "basename"]
 }
     """
-    
+
+    APPNAME = "createtiles2"
+
     # calls the default initializer
     def __init__(self, config_filename):
         super(CreateTiles2, self).__init__(config_filename, self.Schema, "Create Tiles2")
@@ -117,7 +124,7 @@ class CreateTiles2(DVIDWorkflow):
         requests.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
        
         # make each image a separate task
-        imgs = self.sparkdvid_context.sc.parallelize(range(minslice, maxslice+1))
+        imgs = self.sparkdvid_context.sc.parallelize(range(minslice, maxslice+1), maxslice-minslice+1)
 
         def img2npy(slicenum):
             try:
@@ -127,7 +134,9 @@ class CreateTiles2(DVIDWorkflow):
                 # could give empty image, but for now just fail
                 raise
         npy_images = imgs.map(img2npy) 
-     
+    
+        appname = self.APPNAME
+
         def writeimagepyramid(image):
             slicenum, imnpy = image 
             
@@ -135,10 +144,15 @@ class CreateTiles2(DVIDWorkflow):
             from scipy import ndimage
             import StringIO
             
+            from libdvid import ConnectionMethod
+            node_service = retrieve_node_service(server, uuid, appname) 
+
             # actually perform tile load
             def loadTile(reqpair):
                 urlreq, reqbuff = reqpair 
-                requests.post(urlreq , data=reqbuff)
+                node_service.custom_request(urlreq, reqbuff, ConnectionMethod.POST) 
+                #requests.post(urlreq , data=reqbuff)
+                
 
             work_queue = []
             # iterate slice by slice
@@ -176,7 +190,7 @@ class CreateTiles2(DVIDWorkflow):
                             imformatpil = "jpeg"
                         img.save(buf, format=imformatpil)
 
-                        loadTile((server + "/api/node/" + uuid + "/" + tilename + "/tile/xy/" + str(levelnum) + "/" + str(iter2) + "_" + str(iter1) + "_" + str(slicenum), buf.getvalue()))
+                        loadTile((tilename + "/tile/xy/" + str(levelnum) + "/" + str(iter2) + "_" + str(iter1) + "_" + str(slicenum), buf.getvalue()))
                         buf.close()
 
         npy_images.foreach(writeimagepyramid)

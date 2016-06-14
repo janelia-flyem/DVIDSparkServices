@@ -48,9 +48,9 @@ export SCALA_HOME=/usr/local/scala-2.10.3
 export SPARK_WORKER_DIR=/scratch/spark/work
 export JAVA_HOME=/usr/local/jdk1.7.0_67
 export SPARK_LOG_DIR=~/.spark/logs/$JOB_ID/
-export SPARK_EXECUTOR_MEMORY=90g
+export SPARK_EXECUTOR_MEMORY=80g
 export SPARK_DRIVER_MEMORY=50g
-export SPARK_WORKER_MEMORY=90g
+export SPARK_WORKER_MEMORY=80g
 #export SPARK_DAEMON_JAVA_OPTS=-Dspark.worker.timeout=300 -Dspark.akka.timeout=300 -Dspark.storage.blockManagerHeartBeatMs=30000 -Dspark.akka.retry.wait=30 -Dspark.akka.frameSize=10000 -Djobid=$JOB_ID 
 export SPARK_LOCAL_DIRS=/scratch/spark/tmp
 

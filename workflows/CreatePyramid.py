@@ -76,7 +76,7 @@ class CreatePyramid(DVIDWorkflow):
         maxdim = max(xmax,ymax,zmax)
         # build pyramid until BLKSIZE * 4
         import math
-        maxlevel = int(math.log(maxdim+1)/math.log(2)) - 1
+        maxlevel = int(math.log(maxdim+1)/math.log(2)) - 2
 
         # assume 0,0,0 start for now
         xspan, yspan, zspan = xmax+1, ymax+1, zmax+1
@@ -103,7 +103,7 @@ class CreatePyramid(DVIDWorkflow):
 
             # determine number of requests
             maxxrun = xspan
-            if xrunlimit > 0 and xrunlimit < xpsan:
+            if xrunlimit > 0 and xrunlimit < xspan:
                 maxxrun = xrunlimit
             if maxxrun % 2:
                 maxxrun += 1
@@ -114,91 +114,92 @@ class CreatePyramid(DVIDWorkflow):
             ysize = (yspan+1)/2
             zsize = (zspan+1)/2
             
-            workqueue = []
-            for ziter in range(0, zsize):
+            for ziter2 in range(0, zsize, 2):
+                workqueue = []
                 for yiter in range(0, ysize):
                     for xiter in range(0, xsize):
-                        workqueue.append((xiter,yiter,ziter))
+                        for miniz in range(ziter2, ziter2+2):
+                            workqueue.append((xiter,yiter,miniz))
 
-            # parallelize jobs
-            pieces = self.sc.parallelize(workqueue, len(workqueue))
+                # parallelize jobs
+                pieces = self.sc.parallelize(workqueue, len(workqueue))
 
-            # grab data corresponding to xrun
-            def retrievedata(coord):
-                xiter, yiter, ziter = coord
-                node_service = retrieve_node_service(server, uuid)
+                # grab data corresponding to xrun
+                def retrievedata(coord):
+                    xiter, yiter, ziter = coord
+                    node_service = retrieve_node_service(server, uuid)
 
-                shape_zyx = ( BLKSIZE*2, BLKSIZE*2, maxxrun*BLKSIZE )
-                offset_zyx = (ziter*BLKSIZE*2, yiter*BLKSIZE*2, xiter*BLKSIZE*maxxrun)
-                vol_zyx = node_service.get_gray3D( str(prevsource), shape_zyx, offset_zyx)
+                    shape_zyx = ( BLKSIZE*2, BLKSIZE*2, maxxrun*BLKSIZE )
+                    offset_zyx = (ziter*BLKSIZE*2, yiter*BLKSIZE*2, xiter*BLKSIZE*maxxrun)
+                    vol_zyx = node_service.get_gray3D( str(prevsource), shape_zyx, offset_zyx, throttle=False)
 
-                return (coord, vol_zyx)
+                    return (coord, vol_zyx)
 
-            volumedata = pieces.map(retrievedata)
+                volumedata = pieces.map(retrievedata)
 
-            # downsample data
-            def downsample(vdata):
-                coords, data = vdata
-                from scipy import ndimage
-                data = ndimage.interpolation.zoom(data, 0.5)
-                return (coords, data)
+                # downsample data
+                def downsample(vdata):
+                    coords, data = vdata
+                    from scipy import ndimage
+                    data = ndimage.interpolation.zoom(data, 0.5)
+                    return (coords, data)
 
-            downsampleddata = volumedata.map(downsample)
+                downsampleddata = volumedata.map(downsample)
 
-            appname = self.APPNAME
-            delimiter = self.config_data["options"]["blankdelimiter"]
-            
-            # write results ?!
-            def write2dvid(vdata):
-                from libdvid import ConnectionMethod
-                import numpy
-                node_service = retrieve_node_service(server, uuid, appname) 
+                appname = self.APPNAME
+                delimiter = self.config_data["options"]["blankdelimiter"]
                 
-                coords, data = vdata 
-                xiter, yiter, ziter = coords
+                # write results ?!
+                def write2dvid(vdata):
+                    from libdvid import ConnectionMethod
+                    import numpy
+                    node_service = retrieve_node_service(server, uuid, appname) 
+                    
+                    coords, data = vdata 
+                    xiter, yiter, ziter = coords
 
-                # set block indices
-                zbindex = ziter
-                ybindex = yiter
+                    # set block indices
+                    zbindex = ziter
+                    ybindex = yiter
 
-                zsize,ysize,xsize = data.shape
-                xrun = xsize/BLKSIZE
-                xbindex = xiter 
+                    zsize,ysize,xsize = data.shape
+                    #xrun = xsize/BLKSIZE
+                    xbindex = 0 
 
-                # retrieve blocks
-                blockbuffer = ""
+                    # retrieve blocks
+                    blockbuffer = ""
 
-                # skip blank blocks
-                startblock = False
-                xrun = 0
+                    # skip blank blocks
+                    startblock = False
+                    xrun = 0
 
-                for iterx in range(0, xsize, BLKSIZE):
-                    block = data[:,:,iterx:iterx+BLKSIZE].copy()
-                    vals = numpy.unique(block)
-                    if len(vals) == 1 and vals[0] == delimiter:
-                        # check if the block is blank
-                        if startblock:
-                            # if the previous block has data, push blocks in current queue
-                            node_service.custom_request(str((currsource + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
-                            startblock = False
-                            xrun = 0
-                            blockbuffer = ""
+                    for iterx in range(0, xsize, BLKSIZE):
+                        block = data[:,:,iterx:iterx+BLKSIZE].copy()
+                        vals = numpy.unique(block)
+                        if len(vals) == 1 and vals[0] == delimiter:
+                            # check if the block is blank
+                            if startblock:
+                                # if the previous block has data, push blocks in current queue
+                                node_service.custom_request(str((currsource + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                                startblock = False
+                                xrun = 0
+                                blockbuffer = ""
 
-                    else:
-                        if startblock == False:
-                            xbindex = xiter + iterx/BLKSIZE
-                       
-                        startblock = True
-                        blockbuffer += block.tostring() #numpy.getbuffer(block)
-                        xrun += 1
-
-
-                # write-out leftover blocks
-                if xrun > 0:
-                    node_service.custom_request(str((currsource + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                        else:
+                            if startblock == False:
+                                xbindex = xiter*maxxrun/2 + iterx/BLKSIZE
+                           
+                            startblock = True
+                            blockbuffer += block.tostring() #numpy.getbuffer(block)
+                            xrun += 1
 
 
-            downsampleddata.foreach(write2dvid)
+                    # write-out leftover blocks
+                    if xrun > 0:
+                        node_service.custom_request(str((currsource + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+
+
+                downsampleddata.foreach(write2dvid)
 
             # adjust max coordinate for new level
             xspan = (xspan-1) / 2
