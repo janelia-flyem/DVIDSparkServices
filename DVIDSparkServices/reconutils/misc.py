@@ -74,7 +74,7 @@ def vigra_bincount(labels):
     counts = vigra.analysis.extractRegionFeatures(image, labels, ['Count'])['Count']
     return counts.astype(numpy.int64)
 
-def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0.2, seed_size=5):
+def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0.2, seed_size=5, min_segment_size=0):
     """
     Compute a seeded watershed.
 
@@ -93,6 +93,11 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
     seed_size
         After thresholding, all connected components smaller than seed_size are removed
         from the seeds before computing the watershed.
+    
+    min_segment_size
+        After watershed, all segments (supervoxels) smaller than min_segment_size are 
+        removed from the result.  A second-pass watershed is used to allow the remaining
+        segments to fill in the gaps left by the removed segments.
     """
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
@@ -121,6 +126,19 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
         del small_locations
     
     watershed, _max_id = vigra.analysis.watershedsNew(boundary_volume, seeds=seeds, out=seeds)
+
+    # Remove small supervoxels
+    if min_segment_size > 1:
+        component_sizes = vigra_bincount(seeds)
+        small_components = component_sizes < min_segment_size
+        small_locations = small_components[seeds]
+        seeds[small_locations] = 0
+        del component_sizes
+        del small_components
+        del small_locations
+        
+        # Fill in the gaps with a second pass
+        watershed, _max_id = vigra.analysis.watershedsNew(boundary_volume, seeds=seeds, out=seeds)
     
     if mask is not None:
         watershed[inverted_mask] = 0
