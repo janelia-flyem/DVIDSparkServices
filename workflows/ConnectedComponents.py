@@ -30,7 +30,7 @@ class ConnectedComponents(DVIDWorkflow):
               "minLength": 1
             },
             "segmentation": {
-              "description": "location for segmentation result",
+              "description": "location of original segmentation",
               "type": "string",
               "minLength": 1
             },
