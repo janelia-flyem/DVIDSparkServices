@@ -1,0 +1,50 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "multicut-segmentation-result",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "predict-voxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
+                    "parameters": {
+                        "ilp_path": "integration_tests/resources/tiny-pc.ilp",
+                        "selected_channels": [0,1,2,3],
+                        "normalize": false,
+                        "LAZYFLOW_THREADS": 1,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                    }
+                },
+                "create-supervoxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.create_supervoxels_with_wsdt.create_supervoxels_with_wsdt",
+                    "parameters": {
+                        "pmin": 0.5,
+                        "minMembraneSize": 0,
+                        "minSegmentSize": 0,
+                        "sigmaMinima": 3.0,
+                        "sigmaWeights": 0.0
+                    }
+                },
+                "agglomerate-supervoxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.ilastik_multicut.ilastik_multicut",
+                    "parameters": {
+                        "ilp_path": "integration_tests/resources/multicut-256.ilp",
+                        "LAZYFLOW_THREADS": 4,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                    }
+                }
+            }
+        },
+        "stitch-algorithm" : "none",
+        "chunk-size": 128,
+        "checkpoint" : "none",
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": false
+    }
+}

@@ -211,13 +211,15 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_seg_ilastik"] = "CreateSegmentation"
     tests["test_seg_ilastik_two_stage"] = "CreateSegmentation"
     tests["test_seg_wsdt"] = "CreateSegmentation"
+    tests["test_seg_multicut"] = "CreateSegmentation"
     tests["test_seg_neuroproof"] = "CreateSegmentation"
     tests["test_seg_replace"] = "CreateSegmentation"
     #tests["test_tiles"] = "CreateTiles"
     #tests["test_tiles2"] = "CreateTiles2"
     #tests["test_pyramid"] = "CreatePyramid"
 
-    selected = set(selected or tests.keys())
+    # Multicut isn't included by default (yet)
+    selected = set(selected) or (set(tests.keys()) - set(["test_seg_multicut"]))
     assert selected.issubset( set(tests.keys()) ), \
         "Invalid test selection.  You gave: {}".format(selected)
 
