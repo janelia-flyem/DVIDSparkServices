@@ -2,10 +2,11 @@
 """
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
-def neuroproof_agglomerate(predictions, supervoxels, classifier, threshold = 0.20, mitochannel = 2):
+def neuroproof_agglomerate(grayscale, predictions, supervoxels, classifier, threshold = 0.20, mitochannel = 2):
     """Main agglomeration function
 
    Args:
+        grayscale = 3D uing8 (z,y,x) -- Not used.
         predictions = 4D float32 numpy label array (z, y, x, ch) 
         supervoxels = 3D uint32 numpy label array (z,y,x) 
         classifier = file location or DVID (assume to be xml unless .h5 is explict in name)

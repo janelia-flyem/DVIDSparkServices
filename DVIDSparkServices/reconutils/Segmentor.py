@@ -225,7 +225,7 @@ class Segmentor(object):
             assert predictions.ndim == 4, "Predictions volume should be 4D: z-y-x-c"
             assert predictions.dtype == np.float32, "Predictions should be float32"
 
-            return ( subvolume, CompressedNumpyArray(predictions), mask_compressed )
+            return ( subvolume, gray, CompressedNumpyArray(predictions), mask_compressed )
 
         return gray_mask_chunks.mapValues(_execute_for_chunk)
 
@@ -253,7 +253,7 @@ class Segmentor(object):
         preserve_bodies = self.preserve_bodies
 
         def _execute_for_chunk(prediction_chunks):
-            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
+            (subvolume, gray, prediction_compressed, mask_compressed) = prediction_chunks
             # mask can be None
             assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
             mask = mask_compressed and mask_compressed.deserialize()
@@ -313,7 +313,7 @@ class Segmentor(object):
             assert supervoxels.dtype == np.uint32, "Supervoxels for a single chunk should be uint32"
             
             supervoxels_compressed = CompressedNumpyArray(supervoxels)
-            return (subvolume, prediction_compressed, supervoxels_compressed)
+            return (subvolume, gray, prediction_compressed, supervoxels_compressed)
 
         return prediction_chunks.mapValues(_execute_for_chunk)
 
@@ -336,7 +336,7 @@ class Segmentor(object):
         preserve_bodies = self.preserve_bodies
 
         def _execute_for_chunk(sp_chunk):
-            (subvolume, prediction_compressed, supervoxels_compressed) = sp_chunk
+            (subvolume, gray, prediction_compressed, supervoxels_compressed) = sp_chunk
             supervoxels = supervoxels_compressed.deserialize()
             predictions = prediction_compressed.deserialize()
             
@@ -355,7 +355,7 @@ class Segmentor(object):
 
 
             # Call the (custom) function
-            agglomerated = agglomeration_function(predictions, supervoxels)
+            agglomerated = agglomeration_function(gray, predictions, supervoxels)
             assert agglomerated.ndim == 3, "Agglomerated supervoxels should be 3D (no channel dimension)"
             assert agglomerated.dtype == np.uint32, "Agglomerated supervoxels for a single chunk should be uint32"
            

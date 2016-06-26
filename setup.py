@@ -11,7 +11,7 @@ packages=['DVIDSparkServices',
 package_data={}
 
 setup(name='DVIDSparkServices',
-      version='0.1',
+      version='0.3',
       description='Spark-based reconstruction tools working on DVID',
       url='https://github.com/janelia-flyem/DVIDSparkServices',
       packages=packages,
