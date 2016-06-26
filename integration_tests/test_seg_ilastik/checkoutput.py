@@ -20,8 +20,9 @@ merge, split = compute_vi(reference_segmentation_zyx, test_segmentation_zyx)
 score = merge+split
 
 if score < 0.01:
-    print("DEBUG: Segmentation output matches reference with vi: {}".format(score))
+    print("DEBUG: Segmentation output matches reference with vi: {} + {} = {}".format(merge, split, score))
     sys.exit(0)
 else:
-    print("DEBUG: FAIL: Segmentation output does not match reference. vi {}".format(score))
+    print("DEBUG: FAIL: Segmentation output does not match reference. vi {} + {} = {}".format(merge, split, score))
+    np.save( dirpath + '/temp_data/test_segmentation_zyx.npy', test_segmentation_zyx )
     sys.exit(1)

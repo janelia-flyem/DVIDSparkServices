@@ -2,7 +2,6 @@ from __future__ import print_function
 import sys
 import json
 import numpy as np
-from DVIDSparkServices.reconutils.misc import compute_vi
 from libdvid import DVIDNodeService
 
 dirpath = sys.argv[1]
@@ -19,7 +18,10 @@ if unique_labels.max() > 1e9:
     sys.exit(1)
 if ((unique_labels != np.arange(1, len(unique_labels)+1)).all()): 
     print("DEBUG: FAIL: Watershed produced non-sequential label values.")
+    np.save( dirpath + '/temp_data/test_segmentation_zyx.npy', test_segmentation_zyx )
     sys.exit(1)
+
+
 
 print("DEBUG: Watershed test passed.")
 sys.exit(0)
