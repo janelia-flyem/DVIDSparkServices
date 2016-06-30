@@ -28,6 +28,6 @@
         "checkpoint" : "none",
         "checkpoint-dir" : "",
         "iteration-size" : 0,
-        "debug": false
+        "debug": true
     }
 }
