@@ -1,0 +1,33 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "ilastik-simple-predict-result",
+        "roi": "temproi256",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "predict-voxels" : {
+                    "function": "DVIDSparkServices.reconutils.plugins.ilastik_simple_predict.ilastik_simple_predict",
+                    "parameters": {
+                        "classifier_path": "integration_tests/resources/tiny-pc.ilp/PixelClassification/ClassifierForests/Forest0000",
+                        "filter_specs_path": "integration_tests/resources/tiny-pc-filter-specs.json",
+                        "selected_channels": [[0,3],1,2],
+                        "normalize": false,
+                        "LAZYFLOW_THREADS": 4,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+                    }
+                }
+            }
+        },
+        "stitch-algorithm" : "none",
+        "chunk-size": 128,
+        "checkpoint" : "none",
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": false
+    }
+}

@@ -1,0 +1,17 @@
+[
+  [ "GaussianSmoothing", 0.3 ],
+
+  [ "GaussianSmoothing", 1.0 ],
+  [ "LaplacianOfGaussian", 1.0 ],
+  [ "GaussianGradientMagnitude", 1.0 ],
+  [ "DifferenceOfGaussians", 1.0 ],
+  [ "StructureTensorEigenvalues", 1.0 ],
+  [ "HessianOfGaussianEigenvalues", 1.0 ],
+
+  [ "GaussianSmoothing", 3.5 ],
+  [ "LaplacianOfGaussian", 3.5 ],
+  [ "GaussianGradientMagnitude", 3.5 ],
+  [ "DifferenceOfGaussians", 3.5 ],
+  [ "StructureTensorEigenvalues", 3.5 ],
+  [ "HessianOfGaussianEigenvalues", 3.5 ]
+  ]

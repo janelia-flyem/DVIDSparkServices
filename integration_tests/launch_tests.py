@@ -209,6 +209,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_ingest"] = "IngestGrayscale"
     
     tests["test_seg_ilastik"] = "CreateSegmentation"
+    tests["test_seg_simple_predict"] = "CreateSegmentation"
     tests["test_seg_ilastik_two_stage"] = "CreateSegmentation"
     tests["test_seg_wsdt"] = "CreateSegmentation"
     tests["test_seg_multicut"] = "CreateSegmentation"
