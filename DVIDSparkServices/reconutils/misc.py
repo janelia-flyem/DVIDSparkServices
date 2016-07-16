@@ -17,7 +17,7 @@ def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     background_mask[grayscale_vol == 0] = 1
 
     # Compute connected components (cc) and toss out the small components
-    cc = vigra.analysis.labelVolumeWithBackground(background_mask)[0]
+    cc = vigra.analysis.labelVolumeWithBackground(background_mask)
     cc_sizes = vigra_bincount(cc)
     small_cc_selections = cc_sizes < min_background_voxel_count
     small_cc_locations = small_cc_selections[cc]
