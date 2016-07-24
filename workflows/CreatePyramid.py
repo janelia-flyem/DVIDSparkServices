@@ -72,7 +72,7 @@ class CreatePyramid(DVIDWorkflow):
        
         islabelblk = False
         datatype = sourcemeta["Extended"]["Values"][0]["Label"]
-        if string(datatype) == "labelblk":
+        if str(datatype) == "labelblk":
             islabelblk = True
 
         # !! always assume isotropic block
@@ -100,7 +100,7 @@ class CreatePyramid(DVIDWorkflow):
             
             # TODO: set voxel resolution to base dataset (not too important in current workflows)
             if islabelblk:
-                node_service.create_labelblk(currsource, BLKSIZE)
+                node_service.create_labelblk(currsource, None, BLKSIZE)
             else:
                 node_service.create_grayscale8(currsource, BLKSIZE)
                 # set extents for new volume (only need to do for grayscale)
@@ -228,7 +228,7 @@ class CreatePyramid(DVIDWorkflow):
 
                     zsize,ysize,xsize = data.shape
                     #xrun = xsize/BLKSIZE
-                    xbindex = 0 
+                    xbindex = xiter*maxxrun/2
 
                     # retrieve blocks
                     blockbuffer = ""
