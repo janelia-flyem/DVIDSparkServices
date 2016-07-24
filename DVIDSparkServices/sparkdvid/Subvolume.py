@@ -41,6 +41,33 @@ class Subvolume(object):
         self.border = border
         self.local_regions = []
 
+        # ROI is always in 32x32x32 blocks for now
+        self.roi_blocksize = 32
+
+        # index off of (z,y,x) block indices
+        self.intersecting_blocks = set()
+
+    # take a list of (z,y,x0,x1) and determine which blocks intersect
+    def add_intersecting_blocks(self, runlengths):
+        if runlengths is None:
+            return
+ 
+        # determine substack block index range inclusive
+        xbmin = (self.roi.x1 - self.border) / self.roi_blocksize
+        ybmin = (self.roi.y1 - self.border) / self.roi_blocksize
+        zbmin = (self.roi.z1 - self.border) / self.roi_blocksize
+        
+        xbmax = (self.roi.x2 + self.border - 1) / self.roi_blocksize
+        ybmax = (self.roi.y2 + self.border - 1) / self.roi_blocksize
+        zbmax = (self.roi.z2 + self.border - 1) / self.roi_blocksize
+        
+        for xrun in runlengths:
+            z,y,x1,x2 = xrun
+
+            for iterx in range(x1,x2+1):
+                if z <= zbmax and z >= zbmin and y <= ybmax and y >= ybmin and iterx <= xbmax and iterx >= xbmin:
+                    self.intersecting_blocks.add((iterx,y,z))
+
     # assume line[0] < line[1] and add border in calculation 
     def intersects(self, line1, line2):
         pt1, pt2 = line1[0], line1[1]
