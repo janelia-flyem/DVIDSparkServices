@@ -28,6 +28,9 @@ class Evaluate(object):
     
     """
     
+    # limit the size of body lists
+    BODYLIST_LIMIT = 1000
+
     def __init__(self, config):
         self.server = config["dvid-info"]["dvid-server"]
         self.uuid = config["dvid-info"]["uuid"]
@@ -52,10 +55,10 @@ class Evaluate(object):
             for (body2, overlap) in overlapset:
                 localcount += overlap
             count += localcount
-            cumdisttemp.append(localcount)
+            cumdisttemp.append([localcount, body])
 
         # round to 4 decimals
-        cumdist = [round(val/float(count),4) for val in cumdisttemp]
+        cumdist = [ [round(val[0]/float(count),4), val[1]] for val in cumdisttemp]
         cumdist.sort()
         cumdist.reverse()
         return cumdist
@@ -516,8 +519,44 @@ class Evaluate(object):
             distseg = self._extract_distribution(whole_volume_stats.seg_overlaps[iter1].overlap_map)
 
             # TODO !! take subset of distribution
-            comparison_type_metrics[typename]["dist-gt"] = distgt
-            comparison_type_metrics[typename]["dist-seg"] = distseg
+            comparison_type_metrics[typename]["dist-gt"] = [val[0] for val in distgt]
+            comparison_type_metrics[typename]["dist-seg"] = [val[0] for val in distseg]
+
+            # add top body overlaps (top 1000)
+           
+            # for GT
+            top_overlapgt = {}
+            numoverlaps = self.BODYLIST_LIMIT
+            nummatches = 10 # find only up to 10 matches
+            if len(distgt) < numoverlaps:
+                numoverlaps = len(distgt)
+            for distiter in range(0, numoverlaps):
+                overlapmap = whole_volume_stats.gt_overlaps[iter1].overlap_map[distgt[distiter][1]]
+                overlapsize = []
+                matchlist = []
+                for (body2, overlap) in overlapmap:
+                    matchlist.append([overlap, body2])
+                matchlist.sort()
+                matchlist.reverse()
+                top_overlapgt[distgt[distiter][1]] = matchlist[0:nummatches]
+            comparison_type_metrics[typename]["top-overlap-gt"] = top_overlapgt
+           
+            # for seg
+            top_overlapseg = {}
+            numoverlaps = self.BODYLIST_LIMIT
+            nummatches = 10 # find only up to 10 matches
+            if len(distseg) < numoverlaps:
+                numoverlaps = len(distseg)
+            for distiter in range(0, numoverlaps):
+                overlapmap = whole_volume_stats.seg_overlaps[iter1].overlap_map[distseg[distiter][1]]
+                overlapsize = []
+                matchlist = []
+                for (body2, overlap) in overlapmap:
+                    matchlist.append([overlap, body2])
+                matchlist.sort()
+                matchlist.reverse()
+                top_overlapseg[distseg[distiter][1]] = matchlist[0:nummatches]
+            comparison_type_metrics[typename]["top-overlap-seg"] = top_overlapseg
 
             # TODO !! generate statitcs histogram
 
