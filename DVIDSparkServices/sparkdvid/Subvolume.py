@@ -47,6 +47,10 @@ class Subvolume(object):
         # index off of (z,y,x) block indices
         self.intersecting_blocks = set()
 
+    def __str__(self):
+        return "x{x1}-y{y1}-z{z1}--x{x2}-y{y2}-z{z2}"\
+               .format(**self.roi.__dict__)
+
     # take a list of (z,y,x0,x1) and determine which blocks intersect
     def add_intersecting_blocks(self, runlengths):
         if runlengths is None:

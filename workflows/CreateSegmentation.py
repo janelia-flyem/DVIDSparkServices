@@ -6,6 +6,8 @@ This workflow will run this algorithm (or its default) and stitch
 the results together.
 
 """
+import sys
+import subprocess
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 import DVIDSparkServices
@@ -150,6 +152,20 @@ class CreateSegmentation(DVIDWorkflow):
     # => join offsets and boundary mappings to persisted ROI+label, unpersist => map labels
     # (write): => for each row
     def execute(self):
+        # Start the log server in a separate process
+        logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver'])
+        try:
+            self.execute_impl()
+        finally:
+            # NOTE: Apparently the flask server doesn't respond
+            #       to SIGTERM if the server is used in debug mode.
+            #       If you're using the logserver in debug mode,
+            #       you may need to kill it yourself.
+            #       See https://github.com/pallets/werkzeug/issues/58
+            print "Terminating logserver with PID {}".format(logserver.pid)
+            logserver.terminate()
+
+    def execute_impl(self):
         from pyspark import SparkContext
         from pyspark import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor

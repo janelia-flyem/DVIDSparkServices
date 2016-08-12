@@ -9,6 +9,12 @@ from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
+from logcollector.client_utils import make_log_collecting_decorator
+import socket
+driver_ip_addr = socket.gethostbyname(socket.gethostname())
+send_log_with_key = make_log_collecting_decorator(driver_ip_addr, 3000)
+
+
 class Segmentor(object):
     """
     Contains functionality for segmenting large datasets.
@@ -192,6 +198,8 @@ class Segmentor(object):
         Detect large 'background' regions that lie outside the area of interest for segmentation.
         """
         mask_function = self._get_segmentation_function('background-mask')
+
+        @send_log_with_key(lambda (sv, _g): str(sv))
         def _execute_for_chunk(gray_chunk):
             (subvolume, gray) = gray_chunk
 
@@ -214,6 +222,8 @@ class Segmentor(object):
         an RDD of predictions (z,y,x).
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
+
+        @send_log_with_key(lambda (sv, _g, _mc): str(sv))
         def _execute_for_chunk(gray_mask_chunk):
             (subvolume, gray, mask_compressed) = gray_mask_chunk
             # mask can be None
@@ -252,6 +262,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
+        @send_log_with_key(lambda (sv, _g, _pc, _mc): str(sv))
         def _execute_for_chunk(prediction_chunks):
             (subvolume, gray, prediction_compressed, mask_compressed) = prediction_chunks
             # mask can be None
@@ -335,6 +346,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
+        @send_log_with_key(lambda (sv, _g, _pc, _sc): str(sv))
         def _execute_for_chunk(sp_chunk):
             (subvolume, gray, prediction_compressed, supervoxels_compressed) = sp_chunk
             supervoxels = supervoxels_compressed.deserialize()
