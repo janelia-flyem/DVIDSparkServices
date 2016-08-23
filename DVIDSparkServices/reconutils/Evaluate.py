@@ -486,7 +486,7 @@ class Evaluate(object):
 
 
 
-
+        """
         # verify that leftover list is empty
         for connections in whole_volume_stats.seg_syn_connections:
             stats, (leftovers, props) = connections
@@ -496,7 +496,7 @@ class Evaluate(object):
             stats, (leftovers, props) = connections
             if len(leftovers) != 0:
                 raise Exception("Synapse leftovers are non-empty")
-
+        """
 
         # store subvolume results 
         metric_results['subvolumes'] = allsubvolume_metrics
@@ -571,6 +571,16 @@ class Evaluate(object):
             body_threshold_loc = self.body_threshold
             if comptype.typename != "voxels":
                 body_threshold_loc = 0
+            """else:
+                # ?! temporary
+                body_mappings = []
+                for body, overlapset in gt_overlap.items():
+                    for body2, overlap in overlapset:
+                        body_mappings.append([body, body2])
+                tfile = open("/groups/scheffer/home/plazas/remappings.json", 'w')
+                import json
+                tfile.write(json.dumps(body_mappings))
+            """
 
             # ignore smallest bodies (GT noise could complicate comparisons)
             fmerge_vi, fsplit_vi, fmerge_bodies, fsplit_bodies, vi_bodies = \

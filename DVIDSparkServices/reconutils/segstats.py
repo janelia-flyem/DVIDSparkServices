@@ -425,6 +425,10 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
 
         for key, val in gtcontribs.items():
             perbody[key] += val
+    
+    # TODO !! Add per body
+    if glb_total == 0:
+        return 0, 0, fmerge_bodies, fsplit_bodies, perbody
 
     for key, val in fsplit_bodies.items():
         fsplit_bodies[key] = round(val/float(glb_total),4)
@@ -435,9 +439,6 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
     for key, val in perbody.items():
         perbody[key] = round(val/float(glb_total),4)
 
-    # TODO !! Add per body
-    if glb_total == 0:
-        return 0, 0, fmerge_bodies, fsplit_bodies, perbody
 
     return round(fmerge_vi/float(glb_total),4), round(fsplit_vi/float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
 

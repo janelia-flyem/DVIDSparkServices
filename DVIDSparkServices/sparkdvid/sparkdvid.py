@@ -294,7 +294,7 @@ class sparkdvid(object):
                                                   compress=True )
                 
                 # mask ROI
-                if roi != "":
+                if roiname != "":
                     mask_roi(data, subvolume)        
 
                 return data

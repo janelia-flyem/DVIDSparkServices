@@ -90,6 +90,14 @@ class EvaluateSeg(DVIDWorkflow):
           "description": "radial width of boundary for GT to mask out",
           "type": "integer",
           "default": 2
+        },
+        "important-bodies": {
+          "description": "filter metrics based on this list of GT bodies",
+          "type": "array",
+          "items": {"type": "number"},
+          "minItems": 0,
+          "uniqueItems": true,
+          "default": []
         }
       },
       "required" : ["body-threshold", "chunk-size", "boundary-size"]
@@ -141,7 +149,33 @@ class EvaluateSeg(DVIDWorkflow):
                 self.config_data["dvid-info-comp"]["dvid-server"],
                 self.config_data["dvid-info-comp"]["uuid"],
                 self.config_data["dvid-info-comp"]["label-name"], self.config_data["dvid-info"]["roi"])
+      
+        # filter bodies if there is a body list from GT
+        important_bodies = self.config_data["options"]["important-bodies"]
+
+        def filter_bodies(label_pairs):
+            from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+            import numpy
+
+            subvolume, labelgtc, label2c = label_pairs
+
+            # extract numpy arrays
+            labelgt = labelgtc.deserialize()
+            
+            # filter bodies from gt
+            bodylist = numpy.unique(labelgt)
+            intersecting_bodies = set(bodylist).intersection(set(important_bodies))
+            mask = numpy.zeros(labelgt.shape)
+            for body in intersecting_bodies:
+                mask[labelgt==body] = 1
+            labelgt[mask==0] = 0
+
+            # compress results
+            return (subvolume, CompressedNumpyArray(labelgt), label2c)
        
+        if len(important_bodies) > 0:
+            lpairs = lpairs.mapValues(filter_bodies)
+
         def _split_disjoint_labels(label_pairs):
             """Helper function: map subvolumes so disconnected bodies are different labels.
 

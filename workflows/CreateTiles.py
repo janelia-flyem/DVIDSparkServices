@@ -152,7 +152,8 @@ class CreateTiles(DVIDWorkflow):
             from scipy import ndimage
             import StringIO
             import numpy
-            
+            s = requests.Session()
+
             # create thread pool for parallel
             from multiprocessing.dummy import Pool as ThreadPool
             NUM_THREADS = 4
@@ -162,7 +163,7 @@ class CreateTiles(DVIDWorkflow):
             # actually perform tile load
             def loadTile(reqpair):
                 urlreq, reqbuff = reqpair 
-                requests.post(urlreq , data=reqbuff)
+                s.post(urlreq , data=reqbuff)
 
             work_queue = []
             # iterate slice by slice
