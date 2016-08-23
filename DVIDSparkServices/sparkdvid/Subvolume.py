@@ -41,6 +41,28 @@ class Subvolume(object):
         self.border = border
         self.local_regions = []
 
+    def __eq__(self, other):
+        return (self.roi_id == other.roi_id and
+                self.max_id == other.max_id and
+                self.roi == other.roi and
+                self.border == other.border)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+    
+    def __hash__(self):
+        return hash( (self.roi_id, self.max_id, self.roi, self.border) )
+
+    @property
+    def roi_with_border(self):
+        """
+        Read-only property.
+        Same as self.roi, but expanded to include the border.
+        """
+        x1, y1, z1, x2, y2, z2 = self.roi
+        return SubvolumeNamedTuple(x1 - self.border, y1 - self.border, z1 - self.border,
+                                   x2 + self.border, y2 + self.border, z2 + self.border)
+
     # assume line[0] < line[1] and add border in calculation 
     def intersects(self, line1, line2):
         pt1, pt2 = line1[0], line1[1]
@@ -72,7 +94,9 @@ class Subvolume(object):
         linez2 = [roi2.roi.z1, roi2.roi.z2]
        
         # check intersection
-        if (self.touches(linex1[0], linex1[1], linex2[0], linex2[1]) and self.intersects(liney1, liney2) and self.intersects(linez1, linez2)) or (self.touches(liney1[0], liney1[1], liney2[0], liney2[1]) and self.intersects(linex1, linex2) and self.intersects(linez1, linez2)) or (self.touches(linez1[0], linez1[1], linez2[0], linez2[1]) and self.intersects(liney1, liney2) and self.intersects(linex1, linex2)):
+        if (self.touches(linex1[0], linex1[1], linex2[0], linex2[1]) and self.intersects(liney1, liney2) and self.intersects(linez1, linez2)) \
+        or (self.touches(liney1[0], liney1[1], liney2[0], liney2[1]) and self.intersects(linex1, linex2) and self.intersects(linez1, linez2)) \
+        or (self.touches(linez1[0], linez1[1], linez2[0], linez2[1]) and self.intersects(liney1, liney2) and self.intersects(linex1, linex2)):
             # save overlapping substacks
             self.local_regions.append((roi2.roi_id, roi2.roi))
             roi2.local_regions.append((self.roi_id, self.roi))
