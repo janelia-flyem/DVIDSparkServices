@@ -16,7 +16,7 @@ small runtime fraction of the original compression.
 Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 
 """
-
+import functools
 import numpy
 import lz4
 
@@ -80,3 +80,18 @@ class CompressedNumpyArray(object):
             return numpy_array.transpose()
         else:
             return numpy_array
+
+def compress_result(f):
+    """
+    Decorator.
+    Calls the given function and compresses the result.
+    Useful for combining with other decorators, which may need to inspect the
+    uncompressed result before the function returns to the original caller.
+    """
+    @functools.wraps(f)
+    def wrapped(*args):
+        result = f(*args)
+        if result is None:
+            return None
+        return CompressedNumpyArray(result)
+    return wrapped
