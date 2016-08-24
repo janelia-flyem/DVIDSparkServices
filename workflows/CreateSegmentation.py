@@ -8,8 +8,8 @@ the results together.
 """
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
-import DVIDSparkServices
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.util import select_item
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
@@ -220,15 +220,18 @@ class CreateSegmentation(DVIDWorkflow):
             distsubvolumes_part = distsubvolumes.filter(subset_part)
 
             # get grayscale chunks with specified overlap
-            gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes_part,
+            sv_and_gray = self.sparkdvid_context.map_grayscale8(distsubvolumes_part,
                     self.config_data["dvid-info"]["grayscale"])
 
+            subvols = select_item(sv_and_gray, 1, 0)
+            gray_vols = select_item(sv_and_gray, 1, 1)
 
             # convert grayscale to compressed segmentation, maintain partitioner
             # save max id as well in substack info
-            pred_checkpoint_dir = seg_checkpoint_dir = checkpoint_dir
+            pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = checkpoint_dir
             if checkpoint_dir != "":
                 pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
+                sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
                 seg_checkpoint_dir = checkpoint_dir + "/segiter-" + str(iternum)
 
             # disable prediction checkpointing if rolling back at the iteration level
@@ -241,9 +244,9 @@ class CreateSegmentation(DVIDWorkflow):
             # small hack since segmentor is unaware for current iteration
             # perhaps just declare the segment function to have an arbitrary number of parameters
             if type(segmentor) == Segmentor:
-                seg_chunks = segmentor.segment(gray_chunks, pred_checkpoint_dir, rollback_pred, seg_checkpoint_dir, rollback_seg)
+                seg_chunks = segmentor.segment(subvols, gray_vols, pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir)
             else:
-                seg_chunks = segmentor.segment(gray_chunks, pred_checkpoint_dir, rollback_pred, seg_checkpoint_dir, rollback_seg)
+                seg_chunks = segmentor.segment(subvols, gray_vols)
 
             # any forced persistence will result in costly
             # pickling, lz4 compressed numpy array should help
@@ -266,6 +269,11 @@ class CreateSegmentation(DVIDWorkflow):
         # stitch the segmentation chunks
         # (preserves initial partitioning)
         mapped_seg_chunks = segmentor.stitch(seg_chunks)
+        
+        def prepend_key(item):
+            subvol, _ = item
+            return (subvol.roi_id, item)
+        mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
        
         if self.config_data["options"]["parallelwrites"] > 0:
             # coalesce to fewer partition if there is write bandwidth limits to DVID

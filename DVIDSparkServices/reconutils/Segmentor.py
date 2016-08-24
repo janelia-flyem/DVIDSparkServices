@@ -3,15 +3,17 @@ import os
 import json
 import importlib
 import textwrap
-from functools import partial
+from functools import partial, wraps
 import numpy as np
 
 from quilted.h5blockstore import H5BlockStore
 
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray, compress_result
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
+from DVIDSparkServices.util import zip_many
+from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 class Segmentor(object):
     """
@@ -139,7 +141,7 @@ class Segmentor(object):
             self.preserve_bodies = set(self.pdconf["bodies"])
 
 
-    def segment(self, gray_chunks, pred_checkpoint_dir="", enable_pred_rollback=False, seg_checkpoint_dir="", enable_seg_rollback=False):
+    def segment(self, subvols_rdd, gray_blocks, pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
         Defines a segmentation workflow consisting of voxel prediction,
@@ -149,26 +151,109 @@ class Segmentor(object):
         subvolume id is the key.
 
         Args:
-            gray_chunks (RDD) = (subvolume key, (subvolume, numpy grayscale))
-            checkpoint_dir (str) = enables checkpointing for boundary prediction if not empty
-            enable_pred_rollback (boolean) = enables rollback of prediction if available
+            gray_chunks, cached_voxel_prediction_chunks, cached_supervoxel_chunks, cached_segmentation_chunks (RDD) = (subvolume key, (subvolume, numpy grayscale))
         Returns:
             segmentation (RDD) as (subvolume key, (subvolume, numpy compressed array))
 
         """
+        subvols_with_seg_cache, subvols_without_seg_cache = self._split_subvols_by_cache_status( seg_checkpoint_dir, subvols_rdd.collect() )
+
+        cached_subvols_rdd = self.context.sc.parallelize(subvols_with_seg_cache)
+        uncached_subvols_rdd = self.context.sc.parallelize(subvols_without_seg_cache)
+        
+        cached_seg_blocks = self.context.sc.parallelize([]) # empty rdd
+
+        # Load as many seg blocks from cache as possible
+        if subvols_with_seg_cache:
+            def retrieve_seg_from_cache(subvol):
+                x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                block_bounds = ((z1, y1, x1), (z2, y2, x2))
+                block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
+                h5_block = block_store.read_block( block_bounds )
+                return CompressedNumpyArray(h5_block[:])
+            cached_seg_blocks = cached_subvols_rdd.map(retrieve_seg_from_cache)
+        
         # Compute mask of background area that can be skipped (if any)
-        gray_mask_chunks = self.compute_background_mask(gray_chunks)
-        
+        mask_blocks = self.compute_background_mask(uncached_subvols_rdd, gray_blocks)
+
         # run voxel prediction (default: grayscale is boundary)
-        pred_chunks = self.predict_voxels(gray_mask_chunks, pred_checkpoint_dir, enable_pred_rollback)
-        
+        pred_blocks = self.predict_voxels(uncached_subvols_rdd, gray_blocks, mask_blocks, pred_checkpoint_dir)
+
         # run watershed from voxel prediction (default: seeded watershed)
-        sp_chunks = self.create_supervoxels(pred_chunks)
+        sp_blocks = self.create_supervoxels(uncached_subvols_rdd, pred_blocks, mask_blocks, sp_checkpoint_dir)
 
         # run agglomeration (default: none)
-        segmentation = self.agglomerate_supervoxels(sp_chunks, seg_checkpoint_dir, enable_seg_rollback)
+        computed_seg_blocks = self.agglomerate_supervoxels(uncached_subvols_rdd, gray_blocks, pred_blocks, sp_blocks)
+        
+        cached_seg_blocks_kv = cached_seg_blocks.zip(cached_seg_blocks)
+        computed_seg_blocks_kv = uncached_subvols_rdd.zip(computed_seg_blocks)
+        return cached_seg_blocks_kv.union(computed_seg_blocks_kv)
 
-        return segmentation 
+    @classmethod
+    def _split_subvols_by_cache_status(cls, blockstore_dir, subvol_list):
+        assert isinstance(subvol_list, list), "Must be a list, not an RDD"
+        if not blockstore_dir:
+            return [], subvol_list
+
+        try:
+            block_store = H5BlockStore(blockstore_dir, mode='r')
+        except H5BlockStore.StoreDoesNotExistError:
+            return [], subvol_list
+
+        def is_cached(subvol):
+            x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+            if block_store.axes[-1] == 'c':
+                return ((z1, y1, x1, 0), (z2, y2, x2, None)) in block_store
+            else:
+                return ((z1, y1, x1), (z2, y2, x2)) in block_store
+                
+        subvols_with_cache = filter( is_cached, subvol_list )
+        subvols_without_cache = list(set(subvol_list) - set(subvols_with_cache))
+        return subvols_with_cache, subvols_without_cache
+        
+    @classmethod
+    def use_block_cache(cls, blockstore_dir):
+        """
+        Returns a decorator, intended to decorate functions that execute in spark workers.
+        Before performing the work, check the block cache in the given directory and return the data from the cache if possible.
+        If the data isn't there, execute the function as usual and store the result in the cache before returning.
+        """
+        def decorator(f):
+            if not blockstore_dir:
+                return f
+
+            @wraps(f)
+            def wrapped(item):
+                subvol = item[0]
+                assert isinstance(subvol, Subvolume), "Key must be a Subvolume object"
+        
+                try:
+                    block_store = H5BlockStore(blockstore_dir, mode='r')
+                except H5BlockStore.StoreDoesNotExistError:
+                    return f(item)
+
+                x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                if block_store.axes[-1] == 'c':
+                    block_bounds = ((z1, y1, x1, 0), (z2, y2, x2, None))
+                else:
+                    block_bounds = ((z1, y1, x1), (z2, y2, x2))
+                
+                try:
+                    h5_block = block_store.get_block( block_bounds )
+                    block_data = h5_block[:]
+                except H5BlockStore.MissingBlockError:
+                    block_data = f(item)
+                    assert block_data is None or isinstance(block_data, np.ndarray), \
+                        "Return type can't be stored in the block cache: {}".format( type(block_data) )
+                    if block_data is not None:
+                        block_store = H5BlockStore(blockstore_dir, mode='a')
+                        h5_block = block_store.get_block( block_bounds )
+                        h5_block[:] = block_data
+                return block_data
+            
+            return wrapped
+        return decorator
+
 
     def _get_segmentation_function(self, segmentation_step):
         """
@@ -186,66 +271,43 @@ class Segmentor(object):
         parameters = self.segmentor_config[segmentation_step]["parameters"]
         return partial( getattr(module, function_name), **parameters )
         
-    def compute_background_mask(self, gray_chunks):
+    def compute_background_mask(self, subvols, gray_vols):
         """
         Detect large 'background' regions that lie outside the area of interest for segmentation.
         """
         mask_function = self._get_segmentation_function('background-mask')
-        def _execute_for_chunk(gray_chunk):
-            (subvolume, gray) = gray_chunk
+        def _execute_for_chunk(subvol_and_gray):
+            (_subvolume, gray) = subvol_and_gray
 
             # Call the (custom) function
             mask = mask_function(gray)
             
             if mask is None:
-                return (subvolume, gray, None)
+                return None
             else:
                 assert mask.dtype == np.bool, "Mask array should be boolean"
                 assert mask.ndim == 3
-            return (subvolume, gray, CompressedNumpyArray(mask))
+            return CompressedNumpyArray(mask)
 
-        return gray_chunks.mapValues(_execute_for_chunk)
+        subvols_and_grays = subvols.zip(gray_vols)
+        mask_vols = subvols_and_grays.map(_execute_for_chunk, True)
+        return mask_vols
 
-    def predict_voxels(self, gray_mask_chunks, checkpoint_dir=None, enable_pred_rollback=False):
+    def predict_voxels(self, subvols, gray_blocks, mask_blocks, pred_checkpoint_dir):
         """Create a dummy placeholder boundary channel from grayscale.
 
         Takes an RDD of grayscale numpy volumes and produces
         an RDD of predictions (z,y,x).
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
-        def _execute_for_chunk(gray_mask_chunk):
+        
+        @compress_result
+        @Segmentor.use_block_cache(pred_checkpoint_dir)
+        def _execute_for_chunk(subvol_gray_mask_chunk):
+            (subvolume, gray, mask_compressed) = subvol_gray_mask_chunk
+            roi = subvolume.roi_with_border
+            block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
 
-            (subvolume, gray, mask_compressed) = gray_mask_chunk
-            roi = subvolume.roi
-            border = subvolume.border
-            block_bounds_zyx = ( (roi.z1 - border, roi.y1 - border, roi.x1 - border),
-                                 (roi.z2 + border, roi.y2 + border, roi.x2 + border) )
-
-            # Can we load the predictions from on-disk cache?
-            if enable_pred_rollback and checkpoint_dir:
-                try:
-                    block_store = H5BlockStore(checkpoint_dir, mode='r')
-                except H5BlockStore.StoreDoesNotExistError:
-                    pass
-                else:
-                    try:
-                        # We don't actually know how many channels are in the predictions,
-                        # but we need to figure it out in order to get the right block.
-                        # Get the number of channels by inspecting the first block
-                        block_bounds_list = block_store.get_block_bounds_list()
-                        num_channels = block_bounds_list[0][1][-1] # first block, upper bound, last index
-                    except IndexError:
-                        pass
-                    else:
-                        try:
-                            # Return the predictions we found on-disk (if it's there)
-                            block_bounds_zyxc = ( block_bounds_zyx[0] + (0,),
-                                                  block_bounds_zyx[1] + (num_channels,) )
-                            prediction_block = block_store.get_block( block_bounds_zyxc )
-                            return ( subvolume, gray, CompressedNumpyArray(prediction_block[:]), mask_compressed )
-                        except H5BlockStore.MissingBlockError:
-                            pass
-            
             # mask can be None
             assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
             mask = mask_compressed and mask_compressed.deserialize()
@@ -255,21 +317,14 @@ class Segmentor(object):
             assert predictions.ndim == 4, "Predictions volume should be 4D: z-y-x-c"
             assert predictions.dtype == np.float32, "Predictions should be float32"
             assert predictions.shape[:3] == tuple(np.array(block_bounds_zyx[1]) - block_bounds_zyx[0]), \
-                "predictions have unexpected shape: {}, expected block_bounds: {}".format( predictions.shape, block_bounds_zyx )
+                "predictions have unexpected shape: {}, expected block_bounds: {}"\
+                .format( predictions.shape, block_bounds_zyx )
 
-            if checkpoint_dir:
-                num_channels = predictions.shape[-1]
-                block_bounds_zyxc = ( block_bounds_zyx[0] + (0,),
-                                      block_bounds_zyx[1] + (num_channels,) )
-                block_store = H5BlockStore(checkpoint_dir, mode='a', axes='zyxc', dtype=np.float32)
-                block = block_store.get_block( block_bounds_zyxc )
-                block[:] = predictions
+            return predictions # Note @compress_result decorator, above
+             
+        return zip_many(subvols, gray_blocks, mask_blocks).map(_execute_for_chunk, True)
 
-            return ( subvolume, gray, CompressedNumpyArray(predictions), mask_compressed )
-
-        return gray_mask_chunks.mapValues(_execute_for_chunk)
-
-    def create_supervoxels(self, prediction_chunks):
+    def create_supervoxels(self, subvols, pred_blocks, mask_blocks, sp_checkpoint_dir):
         """Performs watershed based on voxel prediction.
 
         Takes an RDD of numpy volumes with multiple prediction
@@ -292,8 +347,12 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
+        @compress_result
+        @Segmentor.use_block_cache(sp_checkpoint_dir)
         def _execute_for_chunk(prediction_chunks):
-            (subvolume, gray, prediction_compressed, mask_compressed) = prediction_chunks
+            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
+            roi = subvolume.roi_with_border
+            block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
             # mask can be None
             assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
             mask = mask_compressed and mask_compressed.deserialize()
@@ -351,13 +410,15 @@ class Segmentor(object):
             
             assert supervoxels.ndim == 3, "Supervoxels should be 3D (no channel dimension)"
             assert supervoxels.dtype == np.uint32, "Supervoxels for a single chunk should be uint32"
+            assert supervoxels.shape == tuple(np.array(block_bounds_zyx[1]) - block_bounds_zyx[0]), \
+                "segmentation block has unexpected shape: {}, expected block_bounds: {}"\
+                .format( supervoxels.shape, block_bounds_zyx )
             
-            supervoxels_compressed = CompressedNumpyArray(supervoxels)
-            return (subvolume, gray, prediction_compressed, supervoxels_compressed)
+            return supervoxels # Note @compress_result decorator, above
 
-        return prediction_chunks.mapValues(_execute_for_chunk)
+        return zip_many(subvols, pred_blocks, mask_blocks).map(_execute_for_chunk, True)
 
-    def agglomerate_supervoxels(self, sp_chunks, checkpoint_dir, enable_seg_rollback):
+    def agglomerate_supervoxels(self, subvols, gray_blocks, pred_blocks, sp_blocks):
         """Agglomerate supervoxels
 
         Note: agglomeration should contain a subset of supervoxel
@@ -375,26 +436,11 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
+        @compress_result
         def _execute_for_chunk(sp_chunk):
             (subvolume, gray, prediction_compressed, supervoxels_compressed) = sp_chunk
-            roi = subvolume.roi
-            border = subvolume.border
-            block_bounds_zyx = ( (roi.z1 - border, roi.y1 - border, roi.x1 - border),
-                                 (roi.z2 + border, roi.y2 + border, roi.x2 + border) )
-            
-            # Can we load the segmentation from on-disk cache?
-            if enable_seg_rollback and checkpoint_dir:
-                try:
-                    block_store = H5BlockStore(checkpoint_dir, mode='r')
-                except H5BlockStore.StoreDoesNotExistError:
-                    pass
-                else:
-                    try:
-                        # Return the segmentation we found on-disk
-                        segmentation_block = block_store.get_block( block_bounds_zyx )
-                        return ( subvolume, CompressedNumpyArray(segmentation_block[:]) )
-                    except H5BlockStore.MissingBlockError:
-                        pass
+            roi = subvolume.roi_with_border
+            block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
             
             supervoxels = supervoxels_compressed.deserialize()
             predictions = prediction_compressed.deserialize()
@@ -417,30 +463,31 @@ class Segmentor(object):
             agglomerated = agglomeration_function(gray, predictions, supervoxels)
             assert agglomerated.ndim == 3, "Agglomerated supervoxels should be 3D (no channel dimension)"
             assert agglomerated.dtype == np.uint32, "Agglomerated supervoxels for a single chunk should be uint32"
-           
+            assert agglomerated.shape == tuple(np.array(block_bounds_zyx[1]) - block_bounds_zyx[0]), \
+                "segmentation block has unexpected shape: {}, expected block_bounds: {}"\
+                .format( agglomerated.shape, block_bounds_zyx )
+
             # ?! assumes that agglomeration function reuses label ids
             # reinsert bodies
             if mask_bodies is not None:
                 for body in mask_bodies:
                     agglomerated[curr_seg == body] = body
 
-            if checkpoint_dir:
-                block_store = H5BlockStore(checkpoint_dir, mode='a', axes='zyx', dtype=np.uint32)
-                block = block_store.get_block( block_bounds_zyx )
-                block[:] = agglomerated
-            
-            agglomerated_compressed = CompressedNumpyArray(agglomerated)
-            return (subvolume, agglomerated_compressed)
+            return agglomerated # Note @compress_result decorator, above
 
         # preserver partitioner
-        return sp_chunks.mapValues(_execute_for_chunk)
+        return zip_many(subvols, gray_blocks, pred_blocks, sp_blocks).map(_execute_for_chunk, True)
     
 
     # label volumes to label volumes remapped, preserves partitioner 
     def stitch(self, label_chunks):
-        def example(stuff):
-            return stuff[1][0]
-        subvolumes = label_chunks.map(example).collect()
+        def select_item(rdd, *indexes):
+            def _select(item):
+                for i in indexes:
+                    item = item[i]
+                return item
+            return rdd.map(_select)
+        subvolumes = select_item(label_chunks, 0).collect()
 
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
@@ -477,7 +524,7 @@ class Segmentor(object):
 
             import numpy
 
-            oldkey, (subvolume, labelsc) = key_labels
+            subvolume, labelsc = key_labels
             labels = labelsc.deserialize()
 
             boundary_array = []
@@ -842,6 +889,6 @@ class Segmentor(object):
 
         # just map values with broadcast map
         # Potential TODO: consider fast join with partitioned map (not broadcast)
-        return label_chunks.mapValues(relabel)
+        return label_chunks.map(relabel)
 
 

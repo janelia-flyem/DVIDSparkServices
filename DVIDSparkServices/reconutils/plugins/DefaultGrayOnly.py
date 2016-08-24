@@ -10,7 +10,7 @@ from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArra
 
 class DefaultGrayOnly(Segmentor):
 
-    def segment(self, gray_chunks):
+    def segment(self, subvols, gray_vols):
         """
         Simple, default seeded watershed off of grayscale, using nothing
         but the (inverted) grayscale intensities as membrane probabilities.
@@ -33,4 +33,4 @@ class DefaultGrayOnly(Segmentor):
             return (subvolume, agglomerated_sp_compressed)
 
         # preserver partitioner
-        return gray_chunks.mapValues(_segment)
+        return subvols.zip(gray_vols).map(_segment)
