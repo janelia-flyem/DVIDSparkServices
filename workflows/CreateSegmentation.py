@@ -10,6 +10,8 @@ import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.util import select_item
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
@@ -207,6 +209,16 @@ class CreateSegmentation(DVIDWorkflow):
         rollback_pred = (rollback_seg or self.config_data["options"]["checkpoint"] == "voxel")
 
         for iternum in range(0, num_iters):
+            pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
+            sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
+            seg_checkpoint_dir = checkpoint_dir + "/segiter-" + str(iternum)
+
+            # Disable rollback by setting checkpoint dirs to empty
+            if checkpoint_dir == "" or not rollback_pred:
+                pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = ""
+            elif not rollback_seg:
+                seg_checkpoint_dir = ""
+
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
             # is randomish than this should be fine
@@ -215,38 +227,55 @@ class CreateSegmentation(DVIDWorkflow):
                 if (s_id % num_iters) == iternum:
                     return True
                 return False
-            
+
             # should preserve partitioner
             distsubvolumes_part = distsubvolumes.filter(subset_part)
 
+            subvols_with_seg_cache, subvols_without_seg_cache = \
+                CreateSegmentation._split_subvols_by_cache_status( seg_checkpoint_dir,
+                                                                   distsubvolumes_part.values().collect() )
+    
+            cached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_with_seg_cache)
+    
+            # Load as many seg blocks from cache as possible
+            if subvols_with_seg_cache:
+                def retrieve_seg_from_cache(subvol):
+                    x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                    block_bounds = ((z1, y1, x1), (z2, y2, x2))
+                    block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
+                    h5_block = block_store.read_block( block_bounds )
+                    return CompressedNumpyArray(h5_block[:])
+                cached_seg_chunks = cached_subvols_rdd.map(retrieve_seg_from_cache)
+            else:
+                cached_seg_chunks = self.sparkdvid_context.sc.parallelize([]) # empty rdd
+
+            cached_seg_chunks_kv = cached_subvols_rdd.zip(cached_seg_chunks)
+            
+            uncached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache)
+
+            def prepend_roi_id(subvol):
+                return (subvol.roi_id, subvol)
+            uncached_subvols_kv_rdd = uncached_subvols_rdd.map(prepend_roi_id)
+
             # get grayscale chunks with specified overlap
-            sv_and_gray = self.sparkdvid_context.map_grayscale8(distsubvolumes_part,
-                    self.config_data["dvid-info"]["grayscale"])
+            uncached_sv_and_gray = self.sparkdvid_context.map_grayscale8(uncached_subvols_kv_rdd,
+                                                                         self.config_data["dvid-info"]["grayscale"])
 
-            subvols = select_item(sv_and_gray, 1, 0)
-            gray_vols = select_item(sv_and_gray, 1, 1)
+            uncached_subvols = select_item(uncached_sv_and_gray, 1, 0)
+            uncached_gray_vols = select_item(uncached_sv_and_gray, 1, 1)
 
-            # convert grayscale to compressed segmentation, maintain partitioner
-            # save max id as well in substack info
-            pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = checkpoint_dir
-            if checkpoint_dir != "":
-                pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
-                sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
-                seg_checkpoint_dir = checkpoint_dir + "/segiter-" + str(iternum)
-
-            # disable prediction checkpointing if rolling back at the iteration level
-            # as this will cause unnecessary jobs to execute.  In principle, the
-            # prediction could be rolled back as well which would only add some
-            # unnecessary overhead to the per iteration rollback
-            #if rollback_seg:
-            #    pred_checkpoint_dir = ""
 
             # small hack since segmentor is unaware for current iteration
             # perhaps just declare the segment function to have an arbitrary number of parameters
             if type(segmentor) == Segmentor:
-                seg_chunks = segmentor.segment(subvols, gray_vols, pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir)
+                computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols,
+                                                        pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir)
             else:
-                seg_chunks = segmentor.segment(subvols, gray_vols)
+                computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols)
+
+            computed_seg_chunks_kv = uncached_subvols.zip(computed_seg_chunks)
+        
+            seg_chunks = cached_seg_chunks_kv.union(computed_seg_chunks_kv)
 
             # any forced persistence will result in costly
             # pickling, lz4 compressed numpy array should help
@@ -306,6 +335,28 @@ class CreateSegmentation(DVIDWorkflow):
             md5.update( numpy.getbuffer(label_volume) )
             print "DEBUG: ", md5.hexdigest()
 
+    @classmethod
+    def _split_subvols_by_cache_status(cls, blockstore_dir, subvol_list):
+        assert isinstance(subvol_list, list), "Must be a list, not an RDD"
+        if not blockstore_dir:
+            return [], subvol_list
+
+        try:
+            block_store = H5BlockStore(blockstore_dir, mode='r')
+        except H5BlockStore.StoreDoesNotExistError:
+            return [], subvol_list
+
+        def is_cached(subvol):
+            x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+            if block_store.axes[-1] == 'c':
+                return ((z1, y1, x1, 0), (z2, y2, x2, None)) in block_store
+            else:
+                return ((z1, y1, x1), (z2, y2, x2)) in block_store
+                
+        subvols_with_cache = filter( is_cached, subvol_list )
+        subvols_without_cache = list(set(subvol_list) - set(subvols_with_cache))
+        return subvols_with_cache, subvols_without_cache
+        
     @staticmethod
     def dumpschema():
         return CreateSegmentation.Schema
