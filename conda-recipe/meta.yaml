@@ -34,9 +34,8 @@ requirements:
     - pillow
     - scipy
     - python-lz4
-    - ilastik-deps-pc-headless
+    - ilastik-versions-no-solvers 1.2*
     - ilastik-meta
-    - wsdt >=0.2.post2
 
 test:
   requires:
