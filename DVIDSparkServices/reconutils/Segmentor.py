@@ -257,9 +257,7 @@ class Segmentor(object):
                 assert mask.ndim == 3
             return CompressedNumpyArray(mask)
 
-        subvols_and_grays = subvols.zip(gray_vols)
-        mask_vols = subvols_and_grays.map(_execute_for_chunk, True)
-        return mask_vols
+        return subvols.zip(gray_vols).map(_execute_for_chunk, True)
 
     def predict_voxels(self, subvols, gray_blocks, mask_blocks, pred_checkpoint_dir):
         """Create a dummy placeholder boundary channel from grayscale.
@@ -290,7 +288,7 @@ class Segmentor(object):
 
             return predictions # Note @compress_result decorator, above
              
-        return zip_many(subvols, gray_blocks, mask_blocks).map(_execute_for_chunk, True)
+        return subvols.zip( gray_blocks.zip(mask_blocks) ).map(_execute_for_chunk, True)
 
     def create_supervoxels(self, subvols, pred_blocks, mask_blocks, sp_checkpoint_dir):
         """Performs watershed based on voxel prediction.
@@ -384,7 +382,7 @@ class Segmentor(object):
             
             return supervoxels # Note @compress_result decorator, above
 
-        return zip_many(subvols, pred_blocks, mask_blocks).map(_execute_for_chunk, True)
+        return subvols.zip( pred_blocks.zip(mask_blocks) ).map(_execute_for_chunk, True)
 
     def agglomerate_supervoxels(self, subvols, gray_blocks, pred_blocks, sp_blocks, seg_checkpoint_dir):
         """Agglomerate supervoxels
@@ -444,8 +442,8 @@ class Segmentor(object):
 
             return agglomerated # Note @compress_result decorator, above
 
-        # preserver partitioner
-        return zip_many(subvols, gray_blocks, pred_blocks, sp_blocks).map(_execute_for_chunk, True)
+        # preserve partitioner
+        return subvols.zip( zip_many(gray_blocks, pred_blocks, sp_blocks) ).map(_execute_for_chunk, True)
     
 
     # label volumes to label volumes remapped, preserves partitioner 
