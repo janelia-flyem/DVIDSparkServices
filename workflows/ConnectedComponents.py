@@ -96,13 +96,14 @@ class ConnectedComponents(DVIDWorkflow):
         seg_chunks = self.sparkdvid_context.map_labels64(distsubvolumes,
                 self.config_data["dvid-info"]["segmentation"],
                 self.overlap/2, self.config_data["dvid-info"]["roi"])
+
         # pass substack with labels (no shuffling)
         seg_chunks2 = distsubvolumes.join(seg_chunks) 
         distsubvolumes.unpersist()
         
         # run connected components
         def connected_components(seg_chunk):
-            substack, seg = seg_chunk
+            subvolume, seg = seg_chunk
             from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
             seg2, dummy = split_disconnected_bodies(seg)
 
@@ -118,17 +119,15 @@ class ConnectedComponents(DVIDWorkflow):
             vectorized_relabel = numpy.frompyfunc(remap.__getitem__, 1, 1)
             seg2 = vectorized_relabel(seg2).astype(numpy.uint32)
 
-           
-            substack.set_max_id( seg2.max() )
-            return (substack, seg2)
+            return (subvolume, (seg2, seg2.max()))
 
+        # (roi_d, (subvolume, labels)) -> (roi_d, (labels, max_id))
         seg_chunks_cc = seg_chunks2.mapValues(connected_components)
 
-        from DVIDSparkServices.reconutils.Segmentor import Segmentor
         # stitch the segmentation chunks
         # (preserves initial partitioning)
-        from DVIDSparkServices.reconutils.morpho import stitch 
-        mapped_seg_chunks = stitch(self.sparkdvid_context.sc, seg_chunks_cc)
+        from DVIDSparkServices.reconutils.morpho import stitch
+        mapped_seg_chunks = stitch(self.sparkdvid_context.sc, seg_chunks_cc.values())
        
 
         # coalesce to fewer partitions (!!TEMPORARY SINCE THERE ARE WRITE BANDWIDTH LIMITS TO DVID)

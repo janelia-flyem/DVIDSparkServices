@@ -7,6 +7,7 @@ the results together.
 
 """
 import textwrap
+import numpy as np
 import DVIDSparkServices
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -234,7 +235,10 @@ class CreateSegmentation(DVIDWorkflow):
             subvols_with_seg_cache, subvols_without_seg_cache = \
                 CreateSegmentation._split_subvols_by_cache_status( seg_checkpoint_dir,
                                                                    distsubvolumes_part.values().collect() )
-    
+
+            ##
+            ## CACHED SUBVOLS
+            ##    
             cached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_with_seg_cache)
     
             # Load as many seg blocks from cache as possible
@@ -249,8 +253,14 @@ class CreateSegmentation(DVIDWorkflow):
             else:
                 cached_seg_chunks = self.sparkdvid_context.sc.parallelize([]) # empty rdd
 
-            cached_seg_chunks_kv = cached_subvols_rdd.zip(cached_seg_chunks)
+            cached_seg_max_ids = cached_seg_chunks.map(np.max)
             
+            # (subvol, (seg, max_id))
+            cached_seg_chunks_kv = cached_subvols_rdd.zip( cached_seg_chunks.zip(cached_seg_max_ids) )
+
+            ##
+            ## UNCACHED SUBVOLS
+            ##    
             uncached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache)
 
             def prepend_roi_id(subvol):
@@ -272,8 +282,16 @@ class CreateSegmentation(DVIDWorkflow):
             else:
                 computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols)
 
-            computed_seg_chunks_kv = uncached_subvols.zip(computed_seg_chunks)
+            computed_seg_max_ids = computed_seg_chunks.map( np.max )
+            
+            # (subvol, (seg, max_id))
+            computed_seg_chunks_kv = uncached_subvols.zip( computed_seg_chunks.zip(computed_seg_max_ids) )
         
+            ##
+            ## FINAL LIST: COMBINED CACHED+UNCACHED
+            ##
+        
+            # (subvol, (seg, max_id))
             seg_chunks = cached_seg_chunks_kv.union(computed_seg_chunks_kv)
 
             # any forced persistence will result in costly

@@ -11,7 +11,7 @@ from quilted.h5blockstore import H5BlockStore
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
-from DVIDSparkServices.util import zip_many
+from DVIDSparkServices.util import zip_many, select_item
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 class Segmentor(object):
@@ -347,7 +347,6 @@ class Segmentor(object):
 
             # Call the (custom) function
             supervoxels = supervoxel_function(prediction, mask)
-            subvolume.set_max_id( supervoxels.max() )
             
             # insert bodies back and avoid conflicts with pre-existing bodies
             if mask_bodies is not None:
@@ -433,13 +432,14 @@ class Segmentor(object):
 
     # label volumes to label volumes remapped, preserves partitioner 
     def stitch(self, label_chunks):
-        def select_item(rdd, *indexes):
-            def _select(item):
-                for i in indexes:
-                    item = item[i]
-                return item
-            return rdd.map(_select)
-        subvolumes = select_item(label_chunks, 0).collect()
+        """
+        label_chunks (RDD): [ (subvol, (seg_vol, max_id)),
+                              (subvol, (seg_vol, max_id)),
+                              ... ]
+        """
+        subvolumes_rdd = select_item(label_chunks, 0)
+        subvolumes = subvolumes_rdd.collect()
+        max_ids = select_item(label_chunks, 1, 1).collect()
 
         # return all subvolumes back to the driver
         # create offset map (substack id => offset) and broadcast
@@ -453,13 +453,14 @@ class Segmentor(object):
         if pdconf is not None:
             num_preserve = len(pdconf["bodies"])
         
-        for subvolume in subvolumes:
+        for subvolume, max_id in zip(subvolumes, max_ids):
             offsets[subvolume.roi_id] = offset
-            offset += subvolume.max_id
+            offset += max_id
             offset += num_preserve
         subvolume_offsets = self.context.sc.broadcast(offsets)
 
-        # (key, subvolume, label chunk)=> (new key, (subvolume, boundary))
+        # (subvol, label_vol) => [ (roi_id_1, roi_id_2), (subvol, boundary_labels)), 
+        #                          (roi_id_1, roi_id_2), (subvol, boundary_labels)), ...] 
         def extract_boundaries(key_labels):
             # compute overlap -- assume first point is less than second
             def intersects(pt1, pt2, pt1_2, pt2_2):
@@ -488,9 +489,6 @@ class Segmentor(object):
                 if key2 < key1:
                     key1, key2 = key2, key1
                 
-                # create key for boundary pair
-                newkey = (key1, key2)
-
                 # crop volume to overlap
                 offx1, offx2, offx1_2, offx2_2 = intersects(
                                 subvolume.roi.x1-subvolume.border,
@@ -513,6 +511,9 @@ class Segmentor(object):
                             
                 labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
 
+                # create key for boundary pair
+                newkey = (key1, key2)
+
                 # add to flat map
                 boundary_array.append((newkey, (subvolume, labels_cropped)))
 
@@ -520,7 +521,11 @@ class Segmentor(object):
 
 
         # return compressed boundaries (id1-id2, boundary)
-        mapped_boundaries = label_chunks.flatMap(extract_boundaries) 
+        # (subvol, labels) -> [ ( (k1, k2), (subvol, boundary_labels_1) ),
+        #                       ( (k1, k2), (subvol, boundary_labels_1) ),
+        #                       ( (k1, k2), (subvol, boundary_labels_1) ), ... ]
+        label_vols_rdd = select_item(label_chunks, 1, 0)
+        mapped_boundaries = subvolumes_rdd.zip(label_vols_rdd).flatMap(extract_boundaries) 
 
         # shuffle the hopefully smallish boundaries into their proper spot
         # groupby is not a big deal here since same keys will not be in the same partition
@@ -835,6 +840,8 @@ class Segmentor(object):
 
         # just map values with broadcast map
         # Potential TODO: consider fast join with partitioned map (not broadcast)
-        return label_chunks.map(relabel)
+        # (subvol, labels) -> (subvol, labels)
+        label_vols_rdd = select_item(label_chunks, 1, 0)
+        return subvolumes_rdd.zip(label_vols_rdd).map(relabel)
 
 

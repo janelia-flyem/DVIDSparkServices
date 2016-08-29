@@ -32,7 +32,6 @@ class Subvolume(object):
         """
 
         self.roi_id = roi_id
-        self.max_id = 0
         self.roi = SubvolumeNamedTuple(roi[0],
                     roi[1], roi[2],
                     roi[0] + chunk_size,
@@ -43,7 +42,6 @@ class Subvolume(object):
 
     def __eq__(self, other):
         return (self.roi_id == other.roi_id and
-                self.max_id == other.max_id and
                 self.roi == other.roi and
                 self.border == other.border)
 
@@ -51,7 +49,7 @@ class Subvolume(object):
         return not self.__eq__(other)
     
     def __hash__(self):
-        return hash( (self.roi_id, self.max_id, self.roi, self.border) )
+        return hash( (self.roi_id, self.roi, self.border) )
 
     @property
     def roi_with_border(self):
@@ -77,12 +75,6 @@ class Subvolume(object):
         if p1 == p2_2 or p2 == p1_2:
             return True
         return False
-
-    def set_max_id(self, max_id):
-        self.max_id = max_id
-
-    def get_max_id(self, max_id):
-        return self.max_id
 
     # returns true if two rois overlap
     def recordborder(self, roi2):

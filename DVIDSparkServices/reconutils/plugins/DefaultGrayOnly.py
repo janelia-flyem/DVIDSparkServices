@@ -18,17 +18,13 @@ class DefaultGrayOnly(Segmentor):
         # TODO: should mask out based on ROI ?!
         # (either mask gray or provide mask separately)
         def _segment(gray_chunks):
-            (subvolume, gray) = gray_chunks
+            (_subvolume, gray) = gray_chunks
 
             mask = misc.find_large_empty_regions(gray)
             predictions = misc.naive_membrane_predictions(gray, mask)
             supervoxels = misc.seeded_watershed(predictions, mask, seed_threshold=0.2, seed_size=5 )
             agglomerated_sp = misc.noop_aggolmeration(gray, predictions, supervoxels)
-            
-            max_id = agglomerated_sp.max()
-            subvolume.set_max_id(max_id)
-
             return agglomerated_sp
 
         # preserver partitioner
-        return subvols.zip(gray_vols).map(_segment)
+        return subvols.zip(gray_vols).map(_segment, True)
