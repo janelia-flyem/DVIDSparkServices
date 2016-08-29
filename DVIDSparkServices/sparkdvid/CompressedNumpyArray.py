@@ -36,11 +36,7 @@ class CompressedNumpyArray(object):
    
     def __init__(self, numpy_array):
         """Serializes and compresses the numpy array with LZ4"""
-
-        # This would be easy to fix but I'm too lazy right now.
-        assert numpy_array.ndim > 1, \
-            "This class doesn't support 1D arrays."
-
+        
         self.serialized_subarrays = []
         if numpy_array.flags['F_CONTIGUOUS']:
             self.layout = 'F'
@@ -53,8 +49,13 @@ class CompressedNumpyArray(object):
         self.dtype = numpy_array.dtype
         self.shape = numpy_array.shape
 
-        for subarray in numpy_array:
-            self.serialized_subarrays.append( self.serialize_subarray(subarray) )
+        # For 1D or 0D arrays, serialize everything in one buffer.
+        if numpy_array.ndim <= 1:
+            self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
+        else:
+            # For ND arrays, serialize each slice independently, to ease RAM usage
+            for subarray in numpy_array:
+                self.serialized_subarrays.append( self.serialize_subarray(subarray) )
 
     @classmethod
     def serialize_subarray(cls, subarray):
@@ -72,9 +73,14 @@ class CompressedNumpyArray(object):
         """Extract the numpy array"""
         numpy_array = numpy.ndarray( shape=self.shape, dtype=self.dtype )
         
-        for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
-            buf = lz4.loads(serialized_subarray)
-            subarray[:] = numpy.frombuffer(buf, self.dtype).reshape( subarray.shape )
+        # See serialization of 1D and 0D arrays, above.
+        if numpy_array.ndim <= 1:
+            buf = lz4.loads(self.serialized_subarrays[0])
+            numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
+        else:
+            for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
+                buf = lz4.loads(serialized_subarray)
+                subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
          
         if self.layout == 'F':
             return numpy_array.transpose()
