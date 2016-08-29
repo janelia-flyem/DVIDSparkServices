@@ -47,5 +47,5 @@ def join_many(*rdds):
     
     while rdds:
         next_rdd, rdds = rdds[0], rdds[1:]
-        result = result.join(next_rdd).map(condense_value)
+        result = result.join(next_rdd).map(condense_value, True)
     return result
