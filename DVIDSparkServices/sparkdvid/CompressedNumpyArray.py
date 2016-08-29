@@ -17,7 +17,6 @@ Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 
 """
 import copy_reg
-import functools
 import numpy as np
 import lz4
 
@@ -142,19 +141,4 @@ def reconstruct_ndarray_from_compressed(compressed_array, view_type, view_dict):
     if view_dict is not None:
         view.__dict__ = view_dict
     return view
-
-def compress_result(f):
-    """
-    Decorator.
-    Calls the given function and compresses the result.
-    Useful for combining with other decorators, which may need to inspect the
-    uncompressed result before the function returns to the original caller.
-    """
-    @functools.wraps(f)
-    def wrapped(*args):
-        result = f(*args)
-        if result is None:
-            return None
-        return CompressedNumpyArray(result)
-    return wrapped
 

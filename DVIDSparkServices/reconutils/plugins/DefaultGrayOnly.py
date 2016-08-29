@@ -6,7 +6,6 @@ plugin architecture.
 """
 from DVIDSparkServices.reconutils import misc
 from DVIDSparkServices.reconutils.Segmentor import Segmentor
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 class DefaultGrayOnly(Segmentor):
 
@@ -29,8 +28,7 @@ class DefaultGrayOnly(Segmentor):
             max_id = agglomerated_sp.max()
             subvolume.set_max_id(max_id)
 
-            agglomerated_sp_compressed = CompressedNumpyArray(agglomerated_sp)
-            return (subvolume, agglomerated_sp_compressed)
+            return agglomerated_sp
 
         # preserver partitioner
         return subvols.zip(gray_vols).map(_segment)

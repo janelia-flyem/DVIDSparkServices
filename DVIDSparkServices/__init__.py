@@ -4,6 +4,10 @@ if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_
     import tempfile
     tempfile.tempdir = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
 
+# Activate compressed numpy pickling in all workflows
+from .sparkdvid.CompressedNumpyArray import activate_compressed_numpy_pickling
+activate_compressed_numpy_pickling()
+
 def connect_debugger():
     import sys
     import os

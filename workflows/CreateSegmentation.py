@@ -7,10 +7,10 @@ the results together.
 
 """
 import textwrap
+import DVIDSparkServices
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.util import select_item
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
@@ -244,7 +244,7 @@ class CreateSegmentation(DVIDWorkflow):
                     block_bounds = ((z1, y1, x1), (z2, y2, x2))
                     block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
                     h5_block = block_store.read_block( block_bounds )
-                    return CompressedNumpyArray(h5_block[:])
+                    return h5_block[:]
                 cached_seg_chunks = cached_subvols_rdd.map(retrieve_seg_from_cache)
             else:
                 cached_seg_chunks = self.sparkdvid_context.sc.parallelize([]) # empty rdd
@@ -263,7 +263,6 @@ class CreateSegmentation(DVIDWorkflow):
 
             uncached_subvols = select_item(uncached_sv_and_gray, 1, 0)
             uncached_gray_vols = select_item(uncached_sv_and_gray, 1, 1)
-
 
             # small hack since segmentor is unaware for current iteration
             # perhaps just declare the segment function to have an arbitrary number of parameters

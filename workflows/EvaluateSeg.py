@@ -155,22 +155,15 @@ class EvaluateSeg(DVIDWorkflow):
         
             """
             from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
-            from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
             
-            subvolume, labelgtc, label2c = label_pairs
-
-            # extract numpy arrays
-            labelgt = labelgtc.deserialize()
-            label2 = label2c.deserialize()
+            subvolume, labelgt, label2 = label_pairs
 
             # split bodies up
             labelgt_split, labelgt_map = split_disconnected_bodies(labelgt)
             label2_split, label2_map = split_disconnected_bodies(label2)
             
             # compress results
-            return (subvolume, labelgt_map, label2_map,
-                    CompressedNumpyArray(labelgt_split),
-                    CompressedNumpyArray(label2_split))
+            return (subvolume, labelgt_map, label2_map, labelgt_split, label2_split)
 
 
         # split bodies that are merged outside of the subvolume

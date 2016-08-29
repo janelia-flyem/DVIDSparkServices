@@ -8,7 +8,6 @@ import numpy as np
 
 from quilted.h5blockstore import H5BlockStore
 
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray, compress_result
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
@@ -166,12 +165,12 @@ class Segmentor(object):
         sp_blocks = self.create_supervoxels(subvols_rdd, pred_blocks, mask_blocks, sp_checkpoint_dir)
 
         # run agglomeration (default: none)
-        computed_seg_blocks = self.agglomerate_supervoxels(subvols_rdd, gray_blocks, pred_blocks, sp_blocks, seg_checkpoint_dir)
+        seg_blocks = self.agglomerate_supervoxels(subvols_rdd, gray_blocks, pred_blocks, sp_blocks, seg_checkpoint_dir)
         
-        return computed_seg_blocks
+        return seg_blocks
 
     @classmethod
-    def use_block_cache(cls, blockstore_dir, allow_read=True, allow_write=True):
+    def use_block_cache(cls, blockstore_dir, allow_read=True, allow_write=True, result_index=None):
         """
         Returns a decorator, intended to decorate functions that execute in spark workers.
         Before performing the work, check the block cache in the given directory and return the data from the cache if possible.
@@ -244,8 +243,8 @@ class Segmentor(object):
         Detect large 'background' regions that lie outside the area of interest for segmentation.
         """
         mask_function = self._get_segmentation_function('background-mask')
-        def _execute_for_chunk(subvol_and_gray):
-            (_subvolume, gray) = subvol_and_gray
+        def _execute_for_chunk(args):
+            _subvolume, gray = args
 
             # Call the (custom) function
             mask = mask_function(gray)
@@ -255,7 +254,7 @@ class Segmentor(object):
             else:
                 assert mask.dtype == np.bool, "Mask array should be boolean"
                 assert mask.ndim == 3
-            return CompressedNumpyArray(mask)
+            return mask
 
         return subvols.zip(gray_vols).map(_execute_for_chunk, True)
 
@@ -267,16 +266,11 @@ class Segmentor(object):
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
         
-        @compress_result
         @Segmentor.use_block_cache(pred_checkpoint_dir)
-        def _execute_for_chunk(subvol_gray_mask_chunk):
-            (subvolume, gray, mask_compressed) = subvol_gray_mask_chunk
+        def _execute_for_chunk(args):
+            subvolume, (gray, mask) = args
             roi = subvolume.roi_with_border
             block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
-
-            # mask can be None
-            assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
-            mask = mask_compressed and mask_compressed.deserialize()
 
             # Call the (custom) function
             predictions = prediction_function(gray, mask)
@@ -286,7 +280,7 @@ class Segmentor(object):
                 "predictions have unexpected shape: {}, expected block_bounds: {}"\
                 .format( predictions.shape, block_bounds_zyx )
 
-            return predictions # Note @compress_result decorator, above
+            return predictions
              
         return subvols.zip( gray_blocks.zip(mask_blocks) ).map(_execute_for_chunk, True)
 
@@ -313,16 +307,11 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
-        @compress_result
         @Segmentor.use_block_cache(sp_checkpoint_dir)
-        def _execute_for_chunk(prediction_chunks):
-            (subvolume, prediction_compressed, mask_compressed) = prediction_chunks
+        def _execute_for_chunk(args):
+            subvolume, (prediction, mask) = args
             roi = subvolume.roi_with_border
             block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
-            # mask can be None
-            assert mask_compressed is None or isinstance( mask_compressed, CompressedNumpyArray )
-            mask = mask_compressed and mask_compressed.deserialize()
-            prediction = prediction_compressed.deserialize()
             if mask is None:
                 mask = np.ones(shape=prediction.shape[:-1], dtype=np.uint8)
 
@@ -380,7 +369,7 @@ class Segmentor(object):
                 "segmentation block has unexpected shape: {}, expected block_bounds: {}"\
                 .format( supervoxels.shape, block_bounds_zyx )
             
-            return supervoxels # Note @compress_result decorator, above
+            return supervoxels
 
         return subvols.zip( pred_blocks.zip(mask_blocks) ).map(_execute_for_chunk, True)
 
@@ -402,15 +391,11 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
-        @compress_result
         @Segmentor.use_block_cache(seg_checkpoint_dir)
-        def _execute_for_chunk(sp_chunk):
-            (subvolume, gray, prediction_compressed, supervoxels_compressed) = sp_chunk
+        def _execute_for_chunk(args):
+            subvolume, (gray, predictions, supervoxels) = args
             roi = subvolume.roi_with_border
             block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
-            
-            supervoxels = supervoxels_compressed.deserialize()
-            predictions = prediction_compressed.deserialize()
             
             # remove preserved bodies to ignore for agglomeration
             curr_seg = None
@@ -440,7 +425,7 @@ class Segmentor(object):
                 for body in mask_bodies:
                     agglomerated[curr_seg == body] = body
 
-            return agglomerated # Note @compress_result decorator, above
+            return agglomerated
 
         # preserve partitioner
         return subvols.zip( zip_many(gray_blocks, pred_blocks, sp_blocks) ).map(_execute_for_chunk, True)
@@ -491,8 +476,7 @@ class Segmentor(object):
 
             import numpy
 
-            subvolume, labelsc = key_labels
-            labels = labelsc.deserialize()
+            subvolume, labels = key_labels
 
             boundary_array = []
             
@@ -529,9 +513,8 @@ class Segmentor(object):
                             
                 labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
 
-                labels_cropped_c = CompressedNumpyArray(labels_cropped)
                 # add to flat map
-                boundary_array.append((newkey, (subvolume, labels_cropped_c)))
+                boundary_array.append((newkey, (subvolume, labels_cropped)))
 
             return boundary_array
 
@@ -561,15 +544,12 @@ class Segmentor(object):
                 boundary_list_list.append(item1)
 
             # order subvolume regions (they should be the same shape)
-            subvolume1, boundary1_c = boundary_list_list[0] 
-            subvolume2, boundary2_c = boundary_list_list[1] 
+            subvolume1, boundary1 = boundary_list_list[0] 
+            subvolume2, boundary2 = boundary_list_list[1] 
 
             if subvolume1.roi_id > subvolume2.roi_id:
                 subvolume1, subvolume2 = subvolume2, subvolume1
-                boundary1_c, boundary2_c = boundary2_c, boundary1_c
-
-            boundary1 = boundary1_c.deserialize()
-            boundary2 = boundary2_c.deserialize()
+                boundary1, boundary2 = boundary2, boundary1
 
             if boundary1.shape != boundary2.shape:
                 raise Exception("Extracted boundaries are different shapes")
@@ -797,8 +777,7 @@ class Segmentor(object):
         def relabel(key_label_mapping):
             import numpy
 
-            (subvolume, label_chunk_c) = key_label_mapping
-            labels = label_chunk_c.deserialize()
+            (subvolume, labels) = key_label_mapping
 
             # grab broadcast offset
             offset = subvolume_offsets.value[subvolume.roi_id]
@@ -852,7 +831,7 @@ class Segmentor(object):
             vectorized_relabel = numpy.frompyfunc(label_mappings.__getitem__, 1, 1)
             labels = vectorized_relabel(labels).astype(numpy.uint64)
        
-            return (subvolume, CompressedNumpyArray(labels))
+            return (subvolume, labels)
 
         # just map values with broadcast map
         # Potential TODO: consider fast join with partitioned map (not broadcast)

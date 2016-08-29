@@ -9,7 +9,6 @@ import libNeuroProofMetrics as np
 from skimage.measure import label
 from segstats import *
 import numpy
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 
 def split_disconnected_bodies(label2):
@@ -137,8 +136,7 @@ def stitch(sc, label_chunks):
 
         import numpy
 
-        oldkey, (subvolume, labelsc) = key_labels
-        labels = labelsc.deserialize()
+        oldkey, (subvolume, labels) = key_labels
 
         boundary_array = []
         
@@ -175,9 +173,8 @@ def stitch(sc, label_chunks):
                         
             labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
 
-            labels_cropped_c = CompressedNumpyArray(labels_cropped)
             # add to flat map
-            boundary_array.append((newkey, (subvolume, labels_cropped_c)))
+            boundary_array.append((newkey, (subvolume, labels_cropped)))
 
         return boundary_array
 
@@ -205,15 +202,12 @@ def stitch(sc, label_chunks):
             boundary_list_list.append(item1)
 
         # order subvolume regions (they should be the same shape)
-        subvolume1, boundary1_c = boundary_list_list[0] 
-        subvolume2, boundary2_c = boundary_list_list[1] 
+        subvolume1, boundary1 = boundary_list_list[0] 
+        subvolume2, boundary2 = boundary_list_list[1] 
 
         if subvolume1.roi_id > subvolume2.roi_id:
             subvolume1, subvolume2 = subvolume2, subvolume1
-            boundary1_c, boundary2_c = boundary2_c, boundary1_c
-
-        boundary1 = boundary1_c.deserialize()
-        boundary2 = boundary2_c.deserialize()
+            boundary1, boundary2 = boundary2, boundary1
 
         if boundary1.shape != boundary2.shape:
             raise Exception("Extracted boundaries are different shapes")
@@ -330,8 +324,7 @@ def stitch(sc, label_chunks):
     def relabel(key_label_mapping):
         import numpy
 
-        (subvolume, label_chunk_c) = key_label_mapping
-        labels = label_chunk_c.deserialize()
+        (subvolume, labels) = key_label_mapping
 
         # grab broadcast offset
         offset = subvolume_offsets.value[subvolume.roi_id]
@@ -357,7 +350,7 @@ def stitch(sc, label_chunks):
         vectorized_relabel = numpy.frompyfunc(label_mappings.__getitem__, 1, 1)
         labels = vectorized_relabel(labels).astype(numpy.uint64)
    
-        return (subvolume, CompressedNumpyArray(labels))
+        return (subvolume, labels)
 
     # just map values with broadcast map
     # Potential TODO: consider fast join with partitioned map (not broadcast)
