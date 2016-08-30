@@ -38,6 +38,7 @@ def execute_in_subprocess( stdout_callback=None ):
             _stdout_callback = stdout_callback
             if _stdout_callback is None:
                 logger = logging.getLogger(__name__ + '.' + func.__name__)
+                logger.setLevel(logging.INFO)
                 _stdout_callback = logger.info
 
             tmpdir = tempfile.mkdtemp()

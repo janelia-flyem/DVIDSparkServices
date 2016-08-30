@@ -1,5 +1,6 @@
 import numpy
 import vigra
+import logging
 
 def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     """
@@ -38,6 +39,10 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     Stand-in for membrane prediction, for testing purposes.
     Simply returns the inverted grayscale as our 'predictions'
     """
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    logger.info("Generating naive membrane predictions...")
+    
     low = grayscale_vol.min()
     high = grayscale_vol.max()
 
@@ -59,6 +64,8 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     # in-place
     grayscale_vol *= -1
     grayscale_vol += 1.0
+    logger.info("DONE generating naive membrane predictions...")
+
     return grayscale_vol[..., None] # Segmentor wants 4D predictions, so append channel axis
 
 def vigra_bincount(labels):

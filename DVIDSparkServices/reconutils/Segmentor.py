@@ -1,5 +1,6 @@
 """Defines base class for segmentation plugins."""
 import os
+import sys
 import json
 import importlib
 import textwrap
@@ -9,6 +10,7 @@ import numpy as np
 
 from quilted.h5blockstore import H5BlockStore
 
+import DVIDSparkServices
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
@@ -20,7 +22,6 @@ from logcollector.client_utils import make_log_collecting_decorator
 import socket
 driver_ip_addr = socket.gethostbyname(socket.gethostname())
 send_log_with_key = make_log_collecting_decorator(driver_ip_addr, 3000)
-
 
 class Segmentor(object):
     """
@@ -255,7 +256,8 @@ class Segmentor(object):
         
         if self.segmentor_config[segmentation_step]["use-subprocess"]:
             def log_msg(msg):
-                logging.getLogger(full_function_name).info(msg)
+                logger = logging.getLogger(full_function_name)
+                logger.info(msg.rstrip())
             func = execute_in_subprocess(log_msg)(func)
         
         parameters = self.segmentor_config[segmentation_step]["parameters"]
