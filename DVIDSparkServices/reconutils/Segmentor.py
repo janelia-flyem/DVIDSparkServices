@@ -291,7 +291,7 @@ class Segmentor(object):
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
 
-        @send_log_with_key(lambda (sv, _g, _mc): str(sv))
+        @send_log_with_key(lambda (sv, (_g, _mc)): str(sv))
         @Segmentor.use_block_cache(pred_checkpoint_dir)
         def _execute_for_chunk(args):
             subvolume, (gray, mask) = args
@@ -333,7 +333,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
-        @send_log_with_key(lambda (sv, _g, _pc, _mc): str(sv))
+        @send_log_with_key(lambda (sv, (_pc, _mc)): str(sv))
         @Segmentor.use_block_cache(sp_checkpoint_dir)
         def _execute_for_chunk(args):
             subvolume, (prediction, mask) = args
@@ -417,7 +417,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
-        @send_log_with_key(lambda (sv, _g, _pc, _sc): str(sv))
+        @send_log_with_key(lambda (sv, (_g, _pc, _sc)): str(sv))
         @Segmentor.use_block_cache(seg_checkpoint_dir)
         def _execute_for_chunk(args):
             subvolume, (gray, predictions, supervoxels) = args
