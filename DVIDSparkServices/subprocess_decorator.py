@@ -5,8 +5,9 @@ import tempfile
 import shutil
 import cPickle as pickle
 import logging
+import threading
 
-def execute_in_subprocess( stdout_callback=None ):
+def execute_in_subprocess( stdout_callback=None, timeout=0 ):
     """
     Returns a decorator-like function, but you can't actually use 
     decorator syntax (@) with it, for technical reasons.
@@ -45,33 +46,57 @@ def execute_in_subprocess( stdout_callback=None ):
             args_filepath = tmpdir + '/{}-input-args.pkl'.format(func.__name__)
             result_filepath = tmpdir + '/{}-result.pkl'.format(func.__name__)
             try:
+                # Write func/args to file
                 with Timer() as timer:
                     with open(args_filepath, 'w') as args_f:
                         pickle.dump((func, args, kwargs), args_f, protocol=2)
                 _stdout_callback("Serializing args took: {:.03f}\n".format(timer.seconds))
-                        
-                
+
+                # Start process                        
                 with Timer() as timer:
                     p = subprocess.Popen([sys.executable, __file__, args_filepath, result_filepath],
                                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
                 _stdout_callback("Process startup took: {:.03f}\n".format(timer.seconds))
-        
+
+                # Start timeout thread
+                killed_early = [False]
+                if timeout:
+                    def watchdog():
+                        for _ in range(int(timeout)):
+                            if p.poll() is not None:
+                                return
+                            time.sleep(1.0)
+
+                        # Uh-oh: timed out
+                        killed_early[0] = True
+                        p.kill()
+
+                    threading.Thread(target=watchdog).start()
+
+                # Wait for process to finish        
                 while True:
                     line = p.stdout.readline()
                     if line == '' and p.poll() is not None:
                         break
                     _stdout_callback(line)
-                
+
+                # Check for timeout
+                if killed_early[0]:
+                    raise RuntimeError("Killed '{}' subprocess after timeout of {} seconds.".format(func.__name__, timeout))
+
+                # Read result
                 with Timer() as timer:
                     with open(result_filepath, 'r') as result_f:
                         result = pickle.load(result_f)
                 _stdout_callback("Deserializing result took: {:.03f}\n".format(timer.seconds))
-                
+
+                # Check for other errors                
                 if isinstance(result, Exception):
                     raise RuntimeError("Failed to execute '{}' in a subprocess. Examine subprocess output for Traceback.".format(func.__name__))
 
                 return result
             finally:
+                # Clean up
                 shutil.rmtree(tmpdir)
         return wrapper
     return decorator
@@ -117,6 +142,7 @@ def test_helper(a,b,c):
     print a
     print b
     print c
+    time.sleep(c)
     return a + b + c
 
 if __name__ == "__main__":
