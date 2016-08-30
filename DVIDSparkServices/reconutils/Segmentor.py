@@ -170,12 +170,15 @@ class Segmentor(object):
         """
         # Compute mask of background area that can be skipped (if any)
         mask_blocks = self.compute_background_mask(subvols_rdd, gray_blocks)
+        mask_blocks.persist()
 
         # run voxel prediction (default: grayscale is boundary)
         pred_blocks = self.predict_voxels(subvols_rdd, gray_blocks, mask_blocks, pred_checkpoint_dir)
+        pred_blocks.persist()
 
         # run watershed from voxel prediction (default: seeded watershed)
         sp_blocks = self.create_supervoxels(subvols_rdd, pred_blocks, mask_blocks, sp_checkpoint_dir)
+        sp_blocks.persist()
 
         # run agglomeration (default: none)
         seg_blocks = self.agglomerate_supervoxels(subvols_rdd, gray_blocks, pred_blocks, sp_blocks, seg_checkpoint_dir)

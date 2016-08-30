@@ -309,6 +309,7 @@ class CreateSegmentation(DVIDWorkflow):
         
             # (subvol, (seg, max_id))
             seg_chunks = cached_seg_chunks_kv.union(computed_seg_chunks_kv)
+            seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
             seg_chunks_list.append(seg_chunks)
 
@@ -318,27 +319,29 @@ class CreateSegmentation(DVIDWorkflow):
             # ?? does this preserve the partitioner (yes, if num partitions is the same)
             # this could cause a serialization problems if there are a large number of iterations (>100)
             seg_chunks = seg_chunks.union(seg_chunks_list[iter1])
-        
+        del seg_chunks_list
+
         # persist through stitch
         # any forced persistence will result in costly
         # pickling, lz4 compressed numpy array should help
-        with persisted(seg_chunks, StorageLevel.MEMORY_AND_DISK_SER):
-            # stitch the segmentation chunks
-            # (preserves initial partitioning)
-            mapped_seg_chunks = segmentor.stitch(seg_chunks)
-            
-            def prepend_key(item):
-                subvol, _ = item
-                return (subvol.roi_id, item)
-            mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
-           
-            if self.config_data["options"]["parallelwrites"] > 0:
-                # coalesce to fewer partition if there is write bandwidth limits to DVID
-                mapped_seg_chunks = mapped_seg_chunks.coalesce(self.config_data["options"]["parallelwrites"])
-    
-            # write data to DVID
-            self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
-            self.logger.write_data("Wrote DVID labels") # write to logger after spark job
+        seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
+
+        # stitch the segmentation chunks
+        # (preserves initial partitioning)
+        mapped_seg_chunks = segmentor.stitch(seg_chunks)
+        
+        def prepend_key(item):
+            subvol, _ = item
+            return (subvol.roi_id, item)
+        mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
+       
+        if self.config_data["options"]["parallelwrites"] > 0:
+            # coalesce to fewer partition if there is write bandwidth limits to DVID
+            mapped_seg_chunks = mapped_seg_chunks.coalesce(self.config_data["options"]["parallelwrites"])
+
+        # write data to DVID
+        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
+        self.logger.write_data("Wrote DVID labels") # write to logger after spark job
 
         if self.config_data["options"]["debug"]:
             # grab 256 cube from ROI 
