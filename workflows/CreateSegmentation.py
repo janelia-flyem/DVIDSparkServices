@@ -13,7 +13,7 @@ import numpy as np
 import DVIDSparkServices
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import persisted, select_item
+from DVIDSparkServices.util import select_item
 from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):

@@ -1,11 +1,3 @@
-import contextlib
-
-@contextlib.contextmanager
-def persisted(rdd, *args, **kwargs):
-    rdd.persist(*args, **kwargs)
-    yield rdd
-    rdd.unpersist()
-
 def select_item(rdd, *indexes):
     """
     Given an RDD of tuples, return an RDD listing the Nth item from each tuple.
