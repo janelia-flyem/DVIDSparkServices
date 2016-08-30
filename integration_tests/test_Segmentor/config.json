@@ -7,6 +7,15 @@
         "grayscale": "grayscale"
     },
     "options": {
+        "segmentor": {
+          "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+          "configuration": {
+            "predict-voxels" : {
+              "function": "DVIDSparkServices.reconutils.misc.naive_membrane_predictions",
+              "use-subprocess": true
+            }
+          }
+        },
         "stitch-algorithm": "medium",
         "chunk-size": 128,
         "checkpoint": "none",

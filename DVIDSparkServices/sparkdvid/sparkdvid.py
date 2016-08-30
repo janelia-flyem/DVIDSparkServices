@@ -26,6 +26,45 @@ logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
 
+# masks data to 0 if outside of ROI stored in subvolume
+def mask_roi(data, subvolume):
+    import numpy
+    mask = numpy.zeros(data.shape)
+    for blk in subvolume.intersecting_blocks:
+        # grab range of block
+        x1,y1,z1 = blk
+        x1 *= subvolume.roi_blocksize
+        y1 *= subvolume.roi_blocksize
+        z1 *= subvolume.roi_blocksize
+
+        # adjust global location
+        x1 -= (subvolume.roi.x1-subvolume.border)
+        if x1 < 0:
+            x1 = 0
+        y1 -= (subvolume.roi.y1-subvolume.border)
+        if y1 < 0:
+            y1 = 0
+        z1 -= (subvolume.roi.z1-subvolume.border)
+        if z1 < 0:
+            z1 = 0
+        
+        x2 = x1+subvolume.roi_blocksize
+        if x2 > (subvolume.roi.x2 + subvolume.border):
+            x2 = subvolume.roi.x2 + subvolume.border
+        
+        y2 = y1+subvolume.roi_blocksize
+        if y2 > (subvolume.roi.y2 + subvolume.border):
+            y2 = subvolume.roi.y2 + subvolume.border
+        
+        z2 = z1+subvolume.roi_blocksize
+        if z2 > (subvolume.roi.z2 + subvolume.border):
+            z2 = subvolume.roi.z2 + subvolume.border
+
+        mask[z1:z2,y1:y2,x1:x2] = 1
+    data[mask==0] = 0
+
+
+
 def retrieve_node_service(server, uuid, appname="sparkservices"):
     """Create a DVID node service object"""
 
@@ -103,6 +142,8 @@ class sparkdvid(object):
 
         """
 
+        # (map blocks to y,z lines, iterate everything including border and add relevant xy lines) 
+
         # function will export and should include dependencies
         subvolumes = [] # x,y,z,x2,y2,z2
 
@@ -112,12 +153,25 @@ class sparkdvid(object):
         
         # libdvid returns substack namedtuples as (size, z, y, x), but we want (x,y,z)
         substacks = map(lambda s: (s.x, s.y, s.z), substacks)
-       
+      
+        # grab roi blocks (should use libdvid but there are problems handling 206 status)
+        import requests
+        addr = self.dvid_server + "/api/node/" + str(self.uuid) + "/" + str(roi) + "/roi"
+        if not self.dvid_server.startswith("http://"):
+            addr = "http://" + addr
+        data = requests.get(addr)
+        roi_blocks = data.json()
+
         # create roi array giving unique substack ids
         for substack_id, substack in enumerate(substacks):
             # use substack id as key
             subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border))) 
-   
+  
+        for (sid, subvol) in subvolumes:
+            # find interesecting ROI lines for substack+border and store for substack
+            subvol.add_intersecting_blocks(roi_blocks)
+
+
 
         # grab all neighbors for each substack
         if find_neighbors:
@@ -199,7 +253,6 @@ class sparkdvid(object):
 
         return distsubvolumes.mapValues(mapper)
 
-
     def map_labels64(self, distrois, label_name, border, roiname=""):
         """Creates RDD of labelblk data from subvolumes.
 
@@ -234,12 +287,17 @@ class sparkdvid(object):
                 node_service = retrieve_node_service(server, uuid)
                 # retrieve data from roi start position considering border
                 # Note: libdvid uses zyx order for python functions
-                return node_service.get_labels3D( str(label_name),
+                data = node_service.get_labels3D( str(label_name),
                                                   (size3,size2,size1),
                                                   (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
-                                                  compress=True,
-                                                  roi=str(roiname) )
-            return get_labels()
+                                                  compress=True )
+                
+                # mask ROI
+                if roiname != "":
+                    mask_roi(data, subvolume)        
+
+                return data
+
 
         return distrois.mapValues(mapper)
 
@@ -282,9 +340,15 @@ class sparkdvid(object):
                 node_service = retrieve_node_service(server, uuid)
                 # retrieve data from roi start position
                 # Note: libdvid uses zyx order for python functions
-                return node_service.get_labels3D( str(label_name),
+                data = node_service.get_labels3D( str(label_name),
                                                   (size3,size2,size1),
-                                                  (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]), roi=str(roiname))
+                                                  (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
+                
+                # mask ROI
+                if roiname != "":
+                    mask_roi(data, subvolume)        
+
+                return data
             label_volume = get_labels()
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)

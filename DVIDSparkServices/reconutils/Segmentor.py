@@ -4,6 +4,7 @@ import json
 import importlib
 import textwrap
 from functools import partial, wraps
+import logging
 import numpy as np
 
 from quilted.h5blockstore import H5BlockStore
@@ -13,6 +14,13 @@ from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.util import zip_many, select_item
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
+from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
+
+from logcollector.client_utils import make_log_collecting_decorator
+import socket
+driver_ip_addr = socket.gethostbyname(socket.gethostname())
+send_log_with_key = make_log_collecting_decorator(driver_ip_addr, 3000)
+
 
 class Segmentor(object):
     """
@@ -62,6 +70,11 @@ class Segmentor(object):
                   "description": "Arbitrary dict of parameters.",
                   "type": "object",
                   "default" : {}
+                },
+                "use-subprocess" : {
+                  "description": "Run this segmentation step in a subprocess, to enable logging of plain stdout.",
+                  "type": "boolean",
+                  "default": false
                 }
               },
               "additionalProperties": false
@@ -232,17 +245,26 @@ class Segmentor(object):
         """
         full_function_name = self.segmentor_config[segmentation_step]["function"]
         module_name = '.'.join(full_function_name.split('.')[:-1])
-        function_name = full_function_name.split('.')[-1]
         module = importlib.import_module(module_name)
+        function_name = full_function_name.split('.')[-1]
+        func = getattr(module, function_name)
+        
+        
+        if self.segmentor_config[segmentation_step]["use-subprocess"]:
+            def log_msg(msg):
+                logging.getLogger(full_function_name).info(msg)
+            func = execute_in_subprocess(log_msg)(func)
         
         parameters = self.segmentor_config[segmentation_step]["parameters"]
-        return partial( getattr(module, function_name), **parameters )
+        return partial( func, **parameters )
         
     def compute_background_mask(self, subvols, gray_vols):
         """
         Detect large 'background' regions that lie outside the area of interest for segmentation.
         """
         mask_function = self._get_segmentation_function('background-mask')
+
+        @send_log_with_key(lambda (sv, _g): str(sv))
         def _execute_for_chunk(args):
             _subvolume, gray = args
 
@@ -265,7 +287,8 @@ class Segmentor(object):
         an RDD of predictions (z,y,x).
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
-        
+
+        @send_log_with_key(lambda (sv, _g, _mc): str(sv))
         @Segmentor.use_block_cache(pred_checkpoint_dir)
         def _execute_for_chunk(args):
             subvolume, (gray, mask) = args
@@ -307,6 +330,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
+        @send_log_with_key(lambda (sv, _g, _pc, _mc): str(sv))
         @Segmentor.use_block_cache(sp_checkpoint_dir)
         def _execute_for_chunk(args):
             subvolume, (prediction, mask) = args
@@ -390,6 +414,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
+        @send_log_with_key(lambda (sv, _g, _pc, _sc): str(sv))
         @Segmentor.use_block_cache(seg_checkpoint_dir)
         def _execute_for_chunk(args):
             subvolume, (gray, predictions, supervoxels) = args
