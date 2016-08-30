@@ -40,7 +40,7 @@ class TestSubprocessDecorator(unittest.TestCase):
         try:
             _result = execute_in_subprocess(lambda msg: None, timeout=1.0)(test_helper)(1,2,3)
         except RuntimeError:
-            raise
+            pass
         else:
             assert False, "Expected a timeout error."
         

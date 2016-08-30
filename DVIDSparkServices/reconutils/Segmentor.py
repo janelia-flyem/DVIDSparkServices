@@ -76,6 +76,11 @@ class Segmentor(object):
                   "description": "Run this segmentation step in a subprocess, to enable logging of plain stdout.",
                   "type": "boolean",
                   "default": false
+                },
+                "subprocess-timeout" : {
+                  "description": "Automatically kill the subprocess after this timeout and raise an error.",
+                  "type": "integer",
+                  "default": 0
                 }
               },
               "additionalProperties": false
@@ -253,12 +258,15 @@ class Segmentor(object):
         function_name = full_function_name.split('.')[-1]
         func = getattr(module, function_name)
         
-        
         if self.segmentor_config[segmentation_step]["use-subprocess"]:
+            timeout = self.segmentor_config[segmentation_step]["subprocess-timeout"]
             def log_msg(msg):
                 logger = logging.getLogger(full_function_name)
                 logger.info(msg.rstrip())
-            func = execute_in_subprocess(log_msg)(func)
+            func = execute_in_subprocess(log_msg, timeout)(func)
+        else:
+            assert self.segmentor_config[segmentation_step]["subprocess-timeout"] == 0, \
+                "Can't use subprocess-timeout without use-subprocess: True"
         
         parameters = self.segmentor_config[segmentation_step]["parameters"]
         return partial( func, **parameters )
