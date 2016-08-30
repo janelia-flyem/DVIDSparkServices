@@ -2,12 +2,14 @@
 import json
 import importlib
 import textwrap
+import logging
 from functools import partial
 import numpy as np
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
+from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 
 from logcollector.client_utils import make_log_collecting_decorator
 import socket
@@ -63,6 +65,11 @@ class Segmentor(object):
                   "description": "Arbitrary dict of parameters.",
                   "type": "object",
                   "default" : {}
+                },
+                "use-subprocess" : {
+                  "description": "Run this segmentation step in a subprocess, to enable logging of plain stdout.",
+                  "type": "boolean",
+                  "default": false
                 }
               },
               "additionalProperties": false
@@ -187,11 +194,18 @@ class Segmentor(object):
         """
         full_function_name = self.segmentor_config[segmentation_step]["function"]
         module_name = '.'.join(full_function_name.split('.')[:-1])
-        function_name = full_function_name.split('.')[-1]
         module = importlib.import_module(module_name)
+        function_name = full_function_name.split('.')[-1]
+        func = getattr(module, function_name)
+        
+        
+        if self.segmentor_config[segmentation_step]["use-subprocess"]:
+            def log_msg(msg):
+                logging.getLogger(full_function_name).info(msg)
+            func = execute_in_subprocess(log_msg)(func)
         
         parameters = self.segmentor_config[segmentation_step]["parameters"]
-        return partial( getattr(module, function_name), **parameters )
+        return partial( func, **parameters )
         
     def compute_background_mask(self, gray_chunks):
         """
