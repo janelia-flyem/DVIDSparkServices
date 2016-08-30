@@ -436,6 +436,8 @@ class Segmentor(object):
         label_chunks (RDD): [ (subvol, (seg_vol, max_id)),
                               (subvol, (seg_vol, max_id)),
                               ... ]
+        NOTE: It is assumed that label_chunks is already persisted.
+              If not, redundant work is performed here.
         """
         subvolumes_rdd = select_item(label_chunks, 0)
         subvolumes = subvolumes_rdd.collect()

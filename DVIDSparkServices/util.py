@@ -1,17 +1,31 @@
+import contextlib
+
+@contextlib.contextmanager
+def persisted(rdd, *args, **kwargs):
+    rdd.persist(*args, **kwargs)
+    yield rdd
+    rdd.unpersist()
+
 def select_item(rdd, *indexes):
     """
     Given an RDD of tuples, return an RDD listing the Nth item from each tuple.
     If the tuples are nested, you can provide multiple indexes to drill down to the element you want.
     
+    For now, each index must be either 0 or 1.
+    
+    NOTE: Multiple calls to this function will result in redundant calculations.
+          You should probably persist() the rdd before calling this function.
+    
     >>> rdd = sc.parallelize([('foo', ('a', 'b')), ('bar', ('c', 'd'))])
     >>> select_item(rdd, 1, 0).collect()
     ['b', 'd']
     """
-    def _select(item):
-        for i in indexes:
-            item = item[i]
-        return item
-    return rdd.map(_select)
+    for i in indexes:
+        if i == 0:
+            rdd = rdd.keys()
+        else:
+            rdd = rdd.values()
+    return rdd
 
 def zip_many(*rdds):
     """

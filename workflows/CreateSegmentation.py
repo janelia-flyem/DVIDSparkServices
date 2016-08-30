@@ -11,7 +11,7 @@ import numpy as np
 import DVIDSparkServices
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import select_item
+from DVIDSparkServices.util import persisted, select_item
 from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
@@ -261,17 +261,17 @@ class CreateSegmentation(DVIDWorkflow):
             ##
             ## UNCACHED SUBVOLS
             ##    
-            uncached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache)
+            uncached_subvols = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache)
+            uncached_subvols.persist()
 
             def prepend_roi_id(subvol):
                 return (subvol.roi_id, subvol)
-            uncached_subvols_kv_rdd = uncached_subvols_rdd.map(prepend_roi_id)
+            uncached_subvols_kv_rdd = uncached_subvols.map(prepend_roi_id)
 
             # get grayscale chunks with specified overlap
             uncached_sv_and_gray = self.sparkdvid_context.map_grayscale8(uncached_subvols_kv_rdd,
                                                                          self.config_data["dvid-info"]["grayscale"])
 
-            uncached_subvols = select_item(uncached_sv_and_gray, 1, 0)
             uncached_gray_vols = select_item(uncached_sv_and_gray, 1, 1)
 
             # small hack since segmentor is unaware for current iteration
@@ -294,10 +294,6 @@ class CreateSegmentation(DVIDWorkflow):
             # (subvol, (seg, max_id))
             seg_chunks = cached_seg_chunks_kv.union(computed_seg_chunks_kv)
 
-            # any forced persistence will result in costly
-            # pickling, lz4 compressed numpy array should help
-            seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
-
             seg_chunks_list.append(seg_chunks)
 
         seg_chunks = seg_chunks_list[0]
@@ -310,27 +306,23 @@ class CreateSegmentation(DVIDWorkflow):
         # persist through stitch
         # any forced persistence will result in costly
         # pickling, lz4 compressed numpy array should help
-        seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
-
-        # stitch the segmentation chunks
-        # (preserves initial partitioning)
-        mapped_seg_chunks = segmentor.stitch(seg_chunks)
-        
-        def prepend_key(item):
-            subvol, _ = item
-            return (subvol.roi_id, item)
-        mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
-       
-        if self.config_data["options"]["parallelwrites"] > 0:
-            # coalesce to fewer partition if there is write bandwidth limits to DVID
-            mapped_seg_chunks = mapped_seg_chunks.coalesce(self.config_data["options"]["parallelwrites"])
-
-        # write data to DVID
-        self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
-        self.logger.write_data("Wrote DVID labels") # write to logger after spark job
-        
-        # no longer need seg chunks
-        seg_chunks.unpersist()
+        with persisted(seg_chunks, StorageLevel.MEMORY_AND_DISK_SER):
+            # stitch the segmentation chunks
+            # (preserves initial partitioning)
+            mapped_seg_chunks = segmentor.stitch(seg_chunks)
+            
+            def prepend_key(item):
+                subvol, _ = item
+                return (subvol.roi_id, item)
+            mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
+           
+            if self.config_data["options"]["parallelwrites"] > 0:
+                # coalesce to fewer partition if there is write bandwidth limits to DVID
+                mapped_seg_chunks = mapped_seg_chunks.coalesce(self.config_data["options"]["parallelwrites"])
+    
+            # write data to DVID
+            self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
+            self.logger.write_data("Wrote DVID labels") # write to logger after spark job
 
         if self.config_data["options"]["debug"]:
             # grab 256 cube from ROI 
