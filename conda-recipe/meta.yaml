@@ -37,6 +37,7 @@ requirements:
     - ilastik-deps-pc-headless
     - ilastik-meta
     - wsdt >=0.2.post2
+    - quilted >=0.0.post13
 
 test:
   requires:
