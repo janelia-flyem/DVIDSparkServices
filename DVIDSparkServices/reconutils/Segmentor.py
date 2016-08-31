@@ -202,15 +202,15 @@ class Segmentor(object):
             if not blockstore_dir:
                 return f
 
+            # Ensure cache directory exists
+            H5BlockStore(blockstore_dir, 'a')
+
             @wraps(f)
             def wrapped(item):
                 subvol = item[0]
                 assert isinstance(subvol, Subvolume), "Key must be a Subvolume object"
         
-                try:
-                    block_store = H5BlockStore(blockstore_dir, mode='r')
-                except H5BlockStore.StoreDoesNotExistError:
-                    return f(item)
+                block_store = H5BlockStore(blockstore_dir, mode='r')
 
                 x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
                 if block_store.axes[-1] == 'c':
