@@ -226,15 +226,14 @@ class CreateSegmentation(DVIDWorkflow):
         rollback_pred = (rollback_seg or self.config_data["options"]["checkpoint"] == "voxel")
 
         for iternum in range(0, num_iters):
-            pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
-            sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
-            seg_checkpoint_dir = checkpoint_dir + "/segiter-" + str(iternum)
-
             # Disable rollback by setting checkpoint dirs to empty
-            if checkpoint_dir == "" or not rollback_pred:
-                pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = ""
-            elif not rollback_seg:
-                seg_checkpoint_dir = ""
+            pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = ""
+            if checkpoint_dir != "":
+                pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
+                seg_checkpoint_dir = checkpoint_dir + "/segiter-" + str(iternum)
+
+                # Leave SP cache empty for now -- it should be cheap to compute.
+                #sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
 
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
@@ -263,7 +262,7 @@ class CreateSegmentation(DVIDWorkflow):
                     x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
                     block_bounds = ((z1, y1, x1), (z2, y2, x2))
                     block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
-                    h5_block = block_store.read_block( block_bounds )
+                    h5_block = block_store.get_block( block_bounds )
                     return h5_block[:]
                 cached_seg_chunks = cached_subvols_rdd.map(retrieve_seg_from_cache)
             else:
@@ -294,7 +293,8 @@ class CreateSegmentation(DVIDWorkflow):
             # perhaps just declare the segment function to have an arbitrary number of parameters
             if type(segmentor) == Segmentor:
                 computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols,
-                                                        pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir)
+                                                        pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir,
+                                                        rollback_pred, False, rollback_seg)
             else:
                 computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols)
 
