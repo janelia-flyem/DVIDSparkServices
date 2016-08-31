@@ -55,7 +55,12 @@ class Subvolume(object):
         return not self.__eq__(other)
     
     def __hash__(self):
-        return hash( (self.roi_id, self.roi, self.border) )
+        # TODO: We still assume unique roi_ids, and only use that in the hash,
+        #       so that partitioning with roi_id is equivalent to partitioning on the Subvolume itself.
+        #       If sparkdvid functions (e.g. map_grayscale8) are ever changed not to partition over roi_id,
+        #       then we can change this hash function to include the other members, such as border, etc.
+        #return hash( (self.roi_id, self.roi, self.border) )
+        return hash(self.roi_id)
 
     @property
     def roi_with_border(self):
