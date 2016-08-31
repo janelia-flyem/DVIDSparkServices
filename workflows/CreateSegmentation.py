@@ -255,7 +255,7 @@ class CreateSegmentation(DVIDWorkflow):
             ##
             ## CACHED SUBVOLS
             ##    
-            cached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_with_seg_cache)
+            cached_subvols_rdd = self.sparkdvid_context.sc.parallelize(subvols_with_seg_cache, len(subvols_with_seg_cache) or None)
     
             # Load as many seg blocks from cache as possible
             if subvols_with_seg_cache:
@@ -277,7 +277,7 @@ class CreateSegmentation(DVIDWorkflow):
             ##
             ## UNCACHED SUBVOLS
             ##    
-            uncached_subvols = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache)
+            uncached_subvols = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache, len(subvols_without_seg_cache) or None)
             uncached_subvols.persist()
 
             def prepend_roi_id(subvol):
