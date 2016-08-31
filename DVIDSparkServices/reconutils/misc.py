@@ -5,7 +5,7 @@ import logging
 def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     """
     Returns mask that excludes large background (0-valued) regions, if any exist.
-    """    
+    """
     if grayscale_vol.all():
         # No background pixels.
         # We could return all ones, but we are also allowed
@@ -40,7 +40,7 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     Simply returns the inverted grayscale as our 'predictions'
     """
     logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
+    logger.info('status=naive membrane predictions')
     logger.info("Generating naive membrane predictions...")
     
     low = grayscale_vol.min()
@@ -66,6 +66,7 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     grayscale_vol += 1.0
     logger.info("DONE generating naive membrane predictions...")
 
+    logger.info('status=naive membrane predictions complete')
     return grayscale_vol[..., None] # Segmentor wants 4D predictions, so append channel axis
 
 def vigra_bincount(labels):
@@ -106,6 +107,9 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
         removed from the result.  A second-pass watershed is used to allow the remaining
         segments to fill in the gaps left by the removed segments.
     """
+    logger = logging.getLogger(__name__)
+    logger.info('status=seeded watershed')
+
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
     boundary_volume = vigra.taggedView(boundary_volume, 'zyx')
@@ -149,6 +153,8 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
     
     if mask is not None:
         watershed[inverted_mask] = 0
+
+    logger.info('status=seeded watershed complete')
     return watershed
 
 def noop_aggolmeration(grayscale_volume, bounary_volume, supervoxels):

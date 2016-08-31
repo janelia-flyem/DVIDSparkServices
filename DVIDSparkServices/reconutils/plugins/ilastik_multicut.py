@@ -1,4 +1,5 @@
 def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, logfile="/dev/null", extra_cmdline_args=[]):
+    print 'status=multicut'
     print "Starting ilastik_multicut() ..."
     print "grayscale volume: dtype={}, shape={}".format(str(grayscale.dtype), grayscale.shape)
     print "boundary volume: dtype={}, shape={}".format(str(bounary_volume.dtype), bounary_volume.shape)
@@ -82,4 +83,5 @@ def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_
     segmentation = segmentation_list[0]
 
     assert segmentation.ndim == 3
+    print 'status=multicut finished'
     return segmentation
