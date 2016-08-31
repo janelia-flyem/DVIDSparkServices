@@ -281,6 +281,7 @@ class Segmentor(object):
 
         @send_log_with_key(lambda (sv, _g): str(sv))
         def _execute_for_chunk(args):
+            import DVIDSparkServices
             _subvolume, gray = args
 
             # Call the (custom) function
@@ -306,6 +307,8 @@ class Segmentor(object):
         @send_log_with_key(lambda (sv, (_g, _mc)): str(sv))
         @Segmentor.use_block_cache(pred_checkpoint_dir, allow_read=allow_pred_rollback)
         def _execute_for_chunk(args):
+            import DVIDSparkServices
+
             subvolume, (gray, mask) = args
             roi = subvolume.roi_with_border
             block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
@@ -348,6 +351,7 @@ class Segmentor(object):
         @send_log_with_key(lambda (sv, (_pc, _mc)): str(sv))
         @Segmentor.use_block_cache(sp_checkpoint_dir, allow_read=allow_sp_rollback)
         def _execute_for_chunk(args):
+            import DVIDSparkServices
             subvolume, (prediction, mask) = args
             roi = subvolume.roi_with_border
             block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
@@ -432,6 +436,7 @@ class Segmentor(object):
         @send_log_with_key(lambda (sv, (_g, _pc, _sc)): str(sv))
         @Segmentor.use_block_cache(seg_checkpoint_dir, allow_read=allow_seg_rollback)
         def _execute_for_chunk(args):
+            import DVIDSparkServices
             subvolume, (gray, predictions, supervoxels) = args
             roi = subvolume.roi_with_border
             block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )

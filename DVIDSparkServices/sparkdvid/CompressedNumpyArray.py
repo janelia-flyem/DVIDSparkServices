@@ -19,6 +19,7 @@ Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 import copy_reg
 import numpy as np
 import lz4
+import logging
 
 def activate_compressed_numpy_pickling():
     """
@@ -114,7 +115,8 @@ def reduce_ndarray_compressed(a):
     they can be trivially reconstructed using ndarray.view() combined with
     direct assignment of the view's __dict__.
     """
-    #print "PICKLING COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(type(a)), str(a.dtype), a.shape)
+    logger = logging.getLogger(__name__)
+    logger.info("PICKLING COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(type(a)), str(a.dtype), a.shape))
     assert isinstance(a, np.ndarray)
     if type(a) == np.ndarray:
         view_type = None
@@ -132,7 +134,8 @@ def reconstruct_ndarray_from_compressed(compressed_array, view_type, view_dict):
     as produced via reduce_ndarray_compressed(), above.
     """
     base = compressed_array.deserialize()
-    #print "************UN-PICKLED COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(view_type), str(base.dtype), base.shape)
+    logger = logging.getLogger(__name__)
+    logger.info("UN-PICKLED COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(view_type), str(base.dtype), base.shape))
     if view_type is None:
         return base
     

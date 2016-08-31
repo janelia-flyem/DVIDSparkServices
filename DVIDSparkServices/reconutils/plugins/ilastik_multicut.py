@@ -1,3 +1,5 @@
+import DVIDSparkServices
+
 def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, logfile="/dev/null", extra_cmdline_args=[]):
     print 'status=multicut'
     print "Starting ilastik_multicut() ..."
