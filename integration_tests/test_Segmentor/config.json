@@ -19,7 +19,7 @@
         "stitch-algorithm": "medium",
         "chunk-size": 128,
         "checkpoint": "none",
-        "checkpoint-dir": "",
+        "checkpoint-dir": "/tmp/segrun/",
         "iteration-size": 0,
         "debug": true
     }
