@@ -235,7 +235,8 @@ class Segmentor(object):
                     else:
                         block_bounds = ((z1, y1, x1), (z2, y2, x2))
 
-                    block_store = H5BlockStore(blockstore_dir, mode='a', axes=axes, dtype=block_data.dtype)
+                    block_store = H5BlockStore(blockstore_dir, mode='a', axes=axes, dtype=block_data.dtype,
+                                               dset_options={'compression': 'lzf', 'shuffle': True})
                     h5_block = block_store.get_block( block_bounds )
                     h5_block[:] = block_data
 
