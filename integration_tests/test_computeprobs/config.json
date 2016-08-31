@@ -1,0 +1,28 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "neuroproof-segmentation-result",
+        "roi": "temproi256",
+        "grayscale": "grayscale",
+        "graph-name": "graph"
+    },
+    "options": {
+        "predict-voxels" : {
+           "function": "DVIDSparkServices.reconutils.plugins.IlastikSegmentor.ilastik_predict_with_array",
+           "parameters": {
+                        "ilp_path": "integration_tests/resources/voxels.ilp",
+                        "selected_channels": [0,1,2,3],
+                        "normalize": false,
+                        "LAZYFLOW_THREADS": 1,
+                        "LAZYFLOW_TOTAL_RAM_MB": 1024
+            }
+        },
+        "segment-classifier": "integration_tests/resources/agglom.xml",
+        "chunk-size": 128,
+        "checkpoint" : false,
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": true
+    }
+}

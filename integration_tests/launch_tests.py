@@ -110,7 +110,7 @@ def init_dvid_database(test_dir, reuse_last=False):
     os.system("gunzip -f --keep " + test_dir + "/resources/labels.bin.gz")
     os.system("gunzip -f --keep " + test_dir + "/resources/labels_comp.bin.gz")
     os.system("tar zxvf " + test_dir + "/resources/agglom.xml.tgz")
-    os.system("tar zxvf " + test_dir + "/resources/voxels.ilp.tgz")
+    os.system("tar zxvf " + test_dir + "/resources/voxels.ilp.gz")
 
     # initialize DVID datastore and call tests 
     # Curl must be available
@@ -214,6 +214,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_seg_wsdt"] = "CreateSegmentation"
     tests["test_seg_multicut"] = "CreateSegmentation"
     tests["test_seg_neuroproof"] = "CreateSegmentation"
+    tests["test_computeprobs"] = "ComputeEdgeProbs"
     tests["test_seg_replace"] = "CreateSegmentation"
     #tests["test_tiles"] = "CreateTiles"
     #tests["test_tiles2"] = "CreateTiles2"
