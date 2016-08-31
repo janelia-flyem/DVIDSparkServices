@@ -28,9 +28,12 @@ logger = logging.getLogger(__name__)
 from DVIDSparkServices.auto_retry import auto_retry
 
 # masks data to 0 if outside of ROI stored in subvolume
-def mask_roi(data, subvolume):
+def mask_roi(data, subvolume, border=-1):
     import numpy
     mask = numpy.zeros(data.shape)
+    if border == -1:
+        border = subvolume.border
+
     for blk in subvolume.intersecting_blocks:
         # grab range of block
         x1,y1,z1 = blk
@@ -39,27 +42,27 @@ def mask_roi(data, subvolume):
         z1 *= subvolume.roi_blocksize
 
         # adjust global location
-        x1 -= (subvolume.roi.x1-subvolume.border)
+        x1 -= (subvolume.roi.x1-border)
         if x1 < 0:
             x1 = 0
-        y1 -= (subvolume.roi.y1-subvolume.border)
+        y1 -= (subvolume.roi.y1-border)
         if y1 < 0:
             y1 = 0
-        z1 -= (subvolume.roi.z1-subvolume.border)
+        z1 -= (subvolume.roi.z1-border)
         if z1 < 0:
             z1 = 0
         
         x2 = x1+subvolume.roi_blocksize
-        if x2 > (subvolume.roi.x2 + subvolume.border):
-            x2 = subvolume.roi.x2 + subvolume.border
+        if x2 > (subvolume.roi.x2 + border):
+            x2 = subvolume.roi.x2 + border
         
         y2 = y1+subvolume.roi_blocksize
-        if y2 > (subvolume.roi.y2 + subvolume.border):
-            y2 = subvolume.roi.y2 + subvolume.border
+        if y2 > (subvolume.roi.y2 + border):
+            y2 = subvolume.roi.y2 + border
         
         z2 = z1+subvolume.roi_blocksize
-        if z2 > (subvolume.roi.z2 + subvolume.border):
-            z2 = subvolume.roi.z2 + subvolume.border
+        if z2 > (subvolume.roi.z2 + border):
+            z2 = subvolume.roi.z2 + border
 
         mask[z1:z2,y1:y2,x1:x2] = 1
     data[mask==0] = 0
@@ -295,7 +298,7 @@ class sparkdvid(object):
                 
                 # mask ROI
                 if roiname != "":
-                    mask_roi(data, subvolume)        
+                    mask_roi(data, subvolume, border=border)        
 
                 return data
 
