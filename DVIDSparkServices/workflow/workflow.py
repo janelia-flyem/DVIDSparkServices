@@ -71,7 +71,6 @@ class Workflow(object):
 
         """
         from pyspark import SparkContext, SparkConf
-        from DVIDSparkServices.sparkdvid.CompressedSerializerLZ4 import CompressedSerializerLZ4
 
         # set spark config
         sconfig = SparkConf()
@@ -102,7 +101,10 @@ class Workflow(object):
         worker_env = {}
         if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
             worker_env["DVIDSPARK_WORKFLOW_TMPDIR"] = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
-        return SparkContext(conf=sconfig, serializer=CompressedSerializerLZ4(), environment=worker_env)
+        
+        # Auto-batching heuristic doesn't work well with our auto-compressed numpy array pickling scheme.
+        # Therefore, disable batching with batchSize=1
+        return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
 
     # make this an explicit abstract method ??
     def execute(self):
