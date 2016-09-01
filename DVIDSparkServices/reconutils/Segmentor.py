@@ -205,7 +205,7 @@ class Segmentor(object):
             # If the store does exist, reset it now (in the driver)
             # to clean up after any failed runs.
             try:
-                H5BlockStore(blockstore_dir, mode='a', reset_access=True)
+                H5BlockStore(blockstore_dir, mode='r', reset_access=True)
             except H5BlockStore.StoreDoesNotExistError:
                 pass
 
