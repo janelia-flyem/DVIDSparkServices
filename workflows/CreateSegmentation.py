@@ -370,7 +370,9 @@ class CreateSegmentation(DVIDWorkflow):
             return [], subvol_list
 
         try:
-            block_store = H5BlockStore(blockstore_dir, mode='r')
+            # Reset access in case we're recovering from a failed run
+            # (We're running in the driver right now, so it's okay to do this.)
+            block_store = H5BlockStore(blockstore_dir, mode='r', reset_access=True)
         except H5BlockStore.StoreDoesNotExistError:
             return [], subvol_list
 

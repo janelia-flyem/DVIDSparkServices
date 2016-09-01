@@ -202,6 +202,13 @@ class Segmentor(object):
             if not blockstore_dir:
                 return f
 
+            # If the store does exist, reset it now (in the driver)
+            # to clean up after any failed runs.
+            try:
+                H5BlockStore(blockstore_dir, mode='a', reset_access=True)
+            except H5BlockStore.StoreDoesNotExistError:
+                pass
+
             @wraps(f)
             def wrapped(item):
                 subvol = item[0]
@@ -210,7 +217,7 @@ class Segmentor(object):
         
                 if allow_read:
                     try:
-                        block_store = H5BlockStore(blockstore_dir, mode='r')
+                        block_store = H5BlockStore(blockstore_dir, mode='r', default_timeout=15*60)
                         if block_store.axes[-1] == 'c':
                             block_bounds = ((z1, y1, x1, 0), (z2, y2, x2, None))
                         else:
@@ -236,7 +243,8 @@ class Segmentor(object):
                         block_bounds = ((z1, y1, x1), (z2, y2, x2))
 
                     block_store = H5BlockStore(blockstore_dir, mode='a', axes=axes, dtype=block_data.dtype,
-                                               dset_options={'compression': 'lzf', 'shuffle': True})
+                                               dset_options={'compression': 'lzf', 'shuffle': True},
+                                               default_timeout=15*60)
                     h5_block = block_store.get_block( block_bounds )
                     h5_block[:] = block_data
 
