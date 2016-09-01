@@ -6,7 +6,9 @@ This workflow will run this algorithm (or its default) and stitch
 the results together.
 
 """
+import os
 import sys
+import uuid
 import subprocess
 import textwrap
 import numpy as np
@@ -155,8 +157,11 @@ class CreateSegmentation(DVIDWorkflow):
     # => join offsets and boundary mappings to persisted ROI+label, unpersist => map labels
     # (write): => for each row
     def execute(self):
+        tmpdir = '/tmp/' + str(uuid.uuid1())
+        os.mkdir(tmpdir)
+        
         # Start the log server in a separate process
-        logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver'])
+        logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver', '--log-dir={}'.format(tmpdir)])
         try:
             self.execute_impl()
         finally:
