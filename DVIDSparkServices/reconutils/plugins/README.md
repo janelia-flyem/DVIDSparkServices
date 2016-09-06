@@ -183,7 +183,7 @@ Watershed Functions
 
 **Agglomeration Functions**
 
-- `DVIDSparkServices.reconutils.plugins.NeuroProofAgglom.neuroproof_agglomerate()`
+- [`DVIDSparkServices.reconutils.plugins.NeuroProofAgglom.neuroproof_agglomerate()`](./NeuroProofAgglom.py)
 
    Agglomerate supervoxels with `NeuroProof`.  Requires a saved NeuroProof classifier in either `.xml` or `.h5` format.  See docstring for details.  Used for all production segmentations to date.
   
@@ -202,8 +202,9 @@ Watershed Functions
         }
     }
    ...
+   ```
 
-- `DVIDSparkServices.reconutils.plugins.ilastik_multicut.ilastik_multicut()`
+- [`DVIDSparkServices.reconutils.plugins.ilastik_multicut.ilastik_multicut()`](./ilastik_multicut.py)
 
    Agglomerate supervoxels using ilastik's Multicut workflow.  Not production-ready at the time of this writing.  Requires a trained ilastik project file using workflow type "Edge Training With Multicut".
    
