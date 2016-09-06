@@ -62,9 +62,12 @@ def execute_in_subprocess( stdout_callback=None, timeout=0 ):
                 killed_early = [False]
                 if timeout:
                     def watchdog():
-                        for _ in range(int(timeout)):
+                        start = time.time()
+                        while True:
                             if p.poll() is not None:
                                 return
+                            if (time.time() - start) > timeout:
+                                break
                             time.sleep(1.0)
 
                         # Uh-oh: timed out
