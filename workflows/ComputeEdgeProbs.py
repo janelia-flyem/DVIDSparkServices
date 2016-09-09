@@ -240,12 +240,14 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 
                 element_list = []
                 # iterate edges and create ((node1, node2), features)
-                for edge in features["Edges"]:
-                    n1 = edge["Id1"]
-                    n2 = edge["Id2"]
-                    if n1 > n2:
-                        n1, n2 = n2, n1
-                    element_list.append(((n1,n2), (num_chans, edge)))
+                if "Edges" in features:
+                    # could have only one vertex in a partition and no edges
+                    for edge in features["Edges"]:
+                        n1 = edge["Id1"]
+                        n2 = edge["Id2"]
+                        if n1 > n2:
+                            n1, n2 = n2, n1
+                        element_list.append(((n1,n2), (num_chans, edge)))
 
                 for node in features["Vertices"]:
                     n1 = node["Id"]
