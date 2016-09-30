@@ -32,7 +32,6 @@ class Subvolume(object):
         """
 
         self.roi_id = roi_id
-        self.max_id = 0
         self.roi = SubvolumeNamedTuple(roi[0],
                     roi[1], roi[2],
                     roi[0] + chunk_size,
@@ -46,6 +45,37 @@ class Subvolume(object):
 
         # index off of (z,y,x) block indices
         self.intersecting_blocks = set()
+
+    def __eq__(self, other):
+        return (self.roi_id == other.roi_id and
+                self.roi == other.roi and
+                self.border == other.border)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+    
+    def __hash__(self):
+        # TODO: We still assume unique roi_ids, and only use that in the hash,
+        #       so that partitioning with roi_id is equivalent to partitioning on the Subvolume itself.
+        #       If sparkdvid functions (e.g. map_grayscale8) are ever changed not to partition over roi_id,
+        #       then we can change this hash function to include the other members, such as border, etc.
+        #return hash( (self.roi_id, self.roi, self.border) )
+        return hash(self.roi_id)
+
+    @property
+    def roi_with_border(self):
+        """
+        Read-only property.
+        Same as self.roi, but expanded to include the border.
+        """
+        x1, y1, z1, x2, y2, z2 = self.roi
+        return SubvolumeNamedTuple(x1 - self.border, y1 - self.border, z1 - self.border,
+                                   x2 + self.border, y2 + self.border, z2 + self.border)
+
+
+    def __str__(self):
+        return "x{x1}-y{y1}-z{z1}--x{x2}-y{y2}-z{z2}"\
+               .format(**self.roi.__dict__)
 
     # take a list of (z,y,x0,x1) and determine which blocks intersect
     def add_intersecting_blocks(self, runlengths):
@@ -83,12 +113,6 @@ class Subvolume(object):
             return True
         return False
 
-    def set_max_id(self, max_id):
-        self.max_id = max_id
-
-    def get_max_id(self, max_id):
-        return self.max_id
-
     # returns true if two rois overlap
     def recordborder(self, roi2):
         linex1 = [self.roi.x1, self.roi.x2]
@@ -99,7 +123,9 @@ class Subvolume(object):
         linez2 = [roi2.roi.z1, roi2.roi.z2]
        
         # check intersection
-        if (self.touches(linex1[0], linex1[1], linex2[0], linex2[1]) and self.intersects(liney1, liney2) and self.intersects(linez1, linez2)) or (self.touches(liney1[0], liney1[1], liney2[0], liney2[1]) and self.intersects(linex1, linex2) and self.intersects(linez1, linez2)) or (self.touches(linez1[0], linez1[1], linez2[0], linez2[1]) and self.intersects(liney1, liney2) and self.intersects(linex1, linex2)):
+        if (self.touches(linex1[0], linex1[1], linex2[0], linex2[1]) and self.intersects(liney1, liney2) and self.intersects(linez1, linez2)) \
+        or (self.touches(liney1[0], liney1[1], liney2[0], liney2[1]) and self.intersects(linex1, linex2) and self.intersects(linez1, linez2)) \
+        or (self.touches(linez1[0], linez1[1], linez2[0], linez2[1]) and self.intersects(liney1, liney2) and self.intersects(linex1, linex2)):
             # save overlapping substacks
             self.local_regions.append((roi2.roi_id, roi2.roi))
             roi2.local_regions.append((self.roi_id, self.roi))

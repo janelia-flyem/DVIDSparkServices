@@ -23,9 +23,14 @@ import lz4
 class CompressedSerializerLZ4(FramedSerializer):
     """ Compress/decompress already serialized data using fast lz4.
 
-        Note: extensive performance testing is still
-        necessary.  It might be a candidate for inclusion
-        within the pyspark distribution.
+        Note: extensive performance testing is still necessary.
+              It might be a candidate for inclusion within the
+              pyspark distribution.
+        
+        Note: The lz4 library can't handle objects larger than INT_MAX size.
+              Therefore, this serializer can't be used with arbitrarily large arrays.
+              If your arrays are larger than 2GB, you may need to manually break them
+              up in your workflow or pre-compress them.
 
     """
 

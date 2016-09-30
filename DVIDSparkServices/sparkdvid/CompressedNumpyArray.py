@@ -16,9 +16,26 @@ small runtime fraction of the original compression.
 Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 
 """
-
-import numpy
+import copy_reg
+import numpy as np
 import lz4
+import logging
+
+def activate_compressed_numpy_pickling():
+    """
+    Override the default pickle representation for numpy arrays.
+    This affects all pickle behavior in the entire process.
+    """
+    copy_reg.pickle(np.ndarray, reduce_ndarray_compressed)
+    
+    # Handle subclasses, too.
+    # Obviously, this only works for subclasses have been imported so far...
+
+    import vigra # Load vigra subclass of np.ndarray
+
+    for array_type in np.ndarray.__subclasses__():
+        if array_type not in (np.ma.core.MaskedArray,):
+            copy_reg.pickle(array_type, reduce_ndarray_compressed)
 
 class CompressedNumpyArray(object):
     """ Serialize/deserialize and compress/decompress numpy array.
@@ -36,11 +53,7 @@ class CompressedNumpyArray(object):
    
     def __init__(self, numpy_array):
         """Serializes and compresses the numpy array with LZ4"""
-
-        # This would be easy to fix but I'm too lazy right now.
-        assert numpy_array.ndim > 1, \
-            "This class doesn't support 1D arrays."
-
+        
         self.serialized_subarrays = []
         if numpy_array.flags['F_CONTIGUOUS']:
             self.layout = 'F'
@@ -53,8 +66,13 @@ class CompressedNumpyArray(object):
         self.dtype = numpy_array.dtype
         self.shape = numpy_array.shape
 
-        for subarray in numpy_array:
-            self.serialized_subarrays.append( self.serialize_subarray(subarray) )
+        # For 1D or 0D arrays, serialize everything in one buffer.
+        if numpy_array.ndim <= 1:
+            self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
+        else:
+            # For ND arrays, serialize each slice independently, to ease RAM usage
+            for subarray in numpy_array:
+                self.serialized_subarrays.append( self.serialize_subarray(subarray) )
 
     @classmethod
     def serialize_subarray(cls, subarray):
@@ -66,17 +84,64 @@ class CompressedNumpyArray(object):
         assert subarray.nbytes <= cls.MAX_LZ4_BUFFER_SIZE, \
             "FIXME: This class doesn't support arrays whose slices are each > 1 GB"
         
-        return lz4.dumps( numpy.getbuffer(subarray) )
+        return lz4.dumps( np.getbuffer(subarray) )
         
     def deserialize(self):
         """Extract the numpy array"""
-        numpy_array = numpy.ndarray( shape=self.shape, dtype=self.dtype )
+        numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
         
-        for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
-            buf = lz4.loads(serialized_subarray)
-            subarray[:] = numpy.frombuffer(buf, self.dtype).reshape( subarray.shape )
+        # See serialization of 1D and 0D arrays, above.
+        if numpy_array.ndim <= 1:
+            buf = lz4.loads(self.serialized_subarrays[0])
+            numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
+        else:
+            for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
+                buf = lz4.loads(serialized_subarray)
+                subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
          
         if self.layout == 'F':
-            return numpy_array.transpose()
-        else:
-            return numpy_array
+            numpy_array = numpy_array.transpose()
+
+        return numpy_array
+    
+def reduce_ndarray_compressed(a):
+    """
+    Custom 'reduce' function to override np.ndarray.__reduce__() during pickle saving.
+    (See documentation for copy_reg module for details.)
+    
+    Here, we 'reduce' a numpy array to a CompressedNumpyArray.
+    
+    SUBCLASS SUPPORT: Subclasses of np.ndarray are also supported *IFF*
+    they can be trivially reconstructed using ndarray.view() combined with
+    direct assignment of the view's __dict__.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info("PICKLING COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(type(a)), str(a.dtype), a.shape))
+    assert isinstance(a, np.ndarray)
+    if type(a) == np.ndarray:
+        view_type = None
+    else:
+        view_type = type(a)
+    if hasattr(a, '__dict__'):
+        view_dict = a.__dict__
+    else:
+        view_dict = None
+    return reconstruct_ndarray_from_compressed, (CompressedNumpyArray(a), view_type, view_dict)
+
+def reconstruct_ndarray_from_compressed(compressed_array, view_type, view_dict):
+    """
+    Used to reconstruct an array from it's pickled representation,
+    as produced via reduce_ndarray_compressed(), above.
+    """
+    base = compressed_array.deserialize()
+    logger = logging.getLogger(__name__)
+    logger.info("UN-PICKLED COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(view_type), str(base.dtype), base.shape))
+    if view_type is None:
+        return base
+    
+    view = base.view(view_type)
+    
+    if view_dict is not None:
+        view.__dict__ = view_dict
+    return view
+

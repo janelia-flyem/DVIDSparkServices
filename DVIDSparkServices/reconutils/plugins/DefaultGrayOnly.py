@@ -6,11 +6,10 @@ plugin architecture.
 """
 from DVIDSparkServices.reconutils import misc
 from DVIDSparkServices.reconutils.Segmentor import Segmentor
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 class DefaultGrayOnly(Segmentor):
 
-    def segment(self, gray_chunks):
+    def segment(self, subvols, gray_vols):
         """
         Simple, default seeded watershed off of grayscale, using nothing
         but the (inverted) grayscale intensities as membrane probabilities.
@@ -19,18 +18,13 @@ class DefaultGrayOnly(Segmentor):
         # TODO: should mask out based on ROI ?!
         # (either mask gray or provide mask separately)
         def _segment(gray_chunks):
-            (subvolume, gray) = gray_chunks
+            (_subvolume, gray) = gray_chunks
 
             mask = misc.find_large_empty_regions(gray)
             predictions = misc.naive_membrane_predictions(gray, mask)
             supervoxels = misc.seeded_watershed(predictions, mask, seed_threshold=0.2, seed_size=5 )
             agglomerated_sp = misc.noop_aggolmeration(gray, predictions, supervoxels)
-            
-            max_id = agglomerated_sp.max()
-            subvolume.set_max_id(max_id)
-
-            agglomerated_sp_compressed = CompressedNumpyArray(agglomerated_sp)
-            return (subvolume, agglomerated_sp_compressed)
+            return agglomerated_sp
 
         # preserver partitioner
-        return gray_chunks.mapValues(_segment)
+        return subvols.zip(gray_vols).map(_segment, True)

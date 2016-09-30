@@ -6,7 +6,6 @@ evaluate workflow.  Code requires pyspark to execute.
 """
 
 import libNeuroProofMetrics as np
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 import numpy
 
 # contains helper functions
@@ -181,12 +180,8 @@ class Evaluate(object):
         """
 
         def _calcoverlap(label_pairs):
-            subvolume, labelgt_map, label2_map, labelgtc, label2c = label_pairs
+            subvolume, labelgt_map, label2_map, labelgt, label2 = label_pairs
             
-            # decompression
-            labelgt = labelgtc.deserialize()
-            label2 = label2c.deserialize()
-
             # TODO !! avoid conversion
             labelgt = labelgt.astype(numpy.float64)
             label2 = label2.astype(numpy.float64)
@@ -213,8 +208,8 @@ class Evaluate(object):
            
             # keep volumes for subsequent point queries
             return (stats, labelgt_map, label2_map,
-                    CompressedNumpyArray(labelgt.astype(numpy.uint64)),
-                    CompressedNumpyArray(label2.astype(numpy.uint64)))
+                    labelgt.astype(numpy.uint64),
+                    label2.astype(numpy.uint64))
             
         return lpairs_split.mapValues(_calcoverlap)
 
@@ -254,11 +249,7 @@ class Evaluate(object):
         #lpairs_split = lpairs_split.join(distpoints)
         
         def _calcoverlap_pts(label_pairs):
-            stats, labelgt_map, label2_map, labelgtc, label2c = label_pairs
-            
-            # decompression
-            labelgt = labelgtc.deserialize()
-            label2 = label2c.deserialize()
+            stats, labelgt_map, label2_map, labelgt, label2 = label_pairs
 
             # for connected points, connections are encoded by using
             # the position index number X and extra numbers Y1,Y2... indicating
@@ -356,7 +347,7 @@ class Evaluate(object):
                         point_data["sparse"])), leftover_seg)
 
             # points no longer needed
-            return (stats, labelgt_map, label2_map, labelgtc, label2c)
+            return (stats, labelgt_map, label2_map, labelgt, label2)
 
         return lpairs_split.mapValues(_calcoverlap_pts)
 

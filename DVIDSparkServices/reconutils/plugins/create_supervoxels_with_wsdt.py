@@ -1,3 +1,4 @@
+import DVIDSparkServices
 import numpy as np
 import wsdt
 
@@ -5,7 +6,6 @@ import h5py
 import os
 import tempfile
 import logging
-logger = logging.getLogger(__name__)
 
 def create_supervoxels_with_wsdt( boundary_volume,
                                   mask,
@@ -19,6 +19,8 @@ def create_supervoxels_with_wsdt( boundary_volume,
     """
     Generate supervoxels using Timo's watershed of the distance-transform method.
     """
+    logger = logging.getLogger(__name__)
+    logger.info('status=wsdt supervoxels')
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
 
@@ -46,5 +48,6 @@ def create_supervoxels_with_wsdt( boundary_volume,
     #with h5py.File(watershed_path, 'w') as watershed_file:
     #    watershed_file.create_dataset('watershed', data=watershed)
     
+    logger.info('status=wsdt supervoxels finished')
     return watershed
     

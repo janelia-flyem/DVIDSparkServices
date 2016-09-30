@@ -36,6 +36,8 @@ requirements:
     - python-lz4
     - ilastik-versions-no-solvers 1.2*
     - ilastik-meta
+    - quilted >=0.0.post13
+    - logcollector
 
 test:
   requires:

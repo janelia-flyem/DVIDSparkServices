@@ -20,7 +20,6 @@ is backed by a clustered DB.
 """
 
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
-from CompressedNumpyArray import CompressedNumpyArray
 
 import logging
 logger = logging.getLogger(__name__)
@@ -257,7 +256,7 @@ class sparkdvid(object):
 
         return distsubvolumes.mapValues(mapper)
 
-    def map_labels64(self, distrois, label_name, border, roiname="", compress=False):
+    def map_labels64(self, distrois, label_name, border, roiname=""):
         """Creates RDD of labelblk data from subvolumes.
 
         Note: Numpy arrays are compressed which leads to some savings.
@@ -302,12 +301,6 @@ class sparkdvid(object):
 
                 return data
 
-            label_volume = get_labels()
-
-            if compress:
-                return CompressedNumpyArray(label_volume)
-            else:
-                return label_volume
 
         return distrois.mapValues(mapper)
 
@@ -375,8 +368,7 @@ class sparkdvid(object):
             # zero out label_volume2 where GT is 0'd out !!
             label_volume2[label_volume==0] = 0
 
-            return (subvolume, CompressedNumpyArray(label_volume),
-                               CompressedNumpyArray(label_volume2))
+            return (subvolume, label_volume, label_volume2)
 
         return distrois.mapValues(mapper)
 
@@ -470,10 +462,7 @@ class sparkdvid(object):
             import numpy
             # write segmentation
             
-            (key, (subvolume, segcomp)) = subvolume_seg
-            # uncompress data
-            seg = segcomp.deserialize() 
-
+            (key, (subvolume, seg)) = subvolume_seg
             # get sizes of subvolume 
             size1 = subvolume.roi.x2-subvolume.roi.x1
             size2 = subvolume.roi.y2-subvolume.roi.y1
