@@ -212,6 +212,7 @@ def select_channels( predictions, selected_channels ):
     """
     predictions: Can be a numpy array OR an hdf5 dataset.
                  (But in either case, numpy array is returned.)
+                 The channel axis must be the LAST axis
 
     selected_channels: A list of channel indexes to select and return from the prediction results.
                        'None' can also be given, which means "return all prediction channels".
@@ -228,6 +229,11 @@ def select_channels( predictions, selected_channels ):
     # If a list of ints, then this is fast -- just select the channels we want.
     assert isinstance(selected_channels, list)
     if isinstance(predictions, np.ndarray) and all(np.issubdtype(type(x), np.integer) for x in selected_channels):
+        if selected_channels == list(range(predictions.shape[-1])):
+            # If the user wants all channels, in the original order,
+            # then just return the original array.
+            # This avoids an extra view (which would have unnecessarily stomped the C_CONTIGUOUS flag).
+            return predictions
         return predictions[..., selected_channels]
 
     # The user gave us a nested selection list, or the data is hdf5.
