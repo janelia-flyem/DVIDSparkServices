@@ -192,7 +192,7 @@ class Segmentor(object):
         return seg_blocks
 
     @classmethod
-    def use_block_cache(cls, blockstore_dir, allow_read=True, allow_write=True, result_index=None):
+    def use_block_cache(cls, blockstore_dir, allow_read=True, allow_write=True):
         """
         Returns a decorator, intended to decorate functions that execute in spark workers.
         Before performing the work, check the block cache in the given directory and return the data from the cache if possible.
