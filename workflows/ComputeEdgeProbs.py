@@ -119,7 +119,9 @@ class ComputeEdgeProbs(DVIDWorkflow):
     blocksize = 32
 
     # context for each subvoume 
-    contextbuffer = 10
+    # For convenience, we use the same default overlap that CreateSegmentation uses,
+    # so the same cached probabilities can be used if they're available.
+    contextbuffer = 20
 
     def __init__(self, config_filename):
         super(ComputeEdgeProbs, self).__init__(config_filename, self.Schema, "Compute edge prob")
