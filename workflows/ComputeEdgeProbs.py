@@ -192,18 +192,24 @@ class ComputeEdgeProbs(DVIDWorkflow):
             gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes_part,
                     self.config_data["dvid-info"]["grayscale"])
 
-            def predict_voxels(gray_chunk):
-                subvolume, gray = gray_chunk
-                predictions = vprediction_function(gray, None)
-                return (subvolume, predictions)
+            pred_checkpoint_dir = ""
+            if checkpoint_dir:
+                pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
 
-            vox_preds = gray_chunks.mapValues(predict_voxels)
+            # For now, we always read predictions if available, and always write them if not.
+            # TODO: Add config settings to control read/write behavior.
+            @Segmentor.use_block_cache(pred_checkpoint_dir, allow_read=True, allow_write=True)
+            def predict_voxels( (_subvolume, gray) ):
+                return vprediction_function(gray, None)
+
+            vox_preds = gray_chunks.values().map( predict_voxels ) # predictions only
+            vox_preds = distsubvolumes_part.values().zip( vox_preds ) # (subvolume, predictions)
 
             pdconf = self.config_data["dvid-info"]
             # retrieve segmentation and generate features
             def generate_features(vox_pred):
                 import numpy
-                (sid, (subvolume, pred)) = vox_pred
+                (subvolume, pred) = vox_pred
                 pred = numpy.ascontiguousarray(pred)
 
 
