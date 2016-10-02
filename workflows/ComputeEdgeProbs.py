@@ -195,14 +195,17 @@ class ComputeEdgeProbs(DVIDWorkflow):
             def predict_voxels(gray_chunk):
                 subvolume, gray = gray_chunk
                 predictions = vprediction_function(gray, None)
-                return (subvolume, CompressedNumpyArray(predictions))
+                return (subvolume, predictions)
 
             vox_preds = gray_chunks.mapValues(predict_voxels)
 
             pdconf = self.config_data["dvid-info"]
             # retrieve segmentation and generate features
             def generate_features(vox_pred):
-                (sid, (subvolume, pred_compressed)) = vox_pred
+                import numpy
+                (sid, (subvolume, pred)) = vox_pred
+                pred = numpy.ascontiguousarray(pred)
+
 
                 # extract labelblks
                 border = 1 # only one pixel needed to find edges
@@ -225,10 +228,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 initial_seg = get_seg()
 
                 # !!! potentially dangerous but needed for now
-                import numpy
                 initial_seg = initial_seg.astype(numpy.uint32)
-
-                pred = pred_compressed.deserialize()
 
                 z,y,x,num_chans = pred.shape
 
