@@ -46,7 +46,7 @@ ulimit -n 65535
 export SCALA_HOME=/usr/local/scala-2.10.3
 
 export SPARK_WORKER_DIR=/scratch/spark/work
-export JAVA_HOME=/usr/local/jdk1.7.0_67
+export JAVA_HOME=/misc/local/jdk1.8.0_102
 export SPARK_LOG_DIR=~/.spark/logs/$JOB_ID/
 export SPARK_EXECUTOR_MEMORY=80g
 export SPARK_DRIVER_MEMORY=50g
