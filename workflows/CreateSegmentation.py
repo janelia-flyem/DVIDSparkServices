@@ -252,8 +252,13 @@ class CreateSegmentation(DVIDWorkflow):
             # should preserve partitioner
             distsubvolumes_part = distsubvolumes.filter(subset_part)
 
+            if rollback_seg:
+                readable_seg_checkpoint_dir = seg_checkpoint_dir
+            else:
+                readable_seg_checkpoint_dir = ""
+
             subvols_with_seg_cache, subvols_without_seg_cache = \
-                CreateSegmentation._split_subvols_by_cache_status( seg_checkpoint_dir,
+                CreateSegmentation._split_subvols_by_cache_status( readable_seg_checkpoint_dir,
                                                                    distsubvolumes_part.values().collect() )
 
             ##
