@@ -157,7 +157,7 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
     logger.info('status=seeded watershed complete')
     return watershed
 
-def noop_aggolmeration(grayscale_volume, bounary_volume, supervoxels):
+def noop_agglomeration(grayscale_volume, bounary_volume, supervoxels):
     """
     Stand-in for an agglomeration function.
     This function returns the supervoxels unchanged.

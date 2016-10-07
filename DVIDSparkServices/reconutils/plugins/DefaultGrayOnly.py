@@ -23,7 +23,7 @@ class DefaultGrayOnly(Segmentor):
             mask = misc.find_large_empty_regions(gray)
             predictions = misc.naive_membrane_predictions(gray, mask)
             supervoxels = misc.seeded_watershed(predictions, mask, seed_threshold=0.2, seed_size=5 )
-            agglomerated_sp = misc.noop_aggolmeration(gray, predictions, supervoxels)
+            agglomerated_sp = misc.noop_agglomeration(gray, predictions, supervoxels)
             return agglomerated_sp
 
         # preserver partitioner

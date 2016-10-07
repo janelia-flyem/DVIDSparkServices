@@ -99,7 +99,7 @@ class Segmentor(object):
             "create-supervoxels"      : { "$ref": "#/definitions/custom-function",
                                           "default": { "function": "DVIDSparkServices.reconutils.misc.seeded_watershed" } },
             "agglomerate-supervoxels" : { "$ref": "#/definitions/custom-function",
-                                          "default": { "function": "DVIDSparkServices.reconutils.misc.noop_aggolmeration" } },
+                                          "default": { "function": "DVIDSparkServices.reconutils.misc.noop_agglomeration" } },
             "preserve-bodies": {
               "description": "Configuration to describe which bodies to preserve instead of overwriting with new segmentation.",
               "type": "object",
