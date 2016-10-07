@@ -162,6 +162,8 @@ def noop_agglomeration(grayscale_volume, bounary_volume, supervoxels):
     Stand-in for an agglomeration function.
     This function returns the supervoxels unchanged.
     """
+    logger = logging.getLogger(__name__)
+    logger.info('status=noop_agglomeration')
     return supervoxels
 
 def compute_vi(seg1, seg2):
