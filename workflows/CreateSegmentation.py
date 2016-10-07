@@ -278,6 +278,7 @@ class CreateSegmentation(DVIDWorkflow):
             else:
                 cached_seg_chunks = self.sparkdvid_context.sc.parallelize([]) # empty rdd
 
+            cached_seg_chunks.persist()
             cached_seg_max_ids = cached_seg_chunks.map(np.max)
             
             # (subvol, (seg, max_id))
@@ -308,6 +309,7 @@ class CreateSegmentation(DVIDWorkflow):
             else:
                 computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols)
 
+            computed_seg_chunks.persist()
             computed_seg_max_ids = computed_seg_chunks.map( np.max )
             
             # (subvol, (seg, max_id))
