@@ -387,18 +387,28 @@ class ComputeEdgeProbs(DVIDWorkflow):
         graph = {}
         graph["Vertices"] = bodies
         graph["Edges"] = edges
-        
-        # load entire graph into DVID
-        node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
-        import requests
-        server = str(self.config_data["dvid-info"]["dvid-server"])
-        if not server.startswith("http://"):
-            server = "http://" + server
-        requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
 
-        self.logger.write_data("Wrote DVID graph") # write to logger after spark job
-        #self.logger.write_data("Wrote graph to disk") # write to logger after spark job
-        
+        SAVE_TO_FILE = False
+        if SAVE_TO_FILE:
+            graph_filepath = '/tmp/graph-output.json'
+            with open(graph_filepath, 'w') as f:
+                self.logger.warn("Writing graph json to file:\n{}".format(graph_filepath))
+                import json
+                json.dump(graph, f, indent=4, separators=(',', ': '))
+            self.logger.write_data("Wrote graph to disk") # write to logger after spark job
+
+        UPLOAD_TO_DVID = True
+        if UPLOAD_TO_DVID:
+            import requests
+            # load entire graph into DVID
+            node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
+            server = str(self.config_data["dvid-info"]["dvid-server"])
+            if not server.startswith("http://"):
+                server = "http://" + server
+            requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
+            self.logger.write_data("Wrote DVID graph") # write to logger after spark job
+
+
         if self.config_data["options"]["debug"]:
             import json
             print "DEBUG:", json.dumps(graph)
