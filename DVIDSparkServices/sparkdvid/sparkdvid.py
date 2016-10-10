@@ -300,8 +300,7 @@ class sparkdvid(object):
                     mask_roi(data, subvolume, border=border)        
 
                 return data
-
-
+            return get_labels()
         return distrois.mapValues(mapper)
 
     
