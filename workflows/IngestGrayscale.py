@@ -118,6 +118,8 @@ class IngestGrayscale(Workflow):
             gpath = string.join(bucketpath[1:], '/')
 
 
+        server = None
+        
         # create metadata before workers start if using DVID
         if "output-dir" not in self.config_data or self.config_data["output-dir"] == "":
             # write to dvid
@@ -332,9 +334,10 @@ class IngestGrayscale(Workflow):
         grayext = {}
         grayext["MinPoint"] = [0,0,0] # for now no offset
         grayext["MaxPoint"] = [width-1,height-1,self.config_data["maxslice"]]
-        if not server.startswith("http://"):
-            server = "http://" + server
-        requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
+        if server:
+            if not server.startswith("http://"):
+                server = "http://" + server
+            requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
 
     @staticmethod
     def dumpschema():
