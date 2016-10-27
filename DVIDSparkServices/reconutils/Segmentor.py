@@ -4,10 +4,13 @@ import importlib
 import textwrap
 from functools import partial
 import numpy as np
+from skimage.util import view_as_blocks
+
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
+from DVIDSparkServices.reconutils.misc import bb_to_slicing
 
 class Segmentor(object):
     """
@@ -189,20 +192,89 @@ class Segmentor(object):
         
     def compute_background_mask(self, gray_chunks):
         """
-        Detect large 'background' regions that lie outside the area of interest for segmentation.
+        Construct a mask to distinguish between foreground (which will be segmented)
+        and background (which will be excluded from the segmentation).
+        
+        The mask is a combination of two sources:
+        
+          1. Call a custom plugin function to generate a mask
+             of foreground pixels, based on grayscale values.
+
+          2. Also, determine which pixels (if any) of each subvolue 
+             fall outside of the ROI, and remove them from the mask.
+        
+        In the returned mask, 0 means 'background and 1 means foreground.
+        
+        Optimization: If all mask pixels are 1, then we may return 'None'
+                      which, by convention, means "everything is foreground".
+                      (This saves RAM in the common case.)
         """
         mask_function = self._get_segmentation_function('background-mask')
         def _execute_for_chunk(gray_chunk):
             (subvolume, gray) = gray_chunk
+            sv = subvolume
 
-            # Call the (custom) function
+            ##
+            ## Call the plugin function
+            ##
             mask = mask_function(gray)
+
+            ##
+            ## Determine if the ROI excludes any pixels in this subvolume
+            ##
             
-            if mask is None:
+            # subvol bounding box/shape
+            sv_start_px = np.array((sv.roi.z1, sv.roi.y1, sv.roi.x1))
+            sv_stop_px = np.array((sv.roi.z2, sv.roi.y2, sv.roi.x2))
+            sv_shape_px = sv_stop_px - sv_start_px
+            
+            # subvol bounding box/shape in block coordinates
+            sv_start_blocks = sv_start_px // sv.roi_blocksize
+            sv_stop_blocks = (sv_stop_px + sv.roi_blocksize-1) // sv.roi_blocksize
+            sv_shape_blocks = sv_stop_blocks - sv_start_blocks
+
+            # valid block indexes within the subvol,
+            # in subvol-local block indexes (not global block indexes)
+            dense_roi_coords = np.array(list(sv.intersecting_blocks)) - sv_start_blocks
+
+            # Here, each px is 1 block
+            intersecting_blocks_volume = np.zeros( shape=sv_shape_blocks, dtype=bool )
+            intersecting_blocks_volume[tuple(dense_roi_coords.transpose())] = 1
+            
+            # Shortcut: Return now if everything is foreground.
+            if mask is None and intersecting_blocks_volume.all():
                 return (subvolume, gray, None)
+
+            # Here, each px is 1 px
+            intersecting_dense = np.zeros( shape=sv.roi_blocksize*np.array(intersecting_blocks_volume.shape), dtype=np.bool )
+            
+            # In this 6D array, the first 3 axes address the block index,
+            # and the last 3 axes address px within the block
+            intersecting_dense_blockwise = view_as_blocks(intersecting_dense, (sv.roi_blocksize, sv.roi_blocksize, sv.roi_blocksize))
+            assert intersecting_dense_blockwise.shape[0:3] == intersecting_blocks_volume.shape
+            assert intersecting_dense_blockwise.shape[3:6] == (sv.roi_blocksize, sv.roi_blocksize, sv.roi_blocksize)
+            
+            # Now we can broadcast into it from the block coordinate mask
+            intersecting_dense_blockwise[:] = intersecting_blocks_volume[..., None, None, None]
+
+            # bounding box of the sv dense coordinates within the block-aligned intersecting_dense
+            dense_start = sv_start_px % sv.roi_blocksize
+            dense_stop = dense_start + sv_stop_px
+            
+            # Extract the pixels we want from the (block-aligned) intersecting_dense
+            sv_intersecting_dense = intersecting_dense[bb_to_slicing(dense_start, dense_stop)]
+            assert sv_intersecting_dense.shape == tuple(sv_shape_px)
+
+            ##
+            ## Combine custom mask and ROI mask
+            ##            
+            if mask is None:
+                return (subvolume, gray, sv_intersecting_dense)
             else:
                 assert mask.dtype == np.bool, "Mask array should be boolean"
                 assert mask.ndim == 3
+                mask[:] &= sv_intersecting_dense
+
             return (subvolume, gray, CompressedNumpyArray(mask))
 
         return gray_chunks.mapValues(_execute_for_chunk)

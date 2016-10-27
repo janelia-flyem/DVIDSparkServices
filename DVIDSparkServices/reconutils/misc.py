@@ -1,5 +1,18 @@
+from itertools import starmap
 import numpy
 import vigra
+
+def bb_to_slicing(start, stop):
+    """
+    For the given bounding box (start, stop),
+    return the corresponding slicing tuple.
+
+    Example:
+    
+        >>> assert bb_to_slicing([1,2,3], [4,5,6]) == np.s_[1:4, 2:5, 3:6]
+    """
+    return tuple( starmap( slice, zip(start, stop) ) )
+
 
 def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     """
