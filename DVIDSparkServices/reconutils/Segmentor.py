@@ -10,17 +10,19 @@ import numpy as np
 
 from quilted.h5blockstore import H5BlockStore
 
+
 import DVIDSparkServices
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
-from DVIDSparkServices.util import zip_many, select_item
+from DVIDSparkServices.util import zip_many, select_item, dense_roi_mask_for_subvolume
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 
 from logcollector.client_utils import make_log_collecting_decorator
 import socket
 driver_ip_addr = socket.gethostbyname(socket.gethostname())
+#driver_ip_addr = '127.0.0.1'
 send_log_with_key = make_log_collecting_decorator(driver_ip_addr, 3000)
 
 class Segmentor(object):
@@ -283,24 +285,50 @@ class Segmentor(object):
         
     def compute_background_mask(self, subvols, gray_vols):
         """
-        Detect large 'background' regions that lie outside the area of interest for segmentation.
+        Construct a mask to distinguish between foreground (which will be segmented)
+        and background (which will be excluded from the segmentation).
+        
+        The mask is a combination of two sources:
+        
+          1. Call a custom plugin function to generate a mask
+             of foreground pixels, based on grayscale values.
+
+          2. Also, determine which pixels (if any) of each subvolue 
+             fall outside of the ROI, and remove them from the mask.
+        
+        In the returned mask, 0 means 'background and 1 means foreground.
+        
+        Optimization: If all mask pixels are 1, then we may return 'None'
+                      which, by convention, means "everything is foreground".
+                      (This saves RAM in the common case.)
         """
         mask_function = self._get_segmentation_function('background-mask')
 
         @send_log_with_key(lambda (sv, _g): str(sv))
         def _execute_for_chunk(args):
             import DVIDSparkServices
-            _subvolume, gray = args
+            subvolume, gray = args
 
-            # Call the (custom) function
-            mask = mask_function(gray)
+            # Call the plugin function
+            data_mask = mask_function(gray)
+            if data_mask is not None:
+                assert data_mask.dtype == np.bool, "Mask array should be boolean"
+                assert data_mask.ndim == 3
             
-            if mask is None:
-                return None
+            # Determine how the ROI intersects this subvolume
+            roi_mask = dense_roi_mask_for_subvolume(subvolume)
+
+            # Combine
+            if data_mask is None:
+                data_mask = roi_mask
             else:
-                assert mask.dtype == np.bool, "Mask array should be boolean"
-                assert mask.ndim == 3
-            return mask
+                data_mask[:] &= roi_mask
+
+            if data_mask.all():
+                # By convention, None means "everything"
+                return None
+
+            return data_mask
 
         return subvols.zip(gray_vols).map(_execute_for_chunk, True)
 

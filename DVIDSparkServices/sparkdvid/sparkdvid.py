@@ -25,48 +25,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
-
-# masks data to 0 if outside of ROI stored in subvolume
-def mask_roi(data, subvolume, border=-1):
-    import numpy
-    mask = numpy.zeros(data.shape)
-    if border == -1:
-        border = subvolume.border
-
-    for blk in subvolume.intersecting_blocks:
-        # grab range of block
-        z1,y1,x1 = blk
-        x1 *= subvolume.roi_blocksize
-        y1 *= subvolume.roi_blocksize
-        z1 *= subvolume.roi_blocksize
-
-        # adjust global location
-        x1 -= (subvolume.roi.x1-border)
-        if x1 < 0:
-            x1 = 0
-        y1 -= (subvolume.roi.y1-border)
-        if y1 < 0:
-            y1 = 0
-        z1 -= (subvolume.roi.z1-border)
-        if z1 < 0:
-            z1 = 0
-        
-        x2 = x1+subvolume.roi_blocksize
-        if x2 > (subvolume.roi.x2 + border):
-            x2 = subvolume.roi.x2 + border
-        
-        y2 = y1+subvolume.roi_blocksize
-        if y2 > (subvolume.roi.y2 + border):
-            y2 = subvolume.roi.y2 + border
-        
-        z2 = z1+subvolume.roi_blocksize
-        if z2 > (subvolume.roi.z2 + border):
-            z2 = subvolume.roi.z2 + border
-
-        mask[z1:z2,y1:y2,x1:x2] = 1
-    data[mask==0] = 0
-
-
+from DVIDSparkServices.util import mask_roi
 
 def retrieve_node_service(server, uuid, appname="sparkservices"):
     """Create a DVID node service object"""

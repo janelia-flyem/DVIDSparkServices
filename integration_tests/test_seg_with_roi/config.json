@@ -1,0 +1,30 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "roi-confined-watershed",
+        "roi": "roi-256-without-corners",
+        "grayscale": "grayscale"
+    },
+    "options": {
+        "segmentor": {
+            "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+            "configuration": {
+                "create-supervoxels" : {
+                    "function": "DVIDSparkServices.reconutils.misc.seeded_watershed",
+                    "parameters": {
+                        "seed_threshold": 0.2,
+                        "seed_size": 5,
+                        "min_segment_size": 300
+                    }
+                }
+            }
+        },
+        "stitch-algorithm" : "none",
+        "chunk-size": 128,
+        "checkpoint" : "none",
+        "checkpoint-dir" : "",
+        "iteration-size" : 0,
+        "debug": true
+    }
+}
