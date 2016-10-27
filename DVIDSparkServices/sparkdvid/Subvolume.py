@@ -83,9 +83,9 @@ class Subvolume(object):
             return
  
         # determine substack block index range inclusive
-        xbmin = (self.roi.x1 - self.border) / self.roi_blocksize
-        ybmin = (self.roi.y1 - self.border) / self.roi_blocksize
-        zbmin = (self.roi.z1 - self.border) / self.roi_blocksize
+        xbmin = (self.roi.x1 - self.border) // self.roi_blocksize
+        ybmin = (self.roi.y1 - self.border) // self.roi_blocksize
+        zbmin = (self.roi.z1 - self.border) // self.roi_blocksize
         
         xbmax = (self.roi.x2 + self.border - 1) / self.roi_blocksize
         ybmax = (self.roi.y2 + self.border - 1) / self.roi_blocksize
@@ -96,7 +96,7 @@ class Subvolume(object):
 
             for iterx in range(x1,x2+1):
                 if z <= zbmax and z >= zbmin and y <= ybmax and y >= ybmin and iterx <= xbmax and iterx >= xbmin:
-                    self.intersecting_blocks.add((iterx,y,z))
+                    self.intersecting_blocks.add((z,y,iterx))
 
     # assume line[0] < line[1] and add border in calculation 
     def intersects(self, line1, line2):

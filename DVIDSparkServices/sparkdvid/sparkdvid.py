@@ -35,7 +35,7 @@ def mask_roi(data, subvolume, border=-1):
 
     for blk in subvolume.intersecting_blocks:
         # grab range of block
-        x1,y1,z1 = blk
+        z1,y1,x1 = blk
         x1 *= subvolume.roi_blocksize
         y1 *= subvolume.roi_blocksize
         z1 *= subvolume.roi_blocksize
