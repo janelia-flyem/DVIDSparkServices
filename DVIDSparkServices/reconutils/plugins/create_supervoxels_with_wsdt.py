@@ -15,7 +15,8 @@ def create_supervoxels_with_wsdt( boundary_volume,
                                   minSegmentSize=300,
                                   sigmaMinima=3,
                                   sigmaWeights=1.6,
-                                  groupSeeds=False ):
+                                  groupSeeds=False,
+                                  preserve_membrane_pmaps=False ):
     """
     Generate supervoxels using Timo's watershed of the distance-transform method.
     """
@@ -37,7 +38,8 @@ def create_supervoxels_with_wsdt( boundary_volume,
                                        minSegmentSize,
                                        sigmaMinima,
                                        sigmaWeights,
-                                       groupSeeds=False)
+                                       groupSeeds,
+                                       preserve_membrane_pmaps)
 
     if mask is not None:
         watershed[inverted_mask] = 0
