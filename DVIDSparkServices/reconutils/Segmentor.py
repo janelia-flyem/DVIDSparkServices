@@ -2,6 +2,7 @@
 import os
 import sys
 import json
+import socket
 import importlib
 import textwrap
 from functools import partial, wraps
@@ -20,9 +21,21 @@ from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 
 from logcollector.client_utils import make_log_collecting_decorator
-import socket
-driver_ip_addr = socket.gethostbyname(socket.gethostname())
-#driver_ip_addr = '127.0.0.1'
+
+try:
+    #driver_ip_addr = '127.0.0.1'
+    driver_ip_addr = socket.gethostbyname(socket.gethostname())
+except socket.gaierror:
+    # For some reason, that line above fails sometimes
+    # (depending on which network you're on)
+    # The method below is a little hacky because it requires
+    # making a connection to some arbitrary external site,
+    # but it seems to be more reliable. 
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("google.com",80))
+    driver_ip_addr = s.getsockname()[0]
+    s.close()
+
 send_log_with_key = make_log_collecting_decorator(driver_ip_addr, 3000)
 
 class Segmentor(object):
