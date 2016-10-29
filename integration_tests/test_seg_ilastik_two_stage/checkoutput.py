@@ -19,7 +19,7 @@ test_segmentation_zyx = node_service.get_labels3D(str(config['dvid-info']['segme
 merge, split = compute_vi(reference_segmentation_zyx, test_segmentation_zyx)
 score = merge+split
 
-if score < 0.01:
+if score < 0.1:
     print("DEBUG: Segmentation output matches reference with vi: {}".format(score))
     sys.exit(0)
 else:

@@ -1,4 +1,10 @@
-Create segmentation: Started [2016-03-20 14:09:21]
-Create segmentation: Wrote DVID labels [2016-03-20 14:13:48]
-DEBUG:  156b669d2c94a543a9e45d71eb1d61a8
-Create segmentation: Finished [2016-03-20 14:13:48]
+Create segmentation: Started [2016-10-29 16:38:31]
+Starting new HTTP connection (1): 127.0.0.1
+['/miniconda2/envs/flyem/lib/python2.7/site-packages/logcollector/logserver.py', '--log-dir=/tmp/a9fcabe3-9e17-11e6-97a2-a45e60e933fb']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/a9fcabe3-9e17-11e6-97a2-a45e60e933fb
+Resetting reader_count from 1 to 0 for block: ((108, -20, -20, 0), (276, 148, 148, 4))
+Create segmentation: Wrote DVID labels [2016-10-29 16:41:53]
+DEBUG:  8f19ca46e86b24eace2c429a7e4813ba
+Terminating logserver with PID 39930
+Create segmentation: Finished [2016-10-29 16:41:54]
