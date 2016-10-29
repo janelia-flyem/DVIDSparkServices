@@ -19,13 +19,14 @@ is backed by a clustered DB.
 
 """
 
+import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 import logging
 logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi
+from DVIDSparkServices.util import mask_roi, coordlist_to_boolmap, bb_to_slicing
 
 def retrieve_node_service(server, uuid, appname="sparkservices"):
     """Create a DVID node service object"""
@@ -116,24 +117,58 @@ class sparkdvid(object):
         # libdvid returns substack namedtuples as (size, z, y, x), but we want (x,y,z)
         substacks = map(lambda s: (s.x, s.y, s.z), substacks)
       
+        # create roi array giving unique substack ids
+        for substack_id, substack in enumerate(substacks):
+            # use substack id as key
+            subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border)))
+
         # grab roi blocks (should use libdvid but there are problems handling 206 status)
         import requests
         addr = self.dvid_server + "/api/node/" + str(self.uuid) + "/" + str(roi) + "/roi"
         if not self.dvid_server.startswith("http://"):
             addr = "http://" + addr
         data = requests.get(addr)
-        roi_blocks = data.json()
+        roi_blockruns = data.json()
+        
+        roi_blocks = []
+        for (z,y,x_first, x_last) in roi_blockruns:
+            for x in range(x_first, x_last+1):
+                roi_blocks.append((z,y,x))
 
-        # create roi array giving unique substack ids
-        for substack_id, substack in enumerate(substacks):
-            # use substack id as key
-            subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border))) 
+        # Make a map of the entire ROI
+        # Since roi blocks are 32^2, this won't be too huge.
+        # For example, a ROI that's 10k*10k*100k pixels, this will be ~300 MB
+        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver) 
+        full_roi_blockmask, (roi_blocks_start, roi_blocks_stop) = coordlist_to_boolmap(roi_blocks)
+        roi_blocks_shape = roi_blocks_stop - roi_blocks_start
   
-        for (sid, subvol) in subvolumes:
-            # find interesecting ROI lines for substack+border and store for substack
-            subvol.add_intersecting_blocks(roi_blocks)
+        # Initialize each subvolume's 'intersecting_blocks' member for the ROI blocks it contains.
+        for (_sid, subvol) in subvolumes:
+            # Subvol bounding-box in pixels
+            subvol_start_px = np.array((subvol.roi.z1, subvol.roi.y1, subvol.roi.x1)) - subvol.border
+            subvol_stop_px = np.array((subvol.roi.z2, subvol.roi.y2, subvol.roi.x2)) + subvol.border
+            
+            # Subvol bounding box in block coords
+            subvol_blocks_start = subvol_start_px // subvol.roi_blocksize
+            subvol_blocks_stop = (subvol_stop_px + subvol.roi_blocksize-1) // subvol.roi_blocksize
+            subvol_blocks_shape = subvol_blocks_stop - subvol_blocks_start
 
-
+            # Where does this subvolume start within full_roi_blockmask?
+            # Offset, since the ROI didn't necessarily start at (0,0,0)
+            subvol_blocks_offset = subvol_blocks_start - roi_blocks_start
+            
+            # Clip the extracted region, since subvol may extend outside of ROI and therefore outside of full_roi_blockmask
+            subvol_blocks_clipped_start = np.maximum(subvol_blocks_offset, (0,0,0))
+            subvol_blocks_clipped_stop = np.minimum(roi_blocks_shape, (subvol_blocks_start + subvol_blocks_shape) - roi_blocks_start)
+            
+            # Extract the portion of the mask for this subvol
+            subvol_blocks_mask = full_roi_blockmask[bb_to_slicing(subvol_blocks_clipped_start, subvol_blocks_clipped_stop)]
+            subvol_block_coords = np.transpose( subvol_blocks_mask.nonzero() )
+            
+            # Un-offset.
+            subvol_block_coords += (subvol_blocks_clipped_start + roi_blocks_start)
+            
+            subvol.intersecting_blocks = subvol_block_coords
 
         # grab all neighbors for each substack
         if find_neighbors:
