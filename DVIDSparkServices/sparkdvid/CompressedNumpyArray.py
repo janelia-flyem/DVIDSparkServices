@@ -116,7 +116,7 @@ def reduce_ndarray_compressed(a):
     direct assignment of the view's __dict__.
     """
     logger = logging.getLogger(__name__)
-    logger.info("PICKLING COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(type(a)), str(a.dtype), a.shape))
+    logger.debug("Pickling compressed numpy array: type={}, dtype={}, shape={}".format(str(type(a)), str(a.dtype), a.shape))
     assert isinstance(a, np.ndarray)
     if type(a) == np.ndarray:
         view_type = None
@@ -135,7 +135,7 @@ def reconstruct_ndarray_from_compressed(compressed_array, view_type, view_dict):
     """
     base = compressed_array.deserialize()
     logger = logging.getLogger(__name__)
-    logger.info("UN-PICKLED COMPRESSED NUMPY ARRAY! VIEW_TYPE={}, DTYPE={}, SHAPE={}".format(str(view_type), str(base.dtype), base.shape))
+    logger.debug("Unpickling compressed numpy array: type={}, dtype={}, shape={}".format(str(view_type), str(base.dtype), base.shape))
     if view_type is None:
         return base
     
