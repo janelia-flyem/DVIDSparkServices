@@ -46,13 +46,39 @@ ulimit -n 65535
 export SCALA_HOME=/usr/local/scala-2.10.3
 
 export SPARK_WORKER_DIR=/scratch/spark/work
-export JAVA_HOME=/usr/local/jdk1.7.0_67
+export JAVA_HOME=/misc/local/jdk1.8.0_102
 export SPARK_LOG_DIR=~/.spark/logs/$JOB_ID/
 export SPARK_EXECUTOR_MEMORY=80g
 export SPARK_DRIVER_MEMORY=50g
 export SPARK_WORKER_MEMORY=80g
 #export SPARK_DAEMON_JAVA_OPTS=-Dspark.worker.timeout=300 -Dspark.akka.timeout=300 -Dspark.storage.blockManagerHeartBeatMs=30000 -Dspark.akka.retry.wait=30 -Dspark.akka.frameSize=10000 -Djobid=$JOB_ID 
-export SPARK_LOCAL_DIRS=/scratch/spark/tmp
+
+#Local hdd
+#export SPARK_LOCAL_DIRS=/scratch/spark/tmp
+
+#tier2 localdirs
+#export SPARK_LOCAL_DIRS=/tier2/sparktest
+
+#nrs localdirs
+#export SPARK_LOCAL_DIRS=/nrs/sparklocaldir
+
+#1 local ssd
+#export SPARK_LOCAL_DIRS=/scratch-ssd1/sparklocaldir
+
+#2 local ssds
+#export SPARK_LOCAL_DIRS=/scratch-ssd1/sparklocaldir,/scratch-ssd2/sparklocaldir
+
+#3 local ssds
+export SPARK_LOCAL_DIRS=/data1/sparklocaldir,/data2/sparklocaldir,/data3/sparklocaldir
+
+#dm11 sas
+#export SPARK_LOCAL_DIRS=/misc/sparksas
+
+#dm11 ssd
+#export SPARK_LOCAL_DIRS=/misc/sparkssd
+
+#################################
+
 
 #export PYSPARK_PYTHON=/usr/local/python-2.7.6/bin/python
 #export PYSPARK_PYTHON=/groups/scheffer/home/plazas/development/buildem_sparkcluster/bin/python

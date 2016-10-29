@@ -1,10 +1,11 @@
 import numpy
 import vigra
+import logging
 
 def find_large_empty_regions(grayscale_vol, min_background_voxel_count=100):
     """
     Returns mask that excludes large background (0-valued) regions, if any exist.
-    """    
+    """
     if grayscale_vol.all():
         # No background pixels.
         # We could return all ones, but we are also allowed
@@ -38,6 +39,10 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     Stand-in for membrane prediction, for testing purposes.
     Simply returns the inverted grayscale as our 'predictions'
     """
+    logger = logging.getLogger(__name__)
+    logger.info('status=naive membrane predictions')
+    logger.info("Generating naive membrane predictions...")
+    
     low = grayscale_vol.min()
     high = grayscale_vol.max()
 
@@ -59,6 +64,9 @@ def naive_membrane_predictions(grayscale_vol, mask_vol=None ):
     # in-place
     grayscale_vol *= -1
     grayscale_vol += 1.0
+    logger.info("DONE generating naive membrane predictions...")
+
+    logger.info('status=naive membrane predictions complete')
     return grayscale_vol[..., None] # Segmentor wants 4D predictions, so append channel axis
 
 def vigra_bincount(labels):
@@ -99,6 +107,9 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
         removed from the result.  A second-pass watershed is used to allow the remaining
         segments to fill in the gaps left by the removed segments.
     """
+    logger = logging.getLogger(__name__)
+    logger.info('status=seeded watershed')
+
     assert boundary_volume.ndim == 4, "Expected a 4D volume."
     boundary_volume = boundary_volume[..., boundary_channel]
     boundary_volume = vigra.taggedView(boundary_volume, 'zyx')
@@ -142,13 +153,17 @@ def seeded_watershed(boundary_volume, mask, boundary_channel=0, seed_threshold=0
     
     if mask is not None:
         watershed[inverted_mask] = 0
+
+    logger.info('status=seeded watershed complete')
     return watershed
 
-def noop_aggolmeration(grayscale_volume, bounary_volume, supervoxels):
+def noop_agglomeration(grayscale_volume, bounary_volume, supervoxels):
     """
     Stand-in for an agglomeration function.
     This function returns the supervoxels unchanged.
     """
+    logger = logging.getLogger(__name__)
+    logger.info('status=noop_agglomeration')
     return supervoxels
 
 def compute_vi(seg1, seg2):
@@ -199,6 +214,7 @@ def select_channels( predictions, selected_channels ):
     """
     predictions: Can be a numpy array OR an hdf5 dataset.
                  (But in either case, numpy array is returned.)
+                 The channel axis must be the LAST axis
 
     selected_channels: A list of channel indexes to select and return from the prediction results.
                        'None' can also be given, which means "return all prediction channels".
@@ -215,6 +231,11 @@ def select_channels( predictions, selected_channels ):
     # If a list of ints, then this is fast -- just select the channels we want.
     assert isinstance(selected_channels, list)
     if isinstance(predictions, np.ndarray) and all(np.issubdtype(type(x), np.integer) for x in selected_channels):
+        if selected_channels == list(range(predictions.shape[-1])):
+            # If the user wants all channels, in the original order,
+            # then just return the original array.
+            # This avoids an extra view (which would have unnecessarily stomped the C_CONTIGUOUS flag).
+            return predictions
         return predictions[..., selected_channels]
 
     # The user gave us a nested selection list, or the data is hdf5.

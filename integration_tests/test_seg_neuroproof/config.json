@@ -33,7 +33,7 @@
         "stitch-algorithm" : "none",
         "chunk-size": 128,
         "checkpoint" : "none",
-        "checkpoint-dir" : "",
+        "checkpoint-dir" : "/tmp/test_seg_neuroproof_checkpoint",
         "iteration-size" : 0,
         "debug": true
     }

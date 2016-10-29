@@ -1,0 +1,9 @@
+Create segmentation: Started [2016-10-28 16:35:16]
+Starting new HTTP connection (1): 127.0.0.1
+['/miniconda2/envs/flyem/lib/python2.7/site-packages/logcollector/logserver.py', '--log-dir=/tmp/0b183d42-9d4e-11e6-bea8-a45e60e933fb']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/0b183d42-9d4e-11e6-bea8-a45e60e933fb
+Create segmentation: Wrote DVID labels [2016-10-28 16:36:08]
+DEBUG:  993612f7faa70e091a536b4376fb3054
+Terminating logserver with PID 16954
+Create segmentation: Finished [2016-10-28 16:36:09]

@@ -119,7 +119,9 @@ class ComputeEdgeProbs(DVIDWorkflow):
     blocksize = 32
 
     # context for each subvoume 
-    contextbuffer = 10
+    # For convenience, we use the same default overlap that CreateSegmentation uses,
+    # so the same cached probabilities can be used if they're available.
+    contextbuffer = 20
 
     def __init__(self, config_filename):
         super(ComputeEdgeProbs, self).__init__(config_filename, self.Schema, "Compute edge prob")
@@ -192,17 +194,26 @@ class ComputeEdgeProbs(DVIDWorkflow):
             gray_chunks = self.sparkdvid_context.map_grayscale8(distsubvolumes_part,
                     self.config_data["dvid-info"]["grayscale"])
 
-            def predict_voxels(gray_chunk):
-                subvolume, gray = gray_chunk
-                predictions = vprediction_function(gray, None)
-                return (subvolume, CompressedNumpyArray(predictions))
+            pred_checkpoint_dir = ""
+            if checkpoint_dir:
+                pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
 
-            vox_preds = gray_chunks.mapValues(predict_voxels)
+            # For now, we always read predictions if available, and always write them if not.
+            # TODO: Add config settings to control read/write behavior.
+            @Segmentor.use_block_cache(pred_checkpoint_dir, allow_read=True, allow_write=True)
+            def predict_voxels( (_subvolume, gray) ):
+                return vprediction_function(gray, None)
+
+            vox_preds = gray_chunks.values().map( predict_voxels ) # predictions only
+            vox_preds = distsubvolumes_part.values().zip( vox_preds ) # (subvolume, predictions)
 
             pdconf = self.config_data["dvid-info"]
             # retrieve segmentation and generate features
             def generate_features(vox_pred):
-                (sid, (subvolume, pred_compressed)) = vox_pred
+                import numpy
+                (subvolume, pred) = vox_pred
+                pred = numpy.ascontiguousarray(pred)
+
 
                 # extract labelblks
                 border = 1 # only one pixel needed to find edges
@@ -225,10 +236,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 initial_seg = get_seg()
 
                 # !!! potentially dangerous but needed for now
-                import numpy
                 initial_seg = initial_seg.astype(numpy.uint32)
-
-                pred = pred_compressed.deserialize()
 
                 z,y,x,num_chans = pred.shape
 
@@ -379,18 +387,28 @@ class ComputeEdgeProbs(DVIDWorkflow):
         graph = {}
         graph["Vertices"] = bodies
         graph["Edges"] = edges
-        
-        # load entire graph into DVID
-        node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
-        import requests
-        server = str(self.config_data["dvid-info"]["dvid-server"])
-        if not server.startswith("http://"):
-            server = "http://" + server
-        requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
 
-        self.logger.write_data("Wrote DVID graph") # write to logger after spark job
-        #self.logger.write_data("Wrote graph to disk") # write to logger after spark job
-        
+        SAVE_TO_FILE = False
+        if SAVE_TO_FILE:
+            graph_filepath = '/tmp/graph-output.json'
+            with open(graph_filepath, 'w') as f:
+                self.logger.warn("Writing graph json to file:\n{}".format(graph_filepath))
+                import json
+                json.dump(graph, f, indent=4, separators=(',', ': '))
+            self.logger.write_data("Wrote graph to disk") # write to logger after spark job
+
+        UPLOAD_TO_DVID = True
+        if UPLOAD_TO_DVID:
+            import requests
+            # load entire graph into DVID
+            node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
+            server = str(self.config_data["dvid-info"]["dvid-server"])
+            if not server.startswith("http://"):
+                server = "http://" + server
+            requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
+            self.logger.write_data("Wrote DVID graph") # write to logger after spark job
+
+
         if self.config_data["options"]["debug"]:
             import json
             print "DEBUG:", json.dumps(graph)
