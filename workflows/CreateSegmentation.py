@@ -348,8 +348,9 @@ class CreateSegmentation(DVIDWorkflow):
         mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
        
         if self.config_data["options"]["parallelwrites"] > 0:
-            # coalesce to fewer partition if there is write bandwidth limits to DVID
-            mapped_seg_chunks = mapped_seg_chunks.coalesce(self.config_data["options"]["parallelwrites"])
+            # repartition to fewer partition if there is write bandwidth limits to DVID
+            # (coalesce() doesn't balance the partitions, so we opt for a full shuffle.)
+            mapped_seg_chunks = mapped_seg_chunks.repartition(self.config_data["options"]["parallelwrites"])
 
         # write data to DVID
         self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
