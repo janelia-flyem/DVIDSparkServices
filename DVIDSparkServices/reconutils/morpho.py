@@ -108,7 +108,8 @@ def stitch(sc, label_chunks):
     label_chunks (RDD): [ (subvol, (seg_vol, max_id)),
                           (subvol, (seg_vol, max_id)),
                           ... ]
-    """
+    """    
+    label_chunks.persist()
     subvolumes_rdd = select_item(label_chunks, 0)
     subvolumes = subvolumes_rdd.collect()
     max_ids = select_item(label_chunks, 1, 1).collect()
@@ -361,6 +362,6 @@ def stitch(sc, label_chunks):
 
     # just map values with broadcast map
     # Potential TODO: consider fast join with partitioned map (not broadcast)
-    return label_chunks.mapValues(relabel)
+    return subvolumes_rdd.zip(label_vols_rdd).map(relabel)
 
 
