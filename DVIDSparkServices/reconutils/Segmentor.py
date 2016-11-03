@@ -8,6 +8,7 @@ import textwrap
 from functools import partial, wraps
 import logging
 import numpy as np
+import vigra
 
 from quilted.h5blockstore import H5BlockStore
 
@@ -530,9 +531,8 @@ class Segmentor(object):
         label_chunks (RDD): [ (subvol, (seg_vol, max_id)),
                               (subvol, (seg_vol, max_id)),
                               ... ]
-        NOTE: It is assumed that label_chunks is already persisted.
-              If not, redundant work is performed here.
         """
+        label_chunks.persist()
         subvolumes_rdd = select_item(label_chunks, 0)
         subvolumes = subvolumes_rdd.collect()
         max_ids = select_item(label_chunks, 1, 1).collect()
@@ -918,7 +918,8 @@ class Segmentor(object):
                     curr_id += 1
 
             # create default map 
-            mapping_col = numpy.unique(labels)
+            labels_view = vigra.taggedView(labels.astype(numpy.uint64), 'zyx')
+            mapping_col = numpy.sort( vigra.analysis.unique(labels_view) )
             label_mappings = dict(zip(mapping_col, mapping_col))
            
             # create maps from merge list
@@ -929,10 +930,10 @@ class Segmentor(object):
                     label_mappings[relabeled_bodies[mapping[0]]] = mapping[1]
 
             # apply maps
-            vectorized_relabel = numpy.frompyfunc(label_mappings.__getitem__, 1, 1)
-            labels = vectorized_relabel(labels).astype(numpy.uint64)
-       
-            return (subvolume, labels)
+            new_labels = numpy.empty_like( labels, dtype=numpy.uint64 )
+            new_labels_view = vigra.taggedView(new_labels, 'zyx')
+            vigra.analysis.applyMapping(labels_view, label_mappings, allow_incomplete_mapping=True, out=new_labels_view)
+            return (subvolume, new_labels)
 
         # just map values with broadcast map
         # Potential TODO: consider fast join with partitioned map (not broadcast)
