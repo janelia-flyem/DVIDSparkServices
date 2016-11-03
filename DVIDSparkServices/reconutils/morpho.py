@@ -228,7 +228,7 @@ def stitch(sc, label_chunks):
     # return all subvolumes back to the driver
     # create offset map (substack id => offset) and broadcast
     offsets = {}
-    offset = 0 
+    offset = numpy.uint64(0)
 
     for subvolume, max_id in zip(subvolumes, max_ids):
         offsets[subvolume.roi_id] = offset
@@ -446,7 +446,7 @@ def stitch(sc, label_chunks):
         (subvolume, labels) = key_label_mapping
 
         # grab broadcast offset
-        offset = subvolume_offsets.value[subvolume.roi_id]
+        offset = numpy.uint64( subvolume_offsets.value[subvolume.roi_id] )
 
         # check for body mask labels and protect from renumber
         fix_bodies = []
@@ -457,7 +457,7 @@ def stitch(sc, label_chunks):
         labels[labels == offset] = 0
 
         # create default map 
-        labels_view = vigra.taggedView(labels, 'zyx')
+        labels_view = vigra.taggedView(labels.astype(numpy.uint64), 'zyx')
         mapping_col = numpy.sort( vigra.analysis.unique(labels_view) )
         label_mappings = dict(zip(mapping_col, mapping_col))
        
@@ -468,7 +468,8 @@ def stitch(sc, label_chunks):
 
         # apply maps
         new_labels = numpy.empty_like( labels, dtype=numpy.uint64 )
-        vigra.analysis.applyMapping(labels, label_mappings, allow_incomplete_mapping=True, out=new_labels)
+        new_labels_view = vigra.taggedView(new_labels, 'zyx')
+        vigra.analysis.applyMapping(labels_view, label_mappings, allow_incomplete_mapping=True, out=new_labels_view)
         return (subvolume, new_labels)
 
     # just map values with broadcast map
