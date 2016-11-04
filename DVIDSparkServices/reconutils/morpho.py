@@ -219,8 +219,10 @@ def stitch(sc, label_chunks):
     label_chunks (RDD): [ (subvol, (seg_vol, max_id)),
                           (subvol, (seg_vol, max_id)),
                           ... ]
+
+    Note: This function requires that label_chunks is already persist()ed in memory.
     """    
-    label_chunks.persist()
+    assert label_chunks.is_cached, "You must persist() label_chunks before calling this function."
     subvolumes_rdd = select_item(label_chunks, 0)
     subvolumes = subvolumes_rdd.collect()
     max_ids = select_item(label_chunks, 1, 1).collect()
