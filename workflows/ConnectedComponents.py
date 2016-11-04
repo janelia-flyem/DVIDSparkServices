@@ -107,7 +107,13 @@ class ConnectedComponents(DVIDWorkflow):
             from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
 
             subvolume, seg = seg_chunk
-            seg2, _mapping = split_disconnected_bodies(seg)
+            seg_split, split_mapping = split_disconnected_bodies(seg)
+            
+            # If any zero bodies were split, don't give them new labels.
+            # Make them zero again
+            zero_split_mapping = dict( filter( lambda (k,v): v == 0, split_mapping.items() ) )
+            if zero_split_mapping:
+                vigra.analysis.applyMapping(seg_split, zero_split_mapping, out=seg_split)
 
             # renumber from one
             #
@@ -115,17 +121,17 @@ class ConnectedComponents(DVIDWorkflow):
             #        seg2 = vigra.analysis.relabelConsecutive( seg2,
             #                                                  start_label=1,
             #                                                  keep_zeros=True,
-            #                                                  out=np.empty_like(seg2, dtype=np.uint32))
-            seg2 = vigra.taggedView(seg2, 'zyx')
-            vals = numpy.sort( vigra.analysis.unique(seg2) )
+            #                                                  out=np.empty_like(seg_split, dtype=np.uint32) )
+            seg_split = vigra.taggedView(seg_split, 'zyx')
+            vals = numpy.sort( vigra.analysis.unique(seg_split) )
             if vals[0] == 0:
                 # Leave zero-pixels alone
                 remap = dict(zip(vals, range(len(vals))))
             else:
                 remap = dict(zip(vals, range(1, 1+len(vals))))
 
-            out_seg = numpy.empty_like(seg2, dtype=numpy.uint32)
-            vigra.analysis.applyMapping(seg2, remap, out=out_seg)
+            out_seg = numpy.empty_like(seg_split, dtype=numpy.uint32)
+            vigra.analysis.applyMapping(seg_split, remap, out=out_seg)
             return (subvolume, (out_seg, out_seg.max()))
 
         # (sv_id, (subvolume, labels)) -> (sv_id, (subvolume, (newlabels, max_id)))
