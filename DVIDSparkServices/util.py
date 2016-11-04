@@ -110,7 +110,7 @@ def mask_roi(data, subvolume, border='default'):
     """
     mask = dense_roi_mask_for_subvolume(subvolume, border)
     assert data.shape == mask.shape
-    data &= mask
+    data[np.logical_not(mask)] = 0
     return None # Emphasize in-place behavior
 
 
