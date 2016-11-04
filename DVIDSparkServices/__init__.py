@@ -35,6 +35,5 @@ def connect_debugger():
     print "Waiting for PyDev debugger..."
     pydevd.settrace(stdoutToServer=True, stderrToServer=True, suspend=False)
 
-PYDEV_DEBUGGER_ENABLED = False
-if PYDEV_DEBUGGER_ENABLED:
+if int(os.getenv('PYDEV_DEBUGGER_ENABLED', 0)):
     connect_debugger()
