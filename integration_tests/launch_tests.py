@@ -13,6 +13,10 @@ import time
 import string
 from collections import OrderedDict
 
+import numpy as np
+import vigra
+from libdvid import DVIDNodeService
+
 def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     start = time.time()
     print "Starting test: ", test_name
@@ -178,6 +182,51 @@ def init_dvid_database(test_dir, reuse_last=False):
     # load grayscale data
     load_gray1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/grayscale/raw/0_1_2/256_256_256/0_0_0 --data-binary @%s/resources/grayscale-256-256-256-uint8.bin' % (uuid1, test_dir)).split()
     subprocess.check_call(load_gray1_command)
+
+    # Grid grayscale data
+    # Note that the outer border is only present on
+    # the bottom Y-half.
+    #
+    #  +    +    +    +    +    <-- The '+' here are just a visual cue; they aren't in the data.
+    #       |         |     
+    #       |         |     
+    #  +----+---------+----+
+    #       |         |     
+    #       |         |     
+    #  |    |         |    |
+    #  +----+---------+----+
+    #  |    |         |    |
+    #  |    |         |    |
+    #  +----+----+----+----+
+    
+    # load grid grayscale data
+    grid = np.zeros( (256, 256, 256), dtype=np.uint8 )
+    grid[80, :, :] = 1
+    grid[:, 80, :] = 1
+    grid[:, :, 80] = 1
+    grid[176, :, :] = 1
+    grid[:, 176, :] = 1
+    grid[:, :, 176] = 1
+
+    shell = np.zeros( (256, 256, 256), dtype=np.uint8 )
+    shell[0, :, :] = 1
+    shell[:, 0, :] = 1
+    shell[:, :, 0] = 1
+    shell[-1, :, :] = 1
+    shell[:, -1, :] = 1
+    shell[:, :, -1] = 1
+
+    grid[:, 128:, :] |= shell[:, 128:, :]
+    grid *= 255
+    grid = 255 - grid
+    
+    # Use a non-zero grayscale value
+    grid[grid == 0] = 1
+    
+    a = vigra.filters.gaussianSmoothing(grid, 1.0)
+    ns = DVIDNodeService('127.0.0.1:8000', str(uuid1))
+    ns.create_grayscale8('grid-grayscale')
+    ns.put_gray3D('grid-grayscale', a, (0,0,0))
     
     # create 256 ROI datatype
     create_roi_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
@@ -198,6 +247,26 @@ def init_dvid_database(test_dir, reuse_last=False):
     load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/roi-256-without-corners/roi --data-binary @%s/resources/roi-256-without-corners.json' % (uuid1, test_dir)).split()
     subprocess.check_call(load_roi_command)
 
+    # Create diagonal ROI, useful for testing stitching
+    _ = 0
+    # 8x8 blocks = 256x256 px
+    roi_mask_yx = np.array( [[1,_,_,_,_,_,_,1],
+                             [1,1,_,_,_,_,1,1],
+                             [_,1,1,_,_,1,1,_],
+                             [_,_,1,1,1,1,_,_],
+                             [_,_,_,1,1,_,_,_],
+                             [_,_,1,1,1,1,_,_],
+                             [_,1,1,_,_,1,1,_],
+                             [1,1,_,_,_,_,1,1] ])
+
+    roi_mask_zyx = np.zeros( (8,8,8) )
+    roi_mask_zyx[:] = roi_mask_yx[None, :, :]
+    roi_block_indexes = np.transpose( roi_mask_zyx.nonzero() )
+
+    ns = DVIDNodeService('127.0.0.1:8000', str(uuid1))
+    ns.create_roi('diagonal-256')
+    ns.post_roi('diagonal-256', roi_block_indexes)
+
     # Save the uuids to a file for debug and/or reuse
     with open(uuid_file, 'w') as f:
         f.write(uuid1 + '\n')
@@ -209,6 +278,8 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     #####  run tests ####
 
     tests = OrderedDict()
+    tests["test_stitch_grid"] = "CreateSegmentation"
+    tests["test_stitch_grid_diagonal"] = "CreateSegmentation"
     tests["test_seg"] = "CreateSegmentation"
     tests["test_Segmentor"] = "CreateSegmentation"
     tests["test_seg_iteration"] = "CreateSegmentation"
