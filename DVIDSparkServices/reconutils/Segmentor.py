@@ -175,7 +175,9 @@ class Segmentor(object):
             self.preserve_bodies = set(self.pdconf["bodies"])
 
 
-    def segment(self, subvols_rdd, gray_blocks, pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir, allow_pred_rollback, allow_sp_rollback, allow_seg_rollback):
+    def segment(self, subvols_rdd, gray_blocks,
+                gray_checkpoint_dir, mask_checkpoint_dir, pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir,
+                allow_pred_rollback, allow_sp_rollback, allow_seg_rollback):
         """Top-level pipeline (can overwrite) -- gray RDD => label RDD.
 
         Defines a segmentation workflow consisting of voxel prediction,
@@ -190,8 +192,14 @@ class Segmentor(object):
             segmentation (RDD) as (subvolume key, (subvolume, numpy compressed array))
 
         """
+        # Developers might set gray_checkpoint_dir while debugging.
+        # In that case, force the grayscale data to get written to cache.
+        if gray_checkpoint_dir:
+            gray_blocks = self.cache_grayscale(subvols_rdd, gray_blocks, gray_checkpoint_dir)
+            gray_blocks.persist()
+        
         # Compute mask of background area that can be skipped (if any)
-        mask_blocks = self.compute_background_mask(subvols_rdd, gray_blocks)
+        mask_blocks = self.compute_background_mask(subvols_rdd, gray_blocks, mask_checkpoint_dir)
         mask_blocks.persist()
 
         # run voxel prediction (default: grayscale is boundary)
@@ -208,7 +216,7 @@ class Segmentor(object):
         return seg_blocks
 
     @classmethod
-    def use_block_cache(cls, blockstore_dir, allow_read=True, allow_write=True):
+    def use_block_cache(cls, blockstore_dir, allow_read=True, allow_write=True, dset_options={'compression': 'lzf', 'shuffle': True}):
         """
         Returns a decorator, intended to decorate functions that execute in spark workers.
         Before performing the work, check the block cache in the given directory and return the data from the cache if possible.
@@ -259,7 +267,7 @@ class Segmentor(object):
                         block_bounds = ((z1, y1, x1), (z2, y2, x2))
 
                     block_store = H5BlockStore(blockstore_dir, mode='a', axes=axes, dtype=block_data.dtype,
-                                               dset_options={'compression': 'lzf', 'shuffle': True},
+                                               dset_options=dset_options,
                                                default_timeout=15*60)
                     h5_block = block_store.get_block( block_bounds )
                     h5_block[:] = block_data
@@ -296,8 +304,22 @@ class Segmentor(object):
         
         parameters = self.segmentor_config[segmentation_step]["parameters"]
         return partial( func, **parameters )
-        
-    def compute_background_mask(self, subvols, gray_vols):
+
+    def cache_grayscale(self, subvols, gray_vols, gray_checkpoint_dir):
+        """
+        This is a dumb pass-through function just to cache the downloaded grayscale data to disk.
+        The cached data isn't actually used by this pipeline, can be useful for viewing later
+        (for debugging purposes).
+        """
+        @send_log_with_key(lambda (sv, _g): str(sv))
+        @Segmentor.use_block_cache(gray_checkpoint_dir, allow_read=False, dset_options={})
+        def _execute_for_chunk( (_subvolume, gray) ):
+            logging.getLogger(__name__).debug("Caching grayscale")
+            return gray
+
+        return subvols.zip(gray_vols).map(_execute_for_chunk, True)
+
+    def compute_background_mask(self, subvols, gray_vols, mask_checkpoint_dir):
         """
         Construct a mask to distinguish between foreground (which will be segmented)
         and background (which will be excluded from the segmentation).
@@ -319,6 +341,7 @@ class Segmentor(object):
         mask_function = self._get_segmentation_function('background-mask')
 
         @send_log_with_key(lambda (sv, _g): str(sv))
+        @Segmentor.use_block_cache(mask_checkpoint_dir, allow_read=False)
         def _execute_for_chunk(args):
             import DVIDSparkServices
             subvolume, gray = args
