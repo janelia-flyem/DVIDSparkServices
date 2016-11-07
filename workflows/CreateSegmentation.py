@@ -153,13 +153,14 @@ class CreateSegmentation(DVIDWorkflow):
         from pyspark import SparkContext
         from pyspark import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
-
+        resource_server = self.resource_server
+        resource_port = self.resource_port
         self.chunksize = self.config_data["options"]["chunk-size"]
 
         # create datatype in the beginning
         mutateseg = self.config_data["options"]["mutateseg"]
         node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
-                self.config_data["dvid-info"]["uuid"])
+                self.config_data["dvid-info"]["uuid"], resource_server, resource_port)
         success = node_service.create_labelblk(str(self.config_data["dvid-info"]["segmentation-name"]))
         # check whether seg should be mutated
         if (not success and mutateseg == "auto") or mutateseg == "yes":
@@ -289,15 +290,22 @@ class CreateSegmentation(DVIDWorkflow):
         if self.config_data["options"]["debug"]:
             # grab 256 cube from ROI 
             node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
-                    self.config_data["dvid-info"]["uuid"])
+                    self.config_data["dvid-info"]["uuid"], resource_server, resource_port)
             
             substacks, packing_factor = node_service.get_roi_partition(str(self.config_data["dvid-info"]["roi"]),
                                                                        256/self.blocksize)
 
-            label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 
-                                                      (256,256,256),
-                                                      (substacks[0].z, substacks[0].y, substacks[0].x),
-                                                      compress=True )
+            if self.resource_server != "":
+                label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 
+                                                          (256,256,256),
+                                                          (substacks[0].z, substacks[0].y, substacks[0].x),
+                                                          compress=True, throttle=False )
+            else:
+                label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 
+                                                          (256,256,256),
+                                                          (substacks[0].z, substacks[0].y, substacks[0].x),
+                                                          compress=True )
+
 
             # dump checksum
             import numpy

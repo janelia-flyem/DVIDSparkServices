@@ -10,6 +10,8 @@ import json
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
+
+
 #  workflow exception
 class WorkflowError(Exception):
     pass
@@ -63,6 +65,7 @@ class Workflow(object):
         self.sc = self._init_spark(appname)
 
 
+
     def _init_spark(self, appname):
         """Internal function to setup spark context
         
@@ -94,6 +97,12 @@ class Workflow(object):
         #("spark.eventLog.enabled", "true"),
         #("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
 
+        # check if a server is specified that can manage load to DVID resources
+        self.resource_server = ""
+        self.resource_port = 0
+        if "resource-server" in self.config_data["options"] and "resource-port" in self.config_data["options"]:
+            self.resource_server = str(self.config_data["options"]["resource-server"])
+            self.resource_port = int(self.config_data["options"]["resource-port"])
 
         # currently using LZ4 compression: should not degrade runtime much
         # but will help with some operations like shuffling, especially when

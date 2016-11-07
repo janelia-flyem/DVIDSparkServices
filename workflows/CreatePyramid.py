@@ -93,7 +93,7 @@ class CreatePyramid(DVIDWorkflow):
 
         # create source pyramid and append _level to name
         for level in range(1, maxlevel+1):
-            node_service = retrieve_node_service(server, uuid, self.APPNAME)
+            node_service = retrieve_node_service(server, uuid, self.APPNAME, self.resource_server, self.resource_port)
             # !! limit to grayscale now
             prevsource = currsource
             currsource = source + ("_%d" % level)
@@ -121,7 +121,9 @@ class CreatePyramid(DVIDWorkflow):
                 xsize += 1
             ysize = (yspan+1)/2
             zsize = (zspan+1)/2
-            
+            resource_server = self.resource_server
+            resource_port = self.resource_port
+
             for ziter2 in range(0, zsize, 2):
                 workqueue = []
                 for yiter in range(0, ysize):
@@ -135,7 +137,7 @@ class CreatePyramid(DVIDWorkflow):
                 # grab data corresponding to xrun
                 def retrievedata(coord):
                     xiter, yiter, ziter = coord
-                    node_service = retrieve_node_service(server, uuid)
+                    node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
 
                     shape_zyx = ( BLKSIZE*2, BLKSIZE*2, maxxrun*BLKSIZE )
                     offset_zyx = (ziter*BLKSIZE*2, yiter*BLKSIZE*2, xiter*BLKSIZE*maxxrun)
@@ -217,7 +219,7 @@ class CreatePyramid(DVIDWorkflow):
                 def write2dvid(vdata):
                     from libdvid import ConnectionMethod
                     import numpy
-                    node_service = retrieve_node_service(server, uuid, appname) 
+                    node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname) 
                     
                     coords, data = vdata 
                     xiter, yiter, ziter = coords
@@ -241,7 +243,10 @@ class CreatePyramid(DVIDWorkflow):
                         vals = numpy.unique(data)
                         # TODO: ignore blank blocks within an x line 
                         if not (len(vals) == 1 and vals[0] == 0):
-                            node_service.put_labels3D(currsource, data, (zbindex*BLKSIZE, ybindex*BLKSIZE, xbindex*BLKSIZE), compress=True)
+                            if resource_server != "":
+                                node_service.put_labels3D(currsource, data, (zbindex*BLKSIZE, ybindex*BLKSIZE, xbindex*BLKSIZE), compress=True, throttle=False)
+                            else:
+                                node_service.put_labels3D(currsource, data, (zbindex*BLKSIZE, ybindex*BLKSIZE, xbindex*BLKSIZE), compress=True)
                     else:
                         for iterx in range(0, xsize, BLKSIZE):
                             block = data[:,:,iterx:iterx+BLKSIZE]

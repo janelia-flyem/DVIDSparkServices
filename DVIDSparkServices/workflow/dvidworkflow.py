@@ -59,7 +59,7 @@ class DVIDWorkflow(Workflow):
         # create spark dvid context
         self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
                 self.config_data["dvid-info"]["dvid-server"],
-                self.config_data["dvid-info"]["uuid"])
+                self.config_data["dvid-info"]["uuid"], self)
 
 
     # just dumps specific DVID schema

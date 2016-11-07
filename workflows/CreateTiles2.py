@@ -136,6 +136,8 @@ class CreateTiles2(DVIDWorkflow):
         npy_images = imgs.map(img2npy) 
     
         appname = self.APPNAME
+        resource_server = self.resource_server
+        resource_port = self.resource_port
 
         def writeimagepyramid(image):
             slicenum, imnpy = image 
@@ -145,7 +147,7 @@ class CreateTiles2(DVIDWorkflow):
             import StringIO
             
             from libdvid import ConnectionMethod
-            node_service = retrieve_node_service(server, uuid, appname) 
+            node_service = retrieve_node_service(server, uuid, appname, resource_server, resource_port) 
 
             # actually perform tile load
             def loadTile(reqpair):

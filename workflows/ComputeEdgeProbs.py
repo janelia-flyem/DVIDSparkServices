@@ -11,10 +11,10 @@ weight as affinity is pushed to either DVID labelgraph or to disk.
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 import DVIDSparkServices
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from functools import partial
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.auto_retry import auto_retry
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 class ComputeEdgeProbs(DVIDWorkflow):
     # schema for creating segmentation
@@ -135,7 +135,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
 
         # create datatype in the beginning
         node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
-                self.config_data["dvid-info"]["uuid"])
+                self.config_data["dvid-info"]["uuid"], self.resource_server, self.resource_port)
         
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
@@ -200,6 +200,9 @@ class ComputeEdgeProbs(DVIDWorkflow):
             vox_preds = gray_chunks.mapValues(predict_voxels)
 
             pdconf = self.config_data["dvid-info"]
+            resource_server = self.resource_server
+            resource_port = self.resource_port
+
             # retrieve segmentation and generate features
             def generate_features(vox_pred):
                 (sid, (subvolume, pred_compressed)) = vox_pred
@@ -216,12 +219,19 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def get_seg():
                     node_service = retrieve_node_service(pdconf["dvid-server"], 
-                            pdconf["uuid"])
+                            pdconf["uuid"], resource_server, resource_port)
                     # retrieve data from roi start position
                     # Note: libdvid uses zyx order for python functions
-                    return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                        (size3,size2,size1),
-                        (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), roi=str(pdconf["roi"]))
+                    
+                    if resource_server != "": 
+                        return node_service.get_labels3D(str(pdconf["segmentation-name"]),
+                            (size3,size2,size1),
+                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), roi=str(pdconf["roi"]), throttle=False)
+                    else:
+                        return node_service.get_labels3D(str(pdconf["segmentation-name"]),
+                            (size3,size2,size1),
+                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), roi=str(pdconf["roi"]))
+
                 initial_seg = get_seg()
 
                 # !!! potentially dangerous but needed for now

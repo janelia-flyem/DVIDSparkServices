@@ -124,9 +124,11 @@ class IngestGrayscale(Workflow):
             server = self.config_data["dvid-info"]["dvid-server"]
             uuid = self.config_data["dvid-info"]["uuid"]
             grayname = self.config_data["dvid-info"]["grayname"]
-            
+            resource_server = self.resource_server
+            resource_port = self.resource_port
+
             # create grayscale type
-            node_service = retrieve_node_service(server, uuid, self.APPNAME)
+            node_service = retrieve_node_service(server, uuid, self.APPNAME, resource_server, resource_port)
             node_service.create_grayscale8(str(grayname), self.BLKSIZE)
 
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, iterslices):
@@ -249,7 +251,7 @@ class IngestGrayscale(Workflow):
                 def write2dvid(yblocks):
                     from libdvid import ConnectionMethod
                     import numpy
-                    node_service = retrieve_node_service(server, uuid, appname) 
+                    node_service = retrieve_node_service(server, uuid, appname, resource_server, resource_port) 
                     
                     # get block coordinates
                     zbindex = slice/blocksize 
@@ -327,14 +329,15 @@ class IngestGrayscale(Workflow):
             # just set size to 1 
             pass
 
-        # update metadata
-        import requests
-        grayext = {}
-        grayext["MinPoint"] = [0,0,0] # for now no offset
-        grayext["MaxPoint"] = [width-1,height-1,self.config_data["maxslice"]]
-        if not server.startswith("http://"):
-            server = "http://" + server
-        requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
+        if "output-dir" not in self.config_data or self.config_data["output-dir"] == "":
+            # update metadata
+            import requests
+            grayext = {}
+            grayext["MinPoint"] = [0,0,0] # for now no offset
+            grayext["MaxPoint"] = [width-1,height-1,self.config_data["maxslice"]]
+            if not server.startswith("http://"):
+                server = "http://" + server
+            requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
 
     @staticmethod
     def dumpschema():

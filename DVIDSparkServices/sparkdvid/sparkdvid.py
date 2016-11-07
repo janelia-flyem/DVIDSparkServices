@@ -27,6 +27,41 @@ logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
 
+def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
+    """Create a DVID node service object"""
+
+    server = str(server)  
+   
+    # refresh dvid server meta if localhost (since it is exclusive or points to global db)
+    """
+    if server.startswith("http://127.0.0.1") or  \
+            server.startswith("http://localhost") or  \
+            server.startswith("127.0.0.1") or server.startswith("localhost"):
+        
+        import os
+        if not os.path.exists("/tmp/reloaded.hack"):
+            import requests
+            addr = server + "/api/server/reload-metadata"
+            if not server.startswith("http://"):
+                addr = "http://" + addr
+
+            requests.post(addr)
+            open("/tmp/reloaded.hack", 'w').close()
+    """
+
+    from libdvid import DVIDNodeService
+    import os
+    username = os.environ["USER"]
+
+    if resource_server != "":
+        node_service = DVIDNodeService(server, str(uuid), username, appname, str(resource_server), resource_port)
+    else:
+        node_service = DVIDNodeService(server, str(uuid), username, appname)
+
+
+    return node_service
+
+
 # masks data to 0 if outside of ROI stored in subvolume
 def mask_roi(data, subvolume, border=-1):
     import numpy
@@ -68,36 +103,6 @@ def mask_roi(data, subvolume, border=-1):
     data[mask==0] = 0
 
 
-
-def retrieve_node_service(server, uuid, appname="sparkservices"):
-    """Create a DVID node service object"""
-
-    server = str(server)  
-   
-    # refresh dvid server meta if localhost (since it is exclusive or points to global db)
-    """
-    if server.startswith("http://127.0.0.1") or  \
-            server.startswith("http://localhost") or  \
-            server.startswith("127.0.0.1") or server.startswith("localhost"):
-        
-        import os
-        if not os.path.exists("/tmp/reloaded.hack"):
-            import requests
-            addr = server + "/api/server/reload-metadata"
-            if not server.startswith("http://"):
-                addr = "http://" + addr
-
-            requests.post(addr)
-            open("/tmp/reloaded.hack", 'w').close()
-    """
-
-    from libdvid import DVIDNodeService
-    import os
-    username = os.environ["USER"]
-    node_service = DVIDNodeService(server, str(uuid), username, appname)
-
-    return node_service
-
 class sparkdvid(object):
     """Creates a spark dvid context that holds the spark context.
 
@@ -108,19 +113,21 @@ class sparkdvid(object):
     
     BLK_SIZE = 32
     
-    def __init__(self, context, dvid_server, dvid_uuid):
+    def __init__(self, context, dvid_server, dvid_uuid, workflow):
         """Initialize object
 
         Args:
             context: spark context
             dvid_server (str): location of dvid server (e.g. emdata2:8000)
             dvid_uuid (str): DVID dataset unique version identifier
+            workflow (workflow): workflow instance
        
         """
 
         self.sc = context
         self.dvid_server = dvid_server
         self.uuid = dvid_uuid
+        self.workflow = workflow
 
     # Produce RDDs for each subvolume partition (this will replace default implementation)
     # Treats subvolum index as the RDD key and maximizes partition count for now
@@ -150,9 +157,9 @@ class sparkdvid(object):
 
         # function will export and should include dependencies
         subvolumes = [] # x,y,z,x2,y2,z2
-
+        
         # extract roi for a given chunk size
-        node_service = retrieve_node_service(self.dvid_server, self.uuid)
+        node_service = retrieve_node_service(self.dvid_server, self.uuid, self.workflow.resource_server, self.workflow.resource_port)
         substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE)
         
         # libdvid returns substack namedtuples as (size, z, y, x), but we want (x,y,z)
@@ -223,10 +230,11 @@ class sparkdvid(object):
             RDD of grayscale data (partitioner perserved)
     
         """
-        
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
 
         # only grab value
         def mapper(subvolume):
@@ -245,12 +253,17 @@ class sparkdvid(object):
             # retrieve data from roi start position considering border
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_gray():
-                node_service = retrieve_node_service(server, uuid)
-                
                 # Note: libdvid uses zyx order for python functions
-                return node_service.get_gray3D( str(gray_name),
-                                                (size3,size2,size1),
-                                                (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border) )
+                node_service = retrieve_node_service(server, uuid,resource_server, resource_port)
+                if resource_server != "":
+                    return node_service.get_gray3D( str(gray_name),
+                                                    (size3,size2,size1),
+                                                    (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border), throttle=False )
+                else:
+                    return node_service.get_gray3D( str(gray_name),
+                                                    (size3,size2,size1),
+                                                    (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border) )
+
             gray_volume = get_gray()
 
             return (subvolume, gray_volume)
@@ -278,6 +291,8 @@ class sparkdvid(object):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
 
         def mapper(subvolume):
             # get sizes of roi
@@ -288,14 +303,20 @@ class sparkdvid(object):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
                 # extract labels 64
-                node_service = retrieve_node_service(server, uuid)
                 # retrieve data from roi start position considering border
                 # Note: libdvid uses zyx order for python functions
-                data = node_service.get_labels3D( str(label_name),
-                                                  (size3,size2,size1),
-                                                  (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
-                                                  compress=True )
-                
+                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+                if resource_server != "":
+                    data = node_service.get_labels3D( str(label_name),
+                                                      (size3,size2,size1),
+                                                      (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
+                                                      compress=True, throttle=False )
+                else:
+                    data = node_service.get_labels3D( str(label_name),
+                                                      (size3,size2,size1),
+                                                      (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
+                                                      compress=True )
+
                 # mask ROI
                 if roiname != "":
                     mask_roi(data, subvolume, border=border)        
@@ -337,6 +358,8 @@ class sparkdvid(object):
         server = self.dvid_server
         server2 = dvidserver2
         uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
 
         def mapper(subvolume):
             # get sizes of roi
@@ -347,13 +370,19 @@ class sparkdvid(object):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
                 # extract labels 64
-                node_service = retrieve_node_service(server, uuid)
                 # retrieve data from roi start position
                 # Note: libdvid uses zyx order for python functions
-                data = node_service.get_labels3D( str(label_name),
-                                                  (size3,size2,size1),
-                                                  (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
-                
+                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+                if resource_server != "":
+                    data = node_service.get_labels3D( str(label_name),
+                                                      (size3,size2,size1),
+                                                      (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]), throttle=False)
+                else:
+                    data = node_service.get_labels3D( str(label_name),
+                                                      (size3,size2,size1),
+                                                      (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
+
+
                 # mask ROI
                 if roiname != "":
                     mask_roi(data, subvolume)        
@@ -364,12 +393,18 @@ class sparkdvid(object):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels2():
                 # fetch second label volume
-                node_service2 = retrieve_node_service(server2, uuid2)
                 # retrieve data from roi start position
                 # Note: libdvid uses zyx order for python functions
-                return node_service2.get_labels3D( str(label_name2),
-                                                   (size3,size2,size1),
-                                                   (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
+                node_service2 = retrieve_node_service(server2, uuid2, resource_server, resource_port)
+                if resource_server != "":
+                    return node_service2.get_labels3D( str(label_name2),
+                                                       (size3,size2,size1),
+                                                       (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]), throttle=False)
+                else:
+                    return node_service2.get_labels3D( str(label_name2),
+                                                       (size3,size2,size1),
+                                                       (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
+
             label_volume2 = get_labels2()
 
             # zero out label_volume2 where GT is 0'd out !!
@@ -404,13 +439,13 @@ class sparkdvid(object):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
         
         def writer(element_pairs):
             from libdvid import Vertex, Edge
             
             # write graph information
-            node_service = retrieve_node_service(server, uuid)
-       
             if element_pairs is None:
                 return
 
@@ -425,6 +460,7 @@ class sparkdvid(object):
                 else:
                     edges.append(Edge(v1, v2, weight))
     
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
             if len(vertices) > 0:
                 node_service.update_vertices(str(graph_name), vertices) 
             
@@ -456,9 +492,11 @@ class sparkdvid(object):
         # copy local context to minimize sent data
         server = self.dvid_server
         uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
 
         # create labels type
-        node_service = retrieve_node_service(server, uuid)
+        node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
         success = node_service.create_labelblk(str(label_name))
 
         # check whether seg should be mutated
@@ -489,9 +527,9 @@ class sparkdvid(object):
 
             @auto_retry(3, pause_between_tries=600.0, logging_name= __name__)
             def put_labels():
-                node_service = retrieve_node_service(server, uuid)
                 # send data from roi start position
                 # Note: libdvid uses zyx order for python functions
+                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 if roi_name is None:
                     node_service.put_labels3D( str(label_name),
                                                seg,

@@ -251,6 +251,8 @@ class Segmentor(object):
 
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
+        resource_server = self.context.workflow.resource_server
+        resource_port = self.context.workflow.resource_port
 
         def _execute_for_chunk(prediction_chunks):
             (subvolume, gray, prediction_compressed, mask_compressed) = prediction_chunks
@@ -276,12 +278,17 @@ class Segmentor(object):
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def get_segmask():
                     node_service = retrieve_node_service(pdconf["dvid-server"], 
-                            pdconf["uuid"])
+                            pdconf["uuid"], resource_server, resource_port)
                     # retrieve data from roi start position
                     # Note: libdvid uses zyx order for python functions
-                    return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                        (size3,size2,size1),
-                        (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                    if resource_server != "":  
+                        return node_service.get_labels3D(str(pdconf["segmentation-name"]),
+                                (size3,size2,size1),
+                                (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), throttle=False)
+                    else:   
+                        return node_service.get_labels3D(str(pdconf["segmentation-name"]),
+                                (size3,size2,size1),
+                                (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
                 preserve_seg = get_segmask()
 
                 orig_bodies = set(np.unique(preserve_seg))

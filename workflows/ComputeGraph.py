@@ -98,7 +98,7 @@ class ComputeGraph(DVIDWorkflow):
 
         # create graph
         node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"], 
-                self.config_data["dvid-info"]["uuid"])
+                self.config_data["dvid-info"]["uuid"], self.resource_server, self.resource_port)
         
         node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
 

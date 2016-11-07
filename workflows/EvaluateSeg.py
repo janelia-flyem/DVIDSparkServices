@@ -131,7 +131,7 @@ class EvaluateSeg(DVIDWorkflow):
         import json
 
         node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"],
-                self.config_data["dvid-info"]["uuid"])
+                self.config_data["dvid-info"]["uuid"], self.resource_server, self.resource_port)
 
         if "chunk-size" in self.config_data["options"]:
             self.chunksize = self.config_data["options"]["chunk-size"]
