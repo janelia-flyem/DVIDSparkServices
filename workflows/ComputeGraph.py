@@ -72,12 +72,15 @@ class ComputeGraph(DVIDWorkflow):
 
         #  grab ROI
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
-                self.chunksize)
+                chunk_size=self.chunksize, border=1)
 
         num_partitions = distrois.getNumPartitions()
 
         # map ROI to label volume (1 pixel overlap)
-        label_chunks = self.sparkdvid_context.map_labels64(distrois, self.config_data["dvid-info"]["label-name"], 1, self.config_data["dvid-info"]["roi"])
+        label_chunks = self.sparkdvid_context.map_labels64(distrois,
+                                                           self.config_data["dvid-info"]["label-name"],
+                                                           border=1,
+                                                           roiname=self.config_data["dvid-info"]["roi"])
 
         # map labels to graph data -- external program (eventually convert neuroproof metrics and graph to a python library) ?!
         sg = SimpleGraph.SimpleGraph(self.config_data["options"]) 

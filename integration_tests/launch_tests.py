@@ -187,7 +187,17 @@ def init_dvid_database(test_dir, reuse_last=False):
     # load 256 ROI
     load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi256/roi --data-binary @%s/resources/256roi.json' % (uuid1, test_dir)).split()
     subprocess.check_call(load_roi_command)
+
+    # Create ROI with missing corners
+    # (64px cube is missing from all 8 corners)
+    create_roi_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
+    create_roi_command.append("{\"typename\": \"roi\", \"dataname\" : \"roi-256-without-corners\"}")
+    subprocess.check_call(create_roi_command)
     
+    # load incomplete ROI
+    load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/roi-256-without-corners/roi --data-binary @%s/resources/roi-256-without-corners.json' % (uuid1, test_dir)).split()
+    subprocess.check_call(load_roi_command)
+
     # Save the uuids to a file for debug and/or reuse
     with open(uuid_file, 'w') as f:
         f.write(uuid1 + '\n')
@@ -203,7 +213,9 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_Segmentor"] = "CreateSegmentation"
     tests["test_seg_iteration"] = "CreateSegmentation"
     tests["test_seg_rollback"] = "CreateSegmentation"
+    tests["test_seg_with_roi"] = "CreateSegmentation"
 
+    tests["test_cc"] = "ConnectedComponents"
     tests["test_comp"] = "EvaluateSeg"
     tests["test_graph"] = "ComputeGraph"
     tests["test_ingest"] = "IngestGrayscale"

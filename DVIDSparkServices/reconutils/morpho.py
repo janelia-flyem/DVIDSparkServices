@@ -4,16 +4,13 @@ This module contains helper functions for various morphological
 operations used throughout reconutils.
 
 """
-
-import libNeuroProofMetrics as np
-from skimage.measure import label
-from segstats import *
 import numpy
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+import vigra
+from DVIDSparkServices.util import select_item
 
-
-def split_disconnected_bodies(label2):
-    """Produces 3D volume split into connected components.
+def split_disconnected_bodies(labels_orig):
+    """
+    Produces 3D volume split into connected components.
 
     This function identifies bodies that are the same label
     but are not connected.  It splits these bodies and
@@ -21,53 +18,167 @@ def split_disconnected_bodies(label2):
     the original body label.
 
     Args:
-        label2 (numpy.array): 3D array of labels
+        labels_orig (numpy.array): 3D array of labels
 
     Returns:
-        (
-            partially relabeled array (numpy.array),
-            new labels -> old labels (dict)
-        )
+        (labels_new, new_to_orig)
+
+        labels_new:
+            The partially relabeled array.
+            Segments that were not split will keep their original IDs.
+            Among split segments, the largest 'child' of a split segment retains the original ID.
+            The smaller segments are assigned new labels in the range (N+1)..(N+1+S) where N is
+            highest original label and S is the number of new segments after splitting.
+        
+        new_to_orig:
+            A minimal mapping of labels (N+1)..(N+1+S) -> some subset of (1..N),
+            mapping new segment IDs to the segments they came from.
+            (Segments whose IDs did not change are not provided in this mapping.)
     """
-
-    # run connected components
-    label2_split = label(label2)
-
-    # make sure first label starts at 1
-    label2_split = label2_split + 1
-
-    # remove 0 label from consideration
-    label2_split[label2 == 0] = 0
-
-    # find maps and remap partition with rest
-    stack2 = np.Stack(label2.astype(numpy.float64), 0)
-    stack2_split = np.Stack(label2_split.astype(numpy.float64), 0)
-    overlap_2_split = stack2.find_overlaps(stack2_split)
-    stats2 = OverlapTable(overlap_2_split, ComparisonType())
-
-    # needed to remap split labels into original coordinates
-    remapping = {}
-    label2_map = {}
-
-    # 0=>0
-    remapping[0] = 0
-    remap_id = int(label2.max() + 1)
+    labels_consecutive, max_consecutive_label, orig_to_consecutive = vigra.analysis.relabelConsecutive(labels_orig, start_label=1)
+    max_orig = max( orig_to_consecutive.keys() )
+    cons_to_orig = reverse_dict( orig_to_consecutive )
     
-    for orig, newset in stats2.overlap_map.items():
-        if len(newset) == 1:
-            remapping[next(iter(newset))[0]] = orig
-        else:
-            for newbody, overlap in newset:
-                remapping[newbody] = remap_id
-                label2_map[remap_id] = orig
-                remap_id += 1
+    labels_split = vigra.analysis.labelMultiArray(labels_consecutive)
 
-    # relabel volume (minimize size of map that needs to be communicated)
-    # TODO: !! refactor into morpho
-    vectorized_relabel = numpy.frompyfunc(remapping.__getitem__, 1, 1)
-    label2_split = vectorized_relabel(label2_split).astype(numpy.uint64)
+    # 'orig' = original label values I..J
+    # 'origWithSplits' = original label values I..J
+    #                    plus new label values for the S splits (J+1)..(J+1+S)
+    #
+    # 'cons' = consecutive label values 1..N
+    # 'consWithSplits' = consecutive label values 1..N
+    #                    plus new label values for the S splits (N+1)..(N+1+S)
 
-    return label2_split, label2_map
+    split_to_consWithSplits, consWithSplits_to_cons = _split_body_mappings(labels_consecutive, labels_split)
+    
+    num_main_segments = max_consecutive_label
+    num_splits = len(split_to_consWithSplits) - num_main_segments
+
+    # Combine    
+    consWithSplits_to_origWithSplits = reverse_dict(orig_to_consecutive)
+    consWithSplits_to_origWithSplits.update(
+        dict( zip( range( 1+max_consecutive_label, 1+max_consecutive_label+num_splits ),
+                   range( 1+max_orig, 1+max_orig+num_splits ) ) ) )
+        
+    # split -> consWithSplits -> origWithSplits
+    split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
+
+    # Remap the image: split -> origWithSplits
+    labels_origWithSplits = vigra.analysis.applyMapping( labels_split, split_to_origWithSplits )
+
+    origWithSplits_to_consWithSplits = reverse_dict( consWithSplits_to_origWithSplits )
+
+    # origWithSplits -> consWithSplits -> cons -> orig
+    origWithSplits_to_orig = compose_mappings( origWithSplits_to_consWithSplits,
+                                               consWithSplits_to_cons,
+                                               cons_to_orig )
+    
+    # Return final reverse mapping, but remove the labels that stayed the same.
+    MINIMAL_origWithSplits_to_orig = dict( filter( lambda (k,v): k > max_orig, origWithSplits_to_orig.items() ) )
+    return labels_origWithSplits, MINIMAL_origWithSplits_to_orig
+
+
+def _split_body_mappings( labels_orig, labels_split ):
+    """
+    Helper function for split_disconnected_bodies()
+    
+    Given an original label image and a connected components labeling
+    of that original image that 'splits' any disconnected objects it contained,
+    returns two mappings:
+    
+    1. A mapping 'split_to_nonconflicting' which converts labels_split into a
+       volume that matches labels_orig as closely as possible:
+         - Unsplit segments are mappted to their original IDs
+         - For split segments:
+           -- the largest segment retains the original ID
+           -- the other segments are mapped to new labels,
+              all of which are higher than labels_orig.max()
+    
+    2. A mapping 'nonconflicting_to_orig' to convert from
+       split_to_consistent.values() to the set of values in labels_orig
+       
+    Args:
+        labels_orig: A label image with CONSECUTIVE label values 1..N
+        labels_split: A connected components labeling of the original image,
+                      with label values 1..(N+M), assuming M splits in the original data.
+                      
+                      Note: Labels in this image do not need to have any other consistency
+                      with labels in the original.  For example, label 1 in 'labels_orig'
+                      may correspond to label 5 in 'labels_split'.
+    """
+    overlap_table_px = contingency_table(labels_orig, labels_split)
+    num_orig_segments = overlap_table_px.shape[0] - 1 # (No zero label)
+    num_split_segments = overlap_table_px.shape[1] - 1 # (No zero label)
+    
+    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
+    
+    # For each 'orig' id, in which 'split' id did it mainly end up?
+    main_split_segments = numpy.argmax(overlap_table_px, axis=1)
+    
+    # Convert to bool, remove the 'main' entries;
+    # remaining entries are the new segments
+    overlap_table_bool = overlap_table_px.astype(bool)
+    overlap_table_bool[:, main_split_segments] = False
+
+    # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
+    main_split_ids_to_nonconflicting = _main_split_ids_to_orig = \
+        { main_split_segments[orig] : orig for orig in range(1, 1+num_orig_segments) }
+
+    # What are the 'non-main' IDs (i.e. new segments after the split)?
+    nonmain_split_ids = numpy.unique( overlap_table_bool.nonzero()[1] )
+
+    # Map the new split segments to new high ids, so they don't conflict with the old ones
+    nonmain_split_ids_to_nonconflicting = dict( zip( nonmain_split_ids,
+                                                     range( 1+num_orig_segments,
+                                                            1+num_orig_segments + num_split_segments ) ) )
+
+    # Map from split -> nonconflicting, i.e. (split -> main old/nonconflicting + split -> nonmain nonconflicting)
+    split_to_nonconflicting = dict(main_split_ids_to_nonconflicting)
+    split_to_nonconflicting.update( nonmain_split_ids_to_nonconflicting )
+    assert len(split_to_nonconflicting) == len(split_to_orig)
+
+    nonconflicting_to_split = reverse_dict( split_to_nonconflicting )
+
+    # Map from nonconflicting -> split -> orig
+    nonconflicting_to_orig = compose_mappings(nonconflicting_to_split, split_to_orig)
+    
+    assert len(split_to_nonconflicting) == len(nonconflicting_to_orig)
+    return split_to_nonconflicting, nonconflicting_to_orig
+
+
+def contingency_table(vol1, vol2, maxlabels=None):
+    """
+    Return a 2D array 'table' such that ``table[i,j]`` represents
+    the count of overlapping pixels with value ``i`` in ``vol1``
+    and value ``j`` in ``vol2``. 
+    """
+    maxlabels = maxlabels or (vol1.max(), vol2.max())
+    table = numpy.zeros( (maxlabels[0]+1, maxlabels[1]+1), dtype=numpy.uint32 )
+    
+    # numpy.add.at() will accumulate counts at the given array coordinates
+    numpy.add.at(table, [vol1.reshape(-1), vol2.reshape(-1)], 1 )
+    return table
+
+
+def reverse_dict(d):
+    rev = { v:k for k,v in d.items() }
+    assert len(rev) == len(d), "dict is not reversable: {}".format(d)
+    return rev
+
+
+def compose_mappings( *mappings ):
+    """
+    Given a series of mappings (dicts) that form a chain going
+    from one set of labels to another, compose the chain
+    together into a final dict.
+    
+    For example, combine mappings A->B, B->C, C->D into a new mapping A->D
+    """
+    AtoB = mappings[0]
+    for BtoC in mappings[1:]:
+        AtoC = { k: BtoC[v] for k,v in AtoB.items() }
+        AtoB = AtoC
+    return AtoB
 
 
 def seeded_watershed(boundary, seed_threshold = 0, seed_size = 5, mask=None):
@@ -103,24 +214,31 @@ def seeded_watershed(boundary, seed_threshold = 0, seed_size = 5, mask=None):
     return supervoxels
 
 
-
-# stitch label chunks together (input: (s_id, (substack, array_c)))
 def stitch(sc, label_chunks):
-    def example(stuff):
-        return stuff[1][0]
-    subvolumes = label_chunks.map(example).collect()
+    """
+    label_chunks (RDD): [ (subvol, (seg_vol, max_id)),
+                          (subvol, (seg_vol, max_id)),
+                          ... ]
+
+    Note: This function requires that label_chunks is already persist()ed in memory.
+    """    
+    assert label_chunks.is_cached, "You must persist() label_chunks before calling this function."
+    subvolumes_rdd = select_item(label_chunks, 0)
+    subvolumes = subvolumes_rdd.collect()
+    max_ids = select_item(label_chunks, 1, 1).collect()
 
     # return all subvolumes back to the driver
     # create offset map (substack id => offset) and broadcast
     offsets = {}
-    offset = 0 
+    offset = numpy.uint64(0)
 
-    for subvolume in subvolumes:
+    for subvolume, max_id in zip(subvolumes, max_ids):
         offsets[subvolume.roi_id] = offset
-        offset += subvolume.max_id
+        offset += max_id
     subvolume_offsets = sc.broadcast(offsets)
 
-    # (key, subvolume, label chunk)=> (new key, (subvolume, boundary))
+    # (subvol, label_vol) => [ (roi_id_1, roi_id_2), (subvol, boundary_labels)), 
+    #                          (roi_id_1, roi_id_2), (subvol, boundary_labels)), ...] 
     def extract_boundaries(key_labels):
         # compute overlap -- assume first point is less than second
         def intersects(pt1, pt2, pt1_2, pt2_2):
@@ -135,10 +253,7 @@ def stitch(sc, label_chunks):
 
             return npt1, npt1+size, npt1_2, npt1_2+size
 
-        import numpy
-
-        oldkey, (subvolume, labelsc) = key_labels
-        labels = labelsc.deserialize()
+        subvolume, labels = key_labels
 
         boundary_array = []
         
@@ -150,9 +265,6 @@ def stitch(sc, label_chunks):
             if key2 < key1:
                 key1, key2 = key2, key1
             
-            # create key for boundary pair
-            newkey = (key1, key2)
-
             # crop volume to overlap
             offx1, offx2, offx1_2, offx2_2 = intersects(
                             subvolume.roi.x1-subvolume.border,
@@ -175,15 +287,21 @@ def stitch(sc, label_chunks):
                         
             labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
 
-            labels_cropped_c = CompressedNumpyArray(labels_cropped)
+            # create key for boundary pair
+            newkey = (key1, key2)
+
             # add to flat map
-            boundary_array.append((newkey, (subvolume, labels_cropped_c)))
+            boundary_array.append((newkey, (subvolume, labels_cropped)))
 
         return boundary_array
 
 
     # return compressed boundaries (id1-id2, boundary)
-    mapped_boundaries = label_chunks.flatMap(extract_boundaries) 
+    # (subvol, labels) -> [ ( (k1, k2), (subvol, boundary_labels_1) ),
+    #                       ( (k1, k2), (subvol, boundary_labels_1) ),
+    #                       ( (k1, k2), (subvol, boundary_labels_1) ), ... ]
+    label_vols_rdd = select_item(label_chunks, 1, 0)
+    mapped_boundaries = subvolumes_rdd.zip(label_vols_rdd).flatMap(extract_boundaries) 
 
     # shuffle the hopefully smallish boundaries into their proper spot
     # groupby is not a big deal here since same keys will not be in the same partition
@@ -205,15 +323,12 @@ def stitch(sc, label_chunks):
             boundary_list_list.append(item1)
 
         # order subvolume regions (they should be the same shape)
-        subvolume1, boundary1_c = boundary_list_list[0] 
-        subvolume2, boundary2_c = boundary_list_list[1] 
+        subvolume1, boundary1 = boundary_list_list[0] 
+        subvolume2, boundary2 = boundary_list_list[1] 
 
         if subvolume1.roi_id > subvolume2.roi_id:
             subvolume1, subvolume2 = subvolume2, subvolume1
-            boundary1_c, boundary2_c = boundary2_c, boundary1_c
-
-        boundary1 = boundary1_c.deserialize()
-        boundary2 = boundary2_c.deserialize()
+            boundary1, boundary2 = boundary2, boundary1
 
         if boundary1.shape != boundary2.shape:
             raise Exception("Extracted boundaries are different shapes")
@@ -330,11 +445,10 @@ def stitch(sc, label_chunks):
     def relabel(key_label_mapping):
         import numpy
 
-        (subvolume, label_chunk_c) = key_label_mapping
-        labels = label_chunk_c.deserialize()
+        (subvolume, labels) = key_label_mapping
 
         # grab broadcast offset
-        offset = subvolume_offsets.value[subvolume.roi_id]
+        offset = numpy.uint64( subvolume_offsets.value[subvolume.roi_id] )
 
         # check for body mask labels and protect from renumber
         fix_bodies = []
@@ -345,7 +459,8 @@ def stitch(sc, label_chunks):
         labels[labels == offset] = 0
 
         # create default map 
-        mapping_col = numpy.unique(labels)
+        labels_view = vigra.taggedView(labels.astype(numpy.uint64), 'zyx')
+        mapping_col = numpy.sort( vigra.analysis.unique(labels_view) )
         label_mappings = dict(zip(mapping_col, mapping_col))
        
         # create maps from merge list
@@ -354,13 +469,13 @@ def stitch(sc, label_chunks):
                 label_mappings[mapping[0]] = mapping[1]
 
         # apply maps
-        vectorized_relabel = numpy.frompyfunc(label_mappings.__getitem__, 1, 1)
-        labels = vectorized_relabel(labels).astype(numpy.uint64)
-   
-        return (subvolume, CompressedNumpyArray(labels))
+        new_labels = numpy.empty_like( labels, dtype=numpy.uint64 )
+        new_labels_view = vigra.taggedView(new_labels, 'zyx')
+        vigra.analysis.applyMapping(labels_view, label_mappings, allow_incomplete_mapping=True, out=new_labels_view)
+        return (subvolume, new_labels)
 
     # just map values with broadcast map
     # Potential TODO: consider fast join with partitioned map (not broadcast)
-    return label_chunks.mapValues(relabel)
+    return subvolumes_rdd.zip(label_vols_rdd).map(relabel)
 
 

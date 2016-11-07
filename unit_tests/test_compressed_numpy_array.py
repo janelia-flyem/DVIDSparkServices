@@ -51,6 +51,23 @@ class TestCompressedNumpyArray(object):
 
         assert (uncompressed == original).all()
 
+    def test_1d_array(self):
+        """
+        A previous version of CompressedNumpyArray didn't support 1D arrays.
+        Now it is supported as a special case.
+        """
+        original = np.random.random((1000,)).astype(np.float32)
+
+        # RAM is allocated for the lz4 buffers, but there should be 0.0 numpy array allocations
+        compress = assert_mem_usage_factor(0.0)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        # No new numpy arrays needed for deserialization except for the resut itself.
+        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)
+        uncompressed = uncompress()
+
+        assert (uncompressed == original).all()
+
 if __name__ == "__main__":
     import sys
     import nose

@@ -1,0 +1,12 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "roi": "temproi256",
+        "segmentation": "seglabels",
+        "newsegmentation": "seglabels_cc"
+    },
+    "options": {
+        "chunk-size": 128
+    }
+}

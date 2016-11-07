@@ -42,7 +42,10 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
 
     import ilastik_main
     from ilastik.applets.dataSelection import DatasetInfo
+    from lazyflow.operators.cacheMemoryManager import CacheMemoryManager
 
+    import logging
+    logging.getLogger(__name__).info('status=ilastik prediction')
     print "ilastik_predict_with_array(): Done with imports"
 
     if LAZYFLOW_TOTAL_RAM_MB is None:
@@ -131,5 +134,15 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
 
     if normalize:
         normalize_channels_in_place(selected_predictions)
-    
+
+    # Cleanup: kill cache monitor thread
+    CacheMemoryManager().stop()
+    CacheMemoryManager.instance = None
+
+    # Cleanup environment
+    del os.environ["LAZYFLOW_THREADS"]
+    del os.environ["LAZYFLOW_TOTAL_RAM_MB"]
+    del os.environ["LAZYFLOW_STATUS_MONITOR_SECONDS"]
+
+    logging.getLogger(__name__).info('status=ilastik prediction finished')
     return selected_predictions

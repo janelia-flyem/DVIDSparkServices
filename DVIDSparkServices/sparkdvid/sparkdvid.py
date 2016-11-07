@@ -19,13 +19,14 @@ is backed by a clustered DB.
 
 """
 
+import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
-from CompressedNumpyArray import CompressedNumpyArray
 
 import logging
 logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
+from DVIDSparkServices.util import mask_roi, coordlist_to_boolmap, bb_to_slicing
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
     """Create a DVID node service object"""
@@ -60,48 +61,6 @@ def retrieve_node_service(server, uuid, resource_server, resource_port, appname=
 
 
     return node_service
-
-
-# masks data to 0 if outside of ROI stored in subvolume
-def mask_roi(data, subvolume, border=-1):
-    import numpy
-    mask = numpy.zeros(data.shape)
-    if border == -1:
-        border = subvolume.border
-
-    for blk in subvolume.intersecting_blocks:
-        # grab range of block
-        x1,y1,z1 = blk
-        x1 *= subvolume.roi_blocksize
-        y1 *= subvolume.roi_blocksize
-        z1 *= subvolume.roi_blocksize
-
-        # adjust global location
-        x1 -= (subvolume.roi.x1-border)
-        if x1 < 0:
-            x1 = 0
-        y1 -= (subvolume.roi.y1-border)
-        if y1 < 0:
-            y1 = 0
-        z1 -= (subvolume.roi.z1-border)
-        if z1 < 0:
-            z1 = 0
-        
-        x2 = x1+subvolume.roi_blocksize
-        if x2 > (subvolume.roi.x2 + border):
-            x2 = subvolume.roi.x2 + border
-        
-        y2 = y1+subvolume.roi_blocksize
-        if y2 > (subvolume.roi.y2 + border):
-            y2 = subvolume.roi.y2 + border
-        
-        z2 = z1+subvolume.roi_blocksize
-        if z2 > (subvolume.roi.z2 + border):
-            z2 = subvolume.roi.z2 + border
-
-        mask[z1:z2,y1:y2,x1:x2] = 1
-    data[mask==0] = 0
-
 
 class sparkdvid(object):
     """Creates a spark dvid context that holds the spark context.
@@ -165,24 +124,58 @@ class sparkdvid(object):
         # libdvid returns substack namedtuples as (size, z, y, x), but we want (x,y,z)
         substacks = map(lambda s: (s.x, s.y, s.z), substacks)
       
+        # create roi array giving unique substack ids
+        for substack_id, substack in enumerate(substacks):
+            # use substack id as key
+            subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border)))
+
         # grab roi blocks (should use libdvid but there are problems handling 206 status)
         import requests
         addr = self.dvid_server + "/api/node/" + str(self.uuid) + "/" + str(roi) + "/roi"
         if not self.dvid_server.startswith("http://"):
             addr = "http://" + addr
         data = requests.get(addr)
-        roi_blocks = data.json()
+        roi_blockruns = data.json()
+        
+        roi_blocks = []
+        for (z,y,x_first, x_last) in roi_blockruns:
+            for x in range(x_first, x_last+1):
+                roi_blocks.append((z,y,x))
 
-        # create roi array giving unique substack ids
-        for substack_id, substack in enumerate(substacks):
-            # use substack id as key
-            subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border))) 
+        # Make a map of the entire ROI
+        # Since roi blocks are 32^2, this won't be too huge.
+        # For example, a ROI that's 10k*10k*100k pixels, this will be ~300 MB
+        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver) 
+        full_roi_blockmask, (roi_blocks_start, roi_blocks_stop) = coordlist_to_boolmap(roi_blocks)
+        roi_blocks_shape = roi_blocks_stop - roi_blocks_start
   
-        for (sid, subvol) in subvolumes:
-            # find interesecting ROI lines for substack+border and store for substack
-            subvol.add_intersecting_blocks(roi_blocks)
+        # Initialize each subvolume's 'intersecting_blocks' member for the ROI blocks it contains.
+        for (_sid, subvol) in subvolumes:
+            # Subvol bounding-box in pixels
+            subvol_start_px = np.array((subvol.roi.z1, subvol.roi.y1, subvol.roi.x1)) - subvol.border
+            subvol_stop_px = np.array((subvol.roi.z2, subvol.roi.y2, subvol.roi.x2)) + subvol.border
+            
+            # Subvol bounding box in block coords
+            subvol_blocks_start = subvol_start_px // subvol.roi_blocksize
+            subvol_blocks_stop = (subvol_stop_px + subvol.roi_blocksize-1) // subvol.roi_blocksize
+            subvol_blocks_shape = subvol_blocks_stop - subvol_blocks_start
 
-
+            # Where does this subvolume start within full_roi_blockmask?
+            # Offset, since the ROI didn't necessarily start at (0,0,0)
+            subvol_blocks_offset = subvol_blocks_start - roi_blocks_start
+            
+            # Clip the extracted region, since subvol may extend outside of ROI and therefore outside of full_roi_blockmask
+            subvol_blocks_clipped_start = np.maximum(subvol_blocks_offset, (0,0,0))
+            subvol_blocks_clipped_stop = np.minimum(roi_blocks_shape, (subvol_blocks_start + subvol_blocks_shape) - roi_blocks_start)
+            
+            # Extract the portion of the mask for this subvol
+            subvol_blocks_mask = full_roi_blockmask[bb_to_slicing(subvol_blocks_clipped_start, subvol_blocks_clipped_stop)]
+            subvol_block_coords = np.transpose( subvol_blocks_mask.nonzero() )
+            
+            # Un-offset.
+            subvol_block_coords += (subvol_blocks_clipped_start + roi_blocks_start)
+            
+            subvol.intersecting_blocks = subvol_block_coords
 
         # grab all neighbors for each substack
         if find_neighbors:
@@ -270,7 +263,7 @@ class sparkdvid(object):
 
         return distsubvolumes.mapValues(mapper)
 
-    def map_labels64(self, distrois, label_name, border, roiname="", compress=False):
+    def map_labels64(self, distrois, label_name, border, roiname=""):
         """Creates RDD of labelblk data from subvolumes.
 
         Note: Numpy arrays are compressed which leads to some savings.
@@ -322,14 +315,7 @@ class sparkdvid(object):
                     mask_roi(data, subvolume, border=border)        
 
                 return data
-
-            label_volume = get_labels()
-
-            if compress:
-                return CompressedNumpyArray(label_volume)
-            else:
-                return label_volume
-
+            return get_labels()
         return distrois.mapValues(mapper)
 
     
@@ -410,8 +396,7 @@ class sparkdvid(object):
             # zero out label_volume2 where GT is 0'd out !!
             label_volume2[label_volume==0] = 0
 
-            return (subvolume, CompressedNumpyArray(label_volume),
-                               CompressedNumpyArray(label_volume2))
+            return (subvolume, label_volume, label_volume2)
 
         return distrois.mapValues(mapper)
 
@@ -508,10 +493,7 @@ class sparkdvid(object):
             import numpy
             # write segmentation
             
-            (key, (subvolume, segcomp)) = subvolume_seg
-            # uncompress data
-            seg = segcomp.deserialize() 
-
+            (key, (subvolume, seg)) = subvolume_seg
             # get sizes of subvolume 
             size1 = subvolume.roi.x2-subvolume.roi.x1
             size2 = subvolume.roi.y2-subvolume.roi.y1

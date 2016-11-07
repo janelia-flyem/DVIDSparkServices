@@ -8,7 +8,7 @@
     },
     "options": {
         "segmentor": {
-            "class" : "DVIDSparkServices.reconutils.plugins.DefaultGrayOnly"
+          "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor"
         },
         "stitch-algorithm": "medium",
         "chunk-size": 128,

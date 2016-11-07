@@ -118,6 +118,8 @@ class IngestGrayscale(Workflow):
             gpath = string.join(bucketpath[1:], '/')
 
 
+        server = None
+        
         # create metadata before workers start if using DVID
         if "output-dir" not in self.config_data or self.config_data["output-dir"] == "":
             # write to dvid

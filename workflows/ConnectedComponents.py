@@ -82,8 +82,8 @@ class ConnectedComponents(DVIDWorkflow):
         from pyspark import SparkContext
         from pyspark import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
-        from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
         import numpy
+        import vigra
 
         self.chunksize = self.config_data["options"]["chunk-size"]
 
@@ -96,45 +96,60 @@ class ConnectedComponents(DVIDWorkflow):
         # grab seg chunks 
         seg_chunks = self.sparkdvid_context.map_labels64(distsubvolumes,
                 self.config_data["dvid-info"]["segmentation"],
-                self.overlap/2, self.config_data["dvid-info"]["roi"], True)
+                self.overlap/2, self.config_data["dvid-info"]["roi"])
+
         # pass substack with labels (no shuffling)
-        seg_chunks2 = distsubvolumes.join(seg_chunks) 
+        seg_chunks2 = distsubvolumes.join(seg_chunks) # (sv_id, (subvolume, segmentation))
         distsubvolumes.unpersist()
         
         # run connected components
         def connected_components(seg_chunk):
-            substack, seg_c = seg_chunk
-            seg = seg_c.deserialize()
             from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
-            seg2, dummy = split_disconnected_bodies(seg)
 
-            # renumber from one 
-            vals = numpy.unique(seg2)
-            remap = {}
-            index = 1
-            remap[0] = 0
-            for val in vals:
-                if val != 0:
-                    remap[val] = index
-                    index += 1
-            vectorized_relabel = numpy.frompyfunc(remap.__getitem__, 1, 1)
-            seg2 = vectorized_relabel(seg2).astype(numpy.uint32)
+            subvolume, seg = seg_chunk
+            seg_split, split_mapping = split_disconnected_bodies(seg)
+            
+            # If any zero bodies were split, don't give them new labels.
+            # Make them zero again
+            zero_split_mapping = dict( filter( lambda (k,v): v == 0, split_mapping.items() ) )
+            if zero_split_mapping:
+                vigra.analysis.applyMapping(seg_split, zero_split_mapping, out=seg_split)
 
-           
-            substack.set_max_id( seg2.max() )
-            return (substack, CompressedNumpyArray(seg2))
+            # renumber from one
+            #
+            # FIXME: The next version of vigra will have a function to do this in one step, like this:
+            #        seg2 = vigra.analysis.relabelConsecutive( seg2,
+            #                                                  start_label=1,
+            #                                                  keep_zeros=True,
+            #                                                  out=np.empty_like(seg_split, dtype=np.uint32) )
+            seg_split = vigra.taggedView(seg_split, 'zyx')
+            vals = numpy.sort( vigra.analysis.unique(seg_split) )
+            if vals[0] == 0:
+                # Leave zero-pixels alone
+                remap = dict(zip(vals, range(len(vals))))
+            else:
+                remap = dict(zip(vals, range(1, 1+len(vals))))
 
+            out_seg = numpy.empty_like(seg_split, dtype=numpy.uint32)
+            vigra.analysis.applyMapping(seg_split, remap, out=out_seg)
+            return (subvolume, (out_seg, out_seg.max()))
+
+        # (sv_id, (subvolume, labels)) -> (sv_id, (subvolume, (newlabels, max_id)))
         seg_chunks_cc = seg_chunks2.mapValues(connected_components)
-
-        from DVIDSparkServices.reconutils.Segmentor import Segmentor
+        
         # stitch the segmentation chunks
         # (preserves initial partitioning)
-        from DVIDSparkServices.reconutils.morpho import stitch 
-        mapped_seg_chunks = stitch(self.sparkdvid_context.sc, seg_chunks_cc)
-       
+        from DVIDSparkServices.reconutils.morpho import stitch
+        mapped_seg_chunks = stitch(self.sparkdvid_context.sc, seg_chunks_cc.values())
 
-        # coalesce to fewer partitions (!!TEMPORARY SINCE THERE ARE WRITE BANDWIDTH LIMITS TO DVID)
-        #mapped_seg_chunks = mapped_seg_chunks.coalesce(125)
+        # This is to make the foreach_write_labels3d() function happy
+        def prepend_key(item):
+            subvol, _ = item
+            return (subvol.roi_id, item)
+        mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
+       
+        # use fewer partitions (TEMPORARY SINCE THERE ARE WRITE BANDWIDTH LIMITS TO DVID)
+        #mapped_seg_chunks = mapped_seg_chunks.repartition(125)
 
         # write data to DVID
         self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["newsegmentation"], mapped_seg_chunks)
