@@ -106,7 +106,7 @@ class ConnectedComponents(DVIDWorkflow):
         def connected_components(seg_chunk):
             from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
 
-            subvolume, seg = seg_chunk
+            _sid, (subvolume, seg) = seg_chunk
             seg_split, split_mapping = split_disconnected_bodies(seg)
             
             # If any zero bodies were split, don't give them new labels.
@@ -134,13 +134,14 @@ class ConnectedComponents(DVIDWorkflow):
             vigra.analysis.applyMapping(seg_split, remap, out=out_seg)
             return (subvolume, (out_seg, out_seg.max()))
 
-        # (sv_id, (subvolume, labels)) -> (sv_id, (subvolume, (newlabels, max_id)))
-        seg_chunks_cc = seg_chunks2.mapValues(connected_components)
-        
+        # (sv_id, (subvolume, labels)) -> (subvolume, (newlabels, max_id))
+        seg_chunks_cc = seg_chunks2.map(connected_components)
+        seg_chunks_cc.persist()
+
         # stitch the segmentation chunks
         # (preserves initial partitioning)
         from DVIDSparkServices.reconutils.morpho import stitch
-        mapped_seg_chunks = stitch(self.sparkdvid_context.sc, seg_chunks_cc.values())
+        mapped_seg_chunks = stitch(self.sparkdvid_context.sc, seg_chunks_cc)
 
         # This is to make the foreach_write_labels3d() function happy
         def prepend_key(item):
