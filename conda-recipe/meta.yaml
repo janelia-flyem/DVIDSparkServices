@@ -34,7 +34,7 @@ requirements:
     - pillow
     - scipy
     - python-lz4
-    - ilastik-versions-no-solvers 1.2*
+    - ilastik-versions-no-solvers 1.2    np111py27_10 # The last number is the BUILD STRING
     - ilastik-meta
     - quilted >=0.0.post13
     - logcollector
