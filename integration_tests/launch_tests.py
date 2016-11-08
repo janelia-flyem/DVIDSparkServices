@@ -322,7 +322,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     print "SUMMARY OF ALL INTEGRATION TEST RESULTS: "
     print "-----------------------------------------"
     for k,v in results.items():
-        print "{:.<30s}{}".format( k, {True: "success", False: "FAILED", None: ""}[v] )
+        print "{:.<30s} {}".format( k+' ', {True: "success", False: "FAILED", None: ""}[v] )
     print "*****************************************"
     print "*****************************************"
 
