@@ -233,13 +233,16 @@ class CreateSegmentation(DVIDWorkflow):
 
         for iternum in range(0, num_iters):
             # Disable rollback by setting checkpoint dirs to empty
-            pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = ""
+            gray_checkpoint_dir = mask_checkpoint_dir = pred_checkpoint_dir = sp_checkpoint_dir = seg_checkpoint_dir = ""
             if checkpoint_dir != "":
                 pred_checkpoint_dir = checkpoint_dir + "/prediter-" + str(iternum)
                 seg_checkpoint_dir = checkpoint_dir + "/segiter-" + str(iternum)
 
-                # Leave SP cache empty for now -- it should be cheap to compute.
-                #sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
+                # Grayscale and SP caches are only written to as a "debug" feature
+                if self.config_data["options"]["debug"]:
+                    gray_checkpoint_dir = checkpoint_dir + "/grayiter-" + str(iternum)
+                    mask_checkpoint_dir = checkpoint_dir + "/maskiter-" + str(iternum)
+                    sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
 
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
@@ -305,7 +308,7 @@ class CreateSegmentation(DVIDWorkflow):
             # perhaps just declare the segment function to have an arbitrary number of parameters
             if type(segmentor) == Segmentor:
                 computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols,
-                                                        pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir,
+                                                        gray_checkpoint_dir, mask_checkpoint_dir, pred_checkpoint_dir, sp_checkpoint_dir, seg_checkpoint_dir,
                                                         rollback_pred, False, rollback_seg)
             else:
                 computed_seg_chunks = segmentor.segment(uncached_subvols, uncached_gray_vols)

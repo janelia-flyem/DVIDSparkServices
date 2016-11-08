@@ -1,0 +1,27 @@
+{
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "grid-segmentation",
+        "roi": "temproi256",
+        "grayscale": "grid-grayscale"
+    },
+    "options": {
+        "segmentor": {
+          "class" : "DVIDSparkServices.reconutils.Segmentor.Segmentor",
+          "configuration": {
+            "predict-voxels" : {
+              "function": "DVIDSparkServices.reconutils.misc.naive_membrane_predictions",
+              "use-subprocess": true
+            }
+          }
+        },
+        "stitch-algorithm": "aggressive",
+        "chunk-size": 128,
+        "label-offset": 0,
+        "iteration-size": 0,
+        "checkpoint": "none",
+        "checkpoint-dir": "/tmp/grid-seg-cache",
+        "debug": true
+    }
+}
