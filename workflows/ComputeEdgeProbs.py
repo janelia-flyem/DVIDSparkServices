@@ -124,7 +124,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
     contextbuffer = 20
 
     def __init__(self, config_filename):
-        super(ComputeEdgeProbs, self).__init__(config_filename, self.Schema, "Compute edge prob")
+        super(ComputeEdgeProbs, self).__init__(config_filename, self.Schema, "ComputeEdgeProbs")
 
     def execute(self):
         # TODO: handle 64 bit segmentation
@@ -144,6 +144,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 self.config_data["dvid-info"]["roi"],
                 self.chunksize, self.contextbuffer, True)
 
+        contextbuffer = self.contextbuffer
         # do not recompute ROI for each iteration
         distsubvolumes.persist()
 
@@ -237,24 +238,25 @@ class ComputeEdgeProbs(DVIDWorkflow):
                     if resource_server != "": 
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
                             (size3,size2,size1),
-                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), roi=str(pdconf["roi"]), throttle=False)
+                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
                     else:
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
                             (size3,size2,size1),
-                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), roi=str(pdconf["roi"]))
+                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
 
                 initial_seg = get_seg()
 
                 # !!! potentially dangerous but needed for now
                 initial_seg = initial_seg.astype(numpy.uint32)
 
-                z,y,x,num_chans = pred.shape
+                pred2 = pred[(contextbuffer-border):-(contextbuffer-border), (contextbuffer-border):-(contextbuffer-border), (contextbuffer-border):-(contextbuffer-border), :].copy()
+                z,y,x,num_chans = pred2.shape
 
                 # call neuroproof and generate features
                 from neuroproof import FocusedProofreading 
                 # "edges": [ edge ] where edge = [node1, node2, edgesize, all features...]
                 # "vertices": [vertex ] where vertex = [id, size, all features...]
-                features = FocusedProofreading.extract_features(initial_seg, pred) 
+                features = FocusedProofreading.extract_features(initial_seg, pred2) 
                 
                 element_list = []
                 # iterate edges and create ((node1, node2), features)
@@ -413,15 +415,19 @@ class ComputeEdgeProbs(DVIDWorkflow):
             # load entire graph into DVID
             node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
             server = str(self.config_data["dvid-info"]["dvid-server"])
-            if not server.startswith("http://"):
-                server = "http://" + server
-            requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
-            self.logger.write_data("Wrote DVID graph") # write to logger after spark job
+            #if not server.startswith("http://"):
+            #    server = "http://" + server
+            #requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
+            #self.logger.write_data("Wrote DVID graph") # write to logger after spark job
 
 
         if self.config_data["options"]["debug"]:
             import json
             print "DEBUG:", json.dumps(graph)
+       
+        # ?! support writing graph to disk through options (currently disabling DVID since the graph is slow
+        #fout = open("/groups/scheffer/home/plazas/biggraph.json", 'w')
+        #fout.write(json.dumps(graph))
 
     @staticmethod
     def dumpschema():
