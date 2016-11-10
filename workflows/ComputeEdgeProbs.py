@@ -228,6 +228,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
 
                 # retrieve data from roi start position considering border
+                # !! technically ROI is not respected but unwritten segmentation will be ignored since it will have 0-valued pixels.
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def get_seg():
                     node_service = retrieve_node_service(pdconf["dvid-server"], 
@@ -265,6 +266,14 @@ class ComputeEdgeProbs(DVIDWorkflow):
                     for edge in features["Edges"]:
                         n1 = edge["Id1"]
                         n2 = edge["Id2"]
+                        edge["Loc1"][0] += subvolume.roi[0]
+                        edge["Loc1"][1] += subvolume.roi[1]
+                        edge["Loc1"][2] += subvolume.roi[2]
+                        
+                        edge["Loc2"][0] += subvolume.roi[0]
+                        edge["Loc2"][1] += subvolume.roi[1]
+                        edge["Loc2"][2] += subvolume.roi[2]
+                        
                         if n1 > n2:
                             n1, n2 = n2, n1
                         element_list.append(((n1,n2), (num_chans, edge)))
@@ -373,7 +382,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 edge_key, ((edge, node1), (edge_dummy, node2)) = edge_node_edge_node
                 weight = classifier.compute_prob(json.dumps(edge), json.dumps(node1), json.dumps(node2))
                 # node1, node2
-                res_list.append((int(node1["Id"]),int(node2["Id"]),int(node1["Weight"]),int(node2["Weight"]),int(edge["Weight"]),weight))
+                res_list.append((int(node1["Id"]),int(node2["Id"]),int(node1["Weight"]),int(node2["Weight"]),int(edge["Weight"]),weight,edge["Loc1"], edge["Loc2"]))
 
             return res_list
 
@@ -387,10 +396,10 @@ class ComputeEdgeProbs(DVIDWorkflow):
         edges = []
 
         for edge_info in allprobs_combined:
-            node1, node2, node1_size, node2_size, edge_size, weight = edge_info 
+            node1, node2, node1_size, node2_size, edge_size, weight, loc1, loc2 = edge_info
             bodyinfo[node1] = node1_size            
             bodyinfo[node2] = node2_size            
-            edges.append({"Id1": node1, "Id2": node2, "Weight": weight})
+            edges.append({"Id1": node1, "Id2": node2, "Weight": weight, "Loc1": loc1, "Loc2": loc2})
         
         bodies = []
         for (key, val) in bodyinfo.items():
