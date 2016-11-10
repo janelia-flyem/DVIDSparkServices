@@ -20,6 +20,7 @@
         },
         "segment-classifier": "integration_tests/resources/agglom.xml",
         "chunk-size": 128,
+        "output-file": "/tmp/newgraph.json",
         "checkpoint" : false,
         "checkpoint-dir" : "/tmp/test_seg_neuroproof_checkpoint",
         "iteration-size" : 0,

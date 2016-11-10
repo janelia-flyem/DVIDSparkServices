@@ -83,6 +83,10 @@ class ComputeEdgeProbs(DVIDWorkflow):
               "description": "Classifier to predict confidence between segments (currently must be directory path)",
               "type": "string"
             },
+            "output-file": { 
+              "description": "File where graph will be written",
+              "type": "string" 
+            },
             "checkpoint-dir": {
                 "description": "Specify checkpoint directory",
                 "type": "string",
@@ -433,10 +437,19 @@ class ComputeEdgeProbs(DVIDWorkflow):
         if self.config_data["options"]["debug"]:
             import json
             print "DEBUG:", json.dumps(graph)
-       
-        # ?! support writing graph to disk through options (currently disabling DVID since the graph is slow
-        #fout = open("/groups/scheffer/home/plazas/biggraph.json", 'w')
-        #fout.write(json.dumps(graph))
+     
+        # write dvid to specified file (if provided)
+        if "output-file" in self.config_data["options"] and self.config_data["options"]["output-file"] != "":
+            filename = self.config_data["options"]["output-file"] 
+
+            edgelist = []
+            for edge in graph["Edges"]:
+                edgelist.append({"node1": edge["Id1"], "node2": edge["Id2"], "weight": edge["Weight"], "loc1": edge["Loc1"], "loc2": edge["Loc2"]})
+
+            npgraph = {}
+            npgraph["edge_list"] = edgelist
+            fout = open(filename, 'w')
+            fout.write(json.dumps(npgraph))
 
     @staticmethod
     def dumpschema():
