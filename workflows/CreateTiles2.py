@@ -147,7 +147,7 @@ class CreateTiles2(DVIDWorkflow):
             import StringIO
             
             from libdvid import ConnectionMethod
-            node_service = retrieve_node_service(server, uuid, appname, resource_server, resource_port) 
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname) 
 
             # actually perform tile load
             def loadTile(reqpair):

@@ -65,6 +65,24 @@ class IngestGrayscale(Workflow):
            "type": "integer",
            "default": 0
         },
+        "offset": {
+          "description": "Offset (x,y,z) for loading grayscale data (must be multiple of block size).  Only relevant when posting directly to DVID",
+          "type": "array",
+          "items": [
+            { 
+              "type": "integer",
+              "default": 0
+            },
+            { 
+              "type": "integer",
+              "default": 0
+            },
+            { 
+              "type": "integer",
+              "default": 0
+            }
+          ]
+        },
         "corespertask": {
           "description": "Number of cores for each task (use higher number for memory intensive tasks)",
           "type": "integer",
@@ -119,18 +137,41 @@ class IngestGrayscale(Workflow):
 
 
         server = None
-        
+     
+        xoffset = yoffset = zoffset = 0
+
+        if "offset" in self.config_data["options"]:
+            xoffset = self.config_data["options"]["offset"][0] 
+            yoffset = self.config_data["options"]["offset"][1] 
+            zoffset = self.config_data["options"]["offset"][2] 
+
+            if xoffset % self.BLKSIZE != 0:
+                raise Exception("offset not block aligned")        
+            if yoffset % self.BLKSIZE != 0:
+                raise Exception("offset not block aligned")        
+            if zoffset % self.BLKSIZE != 0:
+                raise Exception("offset not block aligned")        
+
+            xoffset /= self.BLKSIZE
+            yoffset /= self.BLKSIZE
+            zoffset /= self.BLKSIZE
+
+        # this will start the Z block writing at the specified offse
+        # (changes default behavior when loading nonzero starting image slice)
+        zoffset -= (minslice / self.BLKSIZE)
+
+
         # create metadata before workers start if using DVID
         if "output-dir" not in self.config_data or self.config_data["output-dir"] == "":
             # write to dvid
             server = self.config_data["dvid-info"]["dvid-server"]
             uuid = self.config_data["dvid-info"]["uuid"]
             grayname = self.config_data["dvid-info"]["grayname"]
-            resource_server = self.resource_server
+            resource_server = str(self.resource_server)
             resource_port = self.resource_port
 
             # create grayscale type
-            node_service = retrieve_node_service(server, uuid, self.APPNAME, resource_server, resource_port)
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port, self.APPNAME)
             node_service.create_grayscale8(str(grayname), self.BLKSIZE)
 
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, iterslices):
@@ -253,7 +294,7 @@ class IngestGrayscale(Workflow):
                 def write2dvid(yblocks):
                     from libdvid import ConnectionMethod
                     import numpy
-                    node_service = retrieve_node_service(server, uuid, appname, resource_server, resource_port) 
+                    node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname) 
                     
                     # get block coordinates
                     zbindex = slice/blocksize 
@@ -278,7 +319,7 @@ class IngestGrayscale(Workflow):
                             # check if the block is blank
                             if startblock:
                                 # if the previous block has data, push blocks in current queue
-                                node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                                node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex+xoffset, ybindex+yoffset, zbindex+zoffset, xrun)), blockbuffer, ConnectionMethod.POST) 
                                 startblock = False
                                 xrun = 0
                                 blockbuffer = ""
@@ -293,14 +334,14 @@ class IngestGrayscale(Workflow):
 
                             if blocklimit > 0 and xrun >= blocklimit:
                                 # if the previous block has data, push blocks in current queue
-                                node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                                node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex+xoffset, ybindex+yoffset, zbindex+zoffset, xrun)), blockbuffer, ConnectionMethod.POST) 
                                 startblock = False
                                 xrun = 0
                                 blockbuffer = ""
 
                     # write-out leftover blocks
                     if xrun > 0:
-                        node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex, ybindex, zbindex, xrun)), blockbuffer, ConnectionMethod.POST) 
+                        node_service.custom_request(str((grayname + "/blocks/%d_%d_%d/%d") % (xbindex+xoffset, ybindex+yoffset, zbindex+zoffset, xrun)), blockbuffer, ConnectionMethod.POST) 
 
 
                 yblockssplit.foreach(write2dvid)
@@ -335,8 +376,8 @@ class IngestGrayscale(Workflow):
             # update metadata
             import requests
             grayext = {}
-            grayext["MinPoint"] = [0,0,0] # for now no offset
-            grayext["MaxPoint"] = [width-1,height-1,self.config_data["maxslice"]]
+            grayext["MinPoint"] = [xoffset*self.BLKSIZE,yoffset*self.BLKSIZE,zoffset*self.BLKSIZE+minslice]
+            grayext["MaxPoint"] = [xoffset*self.BLKSIZE + width-1, yoffset*self.BLKSIZE + height-1, zoffset*self.BLKSIZE+minslice + self.config_data["maxslice"]]
             if not server.startswith("http://"):
                 server = "http://" + server
             requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
