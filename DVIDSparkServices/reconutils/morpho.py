@@ -35,7 +35,12 @@ def split_disconnected_bodies(labels_orig):
             mapping new segment IDs to the segments they came from.
             (Segments whose IDs did not change are not provided in this mapping.)
     """
-    labels_consecutive, max_consecutive_label, orig_to_consecutive = vigra.analysis.relabelConsecutive(labels_orig, start_label=1)
+    # Pre-allocate destination to force output dtype
+    labels_consecutive = numpy.zeros_like(labels_orig, numpy.uint32)
+
+    labels_consecutive, max_consecutive_label, orig_to_consecutive = \
+        vigra.analysis.relabelConsecutive(labels_orig, start_label=1, out=labels_consecutive)
+
     max_orig = max( orig_to_consecutive.keys() )
     cons_to_orig = reverse_dict( orig_to_consecutive )
     
@@ -50,6 +55,7 @@ def split_disconnected_bodies(labels_orig):
     #                    plus new label values for the S splits (N+1)..(N+1+S)
 
     split_to_consWithSplits, consWithSplits_to_cons = _split_body_mappings(labels_consecutive, labels_split)
+    del labels_consecutive
     
     num_main_segments = max_consecutive_label
     num_splits = len(split_to_consWithSplits) - num_main_segments
@@ -64,7 +70,7 @@ def split_disconnected_bodies(labels_orig):
     split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
 
     # Remap the image: split -> origWithSplits
-    labels_origWithSplits = vigra.analysis.applyMapping( labels_split, split_to_origWithSplits )
+    labels_origWithSplits = vigra.analysis.applyMapping( labels_split, split_to_origWithSplits, out=labels_split )
 
     origWithSplits_to_consWithSplits = reverse_dict( consWithSplits_to_origWithSplits )
 
