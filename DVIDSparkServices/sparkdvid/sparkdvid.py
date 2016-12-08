@@ -115,14 +115,14 @@ class sparkdvid(object):
         # (map blocks to y,z lines, iterate everything including border and add relevant xy lines) 
 
         # function will export and should include dependencies
-        subvolumes = [] # x,y,z,x2,y2,z2
+        subvolumes = []
         
         # extract roi for a given chunk size
         node_service = retrieve_node_service(self.dvid_server, self.uuid, self.workflow.resource_server, self.workflow.resource_port)
         substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE)
         
-        # libdvid returns substack namedtuples as (size, z, y, x), but we want (x,y,z)
-        substacks = map(lambda s: (s.x, s.y, s.z), substacks)
+        # libdvid returns substack namedtuples as (size, z, y, x), but we want just (z,y,x)
+        substacks = map(lambda s: (s.z, s.y, s.x), substacks)
       
         # create roi array giving unique substack ids
         for substack_id, substack in enumerate(substacks):
@@ -153,7 +153,7 @@ class sparkdvid(object):
         for (_sid, subvol) in subvolumes:
             # Subvol bounding-box in pixels
             subvol_start_px = np.array((subvol.roi.z1, subvol.roi.y1, subvol.roi.x1)) - subvol.border
-            subvol_stop_px = np.array((subvol.roi.z2, subvol.roi.y2, subvol.roi.x2)) + subvol.border
+            subvol_stop_px  = np.array((subvol.roi.z2, subvol.roi.y2, subvol.roi.x2)) + subvol.border
             
             # Subvol bounding box in block coords
             subvol_blocks_start = subvol_start_px // subvol.roi_blocksize
@@ -233,9 +233,9 @@ class sparkdvid(object):
         def mapper(subvolume):
             # extract grayscale x
             # get sizes of subvolume
-            size1 = subvolume.roi.x2+2*subvolume.border-subvolume.roi.x1
-            size2 = subvolume.roi.y2+2*subvolume.border-subvolume.roi.y1
-            size3 = subvolume.roi.z2+2*subvolume.border-subvolume.roi.z1
+            size_x = subvolume.roi.x2 + 2*subvolume.border - subvolume.roi.x1
+            size_y = subvolume.roi.y2 + 2*subvolume.border - subvolume.roi.y1
+            size_z = subvolume.roi.z2 + 2*subvolume.border - subvolume.roi.z1
 
             #logger = logging.getLogger(__name__)
             #logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
@@ -250,11 +250,11 @@ class sparkdvid(object):
                 node_service = retrieve_node_service(server, uuid,resource_server, resource_port)
                 if resource_server != "":
                     return node_service.get_gray3D( str(gray_name),
-                                                    (size3,size2,size1),
+                                                    (size_z, size_y, size_x),
                                                     (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border), throttle=False )
                 else:
                     return node_service.get_gray3D( str(gray_name),
-                                                    (size3,size2,size1),
+                                                    (size_z, size_y, size_x),
                                                     (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border) )
 
             gray_volume = get_gray()
@@ -289,9 +289,9 @@ class sparkdvid(object):
 
         def mapper(subvolume):
             # get sizes of roi
-            size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
-            size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
-            size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
+            size_x = subvolume.roi.x2 + 2*subvolume.border - subvolume.roi.x1
+            size_y = subvolume.roi.y2 + 2*subvolume.border - subvolume.roi.y1
+            size_z = subvolume.roi.z2 + 2*subvolume.border - subvolume.roi.z1
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
@@ -301,13 +301,13 @@ class sparkdvid(object):
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 if resource_server != "":
                     data = node_service.get_labels3D( str(label_name),
-                                                      (size3,size2,size1),
-                                                      (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
+                                                      (size_z, size_y, size_x),
+                                                      (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border),
                                                       compress=True, throttle=False )
                 else:
                     data = node_service.get_labels3D( str(label_name),
-                                                      (size3,size2,size1),
-                                                      (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border),
+                                                      (size_z, size_y, size_x),
+                                                      (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border),
                                                       compress=True )
 
                 # mask ROI
@@ -349,9 +349,9 @@ class sparkdvid(object):
 
         def mapper(subvolume):
             # get sizes of roi
-            size1 = subvolume.roi[3]-subvolume.roi[0]
-            size2 = subvolume.roi[4]-subvolume.roi[1]
-            size3 = subvolume.roi[5]-subvolume.roi[2]
+            size_x = subvolume.roi.x2 - subvolume.roi.x1
+            size_y = subvolume.roi.y2 - subvolume.roi.y1
+            size_z = subvolume.roi.z2 - subvolume.roi.z1
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
@@ -361,12 +361,12 @@ class sparkdvid(object):
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 if resource_server != "":
                     data = node_service.get_labels3D( str(label_name),
-                                                      (size3,size2,size1),
-                                                      (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]), throttle=False)
+                                                      (size_z, size_y, size_x),
+                                                      (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1), throttle=False)
                 else:
                     data = node_service.get_labels3D( str(label_name),
-                                                      (size3,size2,size1),
-                                                      (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
+                                                      (size_z, size_y, size_x),
+                                                      (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1))
 
 
                 # mask ROI
@@ -384,12 +384,12 @@ class sparkdvid(object):
                 node_service2 = retrieve_node_service(server2, uuid2, resource_server, resource_port)
                 if resource_server != "":
                     return node_service2.get_labels3D( str(label_name2),
-                                                       (size3,size2,size1),
-                                                       (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]), throttle=False)
+                                                       (size_z, size_y, size_x),
+                                                       (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1), throttle=False)
                 else:
                     return node_service2.get_labels3D( str(label_name2),
-                                                       (size3,size2,size1),
-                                                       (subvolume.roi[2], subvolume.roi[1], subvolume.roi[0]))
+                                                       (size_z, size_y, size_x),
+                                                       (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1))
 
             label_volume2 = get_labels2()
 

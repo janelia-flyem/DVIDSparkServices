@@ -227,9 +227,9 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 border = 1 # only one pixel needed to find edges
                 
                 # get sizes of roi
-                size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
-                size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
-                size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
+                size_z = subvolume.roi.z2 + 2*border - subvolume.roi.z1
+                size_y = subvolume.roi.y2 + 2*border - subvolume.roi.y1
+                size_x = subvolume.roi.x2 + 2*border - subvolume.roi.x1
 
                 # retrieve data from roi start position considering border
                 # !! technically ROI is not respected but unwritten segmentation will be ignored since it will have 0-valued pixels.
@@ -242,12 +242,12 @@ class ComputeEdgeProbs(DVIDWorkflow):
                     
                     if resource_server != "": 
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                            (size3,size2,size1),
-                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                            (size_z, size_y, size_x),
+                            (subvolume.roi.z2-border, subvolume.roi.y1-border, subvolume.roi.x1-border))
                     else:
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                            (size3,size2,size1),
-                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                             (size_z, size_y, size_x),
+                             (subvolume.roi.z2-border, subvolume.roi.y1-border, subvolume.roi.x1-border))
 
                 initial_seg = get_seg()
 
@@ -270,13 +270,13 @@ class ComputeEdgeProbs(DVIDWorkflow):
                     for edge in features["Edges"]:
                         n1 = edge["Id1"]
                         n2 = edge["Id2"]
-                        edge["Loc1"][0] += subvolume.roi[0]
-                        edge["Loc1"][1] += subvolume.roi[1]
-                        edge["Loc1"][2] += subvolume.roi[2]
+                        edge["Loc1"][0] += subvolume.roi.x1
+                        edge["Loc1"][1] += subvolume.roi.y1
+                        edge["Loc1"][2] += subvolume.roi.z1
                         
-                        edge["Loc2"][0] += subvolume.roi[0]
-                        edge["Loc2"][1] += subvolume.roi[1]
-                        edge["Loc2"][2] += subvolume.roi[2]
+                        edge["Loc2"][0] += subvolume.roi.x1
+                        edge["Loc2"][1] += subvolume.roi.y1
+                        edge["Loc2"][2] += subvolume.roi.z1
                         
                         if n1 > n2:
                             n1, n2 = n2, n1

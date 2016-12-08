@@ -345,16 +345,16 @@ def stitch(sc, label_chunks):
 
         # determine which interface there is touching between subvolumes 
         if subvolume1.touches(subvolume1.roi.x1, subvolume1.roi.x2,
-                            subvolume2.roi.x1, subvolume2.roi.x2):
+                              subvolume2.roi.x1, subvolume2.roi.x2):
             x1 = x2/2 
             x2 = x1 + 1
         if subvolume1.touches(subvolume1.roi.y1, subvolume1.roi.y2,
-                            subvolume2.roi.y1, subvolume2.roi.y2):
+                              subvolume2.roi.y1, subvolume2.roi.y2):
             y1 = y2/2 
             y2 = y1 + 1
         
         if subvolume1.touches(subvolume1.roi.z1, subvolume1.roi.z2,
-                            subvolume2.roi.z1, subvolume2.roi.z2):
+                              subvolume2.roi.z1, subvolume2.roi.z2):
             z1 = z2/2 
             z2 = z1 + 1
 

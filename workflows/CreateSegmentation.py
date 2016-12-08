@@ -273,7 +273,7 @@ class CreateSegmentation(DVIDWorkflow):
             # Load as many seg blocks from cache as possible
             if subvols_with_seg_cache:
                 def retrieve_seg_from_cache(subvol):
-                    x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                    z1, y1, x1, z2, y2, x2 = subvol.roi_with_border
                     block_bounds = ((z1, y1, x1), (z2, y2, x2))
                     block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
                     h5_block = block_store.get_block( block_bounds )
@@ -401,7 +401,7 @@ class CreateSegmentation(DVIDWorkflow):
             return [], subvol_list
 
         def is_cached(subvol):
-            x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+            z1, y1, x1, z2, y2, x2 = subvol.roi_with_border
             if block_store.axes[-1] == 'c':
                 return ((z1, y1, x1, 0), (z2, y2, x2, None)) in block_store
             else:

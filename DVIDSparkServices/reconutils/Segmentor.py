@@ -236,7 +236,7 @@ class Segmentor(object):
             @wraps(f)
             def wrapped(item):
                 subvol = item[0]
-                x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                z1, y1, x1, z2, y2, x2 = subvol.roi_with_border
                 assert isinstance(subvol, Subvolume), "Key must be a Subvolume object"
         
                 if allow_read:
@@ -440,9 +440,9 @@ class Segmentor(object):
                 # extract labels 64
                 border = subvolume.border
                 # get sizes of roi
-                size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
-                size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
-                size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
+                size_z = subvolume.roi.z2 + 2*border - subvolume.roi.z1
+                size_y = subvolume.roi.y2 + 2*border - subvolume.roi.y1
+                size_x = subvolume.roi.x2 + 2*border - subvolume.roi.x1
                  
                 # retrieve data from roi start position considering border
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
@@ -453,12 +453,12 @@ class Segmentor(object):
                     # Note: libdvid uses zyx order for python functions
                     if resource_server != "":  
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                                (size3,size2,size1),
-                                (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), throttle=False)
+                                (size_z, size_y, size_x),
+                                (subvolume.roi.z1-border, subvolume.roi.y1-border, subvolume.roi.x1-border), throttle=False)
                     else:   
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                                (size3,size2,size1),
-                                (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                                (size_z, size_y, size_x),
+                                (subvolume.roi.z1-border, subvolume.roi.y1-border, subvolume.roi.x1-border))
                 preserve_seg = get_segmask()
 
                 orig_bodies = set(np.unique(preserve_seg))
@@ -693,16 +693,16 @@ class Segmentor(object):
 
             # determine which interface there is touching between subvolumes 
             if subvolume1.touches(subvolume1.roi.x1, subvolume1.roi.x2,
-                                subvolume2.roi.x1, subvolume2.roi.x2):
+                                  subvolume2.roi.x1, subvolume2.roi.x2):
                 x1 = x2/2 
                 x2 = x1 + 1
             if subvolume1.touches(subvolume1.roi.y1, subvolume1.roi.y2,
-                                subvolume2.roi.y1, subvolume2.roi.y2):
+                                  subvolume2.roi.y1, subvolume2.roi.y2):
                 y1 = y2/2 
                 y2 = y1 + 1
             
             if subvolume1.touches(subvolume1.roi.z1, subvolume1.roi.z2,
-                                subvolume2.roi.z1, subvolume2.roi.z2):
+                                  subvolume2.roi.z1, subvolume2.roi.z2):
                 z1 = z2/2 
                 z2 = z1 + 1
 

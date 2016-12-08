@@ -7,36 +7,37 @@ different transformations in sparkdvid.
 """
 
 import collections
-    
+import numpy as np
+
+
 SubvolumeNamedTuple = collections.namedtuple('SubvolumeNamedTuple',
-            'x1 y1 z1 x2 y2 z2')
+            'z1 y1 x1 z2 y2 x2')
 
 class Subvolume(object):
     """Define subvolume datatype.
 
-    The subvolume provides X,Y,Z locations in DVID coordinates
+    The subvolume provides Z,Y,X locations in DVID coordinates
     and has other information like neighboring substacks
     (if this infor is computed).  It has several functions for
     helping to determine overlap between substacks.
     
     """
 
-    def __init__(self, sv_index, roi, chunk_size, border):
+    def __init__(self, sv_index, roi_start_zyx, chunk_size, border):
         """Initializes subvolume.
 
         Args:
             sv_index (int): identifier key for subvolume (must be unique)
-            roi ([]): x,y,z array
+            roi_start_zyx: (z,y,x)
             chunk_size (int): dimension of subvolume (assume isotropic)
             border (int): border size surrounding core subvolume    
         """
 
         self.sv_index = sv_index
-        self.roi = SubvolumeNamedTuple(roi[0],
-                    roi[1], roi[2],
-                    roi[0] + chunk_size,
-                    roi[1] + chunk_size,
-                    roi[2] + chunk_size)
+        
+        roi_stop_zyx = np.array(roi_start_zyx) + chunk_size
+        roi = np.array( (roi_start_zyx, roi_stop_zyx) )
+        self.roi = SubvolumeNamedTuple(*roi.flat)
         self.border = border
         self.local_regions = []
 
@@ -71,13 +72,13 @@ class Subvolume(object):
         Read-only property.
         Same as self.roi, but expanded to include the border.
         """
-        x1, y1, z1, x2, y2, z2 = self.roi
-        return SubvolumeNamedTuple(x1 - self.border, y1 - self.border, z1 - self.border,
-                                   x2 + self.border, y2 + self.border, z2 + self.border)
+        z1, y1, x1, z2, y2, x2 = self.roi
+        return SubvolumeNamedTuple(z1 - self.border, y1 - self.border, x1 - self.border,
+                                   z2 + self.border, y2 + self.border, x2 + self.border)
 
 
     def __str__(self):
-        return "x{x1}-y{y1}-z{z1}--x{x2}-y{y2}-z{z2}"\
+        return "z{z1}-y{y1}-x{x1}--z{z2}-y{y2}-x{x2}"\
                .format(**self.roi.__dict__)
 
     # assume line[0] < line[1] and add border in calculation 
