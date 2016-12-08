@@ -91,7 +91,7 @@ class sparkdvid(object):
     # Produce RDDs for each subvolume partition (this will replace default implementation)
     # Treats subvolum index as the RDD key and maximizes partition count for now
     # Assumes disjoint subsvolumes in ROI
-    def parallelize_roi(self, roi, chunk_size, border=0, find_neighbors=False):
+    def parallelize_roi(self, roi, chunk_size, border=0, find_neighbors=False, partition_method='ask-dvid', partition_filter=None):
         """Creates an RDD from subvolumes found in an ROI.
 
         This is analogous to the Spark parallelize function.
@@ -111,53 +111,34 @@ class sparkdvid(object):
             RDD as [(subvolume id, subvolume)] and # of subvolumes
 
         """
+        assert partition_method in ('ask-dvid', 'grid-aligned')
+        assert partition_filter in (None, "all", 'interior-only')
+        if partition_filter == "all":
+            partition_filter = None
 
-        # (map blocks to y,z lines, iterate everything including border and add relevant xy lines) 
-
-        # function will export and should include dependencies
-        subvolumes = []
-        
         # extract roi for a given chunk size
-        node_service = retrieve_node_service(self.dvid_server, self.uuid, self.workflow.resource_server, self.workflow.resource_port)
-        substacks, packing_factor = node_service.get_roi_partition(str(roi), chunk_size / self.BLK_SIZE)
+        substacks = self.get_roi_partition(roi, chunk_size, border, partition_method)
         
-        # libdvid returns substack namedtuples as (size, z, y, x), but we want just (z,y,x)
-        substacks = map(lambda s: (s.z, s.y, s.x), substacks)
-      
-        # create roi array giving unique substack ids
-        for substack_id, substack in enumerate(substacks):
-            # use substack id as key
-            subvolumes.append((substack_id, Subvolume(substack_id, substack, chunk_size, border)))
-
-        # grab roi blocks (should use libdvid but there are problems handling 206 status)
-        import requests
-        addr = self.dvid_server + "/api/node/" + str(self.uuid) + "/" + str(roi) + "/roi"
-        if not self.dvid_server.startswith("http://"):
-            addr = "http://" + addr
-        data = requests.get(addr)
-        roi_blockruns = data.json()
-        
-        roi_blocks = []
-        for (z,y,x_first, x_last) in roi_blockruns:
-            for x in range(x_first, x_last+1):
-                roi_blocks.append((z,y,x))
+        roi_blocks = self.get_roi(roi)
 
         # Make a map of the entire ROI
         # Since roi blocks are 32^2, this won't be too huge.
         # For example, a ROI that's 10k*10k*100k pixels, this will be ~300 MB
-        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver) 
+        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver)
         full_roi_blockmask, (roi_blocks_start, roi_blocks_stop) = coordlist_to_boolmap(roi_blocks)
         roi_blocks_shape = roi_blocks_stop - roi_blocks_start
   
         # Initialize each subvolume's 'intersecting_blocks' member for the ROI blocks it contains.
-        for (_sid, subvol) in subvolumes:
+        sv_index = 0
+        subvolumes = []
+        for substack in substacks:
             # Subvol bounding-box in pixels
-            subvol_start_px = np.array((subvol.box.z1, subvol.box.y1, subvol.box.x1)) - subvol.border
-            subvol_stop_px  = np.array((subvol.box.z2, subvol.box.y2, subvol.box.x2)) + subvol.border
+            subvol_start_px = np.array((substack.z, substack.y, substack.x)) - border
+            subvol_stop_px  = np.array((substack.z, substack.y, substack.x)) + border + chunk_size
             
             # Subvol bounding box in block coords
-            subvol_blocks_start = subvol_start_px // subvol.roi_blocksize
-            subvol_blocks_stop = (subvol_stop_px + subvol.roi_blocksize-1) // subvol.roi_blocksize
+            subvol_blocks_start = subvol_start_px // sparkdvid.BLK_SIZE
+            subvol_blocks_stop = (subvol_stop_px + sparkdvid.BLK_SIZE-1) // sparkdvid.BLK_SIZE
             subvol_blocks_shape = subvol_blocks_stop - subvol_blocks_start
 
             # Where does this subvolume start within full_roi_blockmask?
@@ -174,8 +155,21 @@ class sparkdvid(object):
             
             # Un-offset.
             subvol_block_coords += (subvol_blocks_clipped_start + roi_blocks_start)
-            
+
+            if subvol_block_coords.size == 0:
+                # The partition function returned an empty block
+                # The 'grid-aligned' method can do this; it assumes we'll filter them out.
+                continue
+
+            if partition_filter == 'interior-only' and not subvol_blocks_mask.all():
+                # This block is on the border of the ROI;
+                # it contains masked-out blocks
+                continue
+
+            subvol = Subvolume(sv_index, (substack.z, substack.y, substack.x), chunk_size, border)
             subvol.intersecting_blocks = subvol_block_coords
+            subvolumes.append((sv_index, subvol))
+            sv_index += 1
 
         # grab all neighbors for each substack
         if find_neighbors:
@@ -187,6 +181,60 @@ class sparkdvid(object):
         # Potential TODO: custom partitioner for grouping close regions
         return self.sc.parallelize(subvolumes, len(subvolumes))
 
+    def get_roi(self, roi):
+        """
+        An alternate implementation of libdvid.DVIDNodeService.get_roi(),
+        since DVID sometimes returns strange 503 errors and DVIDNodeService.get_roi()
+        doesn't know how to handle them.
+        """
+        # grab roi blocks (should use libdvid but there are problems handling 206 status)
+        import requests
+        addr = self.dvid_server + "/api/node/" + str(self.uuid) + "/" + str(roi) + "/roi"
+        if not self.dvid_server.startswith("http://"):
+            addr = "http://" + addr
+        data = requests.get(addr)
+        roi_blockruns = data.json()
+        
+        roi_blocks = []
+        for (z,y,x_first, x_last) in roi_blockruns:
+            for x in range(x_first, x_last+1):
+                roi_blocks.append((z,y,x))
+        
+        return roi_blocks
+
+    def get_roi_partition(self, roi_name, subvol_size, border, partition_method):
+        assert subvol_size % self.BLK_SIZE == 0, \
+            "This function assumes chunk size is a multiple of block size"
+
+        node_service = retrieve_node_service(self.dvid_server, self.uuid, self.workflow.resource_server, self.workflow.resource_port)
+        if partition_method == 'ask-dvid':
+            subvol_tuples, _ = node_service.get_roi_partition(str(roi_name), subvol_size // self.BLK_SIZE)
+            return subvol_tuples
+
+        from libdvid import SubstackZYX
+
+        if partition_method == 'grid-aligned':        
+            roi_blocks = np.asarray(list(self.get_roi(roi_name)))
+            roi_blocks_start = np.min(roi_blocks, axis=0)
+            roi_blocks_stop = 1 + np.max(roi_blocks, axis=0)
+            roi_blocks_shape = roi_blocks_stop - roi_blocks_start
+    
+            sv_size_in_blocks = (subvol_size // self.BLK_SIZE)
+            
+            # How many subvolumes wide is the ROI in each dimension?
+            roi_shape_in_subvols = (roi_blocks_shape + sv_size_in_blocks - 1) // sv_size_in_blocks
+    
+            subvol_tuples = []
+            for subvol_index in np.ndindex(*roi_shape_in_subvols):
+                subvol_index = np.array(subvol_index)
+                subvol_start = subvol_size*subvol_index + (roi_blocks_start*self.BLK_SIZE)
+                z_start, y_start, x_start = subvol_start
+                subvol_tuples.append( SubstackZYX(subvol_size, z_start, y_start, x_start) )
+            return subvol_tuples
+
+        # Shouldn't get here
+        raise RuntimeError('Unknown partition_method: {}'.format( partition_method ))
+        
     def checkpointRDD(self, rdd, checkpoint_loc, enable_rollback):
         """Defines functionality for checkpointing an RDD.
 

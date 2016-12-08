@@ -45,6 +45,19 @@ class CreateSegmentation(DVIDWorkflow):
               "type": "string",
               "minLength": 1
             },
+            "partition-method": {
+              "description": "Strategy to dvide the ROI into substacks for processing.",
+              "type": "string",
+              "minLength": 1,
+              "default": "ask-dvid"
+            },
+            "partition-filter": {
+              "description": "Optionally remove substacks from the compute set based on some criteria",
+              "type": "string",
+              "minLength": 1,
+              "enum": ["all", "interior-only"],
+              "default": "all"
+            },
             "grayscale": {
               "description": "grayscale data to segment",
               "type": "string",
@@ -195,7 +208,10 @@ class CreateSegmentation(DVIDWorkflow):
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
                 self.config_data["dvid-info"]["roi"],
-                self.chunksize, self.overlap/2, True)
+                self.chunksize, self.overlap/2,
+                True,
+                self.config_data["dvid-info"]["partition-method"],
+                self.config_data["dvid-info"]["partition-filter"] )
 
         # do not recompute ROI for each iteration
         distsubvolumes.persist()
