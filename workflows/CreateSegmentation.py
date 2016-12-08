@@ -294,9 +294,9 @@ class CreateSegmentation(DVIDWorkflow):
             uncached_subvols = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache, len(subvols_without_seg_cache) or None)
             uncached_subvols.persist()
 
-            def prepend_roi_id(subvol):
-                return (subvol.roi_id, subvol)
-            uncached_subvols_kv_rdd = uncached_subvols.map(prepend_roi_id)
+            def prepend_sv_index(subvol):
+                return (subvol.sv_index, subvol)
+            uncached_subvols_kv_rdd = uncached_subvols.map(prepend_sv_index)
 
             # get grayscale chunks with specified overlap
             uncached_sv_and_gray = self.sparkdvid_context.map_grayscale8(uncached_subvols_kv_rdd,
@@ -348,7 +348,7 @@ class CreateSegmentation(DVIDWorkflow):
         
         def prepend_key(item):
             subvol, _ = item
-            return (subvol.roi_id, item)
+            return (subvol.sv_index, item)
         mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
        
         if self.config_data["options"]["parallelwrites"] > 0:

@@ -465,9 +465,9 @@ class Evaluate(object):
             
             for stat in subvol_stats.subvolume_stats:
                 # write local stats and accumulate
-                stat.write_to_dict(subvolume_metrics["types"], allsubvolume_metrics, subvol_stats.subvolume.roi_id)
+                stat.write_to_dict(subvolume_metrics["types"], allsubvolume_metrics, subvol_stats.subvolume.sv_index)
 
-            allsubvolume_metrics["ids"][subvol_stats.subvolume.roi_id] = subvolume_metrics
+            allsubvolume_metrics["ids"][subvol_stats.subvolume.sv_index] = subvolume_metrics
             
             # accumulate stats
             if whole_volume_stats is None:

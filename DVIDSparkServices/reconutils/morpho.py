@@ -239,12 +239,12 @@ def stitch(sc, label_chunks):
     offset = numpy.uint64(0)
 
     for subvolume, max_id in zip(subvolumes, max_ids):
-        offsets[subvolume.roi_id] = offset
+        offsets[subvolume.sv_index] = offset
         offset += max_id
     subvolume_offsets = sc.broadcast(offsets)
 
-    # (subvol, label_vol) => [ (roi_id_1, roi_id_2), (subvol, boundary_labels)), 
-    #                          (roi_id_1, roi_id_2), (subvol, boundary_labels)), ...] 
+    # (subvol, label_vol) => [ (sv_index_1, sv_index_2), (subvol, boundary_labels)), 
+    #                          (sv_index_1, sv_index_2), (subvol, boundary_labels)), ...] 
     def extract_boundaries(key_labels):
         # compute overlap -- assume first point is less than second
         def intersects(pt1, pt2, pt1_2, pt2_2):
@@ -265,7 +265,7 @@ def stitch(sc, label_chunks):
         
         # iterate through all ROI partners
         for partner in subvolume.local_regions:
-            key1 = subvolume.roi_id
+            key1 = subvolume.sv_index
             key2 = partner[0]
             roi2 = partner[1]
             if key2 < key1:
@@ -332,7 +332,7 @@ def stitch(sc, label_chunks):
         subvolume1, boundary1 = boundary_list_list[0] 
         subvolume2, boundary2 = boundary_list_list[1] 
 
-        if subvolume1.roi_id > subvolume2.roi_id:
+        if subvolume1.sv_index > subvolume2.sv_index:
             subvolume1, subvolume2 = subvolume2, subvolume1
             boundary1, boundary2 = boundary2, boundary1
 
@@ -391,14 +391,14 @@ def stitch(sc, label_chunks):
                    
 
         # handle offsets in mergelist
-        offset1 = subvolume_offsets.value[subvolume1.roi_id] 
-        offset2 = subvolume_offsets.value[subvolume2.roi_id] 
+        offset1 = subvolume_offsets.value[subvolume1.sv_index] 
+        offset2 = subvolume_offsets.value[subvolume2.sv_index] 
         for merger in merge_list:
             merger[0] = merger[0]+offset1
             merger[1] = merger[1]+offset2
 
         # return id and mappings, only relevant for stack one
-        return (subvolume1.roi_id, merge_list)
+        return (subvolume1.sv_index, merge_list)
 
     # key, mapping1; key mapping2 => key, mapping1+mapping2
     def reduce_mappings(b1, b2):
@@ -454,7 +454,7 @@ def stitch(sc, label_chunks):
         (subvolume, labels) = key_label_mapping
 
         # grab broadcast offset
-        offset = numpy.uint64( subvolume_offsets.value[subvolume.roi_id] )
+        offset = numpy.uint64( subvolume_offsets.value[subvolume.sv_index] )
 
         # check for body mask labels and protect from renumber
         fix_bodies = []

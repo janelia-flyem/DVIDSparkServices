@@ -21,17 +21,17 @@ class Subvolume(object):
     
     """
 
-    def __init__(self, roi_id, roi, chunk_size, border):
+    def __init__(self, sv_index, roi, chunk_size, border):
         """Initializes subvolume.
 
         Args:
-            roi_id (int): identifier key for subvolume (must be unique)
+            sv_index (int): identifier key for subvolume (must be unique)
             roi ([]): x,y,z array
             chunk_size (int): dimension of subvolume (assume isotropic)
             border (int): border size surrounding core subvolume    
         """
 
-        self.roi_id = roi_id
+        self.sv_index = sv_index
         self.roi = SubvolumeNamedTuple(roi[0],
                     roi[1], roi[2],
                     roi[0] + chunk_size,
@@ -50,7 +50,7 @@ class Subvolume(object):
         self.intersecting_blocks = []
 
     def __eq__(self, other):
-        return (self.roi_id == other.roi_id and
+        return (self.sv_index == other.sv_index and
                 self.roi == other.roi and
                 self.border == other.border)
 
@@ -58,12 +58,12 @@ class Subvolume(object):
         return not self.__eq__(other)
     
     def __hash__(self):
-        # TODO: We still assume unique roi_ids, and only use that in the hash,
-        #       so that partitioning with roi_id is equivalent to partitioning on the Subvolume itself.
-        #       If sparkdvid functions (e.g. map_grayscale8) are ever changed not to partition over roi_id,
+        # TODO: We still assume unique sv_indexs, and only use that in the hash,
+        #       so that partitioning with sv_index is equivalent to partitioning on the Subvolume itself.
+        #       If sparkdvid functions (e.g. map_grayscale8) are ever changed not to partition over sv_index,
         #       then we can change this hash function to include the other members, such as border, etc.
-        #return hash( (self.roi_id, self.roi, self.border) )
-        return hash(self.roi_id)
+        #return hash( (self.sv_index, self.roi, self.border) )
+        return hash(self.sv_index)
 
     @property
     def roi_with_border(self):
@@ -109,8 +109,8 @@ class Subvolume(object):
         or (self.touches(liney1[0], liney1[1], liney2[0], liney2[1]) and self.intersects(linex1, linex2) and self.intersects(linez1, linez2)) \
         or (self.touches(linez1[0], linez1[1], linez2[0], linez2[1]) and self.intersects(liney1, liney2) and self.intersects(linex1, linex2)):
             # save overlapping substacks
-            self.local_regions.append((roi2.roi_id, roi2.roi))
-            roi2.local_regions.append((self.roi_id, self.roi))
+            self.local_regions.append((roi2.sv_index, roi2.roi))
+            roi2.local_regions.append((self.sv_index, self.roi))
 
 
 
