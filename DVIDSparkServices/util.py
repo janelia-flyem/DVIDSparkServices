@@ -13,6 +13,24 @@ def bb_to_slicing(start, stop):
     """
     return tuple( starmap( slice, zip(start, stop) ) )
 
+class RoiMap(object):
+    """
+    Little utility class to help with ROI manipulations
+    """
+    def __init__(self, roi_blocks):
+        # Make a map of the entire ROI
+        # Since roi blocks are 32^2, this won't be too huge.
+        # For example, a ROI that's 10k*10k*100k pixels, this will be ~300 MB
+        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver)
+        block_mask, (blocks_start, blocks_stop) = coordlist_to_boolmap(roi_blocks)
+        blocks_shape = blocks_stop - blocks_start
+
+        self.block_mask = block_mask
+        self.blocks_start = blocks_start
+        self.blocks_stop = blocks_stop
+        self.blocks_shape = blocks_shape
+        
+
 def coordlist_to_boolmap(coordlist, bounding_box=None):
     """
     Convert the given list of coordinates (z,y,x) into a 3D bool array.

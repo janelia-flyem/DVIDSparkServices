@@ -23,7 +23,7 @@ class Subvolume(object):
     
     """
 
-    def __init__(self, sv_index, box_start_zyx, chunk_size, border):
+    def __init__(self, sv_index, box_start_zyx, chunk_size, border, roi_map):
         """Initializes subvolume.
 
         Args:
@@ -31,8 +31,8 @@ class Subvolume(object):
             box_start_zyx: (z,y,x)
             chunk_size (int): dimension of subvolume (assume isotropic)
             border (int): border size surrounding core subvolume    
+            roi_map (util.RoiMap): RoiMap for the roi this Subvolume belongs to.
         """
-
         self.sv_index = sv_index
         
         box_stop_zyx = np.array(box_start_zyx) + chunk_size
@@ -49,6 +49,60 @@ class Subvolume(object):
         #       more RAM-efficient to maintain a bool array of the ROI mask
         #       (at block resolution)
         self.intersecting_blocks = []
+        self.intersecting_blocks_noborder = []
+
+        # If this subvolume (including border) is *completely* 
+        # covered by the ROI, it's considered 'interior'
+        self.is_interior = False
+        
+        # Initialize each subvolume's 'intersecting_blocks' member for the ROI blocks it contains.
+        self._init_intersecting_blocks(roi_map)
+
+    def _init_intersecting_blocks(self, roi_map):
+        # Subvol bounding-box in pixels
+        subvol_start_px = np.array(self.box_with_border[0:3])
+        subvol_stop_px  = np.array(self.box_with_border[3:6])
+
+        # How many blocks fit in this subvolume (regardless of ROI)?
+        full_subvol_size_blocks = np.prod( (subvol_stop_px - subvol_start_px) // self.roi_blocksize )
+
+        subvol_block_coords = self.roi_coords_for_box(roi_map, subvol_start_px, subvol_stop_px)
+
+        # Save
+        self.intersecting_blocks = subvol_block_coords
+        
+        # We're "interior" if all blocks are present in the ROI
+        self.is_interior = ( len(subvol_block_coords) == full_subvol_size_blocks )
+
+        # Find intersecting blocks without border
+        self.intersecting_blocks_noborder = self.roi_coords_for_box( roi_map,
+                                                                     np.array(self.box[0:3]),
+                                                                     np.array(self.box[3:6]) )
+        
+    def roi_coords_for_box(self, roi_map, subvol_start_px, subvol_stop_px):
+        from DVIDSparkServices.util import bb_to_slicing, RoiMap
+        assert isinstance(roi_map, RoiMap)
+
+        # Subvol bounding box in block coords
+        subvol_blocks_start = subvol_start_px // self.roi_blocksize
+        subvol_blocks_stop = (subvol_stop_px + self.roi_blocksize-1) // self.roi_blocksize
+        subvol_blocks_shape = subvol_blocks_stop - subvol_blocks_start
+
+        # Where does this subvolume start within roi_map.block_mask?
+        # Offset, since the ROI didn't necessarily start at (0,0,0)
+        subvol_blocks_offset = subvol_blocks_start - roi_map.blocks_start
+        
+        # Clip the extracted region, since subvol may extend outside of ROI and therefore outside of roi_map.block_mask
+        subvol_blocks_clipped_start = np.maximum(subvol_blocks_offset, (0,0,0))
+        subvol_blocks_clipped_stop = np.minimum(roi_map.blocks_shape, (subvol_blocks_start + subvol_blocks_shape) - roi_map.blocks_start)
+        
+        # Extract the portion of the mask for this subvol
+        subvol_blocks_mask = roi_map.block_mask[bb_to_slicing(subvol_blocks_clipped_start, subvol_blocks_clipped_stop)]
+        subvol_block_coords = np.transpose( subvol_blocks_mask.nonzero() )
+        
+        # Un-offset.
+        subvol_block_coords += (subvol_blocks_clipped_start + roi_map.blocks_start)
+        return subvol_block_coords
 
     def __eq__(self, other):
         return (self.sv_index == other.sv_index and

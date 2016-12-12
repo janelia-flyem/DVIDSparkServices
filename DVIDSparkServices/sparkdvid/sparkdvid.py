@@ -26,7 +26,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, coordlist_to_boolmap, bb_to_slicing
+from DVIDSparkServices.util import mask_roi, RoiMap
+    
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
     """Create a DVID node service object"""
@@ -111,64 +112,43 @@ class sparkdvid(object):
             RDD as [(subvolume id, subvolume)] and # of subvolumes
 
         """
+        subvolumes = self._initialize_subvolumes(roi, chunk_size, border, find_neighbors, partition_method, partition_filter)
+        enumerated_subvolumes = [(sv.sv_index, sv) for sv in subvolumes]
+
+        # Potential TODO: custom partitioner for grouping close regions
+        return self.sc.parallelize(enumerated_subvolumes, len(enumerated_subvolumes))
+
+    def _initialize_subvolumes(self, roi, chunk_size, border=0, find_neighbors=False, partition_method='ask-dvid', partition_filter=None):
         assert partition_method in ('ask-dvid', 'grid-aligned')
         assert partition_filter in (None, "all", 'interior-only')
         if partition_filter == "all":
             partition_filter = None
 
-        # extract roi for a given chunk size
-        substacks = self.get_roi_partition(roi, chunk_size, border, partition_method)
-        
-        roi_blocks = self.get_roi(roi)
+        # Split ROI into subvolume chunks
+        substacks = self.get_roi_partition(roi, chunk_size, partition_method)
 
-        # Make a map of the entire ROI
-        # Since roi blocks are 32^2, this won't be too huge.
-        # For example, a ROI that's 10k*10k*100k pixels, this will be ~300 MB
-        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver)
-        full_roi_blockmask, (roi_blocks_start, roi_blocks_stop) = coordlist_to_boolmap(roi_blocks)
-        roi_blocks_shape = roi_blocks_stop - roi_blocks_start
-  
-        # Initialize each subvolume's 'intersecting_blocks' member for the ROI blocks it contains.
+        # Create dense representation of ROI
+        roi_map = RoiMap( self.get_roi(roi) )
+
+        # Initialize all Subvolumes
         sv_index = 0
         subvolumes = []
         for substack in substacks:
-            # Subvol bounding-box in pixels
-            subvol_start_px = np.array((substack.z, substack.y, substack.x)) - border
-            subvol_stop_px  = np.array((substack.z, substack.y, substack.x)) + border + chunk_size
-            
-            # Subvol bounding box in block coords
-            subvol_blocks_start = subvol_start_px // sparkdvid.BLK_SIZE
-            subvol_blocks_stop = (subvol_stop_px + sparkdvid.BLK_SIZE-1) // sparkdvid.BLK_SIZE
-            subvol_blocks_shape = subvol_blocks_stop - subvol_blocks_start
+            subvol = Subvolume(sv_index, (substack.z, substack.y, substack.x), chunk_size, border, roi_map)
 
-            # Where does this subvolume start within full_roi_blockmask?
-            # Offset, since the ROI didn't necessarily start at (0,0,0)
-            subvol_blocks_offset = subvol_blocks_start - roi_blocks_start
-            
-            # Clip the extracted region, since subvol may extend outside of ROI and therefore outside of full_roi_blockmask
-            subvol_blocks_clipped_start = np.maximum(subvol_blocks_offset, (0,0,0))
-            subvol_blocks_clipped_stop = np.minimum(roi_blocks_shape, (subvol_blocks_start + subvol_blocks_shape) - roi_blocks_start)
-            
-            # Extract the portion of the mask for this subvol
-            subvol_blocks_mask = full_roi_blockmask[bb_to_slicing(subvol_blocks_clipped_start, subvol_blocks_clipped_stop)]
-            subvol_block_coords = np.transpose( subvol_blocks_mask.nonzero() )
-            
-            # Un-offset.
-            subvol_block_coords += (subvol_blocks_clipped_start + roi_blocks_start)
-
-            if subvol_block_coords.size == 0:
-                # The partition function returned an empty block
-                # The 'grid-aligned' method can do this; it assumes we'll filter them out.
+            # Discard empty subvolumes
+            if len(subvol.intersecting_blocks_noborder) == 0:
+                # The partition function returned an 'empty' subvolume.
+                # (It doesn't intersect the ROI at all.)
+                # The 'grid-aligned' method can do this;
+                # it assumes we'll filter them out, which we're doing right now.
+                continue
+    
+            # Discard interior blocks if the user doesn't want them.
+            if subvol.is_interior and partition_filter == 'interior-only':
                 continue
 
-            if partition_filter == 'interior-only' and not subvol_blocks_mask.all():
-                # This block is on the border of the ROI;
-                # it contains masked-out blocks
-                continue
-
-            subvol = Subvolume(sv_index, (substack.z, substack.y, substack.x), chunk_size, border)
-            subvol.intersecting_blocks = subvol_block_coords
-            subvolumes.append((sv_index, subvol))
+            subvolumes.append(subvol)
             sv_index += 1
 
         # grab all neighbors for each substack
@@ -176,10 +156,9 @@ class sparkdvid(object):
             # inefficient search for all boundaries
             for i in range(0, len(subvolumes)-1):
                 for j in range(i+1, len(subvolumes)):
-                    subvolumes[i][1].recordborder(subvolumes[j][1])
+                    subvolumes[i].recordborder(subvolumes[j])
 
-        # Potential TODO: custom partitioner for grouping close regions
-        return self.sc.parallelize(subvolumes, len(subvolumes))
+        return subvolumes
 
     def get_roi(self, roi):
         """
@@ -202,7 +181,20 @@ class sparkdvid(object):
         
         return roi_blocks
 
-    def get_roi_partition(self, roi_name, subvol_size, border, partition_method):
+    def get_roi_partition(self, roi_name, subvol_size, partition_method):
+        """
+        Partition the given ROI into a list of 'Substack' tuples (size,z,y,x).
+        
+        roi_name:
+            string
+        subvol_size:
+            The size of the substack without overlap border
+        partition_method:
+            One of 'ask-dvid' or 'grid-aligned'.
+            Note: If using 'grid-aligned', the set of Substacks may
+                  include 'empty' substacks that don't overlap the ROI at all.
+            
+        """
         assert subvol_size % self.BLK_SIZE == 0, \
             "This function assumes chunk size is a multiple of block size"
 
