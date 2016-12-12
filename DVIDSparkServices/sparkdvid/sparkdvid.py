@@ -125,31 +125,27 @@ class sparkdvid(object):
             partition_filter = None
 
         # Split ROI into subvolume chunks
-        substacks = self.get_roi_partition(roi, chunk_size, partition_method)
+        substack_tuples = self.get_roi_partition(roi, chunk_size, partition_method)
 
         # Create dense representation of ROI
         roi_map = RoiMap( self.get_roi(roi) )
 
-        # Initialize all Subvolumes
-        sv_index = 0
-        subvolumes = []
-        for substack in substacks:
-            subvol = Subvolume(sv_index, (substack.z, substack.y, substack.x), chunk_size, border, roi_map)
+        # Initialize all Subvolumes (sv_index is updated below)
+        subvolumes = map( lambda ss: Subvolume(None, (ss.z, ss.y, ss.x), chunk_size, border, roi_map),
+                          substack_tuples )
 
-            # Discard empty subvolumes
-            if len(subvol.intersecting_blocks_noborder) == 0:
-                # The partition function returned an 'empty' subvolume.
-                # (It doesn't intersect the ROI at all.)
-                # The 'grid-aligned' method can do this;
-                # it assumes we'll filter them out, which we're doing right now.
-                continue
-    
-            # Discard interior blocks if the user doesn't want them.
-            if subvol.is_interior and partition_filter == 'interior-only':
-                continue
+        # Discard empty subvolumes (ones that don't intersect the ROI at all).
+        # The 'grid-aligned' partition-method can return such subvolumes;
+        # it assumes we'll filter them out, which we're doing right now.
+        subvolumes = filter( lambda sv: len(sv.intersecting_blocks_noborder) != 0, subvolumes )
 
-            subvolumes.append(subvol)
-            sv_index += 1
+        # Discard 'interior' subvolumes if the user doesn't want them.
+        if partition_filter == 'interior-only':
+            subvolumes = filter( lambda sv: sv.is_interior, subvolumes )
+
+        # Assign sv_index
+        for i, sv in enumerate(subvolumes):
+            sv.sv_index = i
 
         # grab all neighbors for each substack
         if find_neighbors:
