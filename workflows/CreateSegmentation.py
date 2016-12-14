@@ -15,7 +15,7 @@ import numpy as np
 import DVIDSparkServices
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import select_item
+from DVIDSparkServices.util import select_item, mask_roi
 from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
@@ -325,6 +325,15 @@ class CreateSegmentation(DVIDWorkflow):
         
             # (subvol, (seg, max_id))
             seg_chunks = cached_seg_chunks_kv.union(computed_seg_chunks_kv)
+            
+            # FIXME: This is just to fix an issue with Constantin's pre-cached data
+            def mask_seg(item):
+                (subvol, (seg, max_id)) = item
+                mask_roi(seg, subvol)
+                return (subvol, (seg, max_id))
+            
+            seg_chunks = seg_chunks.map( mask_seg )
+            
             seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
             seg_chunks_list.append(seg_chunks)
