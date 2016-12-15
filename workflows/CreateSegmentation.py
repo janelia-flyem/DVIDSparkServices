@@ -247,8 +247,7 @@ class CreateSegmentation(DVIDWorkflow):
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
             # is randomish than this should be fine
-            def subset_part(roi):
-                s_id, data = roi
+            def subset_part( (s_id, data) ):
                 if (s_id % num_iters) == iternum:
                     return True
                 return False
@@ -273,7 +272,7 @@ class CreateSegmentation(DVIDWorkflow):
             # Load as many seg blocks from cache as possible
             if subvols_with_seg_cache:
                 def retrieve_seg_from_cache(subvol):
-                    z1, y1, x1, z2, y2, x2 = subvol.roi_with_border
+                    z1, y1, x1, z2, y2, x2 = subvol.box_with_border
                     block_bounds = ((z1, y1, x1), (z2, y2, x2))
                     block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
                     h5_block = block_store.get_block( block_bounds )
@@ -401,7 +400,7 @@ class CreateSegmentation(DVIDWorkflow):
             return [], subvol_list
 
         def is_cached(subvol):
-            z1, y1, x1, z2, y2, x2 = subvol.roi_with_border
+            z1, y1, x1, z2, y2, x2 = subvol.box_with_border
             if block_store.axes[-1] == 'c':
                 return ((z1, y1, x1, 0), (z2, y2, x2, None)) in block_store
             else:

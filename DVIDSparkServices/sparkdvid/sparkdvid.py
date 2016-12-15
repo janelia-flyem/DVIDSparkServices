@@ -152,8 +152,8 @@ class sparkdvid(object):
         # Initialize each subvolume's 'intersecting_blocks' member for the ROI blocks it contains.
         for (_sid, subvol) in subvolumes:
             # Subvol bounding-box in pixels
-            subvol_start_px = np.array((subvol.roi.z1, subvol.roi.y1, subvol.roi.x1)) - subvol.border
-            subvol_stop_px  = np.array((subvol.roi.z2, subvol.roi.y2, subvol.roi.x2)) + subvol.border
+            subvol_start_px = np.array((subvol.box.z1, subvol.box.y1, subvol.box.x1)) - subvol.border
+            subvol_stop_px  = np.array((subvol.box.z2, subvol.box.y2, subvol.box.x2)) + subvol.border
             
             # Subvol bounding box in block coords
             subvol_blocks_start = subvol_start_px // subvol.roi_blocksize
@@ -233,9 +233,9 @@ class sparkdvid(object):
         def mapper(subvolume):
             # extract grayscale x
             # get sizes of subvolume
-            size_x = subvolume.roi.x2 + 2*subvolume.border - subvolume.roi.x1
-            size_y = subvolume.roi.y2 + 2*subvolume.border - subvolume.roi.y1
-            size_z = subvolume.roi.z2 + 2*subvolume.border - subvolume.roi.z1
+            size_x = subvolume.box.x2 + 2*subvolume.border - subvolume.box.x1
+            size_y = subvolume.box.y2 + 2*subvolume.border - subvolume.box.y1
+            size_z = subvolume.box.z2 + 2*subvolume.border - subvolume.box.z1
 
             #logger = logging.getLogger(__name__)
             #logger.warn("FIXME: As a temporary hack, this introduces a pause before accessing grayscale, to offset accesses to dvid")
@@ -243,7 +243,7 @@ class sparkdvid(object):
             #import random
             #time.sleep( random.randint(0,512) )
 
-            # retrieve data from roi start position considering border
+            # retrieve data from box start position considering border
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_gray():
                 # Note: libdvid uses zyx order for python functions
@@ -251,11 +251,11 @@ class sparkdvid(object):
                 if resource_server != "":
                     return node_service.get_gray3D( str(gray_name),
                                                     (size_z, size_y, size_x),
-                                                    (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border), throttle=False )
+                                                    (subvolume.box.z1-subvolume.border, subvolume.box.y1-subvolume.border, subvolume.box.x1-subvolume.border), throttle=False )
                 else:
                     return node_service.get_gray3D( str(gray_name),
                                                     (size_z, size_y, size_x),
-                                                    (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border) )
+                                                    (subvolume.box.z1-subvolume.border, subvolume.box.y1-subvolume.border, subvolume.box.x1-subvolume.border) )
 
             gray_volume = get_gray()
 
@@ -288,26 +288,26 @@ class sparkdvid(object):
         resource_port = self.workflow.resource_port
 
         def mapper(subvolume):
-            # get sizes of roi
-            size_x = subvolume.roi.x2 + 2*subvolume.border - subvolume.roi.x1
-            size_y = subvolume.roi.y2 + 2*subvolume.border - subvolume.roi.y1
-            size_z = subvolume.roi.z2 + 2*subvolume.border - subvolume.roi.z1
+            # get sizes of box
+            size_x = subvolume.box.x2 + 2*subvolume.border - subvolume.box.x1
+            size_y = subvolume.box.y2 + 2*subvolume.border - subvolume.box.y1
+            size_z = subvolume.box.z2 + 2*subvolume.border - subvolume.box.z1
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
                 # extract labels 64
-                # retrieve data from roi start position considering border
+                # retrieve data from box start position considering border
                 # Note: libdvid uses zyx order for python functions
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 if resource_server != "":
                     data = node_service.get_labels3D( str(label_name),
                                                       (size_z, size_y, size_x),
-                                                      (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border),
+                                                      (subvolume.box.z1-subvolume.border, subvolume.box.y1-subvolume.border, subvolume.box.x1-subvolume.border),
                                                       compress=True, throttle=False )
                 else:
                     data = node_service.get_labels3D( str(label_name),
                                                       (size_z, size_y, size_x),
-                                                      (subvolume.roi.z1-subvolume.border, subvolume.roi.y1-subvolume.border, subvolume.roi.x1-subvolume.border),
+                                                      (subvolume.box.z1-subvolume.border, subvolume.box.y1-subvolume.border, subvolume.box.x1-subvolume.border),
                                                       compress=True )
 
                 # mask ROI
@@ -348,25 +348,25 @@ class sparkdvid(object):
         resource_port = self.workflow.resource_port
 
         def mapper(subvolume):
-            # get sizes of roi
-            size_x = subvolume.roi.x2 - subvolume.roi.x1
-            size_y = subvolume.roi.y2 - subvolume.roi.y1
-            size_z = subvolume.roi.z2 - subvolume.roi.z1
+            # get sizes of box
+            size_x = subvolume.box.x2 - subvolume.box.x1
+            size_y = subvolume.box.y2 - subvolume.box.y1
+            size_z = subvolume.box.z2 - subvolume.box.z1
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels():
                 # extract labels 64
-                # retrieve data from roi start position
+                # retrieve data from box start position
                 # Note: libdvid uses zyx order for python functions
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 if resource_server != "":
                     data = node_service.get_labels3D( str(label_name),
                                                       (size_z, size_y, size_x),
-                                                      (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1), throttle=False)
+                                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
                 else:
                     data = node_service.get_labels3D( str(label_name),
                                                       (size_z, size_y, size_x),
-                                                      (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1))
+                                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
 
 
                 # mask ROI
@@ -379,17 +379,17 @@ class sparkdvid(object):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels2():
                 # fetch second label volume
-                # retrieve data from roi start position
+                # retrieve data from box start position
                 # Note: libdvid uses zyx order for python functions
                 node_service2 = retrieve_node_service(server2, uuid2, resource_server, resource_port)
                 if resource_server != "":
                     return node_service2.get_labels3D( str(label_name2),
                                                        (size_z, size_y, size_x),
-                                                       (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1), throttle=False)
+                                                       (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
                 else:
                     return node_service2.get_labels3D( str(label_name2),
                                                        (size_z, size_y, size_x),
-                                                       (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1))
+                                                       (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
 
             label_volume2 = get_labels2()
 
@@ -495,9 +495,9 @@ class sparkdvid(object):
             
             (key, (subvolume, seg)) = subvolume_seg
             # get sizes of subvolume 
-            size1 = subvolume.roi.x2-subvolume.roi.x1
-            size2 = subvolume.roi.y2-subvolume.roi.y1
-            size3 = subvolume.roi.z2-subvolume.roi.z1
+            size1 = subvolume.box.x2-subvolume.box.x1
+            size2 = subvolume.box.y2-subvolume.box.y1
+            size3 = subvolume.box.z2-subvolume.box.z1
 
             border = subvolume.border
 
@@ -509,19 +509,19 @@ class sparkdvid(object):
 
             @auto_retry(3, pause_between_tries=600.0, logging_name= __name__)
             def put_labels():
-                # send data from roi start position
+                # send data from box start position
                 # Note: libdvid uses zyx order for python functions
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 if roi_name is None:
                     node_service.put_labels3D( str(label_name),
                                                seg,
-                                               (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1),
+                                               (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1),
                                                compress=True,
                                                mutate=mutate )
                 else: 
                     node_service.put_labels3D( str(label_name),
                                                seg,
-                                               (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1),
+                                               (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1),
                                                compress=True,
                                                roi=str(roi_name),
                                                mutate=mutate )

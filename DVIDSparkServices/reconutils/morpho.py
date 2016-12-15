@@ -267,28 +267,28 @@ def stitch(sc, label_chunks):
         for partner in subvolume.local_regions:
             key1 = subvolume.sv_index
             key2 = partner[0]
-            roi2 = partner[1]
+            box2 = partner[1]
             if key2 < key1:
                 key1, key2 = key2, key1
             
             # crop volume to overlap
             offx1, offx2, offx1_2, offx2_2 = intersects(
-                            subvolume.roi.x1-subvolume.border,
-                            subvolume.roi.x2+subvolume.border,
-                            roi2.x1-subvolume.border,
-                            roi2.x2+subvolume.border
+                            subvolume.box.x1-subvolume.border,
+                            subvolume.box.x2+subvolume.border,
+                            box2.x1-subvolume.border,
+                            box2.x2+subvolume.border
                         )
             offy1, offy2, offy1_2, offy2_2 = intersects(
-                            subvolume.roi.y1-subvolume.border,
-                            subvolume.roi.y2+subvolume.border,
-                            roi2.y1-subvolume.border,
-                            roi2.y2+subvolume.border
+                            subvolume.box.y1-subvolume.border,
+                            subvolume.box.y2+subvolume.border,
+                            box2.y1-subvolume.border,
+                            box2.y2+subvolume.border
                         )
             offz1, offz2, offz1_2, offz2_2 = intersects(
-                            subvolume.roi.z1-subvolume.border,
-                            subvolume.roi.z2+subvolume.border,
-                            roi2.z1-subvolume.border,
-                            roi2.z2+subvolume.border
+                            subvolume.box.z1-subvolume.border,
+                            subvolume.box.z2+subvolume.border,
+                            box2.z1-subvolume.border,
+                            box2.z2+subvolume.border
                         )
                         
             labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
@@ -344,17 +344,17 @@ def stitch(sc, label_chunks):
         z1 = y1 = x1 = 0 
 
         # determine which interface there is touching between subvolumes 
-        if subvolume1.touches(subvolume1.roi.x1, subvolume1.roi.x2,
-                              subvolume2.roi.x1, subvolume2.roi.x2):
+        if subvolume1.touches(subvolume1.box.x1, subvolume1.box.x2,
+                              subvolume2.box.x1, subvolume2.box.x2):
             x1 = x2/2 
             x2 = x1 + 1
-        if subvolume1.touches(subvolume1.roi.y1, subvolume1.roi.y2,
-                              subvolume2.roi.y1, subvolume2.roi.y2):
+        if subvolume1.touches(subvolume1.box.y1, subvolume1.box.y2,
+                              subvolume2.box.y1, subvolume2.box.y2):
             y1 = y2/2 
             y2 = y1 + 1
         
-        if subvolume1.touches(subvolume1.roi.z1, subvolume1.roi.z2,
-                              subvolume2.roi.z1, subvolume2.roi.z2):
+        if subvolume1.touches(subvolume1.box.z1, subvolume1.box.z2,
+                              subvolume2.box.z1, subvolume2.box.z2):
             z1 = z2/2 
             z2 = z1 + 1
 
