@@ -58,7 +58,7 @@ class CreateSegmentation(DVIDWorkflow):
             }
           },
           "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name"],
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "options" : {
           "type": "object",
@@ -75,10 +75,11 @@ class CreateSegmentation(DVIDWorkflow):
                 "configuration" : {
                   "description": "custom configuration for subclass. Schema should be supplied in subclass source.",
                   "type" : "object",
-                  "default" : {}
+                  "default" : {},
+                  "additionalProperties": true
                 }
               },
-              "additionalProperties": false,
+              "additionalProperties": true,
               "default": {}
             },
             "stitch-algorithm": {
@@ -136,7 +137,7 @@ class CreateSegmentation(DVIDWorkflow):
             }
           },
           "required": ["stitch-algorithm"],
-          "additionalProperties": false
+          "additionalProperties": true
         }
       }
     }

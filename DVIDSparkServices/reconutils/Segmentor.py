@@ -99,7 +99,7 @@ class Segmentor(object):
                   "default": 0
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": true
             }
           },
         """
@@ -144,11 +144,11 @@ class Segmentor(object):
                   "default": []
                 }
               },
-              "additionalProperties": false,
+              "additionalProperties": true,
               "default": {}
             }
           },
-          "additionalProperties": false,
+          "additionalProperties": true,
           "default": {}
         }
         """)

@@ -30,6 +30,16 @@ class CreatePyramid(DVIDWorkflow):
     "options": {
       "type": "object",
       "properties": {
+        "resource-server": { 
+          "description": "0mq resource server",
+          "type": "string",
+          "default": ""
+        },
+        "resource-port": { 
+          "description": "0mq resource port",
+          "type": "integer",
+          "default": 12000
+        },
         "blankdelimiter": {
           "description": "Delimiting value for a blank block",
           "type": "integer",
@@ -66,8 +76,10 @@ class CreatePyramid(DVIDWorkflow):
 
         req = requests.get(server + "/api/node/" + uuid + "/" + source + "/info")
         sourcemeta = req.json()
-        
-        xmin, ymin, zmin = sourcemeta["Extended"]["MinIndex"] 
+       
+        # xmin, ymin, zmin not being used explicitly yet
+        #xmin, ymin, zmin = sourcemeta["Extended"]["MinIndex"] 
+        xmin, ymin, zmin = 0, 0, 0 
         xmax, ymax, zmax = sourcemeta["Extended"]["MaxIndex"] 
        
         islabelblk = False
@@ -93,7 +105,7 @@ class CreatePyramid(DVIDWorkflow):
 
         # create source pyramid and append _level to name
         for level in range(1, maxlevel+1):
-            node_service = retrieve_node_service(server, uuid, self.APPNAME, self.resource_server, self.resource_port)
+            node_service = retrieve_node_service(server, uuid, self.resource_server, self.resource_port, self.APPNAME)
             # !! limit to grayscale now
             prevsource = currsource
             currsource = source + ("_%d" % level)

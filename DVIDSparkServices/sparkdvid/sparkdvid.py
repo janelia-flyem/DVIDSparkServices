@@ -512,17 +512,21 @@ class sparkdvid(object):
                 # send data from roi start position
                 # Note: libdvid uses zyx order for python functions
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+                
+                throttlev = True
+                if resource_server != "":
+                    throttlev = False
                 if roi_name is None:
                     node_service.put_labels3D( str(label_name),
                                                seg,
                                                (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1),
-                                               compress=True,
+                                               compress=True, throttle=throttlev,
                                                mutate=mutate )
                 else: 
                     node_service.put_labels3D( str(label_name),
                                                seg,
                                                (subvolume.roi.z1, subvolume.roi.y1, subvolume.roi.x1),
-                                               compress=True,
+                                               compress=True, throttle=throttlev,
                                                roi=str(roi_name),
                                                mutate=mutate )
             put_labels()

@@ -294,7 +294,8 @@ class Evaluate(object):
                 gtbody = int(labelgt[(point[2], point[1], point[0])])
                 segbody = int(label2[(point[2], point[1], point[0])])
           
-                # ignore all 0 points
+                # !!ignore all 0 points (assume segbody is not 0 anywhere for now)
+                #if gtbody == 0 or segbody == 0:
                 if gtbody == 0:
                     index2body_gt[index] = -1
                     index2body_seg[index] = -1
