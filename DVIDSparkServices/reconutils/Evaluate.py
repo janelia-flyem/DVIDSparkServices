@@ -261,18 +261,18 @@ class Evaluate(object):
             parent_list = set()
 
             subvolume_pts = {}
-            roi = stats.subvolume.roi
+            box = stats.subvolume.box
             # grab points that overlap
             for index, point in enumerate(point_data["point-list"]):
-                if point[0] < roi.x2 and point[0] >= roi.x1 and point[1] < roi.y2 and point[1] >= roi.y1 and point[2] < roi.z2 and point[2] >= roi.z1:
-                    subvolume_pts[index] = [point[0]-roi.x1, point[1]-roi.y1, point[2]-roi.z1]
+                if point[0] < box.x2 and point[0] >= box.x1 and point[1] < box.y2 and point[1] >= box.y1 and point[2] < box.z2 and point[2] >= box.z1:
+                    subvolume_pts[index] = [point[0]-box.x1, point[1]-box.y1, point[2]-box.z1]
                     adjacency_list[index] = set()
                     for iter1 in range(3, len(point)):
                         adjacency_list[index].add(point[iter1])
 
             # find points that have a parent (connection) outside of subvolume
             for index, point in enumerate(point_data["point-list"]):
-                if point[0] >= roi.x2 or point[0] < roi.x1 or point[1] >= roi.y2 or point[1] < roi.y1 or point[2] >= roi.z2 or point[2] < roi.z1:
+                if point[0] >= box.x2 or point[0] < box.x1 or point[1] >= box.y2 or point[1] < box.y1 or point[2] >= box.z2 or point[2] < box.z1:
                     for iter1 in range(3, len(point)):
                         if point[iter1] in adjacency_list:
                             parent_list.add(point[iter1])
@@ -447,7 +447,7 @@ class Evaluate(object):
         for subvol_stats in all_stats:
             subvolume_metrics = {}
             # load substack location/size info 
-            subvolume_metrics["roi"] = subvol_stats.subvolume.roi
+            subvolume_metrics["roi"] = subvol_stats.subvolume.box
             subvolume_metrics["types"] = {}
 
             # subvolume stats per comparison type (defines good)
@@ -466,9 +466,9 @@ class Evaluate(object):
             
             for stat in subvol_stats.subvolume_stats:
                 # write local stats and accumulate
-                stat.write_to_dict(subvolume_metrics["types"], allsubvolume_metrics, subvol_stats.subvolume.roi_id)
+                stat.write_to_dict(subvolume_metrics["types"], allsubvolume_metrics, subvol_stats.subvolume.sv_index)
 
-            allsubvolume_metrics["ids"][subvol_stats.subvolume.roi_id] = subvolume_metrics
+            allsubvolume_metrics["ids"][subvol_stats.subvolume.sv_index] = subvolume_metrics
             
             # accumulate stats
             if whole_volume_stats is None:
