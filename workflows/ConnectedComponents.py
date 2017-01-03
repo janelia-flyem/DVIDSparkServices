@@ -57,7 +57,7 @@ class ConnectedComponents(DVIDWorkflow):
               "default": false
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       }
     }
