@@ -13,6 +13,42 @@ def bb_to_slicing(start, stop):
     """
     return tuple( starmap( slice, zip(start, stop) ) )
 
+def boxlist_to_json( bounds_list, indent=0 ):
+    # The 'json' module doesn't have nice pretty-printing options for our purposes,
+    # so we'll do this ourselves.
+    from cStringIO import StringIO
+    from os import SEEK_CUR
+
+    buf = StringIO()
+    buf.write('    [\n')
+    for bounds_zyx in bounds_list:
+        start_str = '[{}, {}, {}]'.format(*bounds_zyx[0])
+        stop_str  = '[{}, {}, {}]'.format(*bounds_zyx[1])
+        buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ],\n')
+
+    # Remove last comma, close list
+    buf.seek(-2, SEEK_CUR)
+    buf.write('\n')
+    buf.write(' '*indent + ']')
+
+    return buf.getvalue()
+
+def mkdir_p(path):
+    """
+    Like the bash command: mkdir -p
+    
+    ...why the heck isn't this built-in to the Python std library?
+    """
+    import os, errno
+    try:
+        os.makedirs(path)
+    except OSError as exc:  # Python >2.5
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+
+
 class RoiMap(object):
     """
     Little utility class to help with ROI manipulations
@@ -119,6 +155,87 @@ def dense_roi_mask_for_subvolume(subvolume, border='default'):
     sv_intersecting_dense = intersecting_dense[bb_to_slicing(dense_start, dense_stop)]
     assert sv_intersecting_dense.shape == tuple(sv_shape_px)
     return sv_intersecting_dense
+
+def runlength_encode(coord_list_zyx, assume_sorted=False):
+    """
+    Given an array of coordinates in the form:
+        
+        [[Z,Y,X],
+         [Z,Y,X],
+         [Z,Y,X],
+         ...
+        ]
+        
+    Return an array of run-length encodings of the form:
+    
+        [[Z,Y,X1,X2],
+         [Z,Y,X1,X2],
+         [Z,Y,X1,X2],
+         ...
+        ]
+    
+    Note: The interval [X1,X2] is INCLUSIVE, following DVID conventions, not Python conventions.
+    
+    Args:
+        coord_list_zyx:
+            Array of shape (N,3)
+        
+        assume_sorted:
+            If False, the provided coordinates are assumed to be pre-sorted in Z-Y-X order.
+            Otherwise, they are sorted before the RLEs are computed.
+    
+    Timing notes:
+        The FIB-25 'seven_column_roi' consists of 927971 block indices.
+        On that ROI, this function takes 2.75 seconds, but with numba installed,
+        it takes 175 ms (after ~400 ms warmup).
+        So, JIT speedup is ~16x.
+    """
+    coord_list_zyx = np.asarray(coord_list_zyx)
+    assert coord_list_zyx.ndim == 2
+    assert coord_list_zyx.shape[1] == 3
+    
+    if not assume_sorted:
+        sorting_ind = np.lexsort(coord_list_zyx.transpose()[::-1])
+        coord_list_zyx = coord_list_zyx[sorting_ind]
+
+    return _runlength_encode(coord_list_zyx)
+
+# See conditional jit activation, below
+#@numba.jit(nopython=True)
+def _runlength_encode(coord_list_zyx):
+    """
+    Helper function for runlength_encode(), above.
+    """
+    # Start the first run
+    current_run_start = prev_coord = coord_list_zyx[0]
+    
+    # Numba doesn't allow us to use empty lists at all,
+    # so we have to initialize this list with a dummy row,
+    # which we'll omit in the return value
+    runs = [0,0,0,0]
+    
+    for i in range(1, len(coord_list_zyx)):
+        coord = coord_list_zyx[i]
+        if (coord[0:2] != prev_coord[0:2]).any() or coord[2] != prev_coord[2]+1:
+            # End the current run and start a new one
+            runs += list(current_run_start) + [int(prev_coord[2])]
+            current_run_start = coord
+        prev_coord = coord
+
+    # End the last run
+    runs += list(current_run_start) + [int(prev_coord[2])]
+
+    # Return as 2D array
+    runs = np.array(runs).reshape((-1,4))
+    return runs[1:, :] # omit dummy row (see above)
+
+# Enable JIT if numba is available
+try:
+    import numba
+    _runlength_encode = numba.jit(nopython=True)(_runlength_encode)
+except ImportError:
+    pass
+
 
 def mask_roi(data, subvolume, border='default'):
     """

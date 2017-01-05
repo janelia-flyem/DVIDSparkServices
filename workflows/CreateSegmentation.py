@@ -9,13 +9,15 @@ the results together.
 import os
 import sys
 import uuid
+import json
 import subprocess
 import textwrap
 import numpy as np
 import DVIDSparkServices
+from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import select_item
+from DVIDSparkServices.util import select_item, mkdir_p, runlength_encode
 from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
@@ -49,6 +51,7 @@ class CreateSegmentation(DVIDWorkflow):
               "description": "Strategy to dvide the ROI into substacks for processing.",
               "type": "string",
               "minLength": 1,
+              "enum": ["ask-dvid", "grid-aligned"],
               "default": "ask-dvid"
             },
             "partition-filter": {
@@ -260,6 +263,30 @@ class CreateSegmentation(DVIDWorkflow):
                     gray_checkpoint_dir = checkpoint_dir + "/grayiter-" + str(iternum)
                     mask_checkpoint_dir = checkpoint_dir + "/maskiter-" + str(iternum)
                     sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
+
+                    roi = self.config_data["dvid-info"]["roi"]
+                    method = self.config_data["dvid-info"]["partition-method"]
+                    roi_description = roi
+                    if method != "ask-dvid":
+                        roi_description += "-" + method
+                    roi_filter = self.config_data["dvid-info"]["partition-filter"]
+                    if roi_filter != "all":
+                        roi_description += "-" + roi_filter
+                        
+                                        
+                    # Spit out a JSON of the Subvolume list boxes
+                    ids_and_subvols = distsubvolumes.collect()
+                    subvols = [v for (_k,v) in ids_and_subvols]
+                    subvol_bounds_json = Subvolume.subvol_list_to_json( subvols )
+                    mkdir_p(checkpoint_dir)
+                    with open(checkpoint_dir + "/{}-subvol-bounds.json".format(roi_description), 'w') as f:
+                        f.write( subvol_bounds_json )
+
+                    # Also spit out JSON RLE for writing the modified ROI directly to DVID, in case that's useful
+                    all_blocks = Subvolume.subvol_list_all_blocks(subvols)
+                    rle = runlength_encode(all_blocks, assume_sorted=False)
+                    with open(checkpoint_dir + "/{}-dvid-blocks.json".format(roi_description), 'w') as f:
+                        json.dump(rle.tolist(), f)
 
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner

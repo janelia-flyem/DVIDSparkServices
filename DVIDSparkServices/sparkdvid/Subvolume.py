@@ -167,5 +167,44 @@ class Subvolume(object):
             self.local_regions.append((box2.sv_index, box2.box))
             box2.local_regions.append((self.sv_index, self.box))
 
+    @classmethod
+    def subvol_list_to_json(cls, subvol_list):
+        bounds_list = []
+        for subvol in subvol_list:
+            bounds_zyx = [subvol.box[0:3], subvol.box[3:6]]
+            bounds_list.append( bounds_zyx )
 
+        bounds_list_with_border = []
+        for subvol in subvol_list:
+            bounds_zyx = [subvol.box_with_border[0:3], subvol.box_with_border[3:6]]
+            bounds_list_with_border.append( bounds_zyx )
 
+        from DVIDSparkServices.util import boxlist_to_json
+        # The 'json' module doesn't have nice pretty-printing options for our purposes,
+        # so we'll do this ourselves.
+        from cStringIO import StringIO
+        from os import SEEK_CUR
+        
+        buf = StringIO()
+        buf.write('{\n')
+        buf.write('  "boxes-interior":\n')
+        buf.write(boxlist_to_json(bounds_list, indent=4))
+        buf.write(',\n')
+        buf.write('  "boxes-with-border":\n')
+        buf.write(boxlist_to_json(bounds_list_with_border, indent=4))
+        buf.write('\n')
+        buf.write('}\n')
+
+        # Check to make sure we produced valid json
+        import json
+        json.loads(buf.getvalue())
+        
+        return buf.getvalue()
+
+    @classmethod
+    def subvol_list_all_blocks(cls, subvols):
+        all_blocks_zyx = np.empty((0,3), np.int64)
+        for subvol in subvols:
+            all_blocks_zyx = np.append(all_blocks_zyx, subvol.intersecting_blocks_noborder, axis=0)
+        return all_blocks_zyx
+        
