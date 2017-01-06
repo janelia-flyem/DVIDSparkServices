@@ -181,18 +181,20 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
             Array of shape (N,3)
         
         assume_sorted:
-            If False, the provided coordinates are assumed to be pre-sorted in Z-Y-X order.
+            If True, the provided coordinates are assumed to be pre-sorted in Z-Y-X order.
             Otherwise, they are sorted before the RLEs are computed.
     
     Timing notes:
         The FIB-25 'seven_column_roi' consists of 927971 block indices.
-        On that ROI, this function takes 2.75 seconds, but with numba installed,
-        it takes 175 ms (after ~400 ms warmup).
-        So, JIT speedup is ~16x.
+        On that ROI, this function takes 1.65 seconds, but with numba installed,
+        it takes 35 ms (after ~400 ms warmup).
+        So, JIT speedup is ~45x.
     """
     coord_list_zyx = np.asarray(coord_list_zyx)
     assert coord_list_zyx.ndim == 2
     assert coord_list_zyx.shape[1] == 3
+    if len(coord_list_zyx) == 0:
+        return np.ndarray( (0,4), np.int64 )
     
     if not assume_sorted:
         sorting_ind = np.lexsort(coord_list_zyx.transpose()[::-1])
@@ -205,25 +207,32 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
 def _runlength_encode(coord_list_zyx):
     """
     Helper function for runlength_encode(), above.
-    """
-    # Start the first run
-    current_run_start = prev_coord = coord_list_zyx[0]
     
+    coord_list_zyx:
+        Array of shape (N,3), of form [[Z,Y,X], [Z,Y,X], ...],
+        pre-sorted in Z-Y-X order.  Duplicates permitted.
+    """
     # Numba doesn't allow us to use empty lists at all,
     # so we have to initialize this list with a dummy row,
     # which we'll omit in the return value
     runs = [0,0,0,0]
     
+    # Start the first run
+    (prev_z, prev_y, prev_x) = current_run_start = coord_list_zyx[0]
+    
     for i in range(1, len(coord_list_zyx)):
-        coord = coord_list_zyx[i]
-        if (coord[0:2] != prev_coord[0:2]).any() or coord[2] != prev_coord[2]+1:
-            # End the current run and start a new one
-            runs += list(current_run_start) + [int(prev_coord[2])]
+        (z,y,x) = coord = coord_list_zyx[i]
+
+        # If necessary, end the current run and start a new one
+        # (Also, support duplicate coords without breaking the current run.)
+        if (z != prev_z) or (y != prev_y) or (x not in (prev_x, 1+prev_x)):
+            runs += list(current_run_start) + [prev_x]
             current_run_start = coord
-        prev_coord = coord
+
+        (prev_z, prev_y, prev_x) = (z,y,x)
 
     # End the last run
-    runs += list(current_run_start) + [int(prev_coord[2])]
+    runs += list(current_run_start) + [prev_x]
 
     # Return as 2D array
     runs = np.array(runs).reshape((-1,4))
