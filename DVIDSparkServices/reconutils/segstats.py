@@ -159,7 +159,7 @@ class RandStat(StatType):
 
 
 class EditDistanceStat(StatType):
-    def __init__(self, comptype, gt_overlap, seg_overlap):
+    def __init__(self, comptype, gt_overlap, seg_overlap, body_threshold):
         StatType.__init__(self, comptype)
         self.results = []
 
@@ -178,6 +178,14 @@ class EditDistanceStat(StatType):
         # 4. Try a few ratios for optimizations (10:1, 5:1, 1:1)
         # 5. Merge and split until 90% of volume is fixed
 
+
+        # prune large bodies
+        ignore_bodies = set()
+        for (gtbody, overlapset) in gt_overlap.items():
+            if get_body_volume(overlapset) < body_threshold:
+                # ignore as if it never existed
+                ignore_bodies.add(gtbody)
+
         # 1
         seg2bestgt = {}
         target = 0
@@ -185,6 +193,8 @@ class EditDistanceStat(StatType):
             max_val = 0
             max_id = 0
             for body2, overlap in overlapset:
+                if body2 in ignore_bodies:
+                    continue
                 target += overlap
                 if overlap > max_val:
                     max_val = overlap
@@ -198,6 +208,8 @@ class EditDistanceStat(StatType):
         sorted_mergers = []
         current_accum = 0
         for body, overlapset in gt_overlap.items():
+            if body in ignore_bodies:
+                continue
             temp_merge = []
             for body2, overlap in overlapset:
                 # doesn't own body
@@ -226,7 +238,9 @@ class EditDistanceStat(StatType):
 
             while current_accum_rat < target:
                 take_split = False
-                
+                if midx == len(sorted_mergers) and sidx == len(sorted_splits):
+                    break
+
                 if midx == len(sorted_mergers):
                     take_split = True
                 elif sidx == len(sorted_splits):

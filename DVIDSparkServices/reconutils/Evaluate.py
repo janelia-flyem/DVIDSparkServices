@@ -34,6 +34,7 @@ class Evaluate(object):
         self.server = config["dvid-info"]["dvid-server"]
         self.uuid = config["dvid-info"]["uuid"]
         self.body_threshold = config["options"]["body-threshold"]
+        self.point_threshold = config["options"]["point-threshold"]
         self.debug = False
         if "debug" in config:
             self.debug = config["debug"]
@@ -562,7 +563,7 @@ class Evaluate(object):
            
             body_threshold_loc = self.body_threshold
             if comptype.typename != "voxels":
-                body_threshold_loc = 0
+                body_threshold_loc = self.point_threshold # assume everything else uses point threshold
             """else:
                 # ?! temporary
                 body_mappings = []
@@ -591,7 +592,7 @@ class Evaluate(object):
             ####### EDIT DISTANCE ######
            
             # pretty resistant to noise since not going to 100%
-            edit_distance = EditDistanceStat(comptype, gt_overlap, seg_overlap) 
+            edit_distance = EditDistanceStat(comptype, gt_overlap, seg_overlap, body_threshold_loc) 
             edit_distance.write_to_dict(comparison_type_metrics)
            
             ###### BEST BODY STATS ######
