@@ -146,7 +146,7 @@ class ConnectedComponents(DVIDWorkflow):
         # This is to make the foreach_write_labels3d() function happy
         def prepend_key(item):
             subvol, _ = item
-            return (subvol.roi_id, item)
+            return (subvol.sv_index, item)
         mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
        
         # use fewer partitions (TEMPORARY SINCE THERE ARE WRITE BANDWIDTH LIMITS TO DVID)

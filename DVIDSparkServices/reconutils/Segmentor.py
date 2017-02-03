@@ -236,7 +236,7 @@ class Segmentor(object):
             @wraps(f)
             def wrapped(item):
                 subvol = item[0]
-                x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                z1, y1, x1, z2, y2, x2 = subvol.box_with_border
                 assert isinstance(subvol, Subvolume), "Key must be a Subvolume object"
         
                 if allow_read:
@@ -383,8 +383,8 @@ class Segmentor(object):
             import DVIDSparkServices
 
             subvolume, (gray, mask) = args
-            roi = subvolume.roi_with_border
-            block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
+            box = subvolume.box_with_border
+            block_bounds_zyx = ( (box.z1, box.y1, box.x1), (box.z2, box.y2, box.x2) )
 
             # Call the (custom) function
             predictions = prediction_function(gray, mask)
@@ -428,8 +428,8 @@ class Segmentor(object):
         def _execute_for_chunk(args):
             import DVIDSparkServices
             subvolume, (prediction, mask) = args
-            roi = subvolume.roi_with_border
-            block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
+            box = subvolume.box_with_border
+            block_bounds_zyx = ( (box.z1, box.y1, box.x1), (box.z2, box.y2, box.x2) )
             if mask is None:
                 mask = np.ones(shape=prediction.shape[:-1], dtype=np.uint8)
 
@@ -439,26 +439,26 @@ class Segmentor(object):
             if pdconf is not None:
                 # extract labels 64
                 border = subvolume.border
-                # get sizes of roi
-                size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
-                size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
-                size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
+                # get sizes of sv box
+                size_z = subvolume.box.z2 + 2*border - subvolume.box.z1
+                size_y = subvolume.box.y2 + 2*border - subvolume.box.y1
+                size_x = subvolume.box.x2 + 2*border - subvolume.box.x1
                  
-                # retrieve data from roi start position considering border
+                # retrieve data from box start position considering border
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def get_segmask():
                     node_service = retrieve_node_service(pdconf["dvid-server"], 
                             pdconf["uuid"], resource_server, resource_port)
-                    # retrieve data from roi start position
+                    # retrieve data from box start position
                     # Note: libdvid uses zyx order for python functions
                     if resource_server != "":  
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                                (size3,size2,size1),
-                                (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border), throttle=False)
+                                (size_z, size_y, size_x),
+                                (subvolume.box.z1-border, subvolume.box.y1-border, subvolume.box.x1-border), throttle=False)
                     else:   
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                                (size3,size2,size1),
-                                (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                                (size_z, size_y, size_x),
+                                (subvolume.box.z1-border, subvolume.box.y1-border, subvolume.box.x1-border))
                 preserve_seg = get_segmask()
 
                 orig_bodies = set(np.unique(preserve_seg))
@@ -518,8 +518,8 @@ class Segmentor(object):
         def _execute_for_chunk(args):
             import DVIDSparkServices
             subvolume, (gray, predictions, supervoxels) = args
-            roi = subvolume.roi_with_border
-            block_bounds_zyx = ( (roi.z1, roi.y1, roi.x1), (roi.z2, roi.y2, roi.x2) )
+            box = subvolume.box_with_border
+            block_bounds_zyx = ( (box.z1, box.y1, box.x1), (box.z2, box.y2, box.x2) )
             
             # remove preserved bodies to ignore for agglomeration
             curr_seg = None
@@ -582,13 +582,13 @@ class Segmentor(object):
             num_preserve = len(pdconf["bodies"])
         
         for subvolume, max_id in zip(subvolumes, max_ids):
-            offsets[subvolume.roi_id] = offset
+            offsets[subvolume.sv_index] = offset
             offset += max_id
             offset += num_preserve
         subvolume_offsets = self.context.sc.broadcast(offsets)
 
-        # (subvol, label_vol) => [ (roi_id_1, roi_id_2), (subvol, boundary_labels)), 
-        #                          (roi_id_1, roi_id_2), (subvol, boundary_labels)), ...] 
+        # (subvol, label_vol) => [ (sv_index_1, sv_index_2), (subvol, boundary_labels)), 
+        #                          (sv_index_1, sv_index_2), (subvol, boundary_labels)), ...] 
         def extract_boundaries(key_labels):
             # compute overlap -- assume first point is less than second
             def intersects(pt1, pt2, pt1_2, pt2_2):
@@ -609,32 +609,32 @@ class Segmentor(object):
 
             boundary_array = []
             
-            # iterate through all ROI partners
+            # iterate through all box partners
             for partner in subvolume.local_regions:
-                key1 = subvolume.roi_id
+                key1 = subvolume.sv_index
                 key2 = partner[0]
-                roi2 = partner[1]
+                box2 = partner[1]
                 if key2 < key1:
                     key1, key2 = key2, key1
                 
                 # crop volume to overlap
                 offx1, offx2, offx1_2, offx2_2 = intersects(
-                                subvolume.roi.x1-subvolume.border,
-                                subvolume.roi.x2+subvolume.border,
-                                roi2.x1-subvolume.border,
-                                roi2.x2+subvolume.border
+                                subvolume.box.x1-subvolume.border,
+                                subvolume.box.x2+subvolume.border,
+                                box2.x1-subvolume.border,
+                                box2.x2+subvolume.border
                             )
                 offy1, offy2, offy1_2, offy2_2 = intersects(
-                                subvolume.roi.y1-subvolume.border,
-                                subvolume.roi.y2+subvolume.border,
-                                roi2.y1-subvolume.border,
-                                roi2.y2+subvolume.border
+                                subvolume.box.y1-subvolume.border,
+                                subvolume.box.y2+subvolume.border,
+                                box2.y1-subvolume.border,
+                                box2.y2+subvolume.border
                             )
                 offz1, offz2, offz1_2, offz2_2 = intersects(
-                                subvolume.roi.z1-subvolume.border,
-                                subvolume.roi.z2+subvolume.border,
-                                roi2.z1-subvolume.border,
-                                roi2.z2+subvolume.border
+                                subvolume.box.z1-subvolume.border,
+                                subvolume.box.z2+subvolume.border,
+                                box2.z1-subvolume.border,
+                                box2.z2+subvolume.border
                             )
                             
                 labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
@@ -680,7 +680,7 @@ class Segmentor(object):
             subvolume1, boundary1 = boundary_list_list[0] 
             subvolume2, boundary2 = boundary_list_list[1] 
 
-            if subvolume1.roi_id > subvolume2.roi_id:
+            if subvolume1.sv_index > subvolume2.sv_index:
                 subvolume1, subvolume2 = subvolume2, subvolume1
                 boundary1, boundary2 = boundary2, boundary1
 
@@ -692,17 +692,17 @@ class Segmentor(object):
             z1 = y1 = x1 = 0 
 
             # determine which interface there is touching between subvolumes 
-            if subvolume1.touches(subvolume1.roi.x1, subvolume1.roi.x2,
-                                subvolume2.roi.x1, subvolume2.roi.x2):
+            if subvolume1.touches(subvolume1.box.x1, subvolume1.box.x2,
+                                  subvolume2.box.x1, subvolume2.box.x2):
                 x1 = x2/2 
                 x2 = x1 + 1
-            if subvolume1.touches(subvolume1.roi.y1, subvolume1.roi.y2,
-                                subvolume2.roi.y1, subvolume2.roi.y2):
+            if subvolume1.touches(subvolume1.box.y1, subvolume1.box.y2,
+                                  subvolume2.box.y1, subvolume2.box.y2):
                 y1 = y2/2 
                 y2 = y1 + 1
             
-            if subvolume1.touches(subvolume1.roi.z1, subvolume1.roi.z2,
-                                subvolume2.roi.z1, subvolume2.roi.z2):
+            if subvolume1.touches(subvolume1.box.z1, subvolume1.box.z2,
+                                  subvolume2.box.z1, subvolume2.box.z2):
                 z1 = z2/2 
                 z2 = z1 + 1
 
@@ -833,14 +833,14 @@ class Segmentor(object):
 
             
             # handle offsets in mergelist
-            offset1 = subvolume_offsets.value[subvolume1.roi_id] 
-            offset2 = subvolume_offsets.value[subvolume2.roi_id] 
+            offset1 = subvolume_offsets.value[subvolume1.sv_index] 
+            offset2 = subvolume_offsets.value[subvolume2.sv_index] 
             for merger in merge_list:
                 merger[0] = merger[0]+offset1
                 merger[1] = merger[1]+offset2
 
             # return id and mappings, only relevant for stack one
-            return (subvolume1.roi_id, merge_list)
+            return (subvolume1.sv_index, merge_list)
 
         # key, mapping1; key mapping2 => key, mapping1+mapping2
         def reduce_mappings(b1, b2):
@@ -913,7 +913,7 @@ class Segmentor(object):
             (subvolume, labels) = key_label_mapping
 
             # grab broadcast offset
-            offset = subvolume_offsets.value[subvolume.roi_id]
+            offset = subvolume_offsets.value[subvolume.sv_index]
 
             # check for body mask labels and protect from renumber
             mask_bodies =  None
