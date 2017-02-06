@@ -5,8 +5,18 @@ operations used throughout reconutils.
 
 """
 import numpy
+import scipy.sparse
 import vigra
 from DVIDSparkServices.util import select_item
+
+try:
+    from numba import jit
+except ImportError:
+    # Fake jit decorator if numba isn't available
+    def jit(nopython=False):
+        def wrapper(f):
+            return f
+        return wrapper
 
 def split_disconnected_bodies(labels_orig):
     """
@@ -112,18 +122,18 @@ def _split_body_mappings( labels_orig, labels_split ):
                       with labels in the original.  For example, label 1 in 'labels_orig'
                       may correspond to label 5 in 'labels_split'.
     """
-    overlap_table_px = contingency_table(labels_orig, labels_split)
+    overlap_table_px = contingency_table(labels_orig, labels_split, sparse=True)
     num_orig_segments = overlap_table_px.shape[0] - 1 # (No zero label)
     num_split_segments = overlap_table_px.shape[1] - 1 # (No zero label)
     
     split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
     
     # For each 'orig' id, in which 'split' id did it mainly end up?
-    main_split_segments = numpy.argmax(overlap_table_px, axis=1)
+    main_split_segments = matrix_argmax(overlap_table_px, axis=1)
     
     # Convert to bool, remove the 'main' entries;
     # remaining entries are the new segments
-    overlap_table_bool = overlap_table_px.astype(bool)
+    overlap_table_bool = overlap_table_px.astype(bool).tocsr()
     overlap_table_bool[:, main_split_segments] = False
 
     # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
@@ -152,19 +162,86 @@ def _split_body_mappings( labels_orig, labels_split ):
     return split_to_nonconflicting, nonconflicting_to_orig
 
 
-def contingency_table(vol1, vol2, maxlabels=None):
+def contingency_table(vol1, vol2, sparse=True):
     """
     Return a 2D array 'table' such that ``table[i,j]`` represents
     the count of overlapping pixels with value ``i`` in ``vol1``
     and value ``j`` in ``vol2``. 
-    """
-    maxlabels = maxlabels or (vol1.max(), vol2.max())
-    table = numpy.zeros( (maxlabels[0]+1, maxlabels[1]+1), dtype=numpy.uint32 )
     
-    # numpy.add.at() will accumulate counts at the given array coordinates
-    numpy.add.at(table, [vol1.reshape(-1), vol2.reshape(-1)], 1 )
-    return table
+    sparse:
+        If True, return a sparse matrix (scipy.sparse.coo_matrix)
+        to save RAM intead of a normal ndarray.
+        (Internally, the sparse matrix entries have been deduplicated
+        via sum_duplicates().)
+    """
+    vol1 = vol1.reshape(-1)
+    vol2 = vol2.reshape(-1)
+    assert vol1.shape == vol2.shape
+    
+    if sparse:
+        elements = numpy.ones(vol1.shape, dtype=numpy.uint32)
+        table = scipy.sparse.coo_matrix((elements, (vol1, vol2)))
+        table.sum_duplicates()
+        return table
+    else:
+        maxlabels = (vol1.max(), vol2.max())
+        table = numpy.zeros( (maxlabels[0]+1, maxlabels[1]+1), dtype=numpy.uint32 )
+        
+        # numpy.add.at() will accumulate counts at the given array coordinates
+        numpy.add.at(table, [vol1, vol2], 1 )
+        return table
 
+def matrix_argmax(m, axis=0):
+    """
+    Equivalent to np.argmax(table, axis=axis), but works
+    for both ndarray and scipy.sparse.coo_matrix objects.
+    """
+    assert m.ndim == 2
+    if axis == 0:
+        return row_argmax(m.transpose())
+    if axis == 1:
+        return row_argmax(m)
+
+def row_argmax(table):
+    """
+    Equivalent to np.argmax(table, axis=1), but works
+    for both ndarray and scipy.sparse.coo_matrix objects.
+    """
+    assert isinstance(table, (numpy.ndarray, scipy.sparse.coo_matrix)), \
+        "Unsupported matrix type: {}".format(type(table))
+    assert table.ndim == 2
+    
+    if isinstance(table, numpy.ndarray):
+        return numpy.argmax(table, axis=1)
+
+    if isinstance(table, scipy.sparse.coo_matrix):
+        return _sparse_row_argmax(table.col, table.row, table.data, table.shape[0])
+
+    assert False, "Shouldn't get here..."
+
+@jit(nopython=True)
+def _sparse_row_argmax(sparse_cols, sparse_rows, sparse_data, num_dense_rows):
+    """
+    Helper function for row_argmax, to compute the argmax of a scipy.sparse.coo_matrix M.
+    
+    Args:
+        sparse_cols: M.col
+        sparse_rows: M.row
+        sparse_data: M.data
+        num_dense_rows: M.shape[0]
+    
+    Returns:
+        Equivalent to numpy.argmax(M.toarray(), axis=1)
+    """
+    row_maxcols = numpy.zeros((num_dense_rows, 2), dtype=numpy.uint32)
+    for i in range(sparse_cols.shape[0]):
+        col = sparse_cols[i]
+        row = sparse_rows[i]
+        element = sparse_data[i]
+        prev_max = row_maxcols[row,0]
+        if element > prev_max:
+            row_maxcols[row] = [element, col]
+    return row_maxcols[:,1]
 
 def reverse_dict(d):
     rev = { v:k for k,v in d.items() }
