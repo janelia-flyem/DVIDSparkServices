@@ -15,6 +15,7 @@
     },
     "options": {
         "body-threshold": 1000,
+        "point-threshold": 0,
         "boundary-size": 2,
         "chunk-size": 64
     },

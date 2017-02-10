@@ -186,8 +186,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
             # is randomish than this should be fine
-            def subset_part(roi):
-                s_id, data = roi
+            def subset_part( (s_id, data) ):
                 if (s_id % num_iters) == iternum:
                     return True
                 return False
@@ -226,28 +225,28 @@ class ComputeEdgeProbs(DVIDWorkflow):
                 # extract labelblks
                 border = 1 # only one pixel needed to find edges
                 
-                # get sizes of roi
-                size1 = subvolume.roi[3]+2*border-subvolume.roi[0]
-                size2 = subvolume.roi[4]+2*border-subvolume.roi[1]
-                size3 = subvolume.roi[5]+2*border-subvolume.roi[2]
+                # get sizes of box
+                size_z = subvolume.box.z2 + 2*border - subvolume.box.z1
+                size_y = subvolume.box.y2 + 2*border - subvolume.box.y1
+                size_x = subvolume.box.x2 + 2*border - subvolume.box.x1
 
-                # retrieve data from roi start position considering border
+                # retrieve data from box start position considering border
                 # !! technically ROI is not respected but unwritten segmentation will be ignored since it will have 0-valued pixels.
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def get_seg():
                     node_service = retrieve_node_service(pdconf["dvid-server"], 
                             pdconf["uuid"], resource_server, resource_port)
-                    # retrieve data from roi start position
+                    # retrieve data from box start position
                     # Note: libdvid uses zyx order for python functions
                     
                     if resource_server != "": 
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                            (size3,size2,size1),
-                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                            (size_z, size_y, size_x),
+                            (subvolume.box.z2-border, subvolume.box.y1-border, subvolume.box.x1-border))
                     else:
                         return node_service.get_labels3D(str(pdconf["segmentation-name"]),
-                            (size3,size2,size1),
-                            (subvolume.roi[2]-border, subvolume.roi[1]-border, subvolume.roi[0]-border))
+                             (size_z, size_y, size_x),
+                             (subvolume.box.z2-border, subvolume.box.y1-border, subvolume.box.x1-border))
 
                 initial_seg = get_seg()
 
@@ -270,13 +269,13 @@ class ComputeEdgeProbs(DVIDWorkflow):
                     for edge in features["Edges"]:
                         n1 = edge["Id1"]
                         n2 = edge["Id2"]
-                        edge["Loc1"][0] += subvolume.roi[0]
-                        edge["Loc1"][1] += subvolume.roi[1]
-                        edge["Loc1"][2] += subvolume.roi[2]
+                        edge["Loc1"][0] += subvolume.box.x1
+                        edge["Loc1"][1] += subvolume.box.y1
+                        edge["Loc1"][2] += subvolume.box.z1
                         
-                        edge["Loc2"][0] += subvolume.roi[0]
-                        edge["Loc2"][1] += subvolume.roi[1]
-                        edge["Loc2"][2] += subvolume.roi[2]
+                        edge["Loc2"][0] += subvolume.box.x1
+                        edge["Loc2"][1] += subvolume.box.y1
+                        edge["Loc2"][2] += subvolume.box.z1
                         
                         if n1 > n2:
                             n1, n2 = n2, n1

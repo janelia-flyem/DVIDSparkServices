@@ -81,6 +81,11 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "integer",
           "default": 1000
         },
+        "point-threshold": {
+          "description": "Filter GT bodies below this point threshold for aggregate stats",
+          "type": "integer",
+          "default": 10
+        },
         "chunk-size": {
           "description": "size of subvolumes to be processed",
           "type": "integer",
@@ -100,7 +105,7 @@ class EvaluateSeg(DVIDWorkflow):
           "default": []
         }
       },
-      "required" : ["body-threshold", "chunk-size", "boundary-size"]
+      "required" : ["body-threshold", "point-threshold", "chunk-size", "boundary-size"]
     }
   }
 }

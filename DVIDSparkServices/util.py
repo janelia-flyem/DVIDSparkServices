@@ -13,6 +13,60 @@ def bb_to_slicing(start, stop):
     """
     return tuple( starmap( slice, zip(start, stop) ) )
 
+def boxlist_to_json( bounds_list, indent=0 ):
+    # The 'json' module doesn't have nice pretty-printing options for our purposes,
+    # so we'll do this ourselves.
+    from cStringIO import StringIO
+    from os import SEEK_CUR
+
+    buf = StringIO()
+    buf.write('    [\n')
+    for bounds_zyx in bounds_list:
+        start_str = '[{}, {}, {}]'.format(*bounds_zyx[0])
+        stop_str  = '[{}, {}, {}]'.format(*bounds_zyx[1])
+        buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ],\n')
+
+    # Remove last comma, close list
+    buf.seek(-2, SEEK_CUR)
+    buf.write('\n')
+    buf.write(' '*indent + ']')
+
+    return buf.getvalue()
+
+def mkdir_p(path):
+    """
+    Like the bash command: mkdir -p
+    
+    ...why the heck isn't this built-in to the Python std library?
+    """
+    import os, errno
+    try:
+        os.makedirs(path)
+    except OSError as exc:  # Python >2.5
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+
+
+class RoiMap(object):
+    """
+    Little utility class to help with ROI manipulations
+    """
+    def __init__(self, roi_blocks):
+        # Make a map of the entire ROI
+        # Since roi blocks are 32^2, this won't be too huge.
+        # For example, a ROI that's 10k*10k*100k pixels, this will be ~300 MB
+        # For a 100k^3 ROI, this will be 30 GB (still small enough to fit in RAM on the driver)
+        block_mask, (blocks_start, blocks_stop) = coordlist_to_boolmap(roi_blocks)
+        blocks_shape = blocks_stop - blocks_start
+
+        self.block_mask = block_mask
+        self.blocks_start = blocks_start
+        self.blocks_stop = blocks_stop
+        self.blocks_shape = blocks_shape
+        
+
 def coordlist_to_boolmap(coordlist, bounding_box=None):
     """
     Convert the given list of coordinates (z,y,x) into a 3D bool array.
@@ -82,8 +136,8 @@ def dense_roi_mask_for_subvolume(subvolume, border='default'):
             "region, so I can't produce a mask outside that area."
     
     # subvol bounding box/shape (not block-aligned)
-    sv_start_px = np.array((sv.roi.z1, sv.roi.y1, sv.roi.x1)) - border
-    sv_stop_px = np.array((sv.roi.z2, sv.roi.y2, sv.roi.x2)) + border
+    sv_start_px = np.array((sv.box.z1, sv.box.y1, sv.box.x1)) - border
+    sv_stop_px  = np.array((sv.box.z2, sv.box.y2, sv.box.x2)) + border
     sv_shape_px = sv_stop_px - sv_start_px
     
     # subvol bounding box/shape in block coordinates
@@ -101,6 +155,96 @@ def dense_roi_mask_for_subvolume(subvolume, border='default'):
     sv_intersecting_dense = intersecting_dense[bb_to_slicing(dense_start, dense_stop)]
     assert sv_intersecting_dense.shape == tuple(sv_shape_px)
     return sv_intersecting_dense
+
+def runlength_encode(coord_list_zyx, assume_sorted=False):
+    """
+    Given an array of coordinates in the form:
+        
+        [[Z,Y,X],
+         [Z,Y,X],
+         [Z,Y,X],
+         ...
+        ]
+        
+    Return an array of run-length encodings of the form:
+    
+        [[Z,Y,X1,X2],
+         [Z,Y,X1,X2],
+         [Z,Y,X1,X2],
+         ...
+        ]
+    
+    Note: The interval [X1,X2] is INCLUSIVE, following DVID conventions, not Python conventions.
+    
+    Args:
+        coord_list_zyx:
+            Array of shape (N,3)
+        
+        assume_sorted:
+            If True, the provided coordinates are assumed to be pre-sorted in Z-Y-X order.
+            Otherwise, they are sorted before the RLEs are computed.
+    
+    Timing notes:
+        The FIB-25 'seven_column_roi' consists of 927971 block indices.
+        On that ROI, this function takes 1.65 seconds, but with numba installed,
+        it takes 35 ms (after ~400 ms warmup).
+        So, JIT speedup is ~45x.
+    """
+    coord_list_zyx = np.asarray(coord_list_zyx)
+    assert coord_list_zyx.ndim == 2
+    assert coord_list_zyx.shape[1] == 3
+    if len(coord_list_zyx) == 0:
+        return np.ndarray( (0,4), np.int64 )
+    
+    if not assume_sorted:
+        sorting_ind = np.lexsort(coord_list_zyx.transpose()[::-1])
+        coord_list_zyx = coord_list_zyx[sorting_ind]
+
+    return _runlength_encode(coord_list_zyx)
+
+# See conditional jit activation, below
+#@numba.jit(nopython=True)
+def _runlength_encode(coord_list_zyx):
+    """
+    Helper function for runlength_encode(), above.
+    
+    coord_list_zyx:
+        Array of shape (N,3), of form [[Z,Y,X], [Z,Y,X], ...],
+        pre-sorted in Z-Y-X order.  Duplicates permitted.
+    """
+    # Numba doesn't allow us to use empty lists at all,
+    # so we have to initialize this list with a dummy row,
+    # which we'll omit in the return value
+    runs = [0,0,0,0]
+    
+    # Start the first run
+    (prev_z, prev_y, prev_x) = current_run_start = coord_list_zyx[0]
+    
+    for i in range(1, len(coord_list_zyx)):
+        (z,y,x) = coord = coord_list_zyx[i]
+
+        # If necessary, end the current run and start a new one
+        # (Also, support duplicate coords without breaking the current run.)
+        if (z != prev_z) or (y != prev_y) or (x not in (prev_x, 1+prev_x)):
+            runs += list(current_run_start) + [prev_x]
+            current_run_start = coord
+
+        (prev_z, prev_y, prev_x) = (z,y,x)
+
+    # End the last run
+    runs += list(current_run_start) + [prev_x]
+
+    # Return as 2D array
+    runs = np.array(runs).reshape((-1,4))
+    return runs[1:, :] # omit dummy row (see above)
+
+# Enable JIT if numba is available
+try:
+    import numba
+    _runlength_encode = numba.jit(nopython=True)(_runlength_encode)
+except ImportError:
+    pass
+
 
 def mask_roi(data, subvolume, border='default'):
     """

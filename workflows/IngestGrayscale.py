@@ -89,7 +89,7 @@ class IngestGrayscale(Workflow):
           "default": 1
         }
       },
-      "additionalProperties": false,
+      "additionalProperties": true,
       "default" : {}
     }
   },

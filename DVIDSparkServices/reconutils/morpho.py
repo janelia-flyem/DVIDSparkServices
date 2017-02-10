@@ -5,8 +5,18 @@ operations used throughout reconutils.
 
 """
 import numpy
+import scipy.sparse
 import vigra
 from DVIDSparkServices.util import select_item
+
+try:
+    from numba import jit
+except ImportError:
+    # Fake jit decorator if numba isn't available
+    def jit(nopython=False):
+        def wrapper(f):
+            return f
+        return wrapper
 
 def split_disconnected_bodies(labels_orig):
     """
@@ -35,7 +45,12 @@ def split_disconnected_bodies(labels_orig):
             mapping new segment IDs to the segments they came from.
             (Segments whose IDs did not change are not provided in this mapping.)
     """
-    labels_consecutive, max_consecutive_label, orig_to_consecutive = vigra.analysis.relabelConsecutive(labels_orig, start_label=1)
+    # Pre-allocate destination to force output dtype
+    labels_consecutive = numpy.zeros_like(labels_orig, numpy.uint32)
+
+    labels_consecutive, max_consecutive_label, orig_to_consecutive = \
+        vigra.analysis.relabelConsecutive(labels_orig, start_label=1, out=labels_consecutive)
+
     max_orig = max( orig_to_consecutive.keys() )
     cons_to_orig = reverse_dict( orig_to_consecutive )
     
@@ -50,6 +65,7 @@ def split_disconnected_bodies(labels_orig):
     #                    plus new label values for the S splits (N+1)..(N+1+S)
 
     split_to_consWithSplits, consWithSplits_to_cons = _split_body_mappings(labels_consecutive, labels_split)
+    del labels_consecutive
     
     num_main_segments = max_consecutive_label
     num_splits = len(split_to_consWithSplits) - num_main_segments
@@ -64,7 +80,7 @@ def split_disconnected_bodies(labels_orig):
     split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
 
     # Remap the image: split -> origWithSplits
-    labels_origWithSplits = vigra.analysis.applyMapping( labels_split, split_to_origWithSplits )
+    labels_origWithSplits = vigra.analysis.applyMapping( labels_split, split_to_origWithSplits, out=labels_split )
 
     origWithSplits_to_consWithSplits = reverse_dict( consWithSplits_to_origWithSplits )
 
@@ -106,18 +122,18 @@ def _split_body_mappings( labels_orig, labels_split ):
                       with labels in the original.  For example, label 1 in 'labels_orig'
                       may correspond to label 5 in 'labels_split'.
     """
-    overlap_table_px = contingency_table(labels_orig, labels_split)
+    overlap_table_px = contingency_table(labels_orig, labels_split, sparse=True)
     num_orig_segments = overlap_table_px.shape[0] - 1 # (No zero label)
     num_split_segments = overlap_table_px.shape[1] - 1 # (No zero label)
     
     split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
     
     # For each 'orig' id, in which 'split' id did it mainly end up?
-    main_split_segments = numpy.argmax(overlap_table_px, axis=1)
+    main_split_segments = matrix_argmax(overlap_table_px, axis=1)
     
     # Convert to bool, remove the 'main' entries;
     # remaining entries are the new segments
-    overlap_table_bool = overlap_table_px.astype(bool)
+    overlap_table_bool = overlap_table_px.astype(bool).tocsr()
     overlap_table_bool[:, main_split_segments] = False
 
     # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
@@ -146,19 +162,86 @@ def _split_body_mappings( labels_orig, labels_split ):
     return split_to_nonconflicting, nonconflicting_to_orig
 
 
-def contingency_table(vol1, vol2, maxlabels=None):
+def contingency_table(vol1, vol2, sparse=True):
     """
     Return a 2D array 'table' such that ``table[i,j]`` represents
     the count of overlapping pixels with value ``i`` in ``vol1``
     and value ``j`` in ``vol2``. 
-    """
-    maxlabels = maxlabels or (vol1.max(), vol2.max())
-    table = numpy.zeros( (maxlabels[0]+1, maxlabels[1]+1), dtype=numpy.uint32 )
     
-    # numpy.add.at() will accumulate counts at the given array coordinates
-    numpy.add.at(table, [vol1.reshape(-1), vol2.reshape(-1)], 1 )
-    return table
+    sparse:
+        If True, return a sparse matrix (scipy.sparse.coo_matrix)
+        to save RAM intead of a normal ndarray.
+        (Internally, the sparse matrix entries have been deduplicated
+        via sum_duplicates().)
+    """
+    vol1 = vol1.reshape(-1)
+    vol2 = vol2.reshape(-1)
+    assert vol1.shape == vol2.shape
+    
+    if sparse:
+        elements = numpy.ones(vol1.shape, dtype=numpy.uint32)
+        table = scipy.sparse.coo_matrix((elements, (vol1, vol2)))
+        table.sum_duplicates()
+        return table
+    else:
+        maxlabels = (vol1.max(), vol2.max())
+        table = numpy.zeros( (maxlabels[0]+1, maxlabels[1]+1), dtype=numpy.uint32 )
+        
+        # numpy.add.at() will accumulate counts at the given array coordinates
+        numpy.add.at(table, [vol1, vol2], 1 )
+        return table
 
+def matrix_argmax(m, axis=0):
+    """
+    Equivalent to np.argmax(table, axis=axis), but works
+    for both ndarray and scipy.sparse.coo_matrix objects.
+    """
+    assert m.ndim == 2
+    if axis == 0:
+        return row_argmax(m.transpose())
+    if axis == 1:
+        return row_argmax(m)
+
+def row_argmax(table):
+    """
+    Equivalent to np.argmax(table, axis=1), but works
+    for both ndarray and scipy.sparse.coo_matrix objects.
+    """
+    assert isinstance(table, (numpy.ndarray, scipy.sparse.coo_matrix)), \
+        "Unsupported matrix type: {}".format(type(table))
+    assert table.ndim == 2
+    
+    if isinstance(table, numpy.ndarray):
+        return numpy.argmax(table, axis=1)
+
+    if isinstance(table, scipy.sparse.coo_matrix):
+        return _sparse_row_argmax(table.col, table.row, table.data, table.shape[0])
+
+    assert False, "Shouldn't get here..."
+
+@jit(nopython=True)
+def _sparse_row_argmax(sparse_cols, sparse_rows, sparse_data, num_dense_rows):
+    """
+    Helper function for row_argmax, to compute the argmax of a scipy.sparse.coo_matrix M.
+    
+    Args:
+        sparse_cols: M.col
+        sparse_rows: M.row
+        sparse_data: M.data
+        num_dense_rows: M.shape[0]
+    
+    Returns:
+        Equivalent to numpy.argmax(M.toarray(), axis=1)
+    """
+    row_maxcols = numpy.zeros((num_dense_rows, 2), dtype=numpy.uint32)
+    for i in range(sparse_cols.shape[0]):
+        col = sparse_cols[i]
+        row = sparse_rows[i]
+        element = sparse_data[i]
+        prev_max = row_maxcols[row,0]
+        if element > prev_max:
+            row_maxcols[row] = [element, col]
+    return row_maxcols[:,1]
 
 def reverse_dict(d):
     rev = { v:k for k,v in d.items() }
@@ -233,12 +316,12 @@ def stitch(sc, label_chunks):
     offset = numpy.uint64(0)
 
     for subvolume, max_id in zip(subvolumes, max_ids):
-        offsets[subvolume.roi_id] = offset
+        offsets[subvolume.sv_index] = offset
         offset += max_id
     subvolume_offsets = sc.broadcast(offsets)
 
-    # (subvol, label_vol) => [ (roi_id_1, roi_id_2), (subvol, boundary_labels)), 
-    #                          (roi_id_1, roi_id_2), (subvol, boundary_labels)), ...] 
+    # (subvol, label_vol) => [ (sv_index_1, sv_index_2), (subvol, boundary_labels)), 
+    #                          (sv_index_1, sv_index_2), (subvol, boundary_labels)), ...] 
     def extract_boundaries(key_labels):
         # compute overlap -- assume first point is less than second
         def intersects(pt1, pt2, pt1_2, pt2_2):
@@ -259,30 +342,30 @@ def stitch(sc, label_chunks):
         
         # iterate through all ROI partners
         for partner in subvolume.local_regions:
-            key1 = subvolume.roi_id
+            key1 = subvolume.sv_index
             key2 = partner[0]
-            roi2 = partner[1]
+            box2 = partner[1]
             if key2 < key1:
                 key1, key2 = key2, key1
             
             # crop volume to overlap
             offx1, offx2, offx1_2, offx2_2 = intersects(
-                            subvolume.roi.x1-subvolume.border,
-                            subvolume.roi.x2+subvolume.border,
-                            roi2.x1-subvolume.border,
-                            roi2.x2+subvolume.border
+                            subvolume.box.x1-subvolume.border,
+                            subvolume.box.x2+subvolume.border,
+                            box2.x1-subvolume.border,
+                            box2.x2+subvolume.border
                         )
             offy1, offy2, offy1_2, offy2_2 = intersects(
-                            subvolume.roi.y1-subvolume.border,
-                            subvolume.roi.y2+subvolume.border,
-                            roi2.y1-subvolume.border,
-                            roi2.y2+subvolume.border
+                            subvolume.box.y1-subvolume.border,
+                            subvolume.box.y2+subvolume.border,
+                            box2.y1-subvolume.border,
+                            box2.y2+subvolume.border
                         )
             offz1, offz2, offz1_2, offz2_2 = intersects(
-                            subvolume.roi.z1-subvolume.border,
-                            subvolume.roi.z2+subvolume.border,
-                            roi2.z1-subvolume.border,
-                            roi2.z2+subvolume.border
+                            subvolume.box.z1-subvolume.border,
+                            subvolume.box.z2+subvolume.border,
+                            box2.z1-subvolume.border,
+                            box2.z2+subvolume.border
                         )
                         
             labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
@@ -326,7 +409,7 @@ def stitch(sc, label_chunks):
         subvolume1, boundary1 = boundary_list_list[0] 
         subvolume2, boundary2 = boundary_list_list[1] 
 
-        if subvolume1.roi_id > subvolume2.roi_id:
+        if subvolume1.sv_index > subvolume2.sv_index:
             subvolume1, subvolume2 = subvolume2, subvolume1
             boundary1, boundary2 = boundary2, boundary1
 
@@ -338,17 +421,17 @@ def stitch(sc, label_chunks):
         z1 = y1 = x1 = 0 
 
         # determine which interface there is touching between subvolumes 
-        if subvolume1.touches(subvolume1.roi.x1, subvolume1.roi.x2,
-                            subvolume2.roi.x1, subvolume2.roi.x2):
+        if subvolume1.touches(subvolume1.box.x1, subvolume1.box.x2,
+                              subvolume2.box.x1, subvolume2.box.x2):
             x1 = x2/2 
             x2 = x1 + 1
-        if subvolume1.touches(subvolume1.roi.y1, subvolume1.roi.y2,
-                            subvolume2.roi.y1, subvolume2.roi.y2):
+        if subvolume1.touches(subvolume1.box.y1, subvolume1.box.y2,
+                              subvolume2.box.y1, subvolume2.box.y2):
             y1 = y2/2 
             y2 = y1 + 1
         
-        if subvolume1.touches(subvolume1.roi.z1, subvolume1.roi.z2,
-                            subvolume2.roi.z1, subvolume2.roi.z2):
+        if subvolume1.touches(subvolume1.box.z1, subvolume1.box.z2,
+                              subvolume2.box.z1, subvolume2.box.z2):
             z1 = z2/2 
             z2 = z1 + 1
 
@@ -385,14 +468,14 @@ def stitch(sc, label_chunks):
                    
 
         # handle offsets in mergelist
-        offset1 = subvolume_offsets.value[subvolume1.roi_id] 
-        offset2 = subvolume_offsets.value[subvolume2.roi_id] 
+        offset1 = subvolume_offsets.value[subvolume1.sv_index] 
+        offset2 = subvolume_offsets.value[subvolume2.sv_index] 
         for merger in merge_list:
             merger[0] = merger[0]+offset1
             merger[1] = merger[1]+offset2
 
         # return id and mappings, only relevant for stack one
-        return (subvolume1.roi_id, merge_list)
+        return (subvolume1.sv_index, merge_list)
 
     # key, mapping1; key mapping2 => key, mapping1+mapping2
     def reduce_mappings(b1, b2):
@@ -448,7 +531,7 @@ def stitch(sc, label_chunks):
         (subvolume, labels) = key_label_mapping
 
         # grab broadcast offset
-        offset = numpy.uint64( subvolume_offsets.value[subvolume.roi_id] )
+        offset = numpy.uint64( subvolume_offsets.value[subvolume.sv_index] )
 
         # check for body mask labels and protect from renumber
         fix_bodies = []

@@ -9,13 +9,15 @@ the results together.
 import os
 import sys
 import uuid
+import json
 import subprocess
 import textwrap
 import numpy as np
 import DVIDSparkServices
+from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import select_item
+from DVIDSparkServices.util import select_item, mkdir_p, runlength_encode
 from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
@@ -45,6 +47,20 @@ class CreateSegmentation(DVIDWorkflow):
               "type": "string",
               "minLength": 1
             },
+            "partition-method": {
+              "description": "Strategy to dvide the ROI into substacks for processing.",
+              "type": "string",
+              "minLength": 1,
+              "enum": ["ask-dvid", "grid-aligned"],
+              "default": "ask-dvid"
+            },
+            "partition-filter": {
+              "description": "Optionally remove substacks from the compute set based on some criteria",
+              "type": "string",
+              "minLength": 1,
+              "enum": ["all", "interior-only"],
+              "default": "all"
+            },
             "grayscale": {
               "description": "grayscale data to segment",
               "type": "string",
@@ -58,7 +74,7 @@ class CreateSegmentation(DVIDWorkflow):
             }
           },
           "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name"],
-          "additionalProperties": false
+          "additionalProperties": true
         },
         "options" : {
           "type": "object",
@@ -75,10 +91,11 @@ class CreateSegmentation(DVIDWorkflow):
                 "configuration" : {
                   "description": "custom configuration for subclass. Schema should be supplied in subclass source.",
                   "type" : "object",
-                  "default" : {}
+                  "default" : {},
+                  "additionalProperties": true
                 }
               },
-              "additionalProperties": false,
+              "additionalProperties": true,
               "default": {}
             },
             "stitch-algorithm": {
@@ -141,7 +158,7 @@ class CreateSegmentation(DVIDWorkflow):
             }
           },
           "required": ["stitch-algorithm"],
-          "additionalProperties": false
+          "additionalProperties": true
         }
       }
     }
@@ -200,7 +217,10 @@ class CreateSegmentation(DVIDWorkflow):
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
                 self.config_data["dvid-info"]["roi"],
-                self.chunksize, self.overlap/2, True)
+                self.chunksize, self.overlap/2,
+                True,
+                self.config_data["dvid-info"]["partition-method"],
+                self.config_data["dvid-info"]["partition-filter"] )
 
         # do not recompute ROI for each iteration
         distsubvolumes.persist()
@@ -249,11 +269,34 @@ class CreateSegmentation(DVIDWorkflow):
                     mask_checkpoint_dir = checkpoint_dir + "/maskiter-" + str(iternum)
                     sp_checkpoint_dir = checkpoint_dir + "/spiter-" + str(iternum)
 
+                    roi = self.config_data["dvid-info"]["roi"]
+                    method = self.config_data["dvid-info"]["partition-method"]
+                    roi_description = roi
+                    if method != "ask-dvid":
+                        roi_description += "-" + method
+                    roi_filter = self.config_data["dvid-info"]["partition-filter"]
+                    if roi_filter != "all":
+                        roi_description += "-" + roi_filter
+                        
+                                        
+                    # Spit out a JSON of the Subvolume list boxes
+                    ids_and_subvols = distsubvolumes.collect()
+                    subvols = [v for (_k,v) in ids_and_subvols]
+                    subvol_bounds_json = Subvolume.subvol_list_to_json( subvols )
+                    mkdir_p(checkpoint_dir)
+                    with open(checkpoint_dir + "/{}-subvol-bounds.json".format(roi_description), 'w') as f:
+                        f.write( subvol_bounds_json )
+
+                    # Also spit out JSON RLE for writing the modified ROI directly to DVID, in case that's useful
+                    all_blocks = Subvolume.subvol_list_all_blocks(subvols)
+                    rle = runlength_encode(all_blocks, assume_sorted=False)
+                    with open(checkpoint_dir + "/{}-dvid-blocks.json".format(roi_description), 'w') as f:
+                        json.dump(rle.tolist(), f)
+
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
             # is randomish than this should be fine
-            def subset_part(roi):
-                s_id, data = roi
+            def subset_part( (s_id, data) ):
                 if (s_id % num_iters) == iternum:
                     return True
                 return False
@@ -278,7 +321,7 @@ class CreateSegmentation(DVIDWorkflow):
             # Load as many seg blocks from cache as possible
             if subvols_with_seg_cache:
                 def retrieve_seg_from_cache(subvol):
-                    x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+                    z1, y1, x1, z2, y2, x2 = subvol.box_with_border
                     block_bounds = ((z1, y1, x1), (z2, y2, x2))
                     block_store = H5BlockStore(seg_checkpoint_dir, mode='r')
                     h5_block = block_store.get_block( block_bounds )
@@ -299,9 +342,9 @@ class CreateSegmentation(DVIDWorkflow):
             uncached_subvols = self.sparkdvid_context.sc.parallelize(subvols_without_seg_cache, len(subvols_without_seg_cache) or None)
             uncached_subvols.persist()
 
-            def prepend_roi_id(subvol):
-                return (subvol.roi_id, subvol)
-            uncached_subvols_kv_rdd = uncached_subvols.map(prepend_roi_id)
+            def prepend_sv_index(subvol):
+                return (subvol.sv_index, subvol)
+            uncached_subvols_kv_rdd = uncached_subvols.map(prepend_sv_index)
 
             # get grayscale chunks with specified overlap
             uncached_sv_and_gray = self.sparkdvid_context.map_grayscale8(uncached_subvols_kv_rdd,
@@ -353,7 +396,7 @@ class CreateSegmentation(DVIDWorkflow):
         
         def prepend_key(item):
             subvol, _ = item
-            return (subvol.roi_id, item)
+            return (subvol.sv_index, item)
         mapped_seg_chunks = mapped_seg_chunks.map(prepend_key)
        
         if self.config_data["options"]["parallelwrites"] > 0:
@@ -406,7 +449,7 @@ class CreateSegmentation(DVIDWorkflow):
             return [], subvol_list
 
         def is_cached(subvol):
-            x1, y1, z1, x2, y2, z2 = subvol.roi_with_border
+            z1, y1, x1, z2, y2, x2 = subvol.box_with_border
             if block_store.axes[-1] == 'c':
                 return ((z1, y1, x1, 0), (z2, y2, x2, None)) in block_store
             else:

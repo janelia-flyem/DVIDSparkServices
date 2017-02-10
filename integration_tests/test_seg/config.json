@@ -4,6 +4,8 @@
         "uuid": "UUID1",
         "segmentation-name": "seglabels",
         "roi": "temproi256",
+        "partition-method": "grid-aligned",
+        "partition-filter": "all",
         "grayscale": "grayscale"
     },
     "options": {
