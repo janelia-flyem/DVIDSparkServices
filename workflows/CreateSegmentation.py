@@ -87,6 +87,11 @@ class CreateSegmentation(DVIDWorkflow):
               "enum": ["none", "conservative", "medium", "aggressive"],
               "default": "medium"
             },
+            "stitch-constraints": {
+              "description": "enable stitch self-touching constraints",
+              "type": "boolean",
+              "default": false
+            },
             "chunk-size": {
               "description": "Size of blocks to process independently (and then stitched together).",
               "type": "integer",

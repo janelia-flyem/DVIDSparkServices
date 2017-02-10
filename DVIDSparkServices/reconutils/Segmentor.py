@@ -162,6 +162,7 @@ class Segmentor(object):
 
         stitch_modes = { "none" : 0, "conservative" : 1, "medium" : 2, "aggressive" : 3 }
         self.stitch_mode = stitch_modes[ workflow_config["options"]["stitch-algorithm"] ]
+        self.stitch_constraints = workflow_config["options"]["stitch-constraints"]
         self.labeloffset = 0
         if "label-offset" in workflow_config["options"]:
             self.labeloffset = int(workflow_config["options"]["label-offset"])
@@ -587,6 +588,7 @@ class Segmentor(object):
             offset += num_preserve
         subvolume_offsets = self.context.sc.broadcast(offsets)
 
+        stitch_constraints = self.stitch_constraints
         # (subvol, label_vol) => [ (roi_id_1, roi_id_2), (subvol, boundary_labels)), 
         #                          (roi_id_1, roi_id_2), (subvol, boundary_labels)), ...] 
         def extract_boundaries(key_labels):
@@ -608,7 +610,26 @@ class Segmentor(object):
             subvolume, labels = key_labels
 
             boundary_array = []
-            
+           
+            # if optioned: extract graph, apply offset, and add to specific boundary in for loop 
+            graph_edges = None
+            if stitch_constraints:
+                graph_edges = set()
+                from DVIDSparkServices.reconutils import SimpleGraph
+                tempoptions = {}
+                tempoptions["graph-builder-exe"] = "neuroproof_graph_build_stream"
+                sg = SimpleGraph.SimpleGraph(tempoptions) 
+                elements = sg.build_graph(key_labels)                
+                # extract graph edges (n1 should be greater than n2)
+                for element in elements:
+                    (n1, n2), weight = element
+                    if n2 != -1:
+                        n1 +=  subvolume_offsets.value[subvolume.roi_id]
+                        n2 +=  subvolume_offsets.value[subvolume.roi_id]
+                        if n1 < n2:
+                            n1, n2 = n2, n1
+                        graph_edges.add((n1,n2)) 
+
             # iterate through all ROI partners
             for partner in subvolume.local_regions:
                 key1 = subvolume.roi_id
@@ -639,11 +660,20 @@ class Segmentor(object):
                             
                 labels_cropped = numpy.copy(labels[offz1:offz2, offy1:offy2, offx1:offx2])
 
+                # extract constraint graph
+                graph_edges_sub = None
+                if graph_edges is not None:
+                    graph_edges_sub = set()
+                    bound_labels = set(numpy.unique(labels_cropped))
+                    for (n1,n2) in graph_edges:
+                        if n1 in bound_labels and n2 in bound_labels:
+                            graph_edges_sub.add((n1,n2))
+
                 # create key for boundary pair
                 newkey = (key1, key2)
 
                 # add to flat map
-                boundary_array.append((newkey, (subvolume, labels_cropped)))
+                boundary_array.append((newkey, (subvolume, labels_cropped, graph_edges_sub)))
 
             return boundary_array
 
@@ -677,8 +707,8 @@ class Segmentor(object):
                 boundary_list_list.append(item1)
 
             # order subvolume regions (they should be the same shape)
-            subvolume1, boundary1 = boundary_list_list[0] 
-            subvolume2, boundary2 = boundary_list_list[1] 
+            subvolume1, boundary1, graphedge1 = boundary_list_list[0] 
+            subvolume2, boundary2, graphedge2 = boundary_list_list[1] 
 
             if subvolume1.roi_id > subvolume2.roi_id:
                 subvolume1, subvolume2 = subvolume2, subvolume1
@@ -839,23 +869,363 @@ class Segmentor(object):
                 merger[0] = merger[0]+offset1
                 merger[1] = merger[1]+offset2
 
-            # return id and mappings, only relevant for stack one
-            return (subvolume1.roi_id, merge_list)
+            # if stitch constraint: prune mergers that lead to split violation 
+            destroyset1 = set()
+            if graphedge2 is not None:
+                # check for self-touch in boundary2, suggests that body1 has false merge
+                merge_temp = {}
+                for merger in merge_list:
+                    if merger[0] not in merge_temp:
+                        merge_temp[merger[0]] = [merger[1]]
+                    else:
+                        merge_temp[merger[0]].append(merger[1])
 
-        # key, mapping1; key mapping2 => key, mapping1+mapping2
-        def reduce_mappings(b1, b2):
-            b1.extend(b2)
-            return b1
+                for b1, b2list in merge_temp.items():
+                    if len(b2list) > 1:
+                        finis = False
+                        for iter1 in range(0, len(b2list)-1):
+                            if finis:
+                                break
+                            for iter2 in range(iter1, len(b2list)):
+                                n1 = b2list[iter1]
+                                n2 = b2list[iter2]
+                                if n1 < n2:
+                                    n1, n2 = n2, n1
+                                if (n1,n2) in graphedge2:
+                                    destroyset1.add(b1)
+                                    finis = True
+                                    break
+            destroyset2 = set()
+            if graphedge1 is not None:
+                # check for self-touch in boundary1, suggests that body2 has false merge
+                merge_temp = {}
+                for merger in merge_list:
+                    if merger[1] not in merge_temp:
+                        merge_temp[merger[1]] = [merger[0]]
+                    else:
+                        merge_temp[merger[1]].append(merger[0])
 
-        # map from grouped boundary to substack id, mappings
-        subvolume_mappings = grouped_boundaries.map(stitcher).reduceByKey(reduce_mappings)
+                for b2, b1list in merge_temp.items():
+                    if len(b1list) > 1:
+                        finis = False
+                        for iter1 in range(0, len(b1list)-1):
+                            if finis:
+                                break
+                            for iter2 in range(iter1, len(b1list)):
+                                n1 = b1list[iter1]
+                                n2 = b1list[iter2]
+                                if n1 < n2:
+                                    n1, n2 = n2, n1
+                                if (n1,n2) in graphedge1:
+                                    destroyset2.add(b2)
+                                    finis = True
+                                    break
+            if len(destroyset1) > 0 or len(destroyset2) > 0:
+                merge_list2 = []
+                for merger in merge_list:
+                    if merger[0] not in destroyset1 and merger[1] not in destroyset2:
+                        merge_list2.append(merger)
+                merge_list = merge_list2
 
-        # reconcile all the mappings by sending them to the driver
-        # (not a lot of data and compression will help but not sure if there is a better way)
+            # dump merge decisions for each body 
+            if stitch_constraints:
+                # group all mergers together
+                body1body2 = {}
+                body2body1 = {}
+                for merger in merge_list:
+                    # body1 -> body2
+                    body1 = merger[0]
+                    if merger[0] in body1body2:
+                        body1 = body1body2[merger[0]]
+                    body2 = merger[1]
+                    if merger[1] in body1body2:
+                        body2 = body1body2[merger[1]]
+
+                    if body2 not in body2body1:
+                        body2body1[body2] = set()
+                    
+                    # add body1 to body2 map
+                    body2body1[body2].add(body1)
+                    # add body1 -> body2 mapping
+                    body1body2[body1] = body2
+
+                    if body1 in body2body1:
+                        for tbody in body2body1[body1]:
+                            body2body1[body2].add(tbody)
+                            body1body2[tbody] = body2
+
+                # create list of all stitch decision for each body
+                body_decisions = {}
+                for merger in merge_list:
+                    if merger[0] not in body_decisions:
+                        body_decisions[merger[0]] = set([merger[1]])
+                    else:
+                        body_decisions[merger[0]].add(merger[1])
+                    
+                    if merger[1] not in body_decisions:
+                        body_decisions[merger[1]] = set([merger[0]])
+                    else:
+                        body_decisions[merger[1]].add(merger[0])
+              
+                # create list of edges per body
+                graphedges = graphedge2.union(graphedge1)
+                vertexedges = {}
+                for (n1, n2) in graphedges:
+                    if n1 not in vertexedges:
+                        vertexedges[n1] = set([n2])
+                    else:
+                        vertexedges[n1].add(n2)
+
+                    if n2 not in vertexedges:
+                        vertexedges[n2] = set([n1])
+                    else:
+                        vertexedges[n2].add(n1)
+
+                # return flattened data: (body id, (is_head, replist(ptr), merger list, graph list))
+                bodydata = []
+                for body, bodylist in body2body1.items():
+                    maxid = body
+                    for bodytemp in bodylist:
+                        if bodytemp > maxid:
+                            maxid = bodytemp
+                    replist = [maxid]
+                    declist = [body_decisions[maxid]]
+                    if maxid not in vertexedges:
+                        vertexedges[maxid] = set()
+                    graphlist = [vertexedges[maxid]] # possibly no constraints
+                    if body != maxid:
+                        replist.append(body)
+                        declist.append(body_decisions[body])
+                        if body not in vertexedges:
+                            vertexedges[body] = set()
+                        graphlist.append(vertexedges[body])
+                    for bodytemp in bodylist:
+                        if maxid != bodytemp:
+                            replist.append(bodytemp)
+                            declist.append(body_decisions[bodytemp])
+                            if bodytemp not in vertexedges:
+                                vertexedges[bodytemp] = set()
+                            graphlist.append(vertexedges[bodytemp])
+                    bodydata.append((maxid, (True, replist, declist, graphlist, [])))
+                    for iter1 in range(1, len(replist)):
+                        bodydata.append((replist[iter1], (False, [maxid], [body_decisions[maxid]], [vertexedges[maxid]], [])))
+            
+                return bodydata
+            else:               
+                # return id and mappings, only relevant for stack one
+                return (subvolume1.roi_id, merge_list)
+
         merge_list = []
-        all_mappings = subvolume_mappings.collect()
-        for (substack_id, mapping) in all_mappings:
-            merge_list.extend(mapping)
+        if stitch_constraints:
+            current_decisions = grouped_boundaries.flatMap(stitcher)
+            
+            def combine_decisions(dec1, dec2):
+                dec1_ishead, dec1_reps, dec1_decisions, dec1_graph, readjust1 = dec1
+                dec2_ishead, dec2_reps, dec2_decisions, dec2_graph, readjust2 = dec2
+                
+                dec_ishead = dec1_ishead and dec2_ishead
+                dec_reps = dec1_reps
+                dec_decisions = dec1_decisions
+                dec_graph = dec1_graph
+                readjust = readjust1
+
+                alt_reps = dec2_reps
+                alt_decisions = dec2_decisions
+                alt_graph = dec2_graph
+
+                # first element the same if it is the representative element
+                if dec_ishead:
+                    assert dec1_reps[0] == dec2_reps[0], "first element should be the same"
+                
+                if dec2_reps[0] > dec1_reps[0]: # shift everything to new master
+                    dec_reps = dec2_reps
+                    dec_decisions = dec2_decisions
+                    dec_graph = dec2_graph
+                    alt_reps = dec1_reps
+                    alt_decisions = dec1_decisions
+                    alt_graph = dec1_graph
+                    
+                    # make a list of ids that need to be notified about a new head
+                    if not dec1_ishead:
+                        readjust.append(dec1_reps[0])
+                    readjust.extend(readjust1)
+                else:
+                    if dec2_reps[0] != dec1_reps[0] and not dec2_ishead:
+                        readjust.append(dec2_reps[0])
+                    readjust.extend(readjust2)
+
+                prev_reps = {}
+                for iter1, dec_rep in enumerate(dec_reps):
+                    prev_reps[dec_rep] = iter1
+
+                for iter1 in range(0, len(alt_reps)):
+                    if alt_reps[iter1] not in prev_reps:
+                        dec_reps.append(alt_reps[iter1])
+                        dec_decisions.append(alt_decisions[iter1])
+                        dec_graph.append(alt_graph[iter1])
+                    else:
+                        # combine dec1 decisions
+                        previd = prev_reps[alt_reps[iter1]]
+                        dec_decisions[previd] = dec_decisions[previd].union(alt_decisions[iter1])
+                return (dec_ishead, dec_reps, dec_decisions, dec_graph, readjust)
+
+            # propage any new masters, propagate any to current head, otherwise identity
+            def prop_decisions(body_decs):
+                body, decs = body_decs
+                dec1_ishead, dec1_reps, dec1_decisions, dec1_graph, readjust1 = decs
+                
+                # propagate decisions if there are any
+                if dec1_ishead:
+                    return [(body,decs)] # no-op
+               
+                props = []
+                # add pointer to head
+                head_node = dec1_reps[0]
+                props.append((body, (False, [head_node], [dec1_decisions[0]], [dec1_graph[0]], []))) 
+                # if there are other elements then propagate updates
+                if len(dec1_reps) > 1:
+                    props.append((head_node, (True, dec1_reps, dec1_decisions, dec1_graph, [])))
+
+                # iterate through readjust list
+                for bodyreadjust in readjust1:
+                    props.append((bodyreadjust, (False, [head_node], [dec1_decisions[0]], [dec1_graph[0]], []))) 
+                return props
+
+            num_dec1 = -1
+            num_dec2 = 0
+            current_decisions2 = None
+            # iterate until flatmap produces nothing new to propagate
+            counter = 0
+            while num_dec1 != num_dec2: 
+                # group by body
+                current_decisions = current_decisions.reduceByKey(combine_decisions)
+                if num_dec1 == -1:
+                    current_decisions.persist()
+                    num_dec1 = current_decisions.count()
+                    current_decisions.unpersist()
+                
+                # propagate changes (?? is data being recomputed)
+                current_decisions2 = current_decisions.flatMap(prop_decisions)
+                current_decisions2.persist()
+                num_dec2 = current_decisions2.count()
+                current_decisions2.unpersist()
+                current_decisions = current_decisions2
+                counter += 1
+                print "Convergence check:", counter, num_dec1, num_dec2
+
+
+            # return merge list array and handle any constraint violations
+            def solve_constraints(body_decs):
+                body, decs = body_decs
+                dec1_ishead, dec1_reps, dec1_decisions, dec1_graph, readjust1 = decs
+                if not dec1_ishead:
+                    assert len(dec1_reps) == 1, "more than one representative remains in pointer"
+                    return []
+
+                # create master merge list 
+                merge_list = set()
+                for iter1, curr_decs in enumerate(dec1_decisions):
+                    head_node = dec1_reps[iter1]
+                    for dec in curr_decs:
+                        if head_node < dec:
+                            head_node, dec = dec, head_node
+                        merge_list.add((head_node, dec))
+               
+                # show all constraints
+                constraints = set()
+                for iter1, curr_graph in enumerate(dec1_graph):
+                    head_node = dec1_reps[iter1]
+                    for graphnode in curr_graph:
+                        if head_node < graphnode:
+                            head_node, graphnode = graphnode, head_node
+                        constraints.add((head_node, graphnode))
+
+                # check for violations
+                def find_violations(bodylist, constraints):
+                    violations = set()
+                    for iter1 in range(0, len(bodylist)-1):
+                        for iter2 in range(iter1, len(bodylist)):
+                            n1 = bodylist[iter1]
+                            n2 = bodylist[iter2]
+                            if n1 < n2:
+                                n1, n2 = n2, n1
+                            if (n1, n2) in constraints:
+                                violations.add((n1, n2))
+                    return violations
+                master_violations = find_violations(dec1_reps, constraints)
+
+                # handle constraints
+                if len(master_violations) > 0:
+                    node_decisions = {}
+                    node_mapping = {}
+                    node_groupings = {} # rep body and set
+                    fanout_order = []
+                    for iter1, node in enumerate(dec1_reps):
+                        node_mapping[node] = node
+                        node_groupings[node] = set([node])
+                        node_decisions[node] = dec1_decisions[iter1]
+                        fanout_order.append((len(dec1_decisions[iter1]), node))
+                    fanout_order.sort()
+                    fanout_order.reverse()
+
+                    # remove decisions from merge list as needed to prevent violations
+                    while len(fanout_order) > 0:
+                        dummy, head_node = fanout_order[0]
+                        local_decisions = node_decisions[head_node]
+                        curr_rep = node_mapping[head_node]
+                        curr_set = node_groupings[curr_rep]
+
+                        for dec in local_decisions:
+                            curr_dec = node_mapping[dec]
+                            new_list = curr_set.union(node_groupings[curr_dec])
+                            # violation occurs remove decision
+                            if len(find_violations(list(new_list), constraints)) > 0:
+                                n1, n2 = head_node, dec
+                                if n1 < n2:
+                                    n1, n2 = n2, n1
+                                merge_list.remove((n1,n2))
+                            else:
+                                # merge occurs combine sets
+                                curr_set = new_list
+                                max_id = max(curr_set)
+                                node_groupings[max_id] = curr_set
+                                for tempnode in curr_set:
+                                    node_mapping[tempnode] = max_id
+
+                            # remove decision from other node decision list
+                            node_decisions[dec].remove(head_node)
+
+                        del node_decisions[head_node]
+
+                        fanout_order = []
+                        for (node, decs) in node_decisions.items():
+                            fanout_order.append((len(decs), node))
+                        fanout_order.sort()
+                        fanout_order.reverse()
+                                
+                return list(merge_list)
+              
+            # map to convert each node to assignments (handle constraints)
+            final_mappings = current_decisions.map(solve_constraints)
+
+            # produce a new merge_list
+            all_mappings = final_mappings.collect()
+            for mapping in all_mappings:
+                merge_list.extend(mapping)
+        else:
+            # key, mapping1; key mapping2 => key, mapping1+mapping2
+            def reduce_mappings(b1, b2):
+                b1.extend(b2)
+                return b1
+
+            # map from grouped boundary to substack id, mappings
+            subvolume_mappings = grouped_boundaries.map(stitcher).reduceByKey(reduce_mappings)
+
+            # reconcile all the mappings by sending them to the driver
+            # (not a lot of data and compression will help but not sure if there is a better way)
+            all_mappings = subvolume_mappings.collect()
+            for (substack_id, mapping) in all_mappings:
+                merge_list.extend(mapping)
 
         # make a body2body map
         body1body2 = {}
