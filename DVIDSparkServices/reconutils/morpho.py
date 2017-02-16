@@ -126,15 +126,17 @@ def _split_body_mappings( labels_orig, labels_split ):
     num_orig_segments = overlap_table_px.shape[0] - 1 # (No zero label)
     num_split_segments = overlap_table_px.shape[1] - 1 # (No zero label)
     
-    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
-    
     # For each 'orig' id, in which 'split' id did it mainly end up?
     main_split_segments = matrix_argmax(overlap_table_px, axis=1)
     
+    overlap_table_px = overlap_table_px.tocsr()
+    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )    
+
     # Convert to bool, remove the 'main' entries;
     # remaining entries are the new segments
-    overlap_table_bool = overlap_table_px.astype(bool).tocsr()
-    overlap_table_bool[:, main_split_segments] = False
+    overlap_table_bool = overlap_table_px.astype(bool)
+    for i, s in enumerate(main_split_segments):
+        overlap_table_bool[i, s] = False
 
     # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
     main_split_ids_to_nonconflicting = _main_split_ids_to_orig = \
@@ -174,13 +176,13 @@ def contingency_table(vol1, vol2, sparse=True):
         (Internally, the sparse matrix entries have been deduplicated
         via sum_duplicates().)
     """
-    vol1 = vol1.reshape(-1)
-    vol2 = vol2.reshape(-1)
+    vol1 = vol1.reshape(-1).view(numpy.int32) # Convert to int32 as a hack for efficient handling in scipy.sparse
+    vol2 = vol2.reshape(-1).view(numpy.int32)
     assert vol1.shape == vol2.shape
     
     if sparse:
-        elements = numpy.ones(vol1.shape, dtype=numpy.uint32)
-        table = scipy.sparse.coo_matrix((elements, (vol1, vol2)))
+        ones = numpy.lib.stride_tricks.as_strided(numpy.uint32(1), vol1.shape, (0,))
+        table = scipy.sparse.coo_matrix((ones, (vol1, vol2)))
         table.sum_duplicates()
         return table
     else:
