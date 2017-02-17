@@ -58,7 +58,7 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         assert (split[-2:,4:6] == bottom_center_label).all()
 
 
-        assert set(mapping.keys()) == set([41,42,43]), "mapping: {}".format( mapping )
+        assert set(mapping.keys()) == set([10,30,41,42,43]), "mapping: {}".format( mapping )
 
         assert (vigra.analysis.applyMapping(split, mapping, allow_incomplete_mapping=True) == orig).all(), \
             "Applying mapping to the relabeled image did not recreate the original image."

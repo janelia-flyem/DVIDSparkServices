@@ -41,9 +41,11 @@ def split_disconnected_bodies(labels_orig):
             highest original label and S is the number of new segments after splitting.
         
         new_to_orig:
-            A minimal mapping of labels (N+1)..(N+1+S) -> some subset of (1..N),
-            mapping new segment IDs to the segments they came from.
-            (Segments whose IDs did not change are not provided in this mapping.)
+            A pseudo-minimal (but not quite minimal) mapping of labels
+            (N+1)..(N+1+S) -> some subset of (1..N),
+            which maps new segment IDs to the segments they came from.
+            Segments that were not split at all are not mentioned in this mapping,
+            for split segments, every mapping pair for the split is returned, including the k->k (identity) pair.
     """
     # Pre-allocate destination to force output dtype
     labels_consecutive = numpy.zeros_like(labels_orig, numpy.uint32)
@@ -91,7 +93,16 @@ def split_disconnected_bodies(labels_orig):
     
     # Return final reverse mapping, but remove the labels that stayed the same.
     MINIMAL_origWithSplits_to_orig = dict( filter( lambda (k,v): k > max_orig, origWithSplits_to_orig.items() ) )
-    return labels_origWithSplits, MINIMAL_origWithSplits_to_orig
+    
+    # Update 2017-02-16:
+    # Every label involved in a split must be returned in the mapping, even hasn't changed.
+    split_labels = set(MINIMAL_origWithSplits_to_orig.values())
+    final_mapping = dict(MINIMAL_origWithSplits_to_orig)
+    for k,v in origWithSplits_to_orig.items():
+        if v in split_labels:
+            final_mapping[k] = v
+    
+    return labels_origWithSplits, final_mapping
 
 
 def _split_body_mappings( labels_orig, labels_split ):
