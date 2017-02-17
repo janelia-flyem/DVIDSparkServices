@@ -27,6 +27,8 @@ def split_disconnected_bodies(labels_orig):
     produces a dict that maps these newly split bodies to
     the original body label.
 
+    Special exception: Segments with label 0 are not relabeled.
+
     Args:
         labels_orig (numpy.array): 3D array of labels
 
@@ -56,7 +58,7 @@ def split_disconnected_bodies(labels_orig):
     max_orig = max( orig_to_consecutive.keys() )
     cons_to_orig = reverse_dict( orig_to_consecutive )
     
-    labels_split = vigra.analysis.labelMultiArray(labels_consecutive)
+    labels_split = vigra.analysis.labelMultiArrayWithBackground(labels_consecutive)
 
     # 'orig' = original label values I..J
     # 'origWithSplits' = original label values I..J
@@ -70,14 +72,14 @@ def split_disconnected_bodies(labels_orig):
     del labels_consecutive
     
     num_main_segments = max_consecutive_label
-    num_splits = len(split_to_consWithSplits) - num_main_segments
+    num_splits = len(split_to_consWithSplits) - num_main_segments - 1 # not counting zero
 
     # Combine    
     consWithSplits_to_origWithSplits = reverse_dict(orig_to_consecutive)
     consWithSplits_to_origWithSplits.update(
         dict( zip( range( 1+max_consecutive_label, 1+max_consecutive_label+num_splits ),
                    range( 1+max_orig, 1+max_orig+num_splits ) ) ) )
-        
+
     # split -> consWithSplits -> origWithSplits
     split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
 
@@ -141,7 +143,8 @@ def _split_body_mappings( labels_orig, labels_split ):
     main_split_segments = matrix_argmax(overlap_table_px, axis=1)
     
     overlap_table_px = overlap_table_px.tocsr()
-    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )    
+    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
+    split_to_orig[0] = 0
 
     # Convert to bool, remove the 'main' entries;
     # remaining entries are the new segments
@@ -151,15 +154,14 @@ def _split_body_mappings( labels_orig, labels_split ):
 
     # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
     main_split_ids_to_nonconflicting = _main_split_ids_to_orig = \
-        { main_split_segments[orig] : orig for orig in range(1, 1+num_orig_segments) }
+        { main_split_segments[orig] : orig for orig in range(0, 1+num_orig_segments) }
 
     # What are the 'non-main' IDs (i.e. new segments after the split)?
     nonmain_split_ids = numpy.unique( overlap_table_bool.nonzero()[1] )
 
     # Map the new split segments to new high ids, so they don't conflict with the old ones
     nonmain_split_ids_to_nonconflicting = dict( zip( nonmain_split_ids,
-                                                     range( 1+num_orig_segments,
-                                                            1+num_orig_segments + num_split_segments ) ) )
+                                                     range( 1+num_orig_segments, 1+num_split_segments ) ) )
 
     # Map from split -> nonconflicting, i.e. (split -> main old/nonconflicting + split -> nonmain nonconflicting)
     split_to_nonconflicting = dict(main_split_ids_to_nonconflicting)
@@ -208,6 +210,11 @@ def matrix_argmax(m, axis=0):
     """
     Equivalent to np.argmax(table, axis=axis), but works
     for both ndarray and scipy.sparse.coo_matrix objects.
+    
+    Update:
+        In newer versions of scipy, sparse matrix objects have
+        an argmax() method, so we can delete this function once
+        we upgrade our scipy dependency.
     """
     assert m.ndim == 2
     if axis == 0:

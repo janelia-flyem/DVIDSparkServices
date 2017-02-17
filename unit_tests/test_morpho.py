@@ -1,11 +1,12 @@
 import unittest
 
 import numpy as np
+import scipy.sparse
 import vigra
 
 from numpy_allocation_tracking.decorators import assert_mem_usage_factor
 
-from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
+from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax
 
 class TestSplitDisconnectedBodies(unittest.TestCase):
     
@@ -19,7 +20,7 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
                 [ 1,1,1,1,_,_,3,3,3,3 ],
                 [ 1,1,1,1,_,_,3,3,3,3 ],
                 [ _,_,_,_,_,_,_,_,_,_ ],
-                [ _,_,_,_,4,4,_,_,_,_ ],
+                [ 0,0,_,_,4,4,_,_,0,0 ],  # Note that the zeros here will not be touched.
                 [ _,_,_,_,4,4,_,_,_,_ ],
                 [ 1,1,1,_,_,_,_,3,3,3 ],
                 [ 1,1,1,_,1,1,_,3,3,3 ],
@@ -68,6 +69,21 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         split, mapping = assert_mem_usage_factor(10)(split_disconnected_bodies)(a)
         assert (a == split).all()
         assert mapping == {}
+
+
+    def test_matrix_argmax(self):
+        """
+        Test the special argmax function for sparse matrices.
+        """
+        data = [[0,3,0,2,0],
+                [0,0,1,0,5],
+                [0,0,0,2,0]]
+        data = np.array(data).astype(np.uint32)
+         
+        m = scipy.sparse.coo_matrix(data, data.nonzero())
+         
+        assert (matrix_argmax(m, axis=1) == [1,4,3]).all()  
+        assert (matrix_argmax(m, axis=1) == matrix_argmax(data, axis=1)).all()
         
 if __name__ == "__main__":
     unittest.main()
