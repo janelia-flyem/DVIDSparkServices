@@ -328,13 +328,17 @@ class OverlapTable(object):
         """
         
         del_keys = {}
+        keep_ids = set()
+
         for key, val in self.overlap_map.items():
             if key in mapping1:
                 # find inputs that need to be remapped
                 if mapping1[key] not in del_keys:
-                    del_keys[mapping1[key]] = []
-                del_keys[mapping1[key]].append(key)
-
+                    del_keys[mapping1[key]] = set()
+                del_keys[mapping1[key]].add(key)
+                keep_ids.add(mapping1[key])
+            else:
+                keep_ids.add(key)
             new_overlap = {}
 
             # handle new overlaps since mapping could cause merge
@@ -351,13 +355,16 @@ class OverlapTable(object):
             for body, overlap in new_overlap.items():
                 new_overlap_set.add((body, overlap)) 
             self.overlap_map[key] = new_overlap_set
+        
+        temp_overlap = self.overlap_map.copy()
     
         # merge rows mapping to same body, remove old body
         for newbody, bodylist in del_keys.items():
             self.overlap_map[newbody] = set()
             for bodyold in bodylist:
-                self.merge_row(self.overlap_map[newbody], self.overlap_map[bodyold])
-                del self.overlap_map[bodyold]
+                self.merge_row(self.overlap_map[newbody], temp_overlap[bodyold])
+                if bodyold not in keep_ids:
+                    del self.overlap_map[bodyold]
 
     def num_bodies(self):
         return len(self.overlap_map)
