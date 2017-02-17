@@ -27,6 +27,7 @@ requirements:
     - python 2.7*  
     - jsonschema
     - numpy
+    - numba
     - neuroproof
     - libdvid-cpp >=0.2
     - requests
@@ -34,7 +35,8 @@ requirements:
     - pillow
     - scipy
     - python-lz4
-    - ilastik-versions-no-solvers 1.2    np111py27_10 # The last number is the BUILD STRING
+    - ilastik-versions-no-solvers  1.2  np111py27_14   # [osx]
+    - ilastik-versions-no-solvers  1.2  np111py27_12   # [linux]
     - ilastik-meta
     - quilted >=0.0.post13
     - logcollector

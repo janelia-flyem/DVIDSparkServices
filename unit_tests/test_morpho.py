@@ -3,6 +3,8 @@ import unittest
 import numpy as np
 import vigra
 
+from numpy_allocation_tracking.decorators import assert_mem_usage_factor
+
 from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies
 
 class TestSplitDisconnectedBodies(unittest.TestCase):
@@ -56,12 +58,16 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         assert (split[-2:,4:6] == bottom_center_label).all()
 
 
-        assert set(mapping.keys()) == set([41,42,43]), "mapping: {}".format( mapping )
+        assert set(mapping.keys()) == set([10,30,41,42,43]), "mapping: {}".format( mapping )
 
         assert (vigra.analysis.applyMapping(split, mapping, allow_incomplete_mapping=True) == orig).all(), \
             "Applying mapping to the relabeled image did not recreate the original image."
 
-
-
+    def test_mem_usage(self):
+        a = 1 + np.arange(100**2, dtype=np.uint32).reshape((100,100)) // 10
+        split, mapping = assert_mem_usage_factor(10)(split_disconnected_bodies)(a)
+        assert (a == split).all()
+        assert mapping == {}
+        
 if __name__ == "__main__":
     unittest.main()

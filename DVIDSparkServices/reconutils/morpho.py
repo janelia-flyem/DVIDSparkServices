@@ -41,9 +41,11 @@ def split_disconnected_bodies(labels_orig):
             highest original label and S is the number of new segments after splitting.
         
         new_to_orig:
-            A minimal mapping of labels (N+1)..(N+1+S) -> some subset of (1..N),
-            mapping new segment IDs to the segments they came from.
-            (Segments whose IDs did not change are not provided in this mapping.)
+            A pseudo-minimal (but not quite minimal) mapping of labels
+            (N+1)..(N+1+S) -> some subset of (1..N),
+            which maps new segment IDs to the segments they came from.
+            Segments that were not split at all are not mentioned in this mapping,
+            for split segments, every mapping pair for the split is returned, including the k->k (identity) pair.
     """
     # Pre-allocate destination to force output dtype
     labels_consecutive = numpy.zeros_like(labels_orig, numpy.uint32)
@@ -91,7 +93,16 @@ def split_disconnected_bodies(labels_orig):
     
     # Return final reverse mapping, but remove the labels that stayed the same.
     MINIMAL_origWithSplits_to_orig = dict( filter( lambda (k,v): k > max_orig, origWithSplits_to_orig.items() ) )
-    return labels_origWithSplits, MINIMAL_origWithSplits_to_orig
+    
+    # Update 2017-02-16:
+    # Every label involved in a split must be returned in the mapping, even hasn't changed.
+    split_labels = set(MINIMAL_origWithSplits_to_orig.values())
+    final_mapping = dict(MINIMAL_origWithSplits_to_orig)
+    for k,v in origWithSplits_to_orig.items():
+        if v in split_labels:
+            final_mapping[k] = v
+    
+    return labels_origWithSplits, final_mapping
 
 
 def _split_body_mappings( labels_orig, labels_split ):
@@ -126,15 +137,17 @@ def _split_body_mappings( labels_orig, labels_split ):
     num_orig_segments = overlap_table_px.shape[0] - 1 # (No zero label)
     num_split_segments = overlap_table_px.shape[1] - 1 # (No zero label)
     
-    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
-    
     # For each 'orig' id, in which 'split' id did it mainly end up?
     main_split_segments = matrix_argmax(overlap_table_px, axis=1)
     
+    overlap_table_px = overlap_table_px.tocsr()
+    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )    
+
     # Convert to bool, remove the 'main' entries;
     # remaining entries are the new segments
-    overlap_table_bool = overlap_table_px.astype(bool).tocsr()
-    overlap_table_bool[:, main_split_segments] = False
+    overlap_table_bool = overlap_table_px.astype(bool)
+    for i, s in enumerate(main_split_segments):
+        overlap_table_bool[i, s] = False
 
     # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
     main_split_ids_to_nonconflicting = _main_split_ids_to_orig = \
@@ -174,13 +187,13 @@ def contingency_table(vol1, vol2, sparse=True):
         (Internally, the sparse matrix entries have been deduplicated
         via sum_duplicates().)
     """
-    vol1 = vol1.reshape(-1)
-    vol2 = vol2.reshape(-1)
+    vol1 = vol1.reshape(-1).view(numpy.int32) # Convert to int32 as a hack for efficient handling in scipy.sparse
+    vol2 = vol2.reshape(-1).view(numpy.int32)
     assert vol1.shape == vol2.shape
     
     if sparse:
-        elements = numpy.ones(vol1.shape, dtype=numpy.uint32)
-        table = scipy.sparse.coo_matrix((elements, (vol1, vol2)))
+        ones = numpy.lib.stride_tricks.as_strided(numpy.uint32(1), vol1.shape, (0,))
+        table = scipy.sparse.coo_matrix((ones, (vol1, vol2)))
         table.sum_duplicates()
         return table
     else:
