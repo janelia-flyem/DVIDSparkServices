@@ -201,6 +201,7 @@ class EditDistanceStat(StatType):
                     max_id = body2
             seg2bestgt[body] = max_id
 
+        #target *= 0.80 # consider 90 percent correctness
         target *= 0.90 # consider 90 percent correctness
        
         # 2, 3
@@ -276,7 +277,7 @@ class OverlapTable(object):
             body1, body2, overlap = item
             if body1 not in self.overlap_map:
                 self.overlap_map[body1] = set()
-            self.overlap_map[body1].add((body2, overlap))
+            self.overlap_map[body1].add((body2, int(overlap)))
 
     def get_size(self):
         size = 0
@@ -477,13 +478,13 @@ def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
 
     fmerge_total = 0
     # examine fragmentation of seg (fmerge=undersegmentation)
-    for (gtbody, overlapset) in segoverlap.overlap_map.items():
+    for (segbody, overlapset) in segoverlap.overlap_map.items():
         # filter small bodies
         filtered_overlapset = set()
         for (gtbody, overlap) in overlapset:
             if gtbody not in ignore_bodies:
                 filtered_overlapset.add((gtbody, overlap))
-        
+  
         total = 0
         for (segid, overlap) in filtered_overlapset:
             total += overlap

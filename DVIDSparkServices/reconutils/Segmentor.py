@@ -395,6 +395,9 @@ class Segmentor(object):
                 "predictions have unexpected shape: {}, expected block_bounds: {}"\
                 .format( predictions.shape, block_bounds_zyx )
 
+            #import numpy
+            #predictions = predictions * 100
+            #predictions = predictions.astype(numpy.uint8)
             return predictions
              
         return subvols.zip( gray_blocks.zip(mask_blocks) ).map(_execute_for_chunk, True)
@@ -470,6 +473,10 @@ class Segmentor(object):
                     mask[preserve_seg == body] = False
 
             # Call the (custom) function
+            #import numpy
+            #prediction = prediction.astype(numpy.float32)
+            #prediction = prediction / 100
+
             supervoxels = supervoxel_function(prediction, mask)
             
             # insert bodies back and avoid conflicts with pre-existing bodies
@@ -519,6 +526,9 @@ class Segmentor(object):
         def _execute_for_chunk(args):
             import DVIDSparkServices
             subvolume, (gray, predictions, supervoxels) = args
+            #import numpy
+            #predictions = predictions.astype(numpy.float32)
+            #predictions = predictions / 100
             box = subvolume.box_with_border
             block_bounds_zyx = ( (box.z1, box.y1, box.x1), (box.z2, box.y2, box.x2) )
             
@@ -1152,6 +1162,12 @@ class Segmentor(object):
                     return violations
                 master_violations = find_violations(dec1_reps, constraints)
 
+                def find_violations2(bodylist, constraints):
+                    for (n1, n2) in constraints:
+                        if n1 in bodylist and n2 in bodylist:
+                            return True
+                    return False
+
                 # handle constraints
                 if len(master_violations) > 0:
                     node_decisions = {}
@@ -1175,16 +1191,20 @@ class Segmentor(object):
 
                         for dec in local_decisions:
                             curr_dec = node_mapping[dec]
-                            new_list = curr_set.union(node_groupings[curr_dec])
                             # violation occurs remove decision
-                            if len(find_violations(list(new_list), constraints)) > 0:
-                                n1, n2 = head_node, dec
-                                if n1 < n2:
-                                    n1, n2 = n2, n1
-                                merge_list.remove((n1,n2))
+                            curr_set_temp = curr_set.union(node_groupings[curr_dec])
+                            if find_violations2(curr_set_temp, master_violations):
+                                # eliminate all pairs between two groups
+                                for n1 in node_groupings[curr_dec]:
+                                    for n2 in curr_set:
+                                        if n1 < n2:
+                                            n1, n2 = n2, n1
+                                        if (n1, n2) in merge_list:
+                                            merge_list.remove((n1,n2))
+                                            #print "violation"
                             else:
                                 # merge occurs combine sets
-                                curr_set = new_list
+                                curr_set = curr_set_temp
                                 max_id = max(curr_set)
                                 node_groupings[max_id] = curr_set
                                 for tempnode in curr_set:
@@ -1200,7 +1220,6 @@ class Segmentor(object):
                             fanout_order.append((len(decs), node))
                         fanout_order.sort()
                         fanout_order.reverse()
-                                
                 return list(merge_list)
               
             # map to convert each node to assignments (handle constraints)
