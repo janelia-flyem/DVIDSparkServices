@@ -32,15 +32,15 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         split, mapping = split_disconnected_bodies(orig)
         
         assert ((orig == 20) == (split == 20)).all(), \
-            "Label 2 was not split and should remain the same everywhere"
+            "Label 2 is a single component and therefore should remain untouched in the output"
 
         assert ((orig == 40) == (split == 40)).all(), \
-            "Label 2 was not split and should remain the same everywhere"
+            "Label 4 is a single component and therefore should remain untouched in the output"
         
         assert (split[:4,:4] == 10).all(), \
-            "The largest segment in each split object supposed to keep it's label"
+            "The largest segment in each split object is supposed to keep it's label"
         assert (split[:4,-4:] == 30).all(), \
-            "The largest segment in each split object supposed to keep it's label"
+            "The largest segment in each split object is supposed to keep it's label"
 
         lower_left_label = split[-1,1]
         lower_right_label = split[-1,-1]
@@ -58,7 +58,6 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         assert (split[-3:,-3:] == lower_right_label).all()
         assert (split[-2:,4:6] == bottom_center_label).all()
 
-
         assert set(mapping.keys()) == set([10,30,41,42,43]), "mapping: {}".format( mapping )
 
         assert (vigra.analysis.applyMapping(split, mapping, allow_incomplete_mapping=True) == orig).all(), \
@@ -71,6 +70,8 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         assert mapping == {}
 
 
+class TestSparseMatrixUtilityFunctions(unittest.TestCase):
+ 
     def test_matrix_argmax(self):
         """
         Test the special argmax function for sparse matrices.

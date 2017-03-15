@@ -30,3 +30,6 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         array_result, map_result = split_disconnected_bodies(x)
         expected_array = np.array([[[BIG_INT, 0, BIG_INT + 1]]], dtype=np.dtype("uint64"))
         np.testing.assert_array_equal(expected_array, array_result)
+
+if __name__ == "__main__":
+    unittest.main()
