@@ -84,7 +84,7 @@ def split_disconnected_bodies(labels_orig):
     split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
 
     # Remap the image: split -> origWithSplits
-    labels_origWithSplits = numpy.empty_like(labels_split, dtype=numpy.uint64)
+    labels_origWithSplits = numpy.empty_like(labels_orig)
     vigra.analysis.applyMapping( labels_split, split_to_origWithSplits, out=labels_origWithSplits )
     del labels_split
 
