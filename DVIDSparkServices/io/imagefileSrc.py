@@ -28,7 +28,8 @@ class imagefileSrc(volumeSrc):
         proper credentials.
     """
 
-    def __init__(self, part_schema, fileprefix, minmaxplane = None, spark_context = None, dtype=None):
+    def __init__(self, part_schema, fileprefix, minmaxplane = None,
+            offset=partitionSchema.VolumeOffset(0,0,0), spark_context = None, dtype=None):
         """Initialization.    
         
         Args:
@@ -63,7 +64,8 @@ class imagefileSrc(volumeSrc):
                 self.filelist.append(fileprefix % slicenum)
 
         # find iteration start and finish plane
-        offsetz = part_schema.get_offset().z
+        self.offset = offset
+        offsetz = self.offset.z
         self.start_slice = offsetz
         self.curr_slice = self.start_slice
         self.end_slice = offsetz+len(self.filelist)-1
@@ -87,7 +89,7 @@ class imagefileSrc(volumeSrc):
         end_slice = self.end_slice
         dtype = self.dtype
         filelist = self.filelist
-        offset = self.part_schema.get_offset()
+        offset = self.offset
 
         def img2npy(slicenum):
             # get address for this slice

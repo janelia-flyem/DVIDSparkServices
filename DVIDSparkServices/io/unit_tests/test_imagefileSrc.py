@@ -45,8 +45,8 @@ class TestimagefileSrc(unittest.TestCase):
         arr = np.random.randint(255, size=(zplanes,25,13)).astype(np.uint8)
         filterstr, formatstr, fnames = writeImages(arr, 10)
 
-        schema = partitionSchema(PartitionDims(0,0,0), offset=VolumeOffset(1,0,0))
-        imgreader = imagefileSrc(schema, filterstr) 
+        schema = partitionSchema(PartitionDims(0,0,0))
+        imgreader = imagefileSrc(schema, filterstr, offset=VolumeOffset(1,0,0)) 
         partitions = imgreader.extract_volume() 
 
         for fname in fnames:
@@ -67,8 +67,8 @@ class TestimagefileSrc(unittest.TestCase):
         arr = np.random.randint(255, size=(zplanes,25,13)).astype(np.uint8)
         filterstr, formatstr, fnames = writeImages(arr, 5)
 
-        schema = partitionSchema(PartitionDims(32,0,0), VolumeOffset(1,3,2), padding=8)
-        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(5,5+zplanes)) 
+        schema = partitionSchema(PartitionDims(32,0,0), padding=8)
+        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(5,5+zplanes), offset=VolumeOffset(1,3,2)) 
         partitions = imgreader.extract_volume() 
 
         for fname in fnames:
@@ -105,8 +105,8 @@ class TestimagefileSrc(unittest.TestCase):
         arr = np.random.randint(255, size=(zplanes,25,13)).astype(np.uint8)
         filterstr, formatstr, fnames = writeImages(arr, 5)
 
-        schema = partitionSchema(PartitionDims(32,0,0), VolumeOffset(1,3,2), padding=32)
-        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(5,5+zplanes)) 
+        schema = partitionSchema(PartitionDims(32,0,0), padding=32)
+        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(5,5+zplanes), offset=VolumeOffset(1,3,2)) 
         partitions = imgreader.extract_volume() 
 
         for fname in fnames:
@@ -143,8 +143,9 @@ class TestimagefileSrc(unittest.TestCase):
         arr = np.random.randint(255, size=(zplanes,233,112)).astype(np.uint8)
         filterstr, formatstr, fnames = writeImages(arr)
 
-        schema = partitionSchema(PartitionDims(32,64,64), VolumeOffset(35,21,55), padding=32)
-        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(0,zplanes)) 
+        schema = partitionSchema(PartitionDims(32,64,64), padding=32)
+        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(0,zplanes),
+                offset=VolumeOffset(35,21,55)) 
        
         # use the iterator, the iteration size is determiend by the Z partition size
         partitions = []
@@ -176,8 +177,9 @@ class TestimagefileSrc(unittest.TestCase):
         arr = np.random.randint(255, size=(zplanes,233,112)).astype(np.uint8)
         filterstr, formatstr, fnames = writeImages(arr)
 
-        schema = partitionSchema(PartitionDims(32,64,64), VolumeOffset(35,21,55), padding=32)
-        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(0,zplanes)) 
+        schema = partitionSchema(PartitionDims(32,64,64), padding=32)
+        imgreader = imagefileSrc(schema, formatstr, minmaxplane=(0,zplanes),
+                offset=VolumeOffset(35,21,55)) 
         partitions = imgreader.extract_volume() 
 
         for fname in fnames:

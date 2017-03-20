@@ -155,7 +155,7 @@ class TestPartitionSchema(unittest.TestCase):
         arrcomp[4,1:7,1:5] = arr[3,:,:] 
 
         # reverse procedure should be same as the original
-        schemaglb = partitionSchema(PartitionDims(0,0,0), offset=VolumeOffset(100,100,100))
+        schemaglb = partitionSchema(PartitionDims(0,0,0))
         res2 = schemaglb.partition_data(res)
         self.assertEqual(len(res2), 1) # 3 partitions with zsize=2 each
        

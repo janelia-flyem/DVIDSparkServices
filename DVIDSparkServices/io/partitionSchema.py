@@ -69,13 +69,12 @@ class partitionSchema(object):
     partition it according to the defined schema.
     """
 
-    def __init__(self, partdims=PartitionDims(0,0,0), offset=VolumeOffset(0,0,0), 
+    def __init__(self, partdims=PartitionDims(0,0,0),
             volume_size=None, blank_delimiter=0, padding=0, enablemask=False):
         """Init
 
         Args:
             partdims (PartitionDims): Dimension for each partition (0 means unbounded)
-            offset (VolumeOffset): x,y,z offset of volume
             volume_size ((VolumeSize)): size of the volume
             blank_delimiter (blank_delimeter): value of empty data
             padding (int): block aligned padding around actual data (if not block aligned)
@@ -87,7 +86,6 @@ class partitionSchema(object):
 
         self.partdims = partdims
         self.volume_size = volume_size
-        self.offset = offset
         self.blank_delimiter = blank_delimiter
         self.enablemask = enablemask
         self.padding = padding
@@ -104,9 +102,6 @@ class partitionSchema(object):
 
     def get_partdims(self):
         return self.partdims
-
-    def get_offset(self):
-        return self.offset
 
     def partition_data(self, data): 
         """Repartition the input data to match the schema
