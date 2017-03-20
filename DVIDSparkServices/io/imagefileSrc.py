@@ -1,3 +1,6 @@
+"""This module defines routines to create 3D image volumes from 2D files.
+"""
+
 from volumeSrc import volumeSrc
 import partitionSchema
 from PIL import Image

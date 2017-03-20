@@ -22,21 +22,23 @@ class volumePartition(object):
     Note: the provided index should be unique.
     """
 
-    def __init__(self, index, offset, reloffset=VolumeOffset(0,0,0), mask=None):
+    def __init__(self, index, offset, reloffset=VolumeOffset(0,0,0), volsize=VolumeSize(0,0,0), mask=None):
         """Init.
 
         TODO: support a compressed structure for data mask
 
         Args:
-            index: Defines hashable unique index (often just the offset)
-            offset: x,y,z offset for partition in global space
-            reloffset: the relative offset where data exists
+            index (hashable type): Defines hashable unique index (often just the offset)
+            offset (VolumeOffset): x,y,z offset for partition in global space
+            reloffset (VolumeOffset): the relative offset where data exists
+            volsize (VolumeSize): size of the partition
             mask (numpy): defines which bits of data have been written (0 means unwritten)
         """
         self.index = index 
         self.offset = offset
         self.reloffset = reloffset
         self.mask = mask
+        self.volsize = volsize
 
     def __eq__(self, other):
         """Equality only done over index.
@@ -56,6 +58,9 @@ class volumePartition(object):
     def get_offset(self):
         return self.offset
     
+    def get_volsize(self):
+        return self.volsize
+    
     def get_reloffset(self):
         return self.reloffset
 
@@ -67,6 +72,10 @@ class partitionSchema(object):
     The class provides a container to hold partition information
     and the ability to take an RDD or numpy volumes and
     partition it according to the defined schema.
+
+    TOOD:
+        Support partition offset and volume size and the ability
+        to create partitions of None based on schema.
     """
 
     def __init__(self, partdims=PartitionDims(0,0,0),

@@ -4,6 +4,7 @@ packages=['DVIDSparkServices',
           'DVIDSparkServices.reconutils',
           'DVIDSparkServices.reconutils.plugins',
           'DVIDSparkServices.io',
+          'DVIDSparkServices.dvid',
           'DVIDSparkServices.sparkdvid',
           'DVIDSparkServices.workflow',
           'workflows'
