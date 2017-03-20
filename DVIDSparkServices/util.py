@@ -13,6 +13,11 @@ def bb_to_slicing(start, stop):
     """
     return tuple( starmap( slice, zip(start, stop) ) )
 
+def bb_as_tuple(box):
+    if isinstance(box, np.ndarray):
+        box = box.tolist()
+    return (tuple(box[0]), tuple(box[1]))
+
 def boxlist_to_json( bounds_list, indent=0 ):
     # The 'json' module doesn't have nice pretty-printing options for our purposes,
     # so we'll do this ourselves.

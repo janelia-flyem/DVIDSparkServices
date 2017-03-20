@@ -20,7 +20,8 @@ def connect_debugger():
     # Possible paths to the pydev debugger module on your hard drive.
     # Developers: Add your dev machine's pydev directory to this list.
     pydev_src_paths = [ "/Applications/eclipse/plugins/org.python.pydev_4.5.5.201603221110/pysrc/",
-                        "/usr/local/eclipse/plugins/org.python.pydev_4.2.0.201507041133/pysrc/" ]
+                        "/usr/local/eclipse/plugins/org.python.pydev_4.2.0.201507041133/pysrc/",
+                        '/Users/bergs/.p2/pool/plugins/org.python.pydev_5.5.0.201701191708/pysrc/' ]
 
     pydev_src_paths = filter(os.path.exists, pydev_src_paths)
     
