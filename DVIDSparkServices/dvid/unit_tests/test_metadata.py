@@ -1,7 +1,8 @@
 import unittest
-from libdvid import DVIDNodeService, DVIDServerService
+import json
+from libdvid import DVIDNodeService, DVIDServerService, ConnectionMethod, DVIDConnection
 
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance 
+from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
 
 dvidserver = "http://127.0.0.1:8000"
 
@@ -30,6 +31,49 @@ class Testmetadata(unittest.TestCase):
 
         self.assertTrue(is_datainstance(dvidserver, uuid, "labels"))
         self.assertFalse(is_datainstance(dvidserver, uuid, "labels2"))
+
+    def test_sycns(self):
+        """Test sync check and setting a sync.
+        """
+        service = DVIDServerService(dvidserver)
+        uuid = service.create_new_repo("foo", "bar")
+       
+        create_labelarray(dvidserver, uuid, "labels")
+        
+        # check if labels is listening to labels2
+        self.assertFalse(has_sync(dvidserver, uuid, "labels", "bodies"))
+
+        # create labelvol and sync to it
+        conn = DVIDConnection(dvidserver) 
+
+        endpoint = "/repo/" + uuid + "/instance"
+        data = {"typename": "labelvol", "dataname": "bodies"}
+        conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+
+        set_sync(dvidserver, uuid, "labels", "bodies")
+        self.assertTrue(has_sync(dvidserver, uuid, "labels", "bodies"))
+
+    def test_create_rawarray8(self):
+        """Test creation of rawarray and block size fetch.
+        """
+        service = DVIDServerService(dvidserver)
+        uuid = service.create_new_repo("foo", "bar")
+       
+        create_rawarray8(dvidserver, uuid, "gray", (32,16,14), Compression.JPEG)
+        blocksize = get_blocksize(dvidserver, uuid, "gray") 
+        self.assertEqual(blocksize, (32,16,14))
+
+
+    def test_create_labelarray(self):
+        """Test creation of labelarray and block size fetch
+        """
+        service = DVIDServerService(dvidserver)
+        uuid = service.create_new_repo("foo", "bar")
+       
+        create_labelarray(dvidserver, uuid, "labels")
+        blocksize = get_blocksize(dvidserver, uuid, "labels") 
+        self.assertEqual(blocksize, (64,64,64))
+
 
     def test_dataInstance(self):
         """Tests is_dataInstance class.
