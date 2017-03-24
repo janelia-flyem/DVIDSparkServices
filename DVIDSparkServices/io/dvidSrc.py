@@ -87,7 +87,13 @@ class dvidSrc(volumeSrc):
 
     def next(self):
         """Iterates partitions specified in the partitionSchema.
+
+        Node:
+            Iteration cannot be done with an RDD pad source.
         """
+        if self.usespark:
+            raise ValueError("DVID source iteration in Spark not supported")
+        
         if self.current_spot >= len(self.partitions):
             raise StopIteration()
 
@@ -100,12 +106,14 @@ class dvidSrc(volumeSrc):
         """Retrieve entire volume as numpy array or RDD.
         """
 
-        if self.current_spot >= len(self.partitions):
-            raise StopIteration()
-
         # RDD or array of [(partition, vol)]
-        vols = self._retrieve_vol(self.current_spot, len(self.partitions))
-        self.current_spot += len(self.partitions)
+        vols = None
+        if self.usespark:
+            vols = self._retrieve_vol(self.current_spot, None)
+        else:
+            vols = self._retrieve_vol(self.current_spot, len(self.partitions))
+            self.current_spot += len(self.partitions)
+        
         return vols
 
     def _retrieve_vol(self, currentspot, itersize):
@@ -129,7 +137,7 @@ class dvidSrc(volumeSrc):
 
             # fetch data
             # TODO: only fetch smaller subset if masked
-            
+           
             # grab extents and size (but take subset of data already exists)
             offset = part.get_offset()
             reloffset = part.get_reloffset()
@@ -174,7 +182,6 @@ class dvidSrc(volumeSrc):
 
                 # combine
                 newvol = newvol + volume
-            
             return (part, newvol)
 
         if self.usespark:

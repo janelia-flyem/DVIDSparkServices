@@ -141,7 +141,7 @@ class imagefileSrc(volumeSrc):
 
         if self.spark_context is not None:
             # requires spark application
-            imgs = self.spart_context.parallelize(range(start, start+size, size))
+            imgs = self.spark_context.parallelize(range(start, start+size), size)
             return imgs.map(img2npy)        
         else:
             # produces an array of 2D numpy images

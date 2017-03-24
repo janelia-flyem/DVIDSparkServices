@@ -290,6 +290,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_comp"] = "EvaluateSeg"
     tests["test_graph"] = "ComputeGraph"
     tests["test_ingest"] = "IngestGrayscale"
+    tests["test_newingest"] = "Ingest3DVolume"
     
     tests["test_seg_ilastik"] = "CreateSegmentation"
     tests["test_seg_simple_predict"] = "CreateSegmentation"

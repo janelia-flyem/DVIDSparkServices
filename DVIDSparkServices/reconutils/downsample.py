@@ -17,10 +17,10 @@ def downsample_raw(data, numlevels=1):
     Returns:
         [numpy array] numpy array for each downsample level.
     """
-    
+   
     res = []
     for level in range(numlevels):
-        res.append(ndimage.interpolation.zoom(data, 0.5))
+        res.append(ndimage.interpolation.zoom(data, 0.5, mode='reflect'))
         data = res[level]
     return res
 

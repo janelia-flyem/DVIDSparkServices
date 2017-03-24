@@ -253,7 +253,7 @@ class partitionSchema(object):
             return remapped_partitions
         else:
             # RDD -> RDD (will likely involve data shuffling)
-            dataflat = data.flatmap(assignPartitions)
+            dataflat = data.flatMap(assignPartitions)
             return dataflat
 
     def _groupPartitions(self, dataflat, usespark):
@@ -269,7 +269,11 @@ class partitionSchema(object):
                 partitions[key].append(val[0])
             return partitions
         else:
-            return dataflat.reduceByKey(lambda x, y: x.extends(y)) 
+            def reducedata(x, y):
+                x.extend(y)
+                return x
+            
+            return dataflat.reduceByKey(reducedata) 
 
     def _padAndSplice(self, datagroup, usespark):
         delimiter = self.blank_delimiter

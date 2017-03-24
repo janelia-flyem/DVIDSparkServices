@@ -212,8 +212,8 @@ class dataInstance(object):
 
         # check DVID existence and get meta
         try:  
-            self.node_service = DVIDNodeService(str(dvidserver), str(uuid))
-            self.info = self.node_service.get_typeinfo(dataname)
+            node_service = DVIDNodeService(str(dvidserver), str(uuid))
+            self.info = node_service.get_typeinfo(dataname)
         except DVIDException:
             raise ValueError("Instance not available")        
         self.datatype = str(self.info["Base"]["TypeName"])

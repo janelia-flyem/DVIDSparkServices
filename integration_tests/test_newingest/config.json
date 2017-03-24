@@ -1,0 +1,26 @@
+{
+    "minslice" : 0,
+    "maxslice" : 261,
+    "basename" : "integration_tests/resources/grayscale_maps/iso.%05d.png",
+    "dvid-info": {
+        "dvid-server": "127.0.0.1:8000",
+        "uuid": "UUID2",
+        "dataname": "grayscale"
+    },
+    "options": {
+        "create-pyramid": false,
+        "create-pyramid-jpeg": true,
+        "create-tiles": false,
+        "create-tiles-jpeg": false,
+        "blocksize": 64,
+        "tilesize": 1024,
+        "offset": [5, 10, 20],
+        "blockwritelimit": 100,
+        "has-dvidmask": true,
+        "disable-original": false,
+        "blankdelimiter": 100,
+        "is-rawarray": true,
+        "pyramid-depth": 2,
+        "num-tasks": 128
+    }
+}
