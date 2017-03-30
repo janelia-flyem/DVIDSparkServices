@@ -7,13 +7,14 @@
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],
-        "minimalLength": 40,
+        "minimalLength": 3,
         "keepingSingleObject": true,
         "rebase": true,
         "fillingHole": true,
-        "maximalDistance": 100
+        "maximalDistance": 64
     },
     "options": {
-        "chunk-size": 128
+        "chunk-size": 128,
+        "downsample-factor": 32
     }
 }

@@ -7,6 +7,7 @@ from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
+from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_box
 
 class CreateSkeletons(DVIDWorkflow):
     DvidInfoSchema = \
@@ -51,6 +52,11 @@ class CreateSkeletons(DVIDWorkflow):
         "description": "Size of blocks to process independently (and then stitched together).",
         "type": "integer",
         "default": 1000
+      },
+      "downsample-factor": {
+        "description": "Factor by which to downsample bodies before skeletonization. (-1 means 'choose automatically')",
+        "type": "integer",
+        "default": -1 # -1 means "auto", based on RAM.
       }
     })
     
@@ -149,29 +155,42 @@ class CreateSkeletons(DVIDWorkflow):
             boxes = np.asarray(boxes)
             assert boxes.shape == (len(boxes_and_compressed_masks), 2,3)
             
-            combined_box_start = boxes[:, 0, :].min(axis=0)
-            combined_box_stop  = boxes[:, 1, :].max(axis=0)
+            combined_box = np.zeros((2,3), dtype=np.int64)
+            combined_box[0] = boxes[:, 0, :].min(axis=0)
+            combined_box[1] = boxes[:, 1, :].max(axis=0)
             
-            combined_shape = combined_box_stop - combined_box_start
-            combined_mask = np.zeros( combined_shape, dtype=np.uint8 )
+            downsample_factor = config["options"]["downsample-factor"]
+            if downsample_factor < 1:
+                # FIXME: Auto-choose downsample factor if necessary
+                downsample_factor = 1
+
+            block_shape = np.array((downsample_factor,)*3)
+            combined_downsampled_box = downsample_box( combined_box, block_shape )
+            combined_downsampled_box_shape = combined_downsampled_box[1] - combined_downsampled_box[0]
+
+            combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.uint8 )
             
             for (box_global, compressed_mask) in boxes_and_compressed_masks:
+                box_global = np.array(box_global)
                 mask = compressed_mask.deserialize()
-                box_combined = box_global - combined_box_start
-                combined_mask[bb_to_slicing(*box_combined)] |= mask
+                mask_downsampled, downsampled_box = downsample_binary_3d(mask, downsample_factor, box_global)
+                downsampled_box[:] -= combined_downsampled_box[0]
 
-            if combined_mask.sum() < config["options"]["minimum-segment-size"]:
+                combined_mask_downsampled[ bb_to_slicing(*downsampled_box) ] |= mask_downsampled
+
+            if combined_mask_downsampled.sum() * downsample_factor**3 < config["options"]["minimum-segment-size"]:
                 # 'None' results will be filtered out. See below.
-                combined_mask = None
+                combined_mask_downsampled = None
 
-            return ( (combined_box_start, combined_box_stop), combined_mask )
+            return ( combined_box, combined_mask_downsampled, downsample_factor )
 
 
         def combine_and_skeletonize(boxes_and_compressed_masks):
-            (combined_box_start, _combined_box_stop), combined_mask = combine_masks( boxes_and_compressed_masks )
+            (combined_box_start, _combined_box_stop), combined_mask, downsample_factor = combine_masks( boxes_and_compressed_masks )
             if combined_mask is None:
                 return None
             tree = skeletonize_array(combined_mask, config["skeleton-config"])
+            tree.rescale(downsample_factor, downsample_factor, downsample_factor, True)
             tree.translate(*combined_box_start[::-1]) # Pass x,y,z, not z,y,x
             swc_contents = tree.toString()
             return swc_contents
