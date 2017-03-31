@@ -4,10 +4,15 @@ This module contains helper functions for various morphological
 operations used throughout reconutils.
 
 """
+from itertools import izip
 import numpy
-import scipy.sparse
+import numpy as np
 import vigra
-from DVIDSparkServices.util import select_item
+import scipy.sparse
+from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_box
+
 
 try:
     from numba import jit
@@ -317,6 +322,143 @@ def seeded_watershed(boundary, seed_threshold = 0, seed_size = 5, mask=None):
             None, None, mask)
 
     return supervoxels
+
+
+def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, always_keep_border_objects=True, compress_masks=False ):
+    """
+    Given a segmentation containing N unique label values (excluding label 0),
+    return N binary masks and their bounding boxes.
+
+    Note: Result is *not* sorted by label ID.
+    
+    segmentation:
+        label image, any dtype
+    
+    box:
+        Bounding box of the segmentation in global coordiantes.
+        If the segmentation was extracted from a larger (global) coordinate space,
+        this parameter can be used to ensure that the returned mask bounding boxes use global coordinates.
+    
+    minimum_object_size:
+        Extracted objects with fewer pixels than the minimum size are discarded.
+    
+    always_keep_border_objects:
+        Ignore the `minimum_object_size` constraint for objects that touch edge of the segmentation volume.
+        (Useful if you plan to merge the object masks with neighboring segmentation blocks.)
+
+    compress_masks:
+        Return masks as a CompressedNumpyArray instead of an ordinary np.ndarray
+    
+    Returns:
+        List of tuples: [(label_id, (mask_bounding_box, mask)), 
+                         (label_id, (mask_bounding_box, mask)), ...]
+        
+        ...where `mask_bounding_box` is of the form ((z0, y0, x0), (z1, y1, x1)),
+        and `mask` is either a np.ndarray or CompressedNumpyArray, depending on the compress_masks argument.
+        
+        Note: Result is *not* sorted by label ID.
+    """
+    if box is None:
+        box = [ (0,)*segmentation.ndim, segmentation.shape ]
+    sv_start, sv_stop = box
+
+    segmentation = vigra.taggedView(segmentation, 'zyx')
+    consecutive_seg = np.empty_like(segmentation, dtype=np.uint32)
+    _, maxlabel, bodies_to_consecutive = vigra.analysis.relabelConsecutive(segmentation, out=consecutive_seg)
+    consecutive_to_bodies = { v:k for k,v in bodies_to_consecutive.items() }
+    del segmentation
+    
+    # We don't care what the 'image' parameter is, but we have to give something
+    image = consecutive_seg.view(np.float32)
+    acc = vigra.analysis.extractRegionFeatures(image, consecutive_seg, features=['Coord<Minimum >', 'Coord<Maximum >', 'Count'])
+
+    body_ids_and_masks = []
+    for label in xrange(1, maxlabel+1): # Skip 0
+        count = acc['Count'][label]
+        min_coord = acc['Coord<Minimum >'][label].astype(int)
+        max_coord = acc['Coord<Maximum >'][label].astype(int)
+        box_local = np.array((min_coord, 1+max_coord))
+        
+        mask = (consecutive_seg[bb_to_slicing(*box_local)] == label).view(np.uint8)
+        if compress_masks:
+            mask = CompressedNumpyArray(mask)
+
+        body_id = consecutive_to_bodies[label]
+        box_global = box_local + sv_start
+
+        # Only keep segments that are big enough OR touch the subvolume border.
+        if count >= minimum_object_size \
+        or (always_keep_border_objects and (   (box_global[0] == sv_start).any()
+                                            or (box_global[1] == sv_stop).any())):
+            body_ids_and_masks.append( (body_id, (bb_as_tuple(box_global), mask)) )
+    
+    return body_ids_and_masks
+
+def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1 ):
+    """
+    Given a list of bounding boxes and corresponding binary mask arrays,
+    assemble the superset of those masks in a larger array.
+    To save RAM, the entire result can be optionally downsampled.
+    
+    boxes:
+        List of bounding box tuples [(z0,y0,x0), (z1,y1,x1), ...]
+    
+    masks:
+        Iterable of binary mask arrays.
+    
+    downsample_factor:
+        How much to downsample the result:
+            0 - "auto", i.e. pick a factor based on how large the final bounding box will be
+            1 - no downsampling
+            2+ - Downsample the result by the 2x,3x, etc.
+
+    minimum_object_size:
+        If the final result is smaller than this number (as measured in NON-downsampled pixels),
+        return 'None' instead of an actual mask.
+    
+    Returns: (combined_bounding_box, combined_mask, downsample_factor)
+
+        where:
+            combined_bounding_box:
+                the bounding box of the returned mask,
+                in NON-downsampled coordinates: ((z0,y0,x0), (z1,y1,x1))
+            
+            combined_mask:
+                the full downsampled combined mask,
+            
+            downsample_factor:
+                The chosen downsampling factor if using 'auto' downsampling,
+                otherwise equal to the downsample_factor you passed in.
+    """
+    boxes = np.asarray(boxes)
+    
+    combined_box = np.zeros((2,3), dtype=np.int64)
+    combined_box[0] = boxes[:, 0, :].min(axis=0)
+    combined_box[1] = boxes[:, 1, :].max(axis=0)
+    
+    chosen_downsample_factor = downsample_factor
+    if chosen_downsample_factor < 1:
+        # FIXME: Auto-choose downsample factor if necessary
+        chosen_downsample_factor = 1
+
+    block_shape = np.array((chosen_downsample_factor,)*3)
+    combined_downsampled_box = downsample_box( combined_box, block_shape )
+    combined_downsampled_box_shape = combined_downsampled_box[1] - combined_downsampled_box[0]
+
+    combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.uint8 )
+    
+    for box_global, mask in izip(boxes, masks):
+        box_global = np.asarray(box_global)
+        mask_downsampled, downsampled_box = downsample_binary_3d(mask, chosen_downsample_factor, box_global)
+        downsampled_box[:] -= combined_downsampled_box[0]
+
+        combined_mask_downsampled[ bb_to_slicing(*downsampled_box) ] |= mask_downsampled
+
+    if combined_mask_downsampled.sum() * chosen_downsample_factor**3 < minimum_object_size:
+        # 'None' results will be filtered out. See below.
+        combined_mask_downsampled = None
+
+    return ( combined_box, combined_mask_downsampled, chosen_downsample_factor )
 
 
 def stitch(sc, label_chunks):
