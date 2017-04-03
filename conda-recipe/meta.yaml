@@ -29,6 +29,7 @@ requirements:
     - numpy
     - numba
     - neuroproof
+    - neutube-python >=0.1.post8
     - libdvid-cpp >=0.2
     - requests
     - scikit-image

@@ -6,7 +6,9 @@ import vigra
 
 from numpy_allocation_tracking.decorators import assert_mem_usage_factor
 
-from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax
+from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax, object_masks_for_labels, assemble_masks
+from DVIDSparkServices.util import bb_to_slicing
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 class TestSplitDisconnectedBodies(unittest.TestCase):
     
@@ -85,6 +87,209 @@ class TestSparseMatrixUtilityFunctions(unittest.TestCase):
          
         assert (matrix_argmax(m, axis=1) == [1,4,3]).all()  
         assert (matrix_argmax(m, axis=1) == matrix_argmax(data, axis=1)).all()
+
+
+class Test_object_masks_for_labels(unittest.TestCase):
+
+    def setUp(self):
+        _ = 0
+        data_slice = [[_,_,_,_,_,_,_,_,_,_],
+                      [_,2,_,_,_,_,3,3,_,_],
+                      [_,2,2,_,_,_,_,3,_,_],
+                      [_,_,2,_,_,_,_,3,_,_],
+                      [_,_,_,2,_,_,_,3,_,_],
+                      [_,_,_,_,2,_,_,3,_,_],
+                      [_,_,_,_,_,2,_,3,_,_],
+                      [_,_,_,_,_,2,_,_,4,4], # Notice: object 4 touches the volume edge
+                      [_,_,_,_,_,2,_,_,_,_]]
+
+        data_slice = np.asarray(data_slice)
+        
+        # Put the data slice in the middle of the test volume,
+        # so nothing touches the volume edge in the Z-dimension.
+        segmentation = np.zeros( (3,) + data_slice.shape, dtype=np.uint64 )
+        segmentation[1] = data_slice
+        
+        self.segmentation = segmentation
+        
+    def test_basic(self):
+        label_ids_and_masks = object_masks_for_labels( self.segmentation,
+                                                       box=None,
+                                                       minimum_object_size=1,
+                                                       always_keep_border_objects=False,
+                                                       compress_masks=False )
+
+        # Result isn't necessarily sorted
+        masks_dict = dict( label_ids_and_masks )
+        assert set(masks_dict.keys()) == set([2,3,4])
+
+        for label in (2,3,4):
+            full_mask = (self.segmentation == label)
+            bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
+            bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
+            
+            box, mask = masks_dict[label]
+            
+            assert (np.asarray(box) == (bb_start, bb_stop)).all()
+            assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
+                "Incorrect mask for label {}: \n {}".format( label, full_mask )
+    
+    def test_minimum_object_size(self):
+        # Exclude object 4, which is too small
+        label_ids_and_masks = object_masks_for_labels( self.segmentation,
+                                                       box=None,
+                                                       minimum_object_size=3,
+                                                       always_keep_border_objects=False,
+                                                       compress_masks=False )
+
+        # Result isn't necessarily sorted
+        masks_dict = dict( label_ids_and_masks )
+        assert set(masks_dict.keys()) == set([2,3])
+
+        for label in (2,3):
+            full_mask = (self.segmentation == label)
+            bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
+            bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
+            
+            box, mask = masks_dict[label]
+            
+            assert (np.asarray(box) == (bb_start, bb_stop)).all()
+            assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
+                "Incorrect mask for label {}: \n {}".format( label, full_mask )
+    
+    def test_always_keep_border_objects(self):
+        # Object 4 is too small, but it's kept anyway because it touches the border.
+        label_ids_and_masks = object_masks_for_labels( self.segmentation,
+                                                       box=None,
+                                                       minimum_object_size=3,
+                                                       always_keep_border_objects=True, # Keep border objects
+                                                       compress_masks=False )
+
+        # Result isn't necessarily sorted
+        masks_dict = dict( label_ids_and_masks )
+        assert set(masks_dict.keys()) == set([2,3,4])
+
+        for label in (2,3,4):
+            full_mask = (self.segmentation == label)
+            bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
+            bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
+            
+            box, mask = masks_dict[label]
+            
+            assert (np.asarray(box) == (bb_start, bb_stop)).all()
+            assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
+                "Incorrect mask for label {}: \n {}".format( label, full_mask )
+    
+    def test_compressed_output(self):
+        label_ids_and_masks = object_masks_for_labels( self.segmentation,
+                                                       box=None,
+                                                       minimum_object_size=1,
+                                                       always_keep_border_objects=False,
+                                                       compress_masks=True )
+
+        # Result isn't necessarily sorted
+        masks_dict = dict( label_ids_and_masks )
+        assert set(masks_dict.keys()) == set([2,3,4])
+
+        for label in (2,3,4):
+            full_mask = (self.segmentation == label)
+            bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
+            bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
+            
+            box, compressed_mask = masks_dict[label]
+            assert isinstance(compressed_mask, CompressedNumpyArray)
+            mask = compressed_mask.deserialize()
+            
+            assert (np.asarray(box) == (bb_start, bb_stop)).all()
+            assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
+                "Incorrect mask for label {}: \n {}".format( label, full_mask )
+    
+class Test_assemble_masks(unittest.TestCase):
+
+    def test_basic(self):
+        _ = 0
+        #                  0 1 2 3 4  5 6 7 8 9
+        complete_mask = [[[_,_,_,_,_, _,_,_,_,_], # 0
+                          [_,1,_,_,_, _,1,1,_,_], # 1
+                          [_,1,1,_,_, 1,1,1,_,_], # 2
+                          [_,_,1,_,_, _,_,1,_,_], # 3
+                          [_,_,_,1,_, _,_,1,_,_], # 4
+
+                          [_,_,_,1,1, _,1,1,_,_], # 5
+                          [_,_,_,_,_, 1,1,1,_,_], # 6
+                          [_,_,_,_,_, 1,_,_,1,_], # 7
+                          [_,_,_,_,_, 1,_,_,_,_]]]# 8
+
+        complete_mask = np.asarray(complete_mask, dtype=bool)
+
+        boxes = []
+        boxes.append( ((0,1,1), (1,5,4)) )
+        boxes.append( ((0,1,5), (1,5,8)) )
+        boxes.append( ((0,5,3), (1,6,5)) )
+        boxes.append( ((0,5,5), (1,9,9)) )
+        
+        masks = [ complete_mask[ bb_to_slicing(*box)] for box in boxes ]
+
+        combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=1, minimum_object_size=1 )
+        assert (combined_bounding_box == ( (0,1,1), (1,9,9) )).all()
+        assert (combined_mask == complete_mask[bb_to_slicing(*combined_bounding_box)]).all()
+        assert downsample_factor == 1
+
+    def test_with_downsampling(self):
+        _ = 0
+        #                  0 1 2 3 4  5 6 7 8 9
+        complete_mask = [[[_,_,_,_,_, _,_,_,_,_], # 0
+                          [_,1,_,_,_, _,1,1,_,_], # 1
+                          [_,1,1,_,_, 1,1,1,_,_], # 2
+                          [_,_,1,_,_, _,_,1,_,_], # 3
+                          [_,_,_,1,_, _,_,1,_,_], # 4
+
+                          [_,_,_,1,1, _,1,1,_,_], # 5
+                          [_,_,_,_,_, 1,1,1,_,_], # 6
+                          [_,_,_,_,_, 1,_,_,1,_], # 7
+                          [_,_,_,_,_, 1,_,_,_,_]]]# 8
+
+        complete_mask = np.asarray(complete_mask, dtype=bool)
+
+        boxes = []
+        boxes.append( ((0,1,1), (1,5,4)) )
+        boxes.append( ((0,1,5), (1,5,8)) )
+        boxes.append( ((0,5,3), (1,6,5)) )
+        boxes.append( ((0,5,5), (1,9,9)) )
+        
+        masks = [ complete_mask[ bb_to_slicing(*box)] for box in boxes ]
+
+        combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=2, minimum_object_size=1 )
+
+        expected_downsampled_mask = [[[1,_,_,1,_],
+                                      [1,1,1,1,_],
+                                      [_,1,1,1,_],
+                                      [_,_,1,1,1],
+                                      [_,_,1,_,_]]]
+        expected_downsampled_mask = np.asarray(expected_downsampled_mask)
+
+        assert (combined_bounding_box == ((0,1,1), (1,9,9)) ).all()
+        assert (combined_mask == expected_downsampled_mask).all()
+        assert downsample_factor == 2
+
+    def test_auto_downsampling_choice(self):
+        complete_mask = np.ones( (100,100,100), dtype=np.bool )
+        box = ((0,0,0), (100,100,100))
+
+        # Restrict RAM usage to less than 1/8 of the full mask, so even downsampling by 2 isn't enough.
+        # The function will be forced to use a downsampling factor of 3.
+        RAM_LIMIT = complete_mask.size / 8. - 1
+        
+        combined_bounding_box, combined_mask, downsample_factor = \
+            assemble_masks( [box],
+                            [complete_mask],
+                            downsample_factor=-1, # 'auto'
+                            minimum_object_size=1,
+                            _MAX_COMBINED_MASK_SIZE=RAM_LIMIT)
+
+        assert (combined_bounding_box == box ).all()
+        assert combined_mask.all()
+        assert downsample_factor == 3
         
 if __name__ == "__main__":
     unittest.main()

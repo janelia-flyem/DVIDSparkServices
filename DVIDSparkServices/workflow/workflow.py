@@ -27,6 +27,32 @@ class Workflow(object):
 
     """
 
+    OptionsSchema = \
+    {
+      "type": "object",
+      "properties": {
+        "corespertask": {
+          "type": "integer",
+          "default": 1
+        },
+        "resource-server": {
+          "type": "string",
+          "default": ""
+        },
+        "resource-port": {
+          "type": "integer",
+          "default": 0
+        },
+        "debug": {
+          "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
+          "type": "boolean",
+          "default": False
+        }
+      },
+      "additionalProperties": True
+    }
+    
+    
     def __init__(self, jsonfile, schema, appname, corespertask=1):
         """Initialization of workflow object.
 
