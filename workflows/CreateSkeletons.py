@@ -53,9 +53,9 @@ class CreateSkeletons(DVIDWorkflow):
         "default": 1000
       },
       "downsample-factor": {
-        "description": "Factor by which to downsample bodies before skeletonization. (-1 means 'choose automatically')",
+        "description": "Factor by which to downsample bodies before skeletonization. (0 means 'choose automatically')",
         "type": "integer",
-        "default": -1 # -1 means "auto", based on RAM.
+        "default": 0 # 0 means "auto", based on RAM.
       }
     })
     

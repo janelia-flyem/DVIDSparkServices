@@ -272,5 +272,24 @@ class Test_assemble_masks(unittest.TestCase):
         assert (combined_mask == expected_downsampled_mask).all()
         assert downsample_factor == 2
 
+    def test_auto_downsampling_choice(self):
+        complete_mask = np.ones( (100,100,100), dtype=np.bool )
+        box = ((0,0,0), (100,100,100))
+
+        # Restrict RAM usage to less than 1/8 of the full mask, so even downsampling by 2 isn't enough.
+        # The function will be forced to use a downsampling factor of 3.
+        RAM_LIMIT = complete_mask.size / 8. - 1
+        
+        combined_bounding_box, combined_mask, downsample_factor = \
+            assemble_masks( [box],
+                            [complete_mask],
+                            downsample_factor=-1, # 'auto'
+                            minimum_object_size=1,
+                            _MAX_COMBINED_MASK_SIZE=RAM_LIMIT)
+
+        assert (combined_bounding_box == box ).all()
+        assert combined_mask.all()
+        assert downsample_factor == 3
+        
 if __name__ == "__main__":
     unittest.main()
