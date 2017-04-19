@@ -219,7 +219,7 @@ class Ingest3DVolume(Workflow):
             "default": true
         },
         "pyramid-depth": {
-            "description": "Number of tasks to use (min is 2*blocksize and should be multiple of this)",
+            "description": "Number of pyramid levels to generate (0 means choose automatically)",
             "type": "integer",
             "default": 0
         },
@@ -518,25 +518,25 @@ class Ingest3DVolume(Workflow):
                         compression=Compression.JPEG)
     
         for level in range(1, self.pyramid_depth+1):
-                if self.createpyramid: 
-                    downname = self.dataname 
-                    downname += "-%d" % level
-                    if not is_datainstance(self.dvidserver, self.uuid, downname):
-                        if self.israw:
-                            create_rawarray8(self.dvidserver, self.uuid,
-                                    downname, blocksize=(self.blksize,
-                                        self.blksize,self.blksize))
-                        else:
-                            create_labelarray(self.dvidserver, self.uuid,
-                                    self.downname, blocksize=(self.blksize,
-                                        self.blksize,self.blksize))
-                if self.createpyramidjpeg: 
-                    downname = self.dataname + self.JPEGPYRAMID_NAME 
-                    downname += "-%d" % level
-                    if not is_datainstance(self.dvidserver, self.uuid, downname):
-                        create_rawarray8(self.dvidserver, self.uuid, downname,
-                                blocksize=(self.blksize,self.blksize,self.blksize),
-                                compression=Compression.JPEG)
+            if self.createpyramid: 
+                downname = self.dataname 
+                downname += "-%d" % level
+                if not is_datainstance(self.dvidserver, self.uuid, downname):
+                    if self.israw:
+                        create_rawarray8(self.dvidserver, self.uuid,
+                                downname, blocksize=(self.blksize,
+                                    self.blksize,self.blksize))
+                    else:
+                        create_labelarray(self.dvidserver, self.uuid,
+                                self.downname, blocksize=(self.blksize,
+                                    self.blksize,self.blksize))
+            if self.createpyramidjpeg: 
+                downname = self.dataname + self.JPEGPYRAMID_NAME 
+                downname += "-%d" % level
+                if not is_datainstance(self.dvidserver, self.uuid, downname):
+                    create_rawarray8(self.dvidserver, self.uuid, downname,
+                            blocksize=(self.blksize,self.blksize,self.blksize),
+                            compression=Compression.JPEG)
             
         # create tiles
         if self.createtiles or self.createtilesjpeg:
@@ -567,7 +567,8 @@ class Ingest3DVolume(Workflow):
             tilemeta["Levels"] = {}
             currres = 8.0 # just use as placeholder for now
             for level in range(0, self.maxlevel+1):
-                tilemeta["Levels"][str(level)] = { "Resolution" : [currres, currres, currres], "TileSize": [self.tilesize, self.tilesize, self.tilesize]}
+                tilemeta["Levels"][str(level)] = { "Resolution" : [currres, currres, currres],
+                                                   "TileSize": [self.tilesize, self.tilesize, self.tilesize]}
                 currres *= 2
 
             if not self.dvidserver.startswith("http://"):
