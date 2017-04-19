@@ -520,7 +520,7 @@ class Ingest3DVolume(Workflow):
         for level in range(1, self.pyramid_depth+1):
             if self.createpyramid: 
                 downname = self.dataname 
-                downname += "-%d" % level
+                downname += "_%d" % level
                 if not is_datainstance(self.dvidserver, self.uuid, downname):
                     if self.israw:
                         create_rawarray8(self.dvidserver, self.uuid,
@@ -532,7 +532,7 @@ class Ingest3DVolume(Workflow):
                                     self.blksize,self.blksize))
             if self.createpyramidjpeg: 
                 downname = self.dataname + self.JPEGPYRAMID_NAME 
-                downname += "-%d" % level
+                downname += "_%d" % level
                 if not is_datainstance(self.dvidserver, self.uuid, downname):
                     create_rawarray8(self.dvidserver, self.uuid, downname,
                             blocksize=(self.blksize,self.blksize,self.blksize),
@@ -676,7 +676,7 @@ class Ingest3DVolume(Workflow):
                         if self.createpyramidjpeg: # !! should pad with orig if computing
                             # pad with jpeg
                             padname += self.JPEGPYRAMID_NAME 
-                        padname += "-%d" % curr_level
+                        padname += "_%d" % curr_level
                         dvidsrc = dvidSrc(self.dvidserver, self.uuid, padname,
                             downsampled_array, resource_server=self.resource_server,
                             resource_port=self.resource_port)
@@ -686,9 +686,9 @@ class Ingest3DVolume(Workflow):
                     downname = None
                     downnamelossy = None
                     if self.createpyramid:
-                        downname = self.dataname + "-%d" % curr_level 
+                        downname = self.dataname + "_%d" % curr_level 
                     if self.createpyramidjpeg:
-                        downnamelossy = self.dataname + self.JPEGPYRAMID_NAME + "-%d" % curr_level 
+                        downnamelossy = self.dataname + self.JPEGPYRAMID_NAME + "_%d" % curr_level 
                     self._write_blocks(downsampled_array, downname, downnamelossy) 
 
                     # remove previous level
