@@ -4,9 +4,9 @@ import tempfile
 import os
 from PIL import Image
 
-from DVIDSparkServices.io.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
 
-from DVIDSparkServices.io.imagefileSrc import imagefileSrc
+from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
     
 def writeImages(array, startindex=0):
     """Writes 3D numpy array as PNG images (can write up to index 99999)

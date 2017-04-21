@@ -8,9 +8,9 @@ library without requiring Apache Spark.
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
-from DVIDSparkServices.io.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
-from DVIDSparkServices.io.imagefileSrc import imagefileSrc
-from DVIDSparkServices.io.dvidSrc import dvidSrc
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
+from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
+from DVIDSparkServices.io_util.dvidSrc import dvidSrc
 from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
 import numpy

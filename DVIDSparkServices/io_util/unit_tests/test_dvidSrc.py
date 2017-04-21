@@ -1,9 +1,9 @@
 import unittest
 import numpy as np
 
-from DVIDSparkServices.io.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
 
-from DVIDSparkServices.io.dvidSrc import dvidSrc
+from DVIDSparkServices.io_util.dvidSrc import dvidSrc
 from libdvid import DVIDNodeService, DVIDServerService
 
 dvidserver = "http://127.0.0.1:8000"
