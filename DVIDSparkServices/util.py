@@ -1,6 +1,18 @@
+import time
+import contextlib
 from itertools import starmap
 import numpy as np
 from skimage.util import view_as_blocks
+
+@contextlib.contextmanager
+def Timer():
+    result = _TimerResult
+    start = time.time()
+    yield result
+    result.seconds = time.time() - start
+
+class _TimerResult(object):
+    seconds = -1.0
 
 def bb_to_slicing(start, stop):
     """
