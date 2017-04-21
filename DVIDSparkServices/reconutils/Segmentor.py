@@ -1,8 +1,6 @@
 """Defines base class for segmentation plugins."""
-import os
 import sys
 import json
-import socket
 import importlib
 import textwrap
 from functools import partial, wraps
@@ -12,7 +10,6 @@ import vigra
 
 from quilted.h5blockstore import H5BlockStore
 
-
 import DVIDSparkServices
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.auto_retry import auto_retry
@@ -20,24 +17,6 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.util import zip_many, select_item, dense_roi_mask_for_subvolume
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
-
-from logcollector.client_utils import make_log_collecting_decorator
-
-try:
-    #driver_ip_addr = '127.0.0.1'
-    driver_ip_addr = socket.gethostbyname(socket.gethostname())
-except socket.gaierror:
-    # For some reason, that line above fails sometimes
-    # (depending on which network you're on)
-    # The method below is a little hacky because it requires
-    # making a connection to some arbitrary external site,
-    # but it seems to be more reliable. 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("google.com",80))
-    driver_ip_addr = s.getsockname()[0]
-    s.close()
-
-send_log_with_key = make_log_collecting_decorator(driver_ip_addr, 3000)
 
 class Segmentor(object):
     """
@@ -153,8 +132,10 @@ class Segmentor(object):
         }
         """)
 
-    def __init__(self, context, workflow_config):
+    def __init__(self, context, workflow):
         self.context = context
+        self.workflow = workflow
+        workflow_config = workflow.config_data
         self.segmentor_config = workflow_config["options"]["segmentor"]["configuration"]
 
         segmentor_schema = json.loads(Segmentor.SegmentorSchema)
@@ -312,7 +293,7 @@ class Segmentor(object):
         The cached data isn't actually used by this pipeline, can be useful for viewing later
         (for debugging purposes).
         """
-        @send_log_with_key(lambda (sv, _g): str(sv))
+        @self.workflow.collect_log(lambda (sv, _g): str(sv))
         @Segmentor.use_block_cache(gray_checkpoint_dir, allow_read=False, dset_options={})
         def _execute_for_chunk( (_subvolume, gray) ):
             logging.getLogger(__name__).debug("Caching grayscale")
@@ -341,7 +322,7 @@ class Segmentor(object):
         """
         mask_function = self._get_segmentation_function('background-mask')
 
-        @send_log_with_key(lambda (sv, _g): str(sv))
+        @self.workflow.collect_log(lambda (sv, _g): str(sv))
         @Segmentor.use_block_cache(mask_checkpoint_dir, allow_read=False)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -378,7 +359,7 @@ class Segmentor(object):
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
 
-        @send_log_with_key(lambda (sv, (_g, _mc)): str(sv))
+        @self.workflow.collect_log(lambda (sv, (_g, _mc)): str(sv))
         @Segmentor.use_block_cache(pred_checkpoint_dir, allow_read=allow_pred_rollback)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -427,7 +408,7 @@ class Segmentor(object):
         resource_server = self.context.workflow.resource_server
         resource_port = self.context.workflow.resource_port
 
-        @send_log_with_key(lambda (sv, (_pc, _mc)): str(sv))
+        @self.workflow.collect_log(lambda (sv, (_pc, _mc)): str(sv))
         @Segmentor.use_block_cache(sp_checkpoint_dir, allow_read=allow_sp_rollback)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -521,7 +502,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
-        @send_log_with_key(lambda (sv, (_g, _pc, _sc)): str(sv))
+        @self.workflow.collect_log(lambda (sv, (_g, _pc, _sc)): str(sv))
         @Segmentor.use_block_cache(seg_checkpoint_dir, allow_read=allow_seg_rollback)
         def _execute_for_chunk(args):
             import DVIDSparkServices

@@ -4,14 +4,35 @@ This module only contains the Workflow class and a sepcial
 exception type for workflow errors.
 
 """
+import sys
 import os
+import functools
+import subprocess
 from jsonschema import ValidationError
 import json
+import uuid
+import socket
+from DVIDSparkServices.util import mkdir_p
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
+from logcollector.client_utils import make_log_collecting_decorator, noop_decorator
 
+try:
+    #driver_ip_addr = '127.0.0.1'
+    driver_ip_addr = socket.gethostbyname(socket.gethostname())
+except socket.gaierror:
+    # For some reason, that line above fails sometimes
+    # (depending on which network you're on)
+    # The method below is a little hacky because it requires
+    # making a connection to some arbitrary external site,
+    # but it seems to be more reliable. 
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(("google.com",80))
+    driver_ip_addr = s.getsockname()[0]
+    s.close()
 
+#
 #  workflow exception
 class WorkflowError(Exception):
     pass
@@ -43,15 +64,25 @@ class Workflow(object):
           "type": "integer",
           "default": 0
         },
+        "log-collector-port": {
+          "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
+          "type": "integer",
+          "default": 0
+        },
+        "log-collector-directory": {
+          "description": "",
+          "type": "string",
+          "default": "" # If not provided, a temp directory will be overwritten here.
+        },
         "debug": {
           "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
           "type": "boolean",
           "default": False
         }
       },
-      "additionalProperties": True
+      "additionalProperties": True,
+      "default": {}
     }
-    
     
     def __init__(self, jsonfile, schema, appname, corespertask=1):
         """Initialization of workflow object.
@@ -90,7 +121,53 @@ class Workflow(object):
         self.corespertask=corespertask
         self.sc = self._init_spark(appname)
 
+        # Not all workflow schemas have been ported to inherit Workflow.OptionsSchema,
+        # so we have to manually provide default values
+        if "log-collector-directory" not in self.config_data["options"]:
+            self.config_data["options"]["log-collector-directory"] = ""
+        if "log-collector-port" not in self.config_data["options"]:
+            self.config_data["options"]["log-collector-port"] = 0
 
+        # Init logcollector directory
+        log_dir = self.config_data["options"]["log-collector-directory"]
+        if not log_dir:
+            log_dir = '/tmp/' + str(uuid.uuid1())
+            self.config_data["options"]["log-collector-directory"] = log_dir
+
+        if self.config_data["options"]["log-collector-port"]:
+            mkdir_p(log_dir)
+
+    def collect_log(self, task_key_factory=lambda *args, **kwargs: args[0]):
+        """
+        Use this as a decorator for functions that are executed in spark workers.
+        
+        task_key_factory:
+            A little function that converts the arguments to your function into a key that identifies
+            the log file this function should be directed to.
+        
+        For example, if you want to group your log messages into files according subvolumes:
+        
+        class MyWorkflow(Workflow):
+            def execute():
+                dist_subvolumes = self.sparkdvid_context.parallelize_roi(...)
+                
+                @self.collect_log(lambda sv: sv.box)
+                def process_subvolume(subvolume):
+                    logger = logging.getLogger(__name__)
+                    logger.info("Processing subvolume: {}".format(subvolume.box))
+
+                    ...
+                    
+                    return result
+                
+                dist_subvolumes.mapValues(process_subvolume)
+        
+        """
+        port = self.config_data["options"]["log-collector-port"]
+        if port == 0:
+            return noop_decorator
+        else:
+            return make_log_collecting_decorator(driver_ip_addr, port)(task_key_factory)
 
     def _init_spark(self, appname):
         """Internal function to setup spark context
@@ -140,6 +217,29 @@ class Workflow(object):
         # Auto-batching heuristic doesn't work well with our auto-compressed numpy array pickling scheme.
         # Therefore, disable batching with batchSize=1
         return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
+
+    def run(self):
+        port = self.config_data["options"]["log-collector-port"]
+        self.log_dir = self.config_data["options"]["log-collector-directory"]
+        
+        if not self.config_data["options"]["log-collector-port"]:
+            self.execute()
+        else:
+            # Start the log server in a separate process
+            logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
+                                          #'--debug=True',
+                                          '--log-dir={}'.format(self.config_data["options"]["log-collector-directory"]),
+                                          '--port={}'.format(self.config_data["options"]["log-collector-port"])])
+            try:
+                self.execute()
+            finally:
+                # NOTE: Apparently the flask server doesn't respond
+                #       to SIGTERM if the server is used in debug mode.
+                #       If you're using the logserver in debug mode,
+                #       you may need to kill it yourself.
+                #       See https://github.com/pallets/werkzeug/issues/58
+                print("Terminating logserver with PID {}".format(logserver.pid))
+                logserver.terminate()
 
     # make this an explicit abstract method ??
     def execute(self):

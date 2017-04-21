@@ -40,7 +40,7 @@ requirements:
     - ilastik-versions-no-solvers  1.2  np111py27_12   # [linux]
     - ilastik-meta
     - quilted >=0.0.post13
-    - logcollector
+    - logcollector >=0.1.post13
 
 test:
   requires:

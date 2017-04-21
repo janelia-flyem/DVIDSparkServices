@@ -54,7 +54,7 @@ def main(argv):
         # execute the workflow
         if args.config_file != "":
             workflow_inst = workflow_cls(args.config_file)
-            workflow_inst.execute()
+            workflow_inst.run()
 
     # TODO: handle exceptions here
     except WorkflowError as e:

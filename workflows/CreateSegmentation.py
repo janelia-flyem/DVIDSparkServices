@@ -155,6 +155,16 @@ class CreateSegmentation(DVIDWorkflow):
               "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
               "type": "boolean",
               "default": false
+            },
+            "log-collector-port": {
+              "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
+              "type": "integer",
+              "default": 3000
+            },
+            "log-collector-directory": {
+              "description": "",
+              "type": "string",
+              "default": ""
             }
           },
           "required": ["stitch-algorithm"],
@@ -179,23 +189,6 @@ class CreateSegmentation(DVIDWorkflow):
     # => join offsets and boundary mappings to persisted ROI+label, unpersist => map labels
     # (write): => for each row
     def execute(self):
-        tmpdir = '/tmp/' + str(uuid.uuid1())
-        os.mkdir(tmpdir)
-        
-        # Start the log server in a separate process
-        logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver', '--log-dir={}'.format(tmpdir)])
-        try:
-            self.execute_impl()
-        finally:
-            # NOTE: Apparently the flask server doesn't respond
-            #       to SIGTERM if the server is used in debug mode.
-            #       If you're using the logserver in debug mode,
-            #       you may need to kill it yourself.
-            #       See https://github.com/pallets/werkzeug/issues/58
-            print "Terminating logserver with PID {}".format(logserver.pid)
-            logserver.terminate()
-
-    def execute_impl(self):
         from pyspark import SparkContext
         from pyspark import StorageLevel
         from DVIDSparkServices.reconutils.Segmentor import Segmentor
@@ -234,7 +227,7 @@ class CreateSegmentation(DVIDWorkflow):
         module_name = '.'.join(full_segmentor_classname.split('.')[:-1])
         segmentor_mod = importlib.import_module(module_name)
         segmentor_class = getattr(segmentor_mod, segmentor_classname)
-        segmentor = segmentor_class(self.sparkdvid_context, self.config_data)
+        segmentor = segmentor_class(self.sparkdvid_context, self)
 
         # determine number of iterations
         iteration_size = self.config_data["options"]["iteration-size"]
