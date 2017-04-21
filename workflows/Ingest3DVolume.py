@@ -4,6 +4,8 @@ This file contains a top-level class that is callable via DVIDSparkServices
 workflow interface.  It also contains a library for access as a standalone
 library without requiring Apache Spark.
 """
+import copy
+import json
 
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -107,24 +109,8 @@ class Ingest3DVolume(Workflow):
     """
 
     # schema for ingesting grayscale
-    Schema = """
-{ "$schema": "http://json-schema.org/schema#",
-  "title": "Service to load raw and label data into DVID",
-  "type": "object",
-  "properties": {
-    "minslice": { 
-      "description": "Minimum Z image slice",
-      "type": "integer" 
-    },
-    "maxslice": { 
-      "description": "Maximum Z image slice (inclusive)",
-      "type": "integer" 
-    },
-    "basename": { 
-      "description": "Path and name format for image files (images should be 8-bit grayscale)",
-      "type": "string" 
-    },
-    "dvid-info": {
+    DvidInfoSchema = \
+    {
       "type": "object",
       "properties": {
         "dvid-server": {
@@ -141,29 +127,50 @@ class Ingest3DVolume(Workflow):
           "type": "string"
         }
       }
-    },
-    "options" : { 
-      "type": "object",
-      "properties": {
+    }
+
+    IngestionWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
+    IngestionWorkflowOptionsSchema["required"] = ["minslice", "maxslice", "basename"]
+    IngestionWorkflowOptionsSchema["properties"].update(
+    {
+        #
+        # REQUIRED
+        #
+        "minslice": {
+            "description": "Minimum Z image slice",
+            "type": "integer" 
+        },
+        "maxslice": { 
+            "description": "Maximum Z image slice (inclusive)",
+            "type": "integer" 
+        },
+        "basename": { 
+            "description": "Path and name format for image files (images should be 8-bit grayscale)",
+            "type": "string" 
+        },
+     
+        #
+        # OPTIONAL
+        #
         "create-pyramid": {
             "description": "create a multi-scale octree",
             "type": "boolean",
-            "default": false
+            "default": False
         },
         "create-pyramid-jpeg": {
             "description": "create lossy multi-scale octree (uint8blk only)",
             "type": "boolean",
-            "default": true
+            "default": True
         },
         "create-tiles": {
             "description": "create 2D tiles (uint8blk only)",
             "type": "boolean",
-            "default": false
+            "default": False
         },
         "create-tiles-jpeg": {
             "description": "create lossy 2D tiles (uint8blk only)",
             "type": "boolean",
-            "default": false
+            "default": False
         },
         "blocksize": {
           "description": "Internal block size (default: 64x64x64)",
@@ -201,12 +208,12 @@ class Ingest3DVolume(Workflow):
         "has-dvidmask": {
             "description": "Enables padding of data from DVID (unless instance does not exist)",
             "type": "boolean",
-            "default": true
+            "default": True
         },
         "disable-original": {
             "description": "Do not write original data to DVID",
             "type": "boolean",
-            "default": false
+            "default": False
         },
         "blankdelimiter": {
           "description": "Delimiting value for a blank data",
@@ -216,7 +223,7 @@ class Ingest3DVolume(Workflow):
         "is-rawarray": {
             "description": "Treat data as uint8blk",
             "type": "boolean",
-            "default": true
+            "default": True
         },
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate (0 means choose automatically)",
@@ -228,14 +235,19 @@ class Ingest3DVolume(Workflow):
             "type": "integer",
             "default": 128
         }
-      },
-      "additionalProperties": true,
-      "default" : {}
+    })
+
+    Schema = \
+    {
+      "$schema": "http://json-schema.org/schema#",
+      "title": "Service to load raw and label data into DVID",
+      "type": "object",
+      "properties": {
+        "dvid-info": DvidInfoSchema,
+        "options" : IngestionWorkflowOptionsSchema
+      }
     }
-  },
-  "required" : ["minslice", "maxslice", "basename"]
-}
-    """
+
     # name of application for DVID queries
     APPNAME = "ingest3dvolume"
        
@@ -249,13 +261,12 @@ class Ingest3DVolume(Workflow):
 
         Calls default init and sets option variables
         """
-        super(Ingest3DVolume, self).__init__(config_filename, self.Schema, "Ingest 3D Volume")
-
+        super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
 
         # primary input/output parameters
-        self.minslice = self.config_data["minslice"]  
-        self.maxslice = self.config_data["maxslice"]  
-        self.basename = str(self.config_data["basename"]) 
+        self.minslice = self.config_data["options"]["minslice"]
+        self.maxslice = self.config_data["options"]["maxslice"]
+        self.basename = str(self.config_data["options"]["basename"]) 
         self.dvidserver = str(self.config_data["dvid-info"]["dvid-server"]) 
         self.uuid = str(self.config_data["dvid-info"]["uuid"])
         self.dataname = str(self.config_data["dvid-info"]["dataname"]) 
@@ -699,7 +710,4 @@ class Ingest3DVolume(Workflow):
         
     @staticmethod
     def dumpschema():
-        return Ingest3DVolume.Schema
-
-
-
+        return json.dumps(Ingest3DVolume.Schema)

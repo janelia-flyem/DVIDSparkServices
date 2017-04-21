@@ -1,14 +1,15 @@
 {
-    "minslice" : 0,
-    "maxslice" : 261,
-    "basename" : "integration_tests/resources/grayscale_maps/iso.%05d.png",
     "dvid-info": {
         "dvid-server": "127.0.0.1:8000",
         "uuid": "UUID2",
         "dataname": "grayscale"
     },
     "options": {
-        "create-pyramid": false,
+        "minslice" : 0,
+        "maxslice" : 261,
+        "basename" : "integration_tests/resources/grayscale_maps/iso.%05d.png",
+
+        "create-pyramid": true,
         "create-pyramid-jpeg": true,
         "create-tiles": false,
         "create-tiles-jpeg": false,
