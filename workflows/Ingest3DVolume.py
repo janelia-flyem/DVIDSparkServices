@@ -470,27 +470,30 @@ class Ingest3DVolume(Workflow):
                     datacrop = data[:,:,offsetx:endx].copy()
                 logger.info("Copied {}:{} in {:.3f} seconds".format(offsetx, endx, copy_timer.seconds))
 
-                with Timer() as put_timer:
-                    if dataname is not None:
+                if dataname is not None:
+                    with Timer() as put_timer:
                         if not israw: 
+                            logger.info("STARTING Put: labels block {}".format((offset.z, offset.y, offsetx)))
                             if resource_server != "":
                                 node_service.put_labels3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=True, throttle=False)
                             else:
                                 node_service.put_labels3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=True)
                         else:
+                            logger.info("STARTING Put: raw block {}".format((offset.z, offset.y, offsetx)))
                             if resource_server != "":
                                 node_service.put_gray3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=False, throttle=False)
                             else:
                                 node_service.put_gray3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=False)
-                logger.info("Put block {} in {:.3f} seconds".format((offset.z, offset.y, offsetx), put_timer.seconds))
+                    logger.info("Put block {} in {:.3f} seconds".format((offset.z, offset.y, offsetx), put_timer.seconds))
 
-                with Timer() as put_lossy_timer:
-                    if dataname_lossy is not None:
+                if dataname_lossy is not None:
+                    logger.info("STARTING Put: lossy block {}".format((offset.z, offset.y, offsetx)))
+                    with Timer() as put_lossy_timer:
                         if resource_server != "":
                             node_service.put_gray3D(dataname_lossy, datacrop, (offset.z, offset.y, offsetx), compress=False, throttle=False)
                         else:
                             node_service.put_gray3D(dataname_lossy, datacrop, (offset.z, offset.y, offsetx), compress=False)
-                logger.info("Put lossy block {} in {:.3f} seconds".format((offset.z, offset.y, offsetx), put_lossy_timer.seconds))
+                    logger.info("Put lossy block {} in {:.3f} seconds".format((offset.z, offset.y, offsetx), put_lossy_timer.seconds))
 
         partitions.foreach(write_blocks)
 
