@@ -634,10 +634,13 @@ class Ingest3DVolume(Workflow):
 
             if not self.disable_original:
                 # for each statement to disk (write jpeg at same time)
+                dataname = None
                 datanamelossy = None
                 if self.createpyramidjpeg:
                     datanamelossy = self.dataname + self.JPEGPYRAMID_NAME
-                self._write_blocks(arraypartition, self.dataname, datanamelossy) 
+                if self.createpyramid:
+                    dataname = self.dataname
+                self._write_blocks(arraypartition, dataname, datanamelossy) 
 
             if self.createtiles or self.createtilesjpeg:
                 # repartition into tiles
