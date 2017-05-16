@@ -15,7 +15,7 @@ from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
 from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
-from DVIDSparkServices.util import Timer
+from DVIDSparkServices.util import Timer, runlength_encode
 import numpy
 import logging
 
@@ -438,31 +438,29 @@ class Ingest3DVolume(Workflow):
             logger = logging.getLogger(__name__)
             part, data = part_vol
             offset = part.get_offset()
-            z,y,x = data.shape
-            if x % blksize != 0:
+            _, _, x_size = data.shape
+            if x_size % blksize != 0:
                 # check if padded
                 raise ValueError("Data is not block aligned")
 
             logger.info("Starting WRITE of partition at: {} size: {}".format(offset, data.shape))
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
 
-            # find all contiguous ranges (do not write 0s)
-            started = False
-            ranges = []
-            for blockiter in range(0, x, blksize):
-                datablk = data[:,:,blockiter:blockiter+blksize]
-                vals = numpy.unique(datablk)
-                if len(vals) == 1 and vals[0] == delimiter:
-                    if started:
-                        started = False
-                        ranges.append((startx, blockiter))
-                else:
-                    if not started:
-                        startx = blockiter
-                        started = True
-            if started:
-                ranges.append((startx, x))
+            # Find all non-zero blocks (and record by block index)
+            block_coords = []
+            for block_index, block_x in enumerate(range(0, x_size, blksize)):
+                if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
+                    block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
+            # Find *runs* of non-zero blocks
+            block_runs = runlength_encode(block_coords, True) # returns [[Z,Y,X1,X2], [Z,Y,X1,X2], ...]
+            
+            # Convert stop indexes from inclusive to exclusive
+            block_runs[:,-1] += 1
+            
+            # Discard Z,Y indexes and convert from indexes to pixels
+            ranges = blksize * block_runs[:, 2:4]
+            
             # iterate through contiguous blocks and write to DVID
             # TODO: write compressed data directly into DVID
             for (offsetx, endx) in ranges:
