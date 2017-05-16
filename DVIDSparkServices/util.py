@@ -207,11 +207,12 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
         it takes 35 ms (after ~400 ms warmup).
         So, JIT speedup is ~45x.
     """
+    if len(coord_list_zyx) == 0:
+        return np.ndarray( (0,4), np.int64 )
+
     coord_list_zyx = np.asarray(coord_list_zyx)
     assert coord_list_zyx.ndim == 2
     assert coord_list_zyx.shape[1] == 3
-    if len(coord_list_zyx) == 0:
-        return np.ndarray( (0,4), np.int64 )
     
     if not assume_sorted:
         sorting_ind = np.lexsort(coord_list_zyx.transpose()[::-1])

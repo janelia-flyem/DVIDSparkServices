@@ -20,6 +20,11 @@ def test_runlength_encode():
     rle = runlength_encode(coords)
     assert (rle == expected_rle).all()
 
+def test_empty_runlength_encode():
+    coords = []
+    rle = runlength_encode(coords)
+    assert rle.shape == (0,4)
+
 import logging
 logger = logging.getLogger("unit_tests.test_util")
 
