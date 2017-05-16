@@ -461,6 +461,8 @@ class Ingest3DVolume(Workflow):
             # Discard Z,Y indexes and convert from indexes to pixels
             ranges = blksize * block_runs[:, 2:4]
             
+            ranges[:] += offset.x
+            
             # iterate through contiguous blocks and write to DVID
             # TODO: write compressed data directly into DVID
             for (offsetx, endx) in ranges:
