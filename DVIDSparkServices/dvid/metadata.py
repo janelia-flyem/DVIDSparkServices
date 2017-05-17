@@ -2,8 +2,10 @@
 """
 
 import json
+import requests
 from enum import Enum
 import numpy as np
+
 from libdvid import DVIDNodeService
 from libdvid import ConnectionMethod
 from libdvid import DVIDConnection
@@ -56,7 +58,7 @@ def is_datainstance(dvid_server, uuid, name):
     return True
 
 def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
-        compression=Compression.DEFAULT): 
+        compression=Compression.DEFAULT, minimal_extents=None): 
     """Create 64 bit labels data structure.
 
     Note:
@@ -71,6 +73,8 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
         name (str): data instance name
         blocksize (3 int tuple): block size z,y,x
         compression (Compression enum): compression to be used
+        minimal_extents: box [(z0,y0,x0), (z1,y1,x1)].
+                        If provided, data extents will be at least this large (possibly larger).
     
     Raises:
         DVIDExceptions are not caught in this function and will be
@@ -87,9 +91,11 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
 
     conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
 
+    if minimal_extents is not None:
+        update_extents(dvid_server, uuid, name, minimal_extents)
 
 def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
-        compression=Compression.DEFAULT): 
+                     compression=Compression.DEFAULT, minimal_extents=None): 
     """Create 8 bit labels data structure.
 
     Note:
@@ -104,6 +110,8 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
         name (str): data instance name
         blocksize (3 int tuple): block size z,y,x
         compression (Compression enum): compression to be used
+        minimal_extents: box [(z0,y0,x0), (z1,y1,x1)].
+                        If provided, data extents will be at least this large (possibly larger).
     
     Raises:
         DVIDExceptions are not caught in this function and will be
@@ -119,6 +127,47 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
         data["Compression"] = compression.value
 
     conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+
+    if minimal_extents is not None:
+        update_extents(dvid_server, uuid, name, minimal_extents)
+    
+
+def update_extents(dvid_server, uuid, name, minimal_extents):
+    """
+    Ensure that the given data instance has at least the given extents.
+    
+    Args:
+        dvid_server (str): location of dvid server
+        uuid (str): version id
+        name (str): data instance name
+        minimal_extents: 3D bounding box [(z0,y0,x0), (z1,y1,x1)].
+                         If provided, data extents will be at least this large (possibly larger).
+    """    
+    new_extents = np.array(minimal_extents, dtype=int)
+    assert new_extents.shape == (2,3), \
+        "Minimal extents must be provided as a 3D bounding box: [(z0,y0,x0), (z1,y1,x1)]"
+    
+    # Fetch original extents.
+    r = requests.get('{dvid_server}/api/node/{uuid}/{name}/info'.format(**locals()))
+    r.raise_for_status()
+
+    info = r.json()
+    
+    if info["Extended"]["MinPoint"] is not None:
+        new_extents = np.minimum(new_extents, info["Extended"]["MinPoint"])
+
+    if info["Extended"]["MaxPoint"] is not None:
+        new_extents = np.maximum(new_extents, info["Extended"]["MaxPoint"])
+
+    if (new_extents != minimal_extents).any():
+        new_extents = new_extents.tolist()
+        extents_json = { "MinPoint": new_extents[0],
+                         "MaxPoint": new_extents[1] }
+
+        r = requests.post( '{dvid_server}/api/node/{uuid}/{name}/extents'.format(**locals()),
+                           json=extents_json )
+        r.raise_for_status()
+
 
 def get_blocksize(dvid_server, uuid, dataname):
     """Gets block size for supplied data name.

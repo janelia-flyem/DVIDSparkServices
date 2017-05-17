@@ -515,18 +515,40 @@ class Ingest3DVolume(Workflow):
         # (must be a multiple of block size)
         imgreader.iteration_size = self.mintasks
 
+        # get dims from image (hackage)
+        from PIL import Image
+        import requests
+        img = Image.open(options["basename"] % options["minslice"]) 
+        volume_shape = (1 + options["maxslice"] - options["minslice"], img.height, img.width)
+        del img
+
+        global_box_zyx = np.zeros((2,3), dtype=int)
+        global_box_zyx[0] = options["offset"]
+        global_box_zyx[0] += (options["minslice"], 0, 0)
+
+        global_box_zyx[1] = global_box_zyx[0] + volume_shape
+
         # no syncs necessary if base datatype is not needed and does not exist
         hassyncs = True
-        if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"]):
+        if not is_datainstance( dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"] ):
+
             # create data instance and disable dvidmask
             # !! assume if data instance exists and mask is set that all pyramid
             # !! also exits, meaning the mask should be used. 
             options["has-dvidmask"] = False
             if not options["disable-original"]:
                 if options["is-rawarray"]:
-                    create_rawarray8(dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"], block_shape)
+                    create_rawarray8( dvid_info["dvid-server"],
+                                      dvid_info["uuid"],
+                                      dvid_info["dataname"],
+                                      block_shape,
+                                      global_box_zyx )
                 else:
-                    create_labelarray(dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"], block_shape)
+                    create_labelarray( dvid_info["dvid-server"],
+                                       dvid_info["uuid"],
+                                       dvid_info["dataname"],
+                                       block_shape,
+                                       global_box_zyx )
             else:
                 hassyncs = False
 
@@ -546,9 +568,11 @@ class Ingest3DVolume(Workflow):
                                   dvid_info["uuid"],
                                   downname,
                                   block_shape,
-                                  Compression.JPEG )
+                                  Compression.JPEG,
+                                  global_box_zyx )
     
         for level in range(1, options["pyramid-depth"]+1):
+            downsampled_box_zyx = global_box_zyx / (2**level)
             if options["create-pyramid"]: 
                 downname = dvid_info["dataname"] 
                 downname += "_%d" % level
@@ -558,12 +582,14 @@ class Ingest3DVolume(Workflow):
                         create_rawarray8( dvid_info["dvid-server"],
                                           dvid_info["uuid"],
                                           downname,
-                                          block_shape)
+                                          block_shape,
+                                          downsampled_box_zyx)
                     else:
                         create_labelarray( dvid_info["dvid-server"],
                                            dvid_info["uuid"],
                                            self.downname,
-                                           block_shape )
+                                           block_shape,
+                                           downsampled_box_zyx )
 
             if options["create-pyramid-jpeg"]: 
                 downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
@@ -572,26 +598,13 @@ class Ingest3DVolume(Workflow):
                     create_rawarray8( dvid_info["dvid-server"],
                                       dvid_info["uuid"], downname,
                                       block_shape,
-                                      Compression.JPEG )
+                                      Compression.JPEG,
+                                      downsampled_box_zyx )
             
         # create tiles
         if options["create-tiles"] or options["create-tiles-jpeg"]:
-            # get dims from image (hackage)
-            from PIL import Image
-            import requests
-            img = Image.open(options["basename"] % options["minslice"]) 
-            
-            xmin, ymin, zmin = options["offset"]
-            zmin += options["minslice"]
-            
-            xmax, ymax = img.width, img.height,
-            zmax = options["maxslice"] - options["minslice"]+1
-            xmax += xmin
-            ymax += ymin
-            zmax += zmin
-
-            MinTileCoord = [xmin/options["tilesize"], ymin/options["tilesize"], zmin/options["tilesize"]]
-            MaxTileCoord = [xmax/options["tilesize"], ymax/options["tilesize"], zmax/options["tilesize"]]
+            MinTileCoord = global_box_zyx[0][::-1] / options["tilesize"]
+            MaxTileCoord = global_box_zyx[1][::-1] / options["tilesize"]
             
             # get max level by just finding max tile coord
             maxval = max(MaxTileCoord) - min(MinTileCoord) + 1
@@ -599,14 +612,14 @@ class Ingest3DVolume(Workflow):
             self.maxlevel = int(math.log(maxval)/math.log(2))
 
             tilemeta = {}
-            tilemeta["MinTileCoord"] = MinTileCoord
-            tilemeta["MaxTileCoord"] = MaxTileCoord
+            tilemeta["MinTileCoord"] = MinTileCoord.tolist()
+            tilemeta["MaxTileCoord"] = MaxTileCoord.tolist()
             tilemeta["Levels"] = {}
 
             currres = 8.0 # just use as placeholder for now
             for level in range(0, self.maxlevel+1):
-                tilemeta["Levels"][str(level)] = { "Resolution" : [currres, currres, currres],
-                                                   "TileSize": [options["tilesize"], options["tilesize"], options["tilesize"]]}
+                tilemeta["Levels"][str(level)] = { "Resolution" : 3*[currres],
+                                                   "TileSize": 3*[options["tilesize"]] }
                 currres *= 2
 
             if options["create-tiles"]:
@@ -616,10 +629,16 @@ class Ingest3DVolume(Workflow):
                                     "source": dvid_info["dataname"],
                                     "format": "png"})
                 requests.post("{dvid-server}/api/repo/{uuid}/{dataname}{tilename}/metadata".format(tilename=self.TILENAME, **dvid_info), json=tilemeta)
+
             if options["create-tiles-jpeg"]:
-                requests.post(dvid_info["dvid-server"] + "/api/repo/" + dvid_info["uuid"] + "/instance", json={"typename": "imagetile", "dataname": dvid_info["dataname"]+self.JPEGTILENAME, "source": dvid_info["dataname"], "format": "jpg"})
-            
-                requests.post(dvid_info["dvid-server"] + "/api/node/" + dvid_info["uuid"] + "/" + dvid_info["dataname"]+self.JPEGTILENAME + "/metadata", json=tilemeta)
+                requests.post("{dvid-server}/api/repo/{uuid}/instance".format(**dvid_info),
+                              json={ "typename": "imagetile",
+                                     "dataname": dvid_info["dataname"]+self.JPEGTILENAME,
+                                     "source": dvid_info["dataname"],
+                                     "format": "jpg"} )
+                requests.post("{dvid-server}/api/repo/{uuid}/{dataname_jpeg_tile}/metadata"
+                              .format( dataname_jpeg_tile=dvid_info["dataname"]+self.JPEGTILENAME, **dvid_info ),
+                              json=tilemeta)
 
         # TODO Validation: should verify syncs exist, should verify pyramid depth 
 
