@@ -12,7 +12,7 @@ from jsonschema import ValidationError
 import json
 import uuid
 import socket
-from DVIDSparkServices.util import mkdir_p
+from DVIDSparkServices.util import mkdir_p, unicode_to_str
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
@@ -114,6 +114,9 @@ class Workflow(object):
             validate_and_inject_defaults(self.config_data, schema_data)
         except ValidationError, e:
             raise WorkflowError("Validation error: ", str(e))
+
+        # Convert unicode values to str (easier to pass to C++ code)
+        self.config_data = unicode_to_str(self.config_data)
 
         self.logger = WorkflowLogger(appname)
 

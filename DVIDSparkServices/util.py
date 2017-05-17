@@ -1,3 +1,4 @@
+import copy
 import time
 import contextlib
 from itertools import starmap
@@ -13,6 +14,19 @@ def Timer():
 
 class _TimerResult(object):
     seconds = -1.0
+
+def unicode_to_str(json_data):
+    if isinstance(json_data, unicode):
+        return str(json_data)
+    elif isinstance(json_data, list):
+        return map(unicode_to_str, json_data)
+    elif isinstance(json_data, dict):
+        json_data = copy.deepcopy(json_data)
+        for k,v in json_data.items():
+            json_data[k] = unicode_to_str(v)
+        return json_data
+    else:
+        return json_data
 
 def bb_to_slicing(start, stop):
     """

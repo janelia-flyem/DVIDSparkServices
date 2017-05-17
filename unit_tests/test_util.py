@@ -1,5 +1,5 @@
 import numpy as np
-from DVIDSparkServices.util import runlength_encode
+from DVIDSparkServices.util import runlength_encode, unicode_to_str
 
 def test_runlength_encode():
     mask = np.array( [[[0,1,1,0,1],
@@ -24,6 +24,19 @@ def test_empty_runlength_encode():
     coords = []
     rle = runlength_encode(coords)
     assert rle.shape == (0,4)
+
+def test_unicode_to_str():
+    data = {'hello': u'world',
+            'number': 5,
+            'list': [1,2,3],
+            'dict': {'hello': u'world'}}
+
+    new_data = unicode_to_str(data)
+    assert isinstance(new_data['number'], int)
+    assert isinstance(new_data['list'], list)
+    assert isinstance(new_data['list'][0], int)
+    assert isinstance(new_data['hello'], str)
+    assert isinstance(new_data['dict']['hello'], str)
 
 import logging
 logger = logging.getLogger("unit_tests.test_util")
