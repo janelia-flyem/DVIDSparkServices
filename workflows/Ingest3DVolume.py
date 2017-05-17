@@ -16,7 +16,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
 from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression, extend_list_value 
+from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression, extend_list_value, update_extents 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
 from DVIDSparkServices.util import Timer, runlength_encode, unicode_to_str
 
@@ -538,16 +538,19 @@ class Ingest3DVolume(Workflow):
                     create_rawarray8( dvid_info["dvid-server"],
                                       dvid_info["uuid"],
                                       dvid_info["dataname"],
-                                      block_shape,
-                                      global_box_zyx )
+                                      block_shape )
                 else:
                     create_labelarray( dvid_info["dvid-server"],
                                        dvid_info["uuid"],
                                        dvid_info["dataname"],
-                                       block_shape,
-                                       global_box_zyx )
+                                       block_shape )
 
         if not options["disable-original"]:
+            update_extents( dvid_info["dvid-server"],
+                            dvid_info["uuid"],
+                            dvid_info["dataname"],
+                            global_box_zyx )
+
             # Bottom level of pyramid is listed as neuroglancer-compatible
             extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dvid_info["dataname"]])
 
@@ -567,8 +570,12 @@ class Ingest3DVolume(Workflow):
                                   dvid_info["uuid"],
                                   downname,
                                   block_shape,
-                                  Compression.JPEG,
-                                  global_box_zyx )
+                                  Compression.JPEG )
+
+            update_extents( dvid_info["dvid-server"],
+                            dvid_info["uuid"],
+                            dvid_info["dataname"],
+                            global_box_zyx )
 
             # Bottom level of pyramid is listed as neuroglancer-compatible
             extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [downname])
@@ -585,14 +592,17 @@ class Ingest3DVolume(Workflow):
                         create_rawarray8( dvid_info["dvid-server"],
                                           dvid_info["uuid"],
                                           downname,
-                                          block_shape,
-                                          downsampled_box_zyx)
+                                          block_shape )
                     else:
                         create_labelarray( dvid_info["dvid-server"],
                                            dvid_info["uuid"],
                                            downname,
-                                           block_shape,
-                                           downsampled_box_zyx )
+                                           block_shape )
+
+                update_extents( dvid_info["dvid-server"],
+                                dvid_info["uuid"],
+                                dvid_info["dataname"],
+                                downsampled_box_zyx )
 
                 # Higher-levels of the pyramid should not appear in the DVID-lite console.
                 extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'restrictions', [downname])
@@ -604,8 +614,12 @@ class Ingest3DVolume(Workflow):
                     create_rawarray8( dvid_info["dvid-server"],
                                       dvid_info["uuid"], downname,
                                       block_shape,
-                                      Compression.JPEG,
-                                      downsampled_box_zyx )
+                                      Compression.JPEG )
+
+                update_extents( dvid_info["dvid-server"],
+                                dvid_info["uuid"],
+                                dvid_info["dataname"],
+                                downsampled_box_zyx )
 
                 # Higher-levels of the pyramid should not appear in the DVID-lite console.
                 extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'restrictions', [downname])

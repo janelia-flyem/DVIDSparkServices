@@ -58,7 +58,7 @@ def is_datainstance(dvid_server, uuid, name):
     return True
 
 def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
-        compression=Compression.DEFAULT, minimal_extents=None): 
+                      compression=Compression.DEFAULT ):
     """Create 64 bit labels data structure.
 
     Note:
@@ -91,11 +91,8 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
 
     conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
 
-    if minimal_extents is not None:
-        update_extents(dvid_server, uuid, name, minimal_extents)
-
 def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
-                     compression=Compression.DEFAULT, minimal_extents=None): 
+                     compression=Compression.DEFAULT ):
     """Create 8 bit labels data structure.
 
     Note:
@@ -127,9 +124,6 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
         data["Compression"] = compression.value
 
     conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
-
-    if minimal_extents is not None:
-        update_extents(dvid_server, uuid, name, minimal_extents)
     
 
 def update_extents(dvid_server, uuid, name, minimal_extents):
