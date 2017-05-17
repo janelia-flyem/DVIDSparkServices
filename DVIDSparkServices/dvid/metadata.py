@@ -168,6 +168,38 @@ def update_extents(dvid_server, uuid, name, minimal_extents):
                            json=extents_json )
         r.raise_for_status()
 
+def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
+    """
+    For the list stored at the given keyvalue instance and key, extend it with the given new_list.
+    If the keyvalue instance and/or key are missing from the server, create them.
+    """
+    assert isinstance(new_list, list)
+    old_list = []
+
+    r = requests.get('{dvid_server}/api/node/{uuid}/{kv_instance}/keys'.format(**locals()))
+    if r.status_code not in (200,400):
+        r.raise_for_status()
+    
+    if r.status_code == 400:
+        # Create the keyvalue instance first
+        r_post = requests.post('{dvid_server}/api/repo/{uuid}/instance'.format(**locals()),
+                               json={ "typename": "keyvalue", 
+                                      "dataname": kv_instance } )
+        r_post.raise_for_status()
+
+    elif key in r.json():
+        # Fetch original value
+        r = requests.get('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()))
+        r.raise_for_status()
+        old_list = r.json()
+        assert isinstance(old_list, list)
+
+    new_list = list(set(old_list + new_list))
+    
+    r = requests.post('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()),
+                      json=new_list)
+    r.raise_for_status()
+    
 
 def get_blocksize(dvid_server, uuid, dataname):
     """Gets block size for supplied data name.

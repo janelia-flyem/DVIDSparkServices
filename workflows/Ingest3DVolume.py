@@ -16,7 +16,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
 from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
+from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression, extend_list_value 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
 from DVIDSparkServices.util import Timer, runlength_encode, unicode_to_str
 
@@ -528,10 +528,7 @@ class Ingest3DVolume(Workflow):
 
         global_box_zyx[1] = global_box_zyx[0] + volume_shape
 
-        # no syncs necessary if base datatype is not needed and does not exist
-        hassyncs = True
         if not is_datainstance( dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"] ):
-
             # create data instance and disable dvidmask
             # !! assume if data instance exists and mask is set that all pyramid
             # !! also exits, meaning the mask should be used. 
@@ -549,8 +546,10 @@ class Ingest3DVolume(Workflow):
                                        dvid_info["dataname"],
                                        block_shape,
                                        global_box_zyx )
-            else:
-                hassyncs = False
+
+        if not options["disable-original"]:
+            # Bottom level of pyramid is listed as neuroglancer-compatible
+            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dvid_info["dataname"]])
 
         # determine number of pyramid levels if not specified 
         if options["create-pyramid"] or options["create-pyramid-jpeg"]:
@@ -570,6 +569,10 @@ class Ingest3DVolume(Workflow):
                                   block_shape,
                                   Compression.JPEG,
                                   global_box_zyx )
+
+            # Bottom level of pyramid is listed as neuroglancer-compatible
+            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [downname])
+
     
         for level in range(1, options["pyramid-depth"]+1):
             downsampled_box_zyx = global_box_zyx / (2**level)
@@ -587,9 +590,12 @@ class Ingest3DVolume(Workflow):
                     else:
                         create_labelarray( dvid_info["dvid-server"],
                                            dvid_info["uuid"],
-                                           self.downname,
+                                           downname,
                                            block_shape,
                                            downsampled_box_zyx )
+
+                # Higher-levels of the pyramid should not appear in the DVID-lite console.
+                extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'restrictions', [downname])
 
             if options["create-pyramid-jpeg"]: 
                 downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
@@ -600,6 +606,9 @@ class Ingest3DVolume(Workflow):
                                       block_shape,
                                       Compression.JPEG,
                                       downsampled_box_zyx )
+
+                # Higher-levels of the pyramid should not appear in the DVID-lite console.
+                extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'restrictions', [downname])
             
         # create tiles
         if options["create-tiles"] or options["create-tiles-jpeg"]:
