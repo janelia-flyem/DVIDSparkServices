@@ -238,9 +238,8 @@ class partitionSchema(object):
 
                         # map all partitions as an array
                         subvol = volume[z1local:z2local, y1local:y2local, x1local:x2local]
-                        partitions.append((volumePartition((z,y,x),
-                                          VolumeOffset(z*partdims.zsize, y*partdims.ysize, x*partdims.xsize)),
-                                        [(VolumeOffset(relpartz, relparty, relpartx), subvol)]))
+                        partitions.append( (volumePartition((z,y,x), VolumeOffset(z*partdims.zsize, y*partdims.ysize, x*partdims.xsize)),
+                                                           [(VolumeOffset(relpartz, relparty, relpartx), subvol)]))
 
             return partitions 
 

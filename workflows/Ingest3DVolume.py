@@ -6,6 +6,9 @@ library without requiring Apache Spark.
 """
 import copy
 import json
+import logging
+
+import numpy as np
 
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -15,9 +18,7 @@ from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
 from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode
-import numpy
-import logging
+from DVIDSparkServices.util import Timer, runlength_encode, unicode_to_str
 
 class Ingest3DVolumeDirect(object):
     """Called by Ingest3DVolume (see below for detailed documentation).
@@ -265,47 +266,27 @@ class Ingest3DVolume(Workflow):
         """
         super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
 
-        # primary input/output parameters
-        self.minslice = self.config_data["options"]["minslice"]
-        self.maxslice = self.config_data["options"]["maxslice"]
-        self.basename = str(self.config_data["options"]["basename"]) 
-        self.dvidserver = str(self.config_data["dvid-info"]["dvid-server"]) 
-        self.uuid = str(self.config_data["dvid-info"]["uuid"])
-        self.dataname = str(self.config_data["dvid-info"]["dataname"]) 
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
 
-        # options
-        self.createpyramid = self.config_data["options"]["create-pyramid"]
-        self.createpyramidjpeg = self.config_data["options"]["create-pyramid-jpeg"]
-        self.createtiles = self.config_data["options"]["create-tiles"]
-        self.createtilesjpeg = self.config_data["options"]["create-tiles-jpeg"]
-        self.blksize = self.config_data["options"]["blocksize"]
-        self.tilesize = self.config_data["options"]["tilesize"]
-        self.offset = self.config_data["options"]["offset"]
-        self.partition_size = self.config_data["options"]["blockwritelimit"] * self.blksize
-        self.use_dvidmask = self.config_data["options"]["has-dvidmask"]
-        self.disable_original = self.config_data["options"]["disable-original"]
-        self.delimiter = self.config_data["options"]["blankdelimiter"]
-        self.israw = self.config_data["options"]["is-rawarray"]
-        self.pyramid_depth = self.config_data["options"]["pyramid-depth"]
-        self.num_tasks = self.config_data["options"]["num-tasks"]
-        self.resource_server = str(self.resource_server)
-        self.resource_port = self.resource_port
+        if not dvid_info["dvid-server"].startswith("http://"):
+            dvid_info["dvid-server"] = "http://" + dvid_info["dvid-server"]
 
-        # disable options if not raw
-        if not self.israw:
-            self.createtiles = False
-            self.createtilesjpeg = False
-            self.createpyramidjpeg = False
+        if not options["is-rawarray"]:
+            assert not options["create-tiles"], "Bad config: Can't create tiles for label data."
+            assert not options["create-tiles-jpeg"], "Bad config: Can't create tiles for label data."
+            assert not options["create-pyramid-jpeg"], "Bad config: Can't create tiles for label data."
 
-        if not self.createpyramidjpeg and not self.createpyramid:
-            self.pyramid_depth = 0
+        if not options["create-pyramid-jpeg"] and not options["create-pyramid"]:
+            assert options["pyramid-depth"] == 0, \
+                "Bad config: Pyramid depth specified, but no 'create-pyramid' setting given."
 
-        # create image source object
-        self.mintasks = self.blksize * 2
-        if self.num_tasks > self.mintasks:
+        self.mintasks = options["blocksize"] * 2
+        if options["num-tasks"] > self.mintasks:
             # fetch data in multiples of mintasks
-            self.mintasks = (self.num_tasks/self.mintasks) * self.mintasks
+            self.mintasks = (options["num-tasks"]/self.mintasks) * self.mintasks
 
+        self.partition_size = options["blockwritelimit"] * options["blocksize"]
 
     def _writeimagepyramid(self, tilepartition):
         """Write image tiles to DVID.
@@ -315,16 +296,18 @@ class Ingest3DVolume(Workflow):
             should consider multi-threaded requests as in 'CreateTiles'
             in situations with poor server latency.
         """
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
 
         maxlevel = self.maxlevel
-        tilesize = self.tilesize
-        delimiter = self.delimiter
-        createtiles = self.createtiles
-        createtilesjpeg = self.createtilesjpeg
-        server = self.dvidserver
-        tilename = self.dataname+self.TILENAME
-        tilenamejpeg = self.dataname+self.JPEGTILENAME
-        uuid = self.uuid
+        tilesize = options["tilesize"]
+        delimiter = options["blankdelimiter"]
+        createtiles = options["create-tiles"]
+        createtilesjpeg = options["create-tiles-jpeg"]
+        server = dvid_info["dvid-server"]
+        tilename = dvid_info["dataname"]+self.TILENAME
+        tilenamejpeg = dvid_info["dataname"]+self.JPEGTILENAME
+        uuid = dvid_info["uuid"]
 
         @self.collect_log(lambda (part, vol): part.get_offset())
         def writeimagepyramid(part_data):
@@ -345,7 +328,7 @@ class Ingest3DVolume(Workflow):
             tysize, txsize = timslice.shape
             ysize = tysize + shifty
             xsize = txsize + shiftx
-            imslice = numpy.zeros((ysize, xsize))
+            imslice = np.zeros((ysize, xsize))
             imslice[:,:] = delimiter
             imslice[shifty:ysize, shiftx:xsize] = timslice
             curry = (offset.y - shifty)/2 
@@ -367,7 +350,7 @@ class Ingest3DVolume(Workflow):
                     
                     ysize = tysize + shifty
                     xsize = txsize + shiftx
-                    imslice = numpy.zeros((ysize, xsize))
+                    imslice = np.zeros((ysize, xsize))
                     imslice[:,:] = delimiter
                     timslice = ndimage.interpolation.zoom(imlevels[level-1], 0.5)
                     imslice[shifty:ysize, shiftx:xsize] = timslice
@@ -391,7 +374,7 @@ class Ingest3DVolume(Workflow):
                     for iter1 in range(0, num1tiles):
                         for iter2 in range(0, num2tiles):
                             # extract tile
-                            tileholder = numpy.zeros((tilesize, tilesize), numpy.uint8)
+                            tileholder = np.zeros((tilesize, tilesize), np.uint8)
                             tileholder[:,:] = delimiter
                             min1 = iter1*tilesize
                             min2 = iter2*tilesize
@@ -424,14 +407,17 @@ class Ingest3DVolume(Workflow):
         tilepartition.foreach(writeimagepyramid)
 
     def _write_blocks(self, partitions, dataname, dataname_lossy):
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
         appname = self.APPNAME
-        server = self.dvidserver
-        uuid = self.uuid
+
+        server = dvid_info["dvid-server"]
+        uuid = dvid_info["uuid"]
         resource_server = self.resource_server
         resource_port = self.resource_port
-        blksize = self.blksize
-        delimiter = self.delimiter
-        israw = self.israw
+        blksize = options["blocksize"]
+        delimiter = options["blankdelimiter"]
+        israw = options["is-rawarray"]
 
         @self.collect_log(lambda (part, data): part.get_offset())
         def write_blocks(part_vol):
@@ -470,30 +456,32 @@ class Ingest3DVolume(Workflow):
                     datacrop = data[:,:,offsetx:endx].copy()
                 logger.info("Copied {}:{} in {:.3f} seconds".format(offsetx, endx, copy_timer.seconds))
 
+                data_offset_zyx = (offset.z, offset.y, offsetx)
+
                 if dataname is not None:
                     with Timer() as put_timer:
                         if not israw: 
-                            logger.info("STARTING Put: labels block {}".format((offset.z, offset.y, offsetx)))
+                            logger.info("STARTING Put: labels block {}".format())
                             if resource_server != "":
-                                node_service.put_labels3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=True, throttle=False)
+                                node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True, throttle=False)
                             else:
-                                node_service.put_labels3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=True)
+                                node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True)
                         else:
-                            logger.info("STARTING Put: raw block {}".format((offset.z, offset.y, offsetx)))
+                            logger.info("STARTING Put: raw block {}".format(data_offset_zyx))
                             if resource_server != "":
-                                node_service.put_gray3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=False, throttle=False)
+                                node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False, throttle=False)
                             else:
-                                node_service.put_gray3D(dataname, datacrop, (offset.z, offset.y, offsetx), compress=False)
-                    logger.info("Put block {} in {:.3f} seconds".format((offset.z, offset.y, offsetx), put_timer.seconds))
+                                node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False)
+                    logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
 
                 if dataname_lossy is not None:
-                    logger.info("STARTING Put: lossy block {}".format((offset.z, offset.y, offsetx)))
+                    logger.info("STARTING Put: lossy block {}".format(data_offset_zyx))
                     with Timer() as put_lossy_timer:
                         if resource_server != "":
-                            node_service.put_gray3D(dataname_lossy, datacrop, (offset.z, offset.y, offsetx), compress=False, throttle=False)
+                            node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False, throttle=False)
                         else:
-                            node_service.put_gray3D(dataname_lossy, datacrop, (offset.z, offset.y, offsetx), compress=False)
-                    logger.info("Put lossy block {} in {:.3f} seconds".format((offset.z, offset.y, offsetx), put_lossy_timer.seconds))
+                            node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False)
+                    logger.info("Put lossy block {} in {:.3f} seconds".format(data_offset_zyx, put_lossy_timer.seconds))
 
         partitions.foreach(write_blocks)
 
@@ -501,13 +489,25 @@ class Ingest3DVolume(Workflow):
     def execute(self):
         """Execute spark workflow.
         """
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
+        block_shape = 3*(options["blocksize"],)
         # ?? num parallel requests might be really small at high levels of pyramids
 
         # xdim is unbounded or very large
-        schema = partitionSchema(PartitionDims(self.blksize, self.blksize, self.partition_size), blank_delimiter=self.delimiter, padding=self.blksize, enablemask=self.use_dvidmask) 
-        imgreader = imagefileSrc(schema, self.basename, minmaxplane=(self.minslice, self.maxslice),
-                offset=VolumeOffset(self.offset[2]+self.minslice, self.offset[1],
-                    self.offset[0]), spark_context=self.sc)
+        partition_dims = PartitionDims(options["blocksize"], options["blocksize"], self.partition_size)
+        partition_schema = partitionSchema( partition_dims,
+                                            blank_delimiter=options["blankdelimiter"],
+                                            padding=options["blocksize"],
+                                            enablemask=options["has-dvidmask"])
+
+        offset_zyx = np.array( options["offset"][::-1] )
+        offset_zyx[0] += options["minslice"]
+        imgreader = imagefileSrc( partition_schema,
+                                  options["basename"],
+                                  (options["minslice"], options["maxslice"]),
+                                  VolumeOffset(*offset_zyx),
+                                  self.sc )
        
         # !! hack: override iteration size that is set to partition size, TODO: add option
         # this just makes the downstream processing a little more convenient, and reduces
@@ -517,75 +517,81 @@ class Ingest3DVolume(Workflow):
 
         # no syncs necessary if base datatype is not needed and does not exist
         hassyncs = True
-        if not is_datainstance(self.dvidserver, self.uuid, self.dataname):
+        if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"]):
             # create data instance and disable dvidmask
             # !! assume if data instance exists and mask is set that all pyramid
             # !! also exits, meaning the mask should be used. 
-            self.use_dvidmask = False
-            if not self.disable_original:
-                if self.israw:
-                    create_rawarray8(self.dvidserver, self.uuid, self.dataname,
-                            blocksize=(self.blksize,self.blksize,self.blksize))
+            options["has-dvidmask"] = False
+            if not options["disable-original"]:
+                if options["is-rawarray"]:
+                    create_rawarray8(dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"], block_shape)
                 else:
-                    create_labelarray(self.dvidserver, self.uuid, self.dataname,
-                            blocksize=(self.blksize,self.blksize,self.blksize))
+                    create_labelarray(dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"], block_shape)
             else:
                 hassyncs = False
 
         # determine number of pyramid levels if not specified 
-        if self.createpyramid or self.createpyramidjpeg:
-            if self.pyramid_depth == 0:
-                zsize = self.maxslice - self.minslice + 1
+        if options["create-pyramid"] or options["create-pyramid-jpeg"]:
+            if options["pyramid-depth"] == 0:
+                zsize = options["maxslice"] - options["minslice"] + 1
                 while zsize > 512:
-                    self.pyramid_depth += 1
+                    options["pyramid-depth"] += 1
                     zsize /= 2
 
         # create pyramid data instances
-        if self.createpyramidjpeg:
-            downname = self.dataname + self.JPEGPYRAMID_NAME 
-            if not is_datainstance(self.dvidserver, self.uuid, downname):
-                create_rawarray8(self.dvidserver, self.uuid, downname,
-                        blocksize=(self.blksize,self.blksize,self.blksize),
-                        compression=Compression.JPEG)
+        if options["create-pyramid-jpeg"]:
+            downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
+            if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+                create_rawarray8( dvid_info["dvid-server"],
+                                  dvid_info["uuid"],
+                                  downname,
+                                  block_shape,
+                                  Compression.JPEG )
     
-        for level in range(1, self.pyramid_depth+1):
-            if self.createpyramid: 
-                downname = self.dataname 
+        for level in range(1, options["pyramid-depth"]+1):
+            if options["create-pyramid"]: 
+                downname = dvid_info["dataname"] 
                 downname += "_%d" % level
-                if not is_datainstance(self.dvidserver, self.uuid, downname):
-                    if self.israw:
-                        create_rawarray8(self.dvidserver, self.uuid,
-                                downname, blocksize=(self.blksize,
-                                    self.blksize,self.blksize))
+
+                if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+                    if options["is-rawarray"]:
+                        create_rawarray8( dvid_info["dvid-server"],
+                                          dvid_info["uuid"],
+                                          downname,
+                                          block_shape)
                     else:
-                        create_labelarray(self.dvidserver, self.uuid,
-                                self.downname, blocksize=(self.blksize,
-                                    self.blksize,self.blksize))
-            if self.createpyramidjpeg: 
-                downname = self.dataname + self.JPEGPYRAMID_NAME 
+                        create_labelarray( dvid_info["dvid-server"],
+                                           dvid_info["uuid"],
+                                           self.downname,
+                                           block_shape )
+
+            if options["create-pyramid-jpeg"]: 
+                downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
                 downname += "_%d" % level
-                if not is_datainstance(self.dvidserver, self.uuid, downname):
-                    create_rawarray8(self.dvidserver, self.uuid, downname,
-                            blocksize=(self.blksize,self.blksize,self.blksize),
-                            compression=Compression.JPEG)
+                if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+                    create_rawarray8( dvid_info["dvid-server"],
+                                      dvid_info["uuid"], downname,
+                                      block_shape,
+                                      Compression.JPEG )
             
         # create tiles
-        if self.createtiles or self.createtilesjpeg:
+        if options["create-tiles"] or options["create-tiles-jpeg"]:
             # get dims from image (hackage)
             from PIL import Image
             import requests
-            img = Image.open(self.basename % self.minslice) 
+            img = Image.open(options["basename"] % options["minslice"]) 
             
-            xmin, ymin, zmin = self.offset
-            zmin += self.minslice
+            xmin, ymin, zmin = options["offset"]
+            zmin += options["minslice"]
             
-            xmax, ymax, zmax = img.width, img.height, self.maxslice-self.minslice+1
+            xmax, ymax = img.width, img.height,
+            zmax = options["maxslice"] - options["minslice"]+1
             xmax += xmin
             ymax += ymin
             zmax += zmin
 
-            MinTileCoord = [xmin/self.tilesize, ymin/self.tilesize, zmin/self.tilesize]
-            MaxTileCoord = [xmax/self.tilesize, ymax/self.tilesize, zmax/self.tilesize]
+            MinTileCoord = [xmin/options["tilesize"], ymin/options["tilesize"], zmin/options["tilesize"]]
+            MaxTileCoord = [xmax/options["tilesize"], ymax/options["tilesize"], zmax/options["tilesize"]]
             
             # get max level by just finding max tile coord
             maxval = max(MaxTileCoord) - min(MinTileCoord) + 1
@@ -596,22 +602,24 @@ class Ingest3DVolume(Workflow):
             tilemeta["MinTileCoord"] = MinTileCoord
             tilemeta["MaxTileCoord"] = MaxTileCoord
             tilemeta["Levels"] = {}
+
             currres = 8.0 # just use as placeholder for now
             for level in range(0, self.maxlevel+1):
                 tilemeta["Levels"][str(level)] = { "Resolution" : [currres, currres, currres],
-                                                   "TileSize": [self.tilesize, self.tilesize, self.tilesize]}
+                                                   "TileSize": [options["tilesize"], options["tilesize"], options["tilesize"]]}
                 currres *= 2
 
-            if not self.dvidserver.startswith("http://"):
-                self.dvidserver = "http://" + self.dvidserver
-
-            if self.createtiles:
-                requests.post(self.dvidserver + "/api/repo/" + self.uuid + "/instance", json={"typename": "imagetile", "dataname": self.dataname+self.TILENAME, "source": self.dataname, "format": "png"})
-                requests.post(self.dvidserver + "/api/node/" + self.uuid + "/" + self.dataname+self.TILENAME + "/metadata", json=tilemeta)
-            if self.createtilesjpeg:
-                requests.post(self.dvidserver + "/api/repo/" + self.uuid + "/instance", json={"typename": "imagetile", "dataname": self.dataname+self.JPEGTILENAME, "source": self.dataname, "format": "jpg"})
+            if options["create-tiles"]:
+                requests.post("{dvid-server}/api/repo/{uuid}/instance".format(**dvid_info),
+                              json={"typename": "imagetile",
+                                    "dataname": dvid_info["dataname"]+self.TILENAME,
+                                    "source": dvid_info["dataname"],
+                                    "format": "png"})
+                requests.post("{dvid-server}/api/repo/{uuid}/{dataname}{tilename}/metadata".format(tilename=self.TILENAME, **dvid_info), json=tilemeta)
+            if options["create-tiles-jpeg"]:
+                requests.post(dvid_info["dvid-server"] + "/api/repo/" + dvid_info["uuid"] + "/instance", json={"typename": "imagetile", "dataname": dvid_info["dataname"]+self.JPEGTILENAME, "source": dvid_info["dataname"], "format": "jpg"})
             
-                requests.post(self.dvidserver + "/api/node/" + self.uuid + "/" + self.dataname+self.JPEGTILENAME + "/metadata", json=tilemeta)
+                requests.post(dvid_info["dvid-server"] + "/api/node/" + dvid_info["uuid"] + "/" + dvid_info["dataname"]+self.JPEGTILENAME + "/metadata", json=tilemeta)
 
         # TODO Validation: should verify syncs exist, should verify pyramid depth 
 
@@ -623,10 +631,14 @@ class Ingest3DVolume(Workflow):
         # iterate through each partition
         for arraypartition in imgreader:
             # DVID pad if necessary
-            if self.use_dvidmask:
-                dvidsrc = dvidSrc(self.dvidserver, self.uuid, self.dataname,
-                        arraypartition, resource_server=self.resource_server,
-                        resource_port=self.resource_port)
+            if options["has-dvidmask"]:
+                dvidsrc = dvidSrc( dvid_info["dvid-server"],
+                                   dvid_info["uuid"],
+                                   dvid_info["dataname"],
+                                   arraypartition,
+                                   resource_server=self.resource_server,
+                                   resource_port=self. resource_port)
+
                 arraypartition = dvidsrc.extract_volume()
 
             # potentially need for future iterations
@@ -635,17 +647,17 @@ class Ingest3DVolume(Workflow):
             # check for final layer
             finallayer = imgreader.curr_slice > imgreader.end_slice
 
-            if not self.disable_original:
+            if not options["disable-original"]:
                 # for each statement to disk (write jpeg at same time)
                 dataname = None
                 datanamelossy = None
-                if self.createpyramidjpeg:
-                    datanamelossy = self.dataname + self.JPEGPYRAMID_NAME
-                if self.createpyramid:
-                    dataname = self.dataname
+                if options["create-pyramid-jpeg"]:
+                    datanamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME
+                if options["create-pyramid"]:
+                    dataname = dvid_info["dataname"]
                 self._write_blocks(arraypartition, dataname, datanamelossy) 
 
-            if self.createtiles or self.createtilesjpeg:
+            if options["create-tiles"] or options["create-tiles-jpeg"]:
                 # repartition into tiles
                 schema = partitionSchema(PartitionDims(1,0,0))
                 tilepartition = schema.partition_data(arraypartition)
@@ -653,7 +665,7 @@ class Ingest3DVolume(Workflow):
                 # write unpadded tilesize (will pad with delimiter if needed)
                 self._writeimagepyramid(tilepartition)
 
-            if self.createpyramid or self.createpyramidjpeg:
+            if options["create-pyramid"] or options["create-pyramid-jpeg"]:
                 if 0 not in levels_cache:
                     levels_cache[0] = []
                 levels_cache[0].append(arraypartition) 
@@ -661,8 +673,8 @@ class Ingest3DVolume(Workflow):
                 downsample_factor = 2
 
                 # should be a multiple of Z blocks or the final fetch
-                assert imgreader.curr_slice % self.blksize == 0
-                while ((((imgreader.curr_slice / self.blksize) % downsample_factor) == 0) or finallayer) and curr_level <= self.pyramid_depth:
+                assert imgreader.curr_slice % options["blocksize"] == 0
+                while ((((imgreader.curr_slice / options["blocksize"]) % downsample_factor) == 0) or finallayer) and curr_level <= options["pyramid-depth"]:
                     partlist = levels_cache[curr_level-1]
                     part = partlist[0]
                     # union all RDDs from the same level
@@ -670,7 +682,7 @@ class Ingest3DVolume(Workflow):
                         part = part.union(partlist[iter1])
                     
                     # downsample map
-                    israw = self.israw
+                    israw = options["is-rawarray"]
                     def downsample(part_vol):
                         part, vol = part_vol
                         if not israw:
@@ -683,20 +695,23 @@ class Ingest3DVolume(Workflow):
                     # repart (vol and offset will always be power of two because of padding)
                     def repartition_down(part_volume):
                         part, volume = part_volume
-                        offset = part.get_offset()
-                        offsetnew = VolumeOffset(offset.z/2, offset.y/2, offset.x/2)
+                        downsampled_offset = np.array(part.get_offset()) / 2
+                        offsetnew = VolumeOffset(*downsampled_offset)
                         partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew)
                         return partnew, volume
 
                     downsampled_array = downsampled_array.map(repartition_down)
                     
                     # repartition downsample data
-                    schema = partitionSchema(PartitionDims(self.blksize, self.blksize,
-                        self.partition_size), blank_delimiter=self.delimiter, padding=self.blksize, enablemask=self.use_dvidmask) 
+                    partition_dims = PartitionDims(options["blocksize"], options["blocksize"], self.partition_size)
+                    schema = partitionSchema( partition_dims,
+                                              blank_delimiter=options["blankdelimiter"],
+                                              padding=options["blocksize"],
+                                              enablemask=options["has-dvidmask"] ) 
                     downsampled_array = schema.partition_data(downsampled_array)
 
                     # persist before padding if there are more levels
-                    if curr_level < self.pyramid_depth:
+                    if curr_level < options["pyramid-depth"]:
                         downsampled_array.persist()
                         if curr_level not in levels_cache:
                             levels_cache[curr_level] = []
@@ -705,24 +720,28 @@ class Ingest3DVolume(Workflow):
                     # pad from DVID (move before persist will allow multi-ingest
                     # but will lead to slightly non-optimal downsampling boundary
                     # effects if using a lossy compression only.
-                    if self.use_dvidmask:
-                        padname = self.dataname
-                        if self.createpyramidjpeg: # !! should pad with orig if computing
+                    if options["has-dvidmask"]:
+                        padname = dvid_info["dataname"]
+                        if options["create-pyramid-jpeg"]: # !! should pad with orig if computing
                             # pad with jpeg
                             padname += self.JPEGPYRAMID_NAME 
                         padname += "_%d" % curr_level
-                        dvidsrc = dvidSrc(self.dvidserver, self.uuid, padname,
-                            downsampled_array, resource_server=self.resource_server,
-                            resource_port=self.resource_port)
+                        dvidsrc = dvidSrc( dvid_info["dvid-server"],
+                                           dvid_info["uuid"],
+                                           padname,
+                                           downsampled_array,
+                                           resource_server=self.resource_server,
+                                           resource_port=self.resource_port )
+
                         downsampled_array = dvidsrc.extract_volume()
 
                     # write result
                     downname = None
                     downnamelossy = None
-                    if self.createpyramid:
-                        downname = self.dataname + "_%d" % curr_level 
-                    if self.createpyramidjpeg:
-                        downnamelossy = self.dataname + self.JPEGPYRAMID_NAME + "_%d" % curr_level 
+                    if options["create-pyramid"]:
+                        downname = dvid_info["dataname"] + "_%d" % curr_level 
+                    if options["create-pyramid-jpeg"]:
+                        downnamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME + "_%d" % curr_level 
                     self._write_blocks(downsampled_array, downname, downnamelossy) 
 
                     # remove previous level
