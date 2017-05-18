@@ -123,7 +123,14 @@ class Workflow(object):
         # create spark context
         self.corespertask=corespertask
         self.sc = self._init_spark(appname)
+        
+        self._init_logcollector_config(jsonfile)
 
+    def _init_logcollector_config(self, config_path):
+        """
+        If necessary, provide default values for the logcollector settings.
+        Also, convert log-collector-directory to an abspath.
+        """
         # Not all workflow schemas have been ported to inherit Workflow.OptionsSchema,
         # so we have to manually provide default values
         if "log-collector-directory" not in self.config_data["options"]:
@@ -135,7 +142,16 @@ class Workflow(object):
         log_dir = self.config_data["options"]["log-collector-directory"]
         if not log_dir:
             log_dir = '/tmp/' + str(uuid.uuid1())
-            self.config_data["options"]["log-collector-directory"] = log_dir
+
+        # Convert logcollector directory to absolute path,
+        # assuming it was relative to config file.
+        if not log_dir.startswith('/'):
+            assert not config_path.startswith("http"), \
+                "Can't use relative path for log collector directory if config is from http."
+            config_dir = os.path.dirname( os.path.normpath(config_path) )
+            log_dir = os.path.normpath( os.path.join(config_dir, log_dir) )
+
+        self.config_data["options"]["log-collector-directory"] = log_dir
 
         if self.config_data["options"]["log-collector-port"]:
             mkdir_p(log_dir)
