@@ -126,7 +126,7 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
     conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
     
 
-def update_extents(dvid_server, uuid, name, minimal_extents):
+def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
     """
     Ensure that the given data instance has at least the given extents.
     
@@ -134,12 +134,16 @@ def update_extents(dvid_server, uuid, name, minimal_extents):
         dvid_server (str): location of dvid server
         uuid (str): version id
         name (str): data instance name
-        minimal_extents: 3D bounding box [(z0,y0,x0), (z1,y1,x1)].
+        minimal_extents: 3D bounding box [min_zyx, max_zyx] = [(z0,y0,x0), (z1,y1,x1)].
                          If provided, data extents will be at least this large (possibly larger).
-    """    
-    new_extents = np.array(minimal_extents, dtype=int)
-    assert new_extents.shape == (2,3), \
+                         (The max extent should use python conventions, i.e. the MaxPoint + 1)
+    """
+    minimal_extents_zyx = np.array(minimal_extents_zyx, dtype=int)
+    assert minimal_extents_zyx.shape == (2,3), \
         "Minimal extents must be provided as a 3D bounding box: [(z0,y0,x0), (z1,y1,x1)]"
+    
+    minimal_extents_xyz = minimal_extents_zyx[:, ::-1]
+    new_extents_xyz = minimal_extents_xyz.copy()
     
     # Fetch original extents.
     r = requests.get('{dvid_server}/api/node/{uuid}/{name}/info'.format(**locals()))
@@ -148,15 +152,17 @@ def update_extents(dvid_server, uuid, name, minimal_extents):
     info = r.json()
     
     if info["Extended"]["MinPoint"] is not None:
-        new_extents = np.minimum(new_extents, info["Extended"]["MinPoint"])
+        new_extents_xyz[0] = np.minimum(new_extents_xyz[0], info["Extended"]["MinPoint"])
 
     if info["Extended"]["MaxPoint"] is not None:
-        new_extents = np.maximum(new_extents, info["Extended"]["MaxPoint"])
+        max_point = np.array(info["Extended"]["MaxPoint"])
+        new_extents_xyz[1] = np.maximum(new_extents_xyz[1], max_point+1)
 
-    if (new_extents != minimal_extents).any():
-        new_extents = new_extents.tolist()
-        extents_json = { "MinPoint": new_extents[0],
-                         "MaxPoint": new_extents[1] }
+    if (new_extents_xyz != minimal_extents_xyz).any():
+        min_point_xyz = new_extents_xyz[0]
+        max_point_xyz = new_extents_xyz[1] - 1
+        extents_json = { "MinPoint": min_point_xyz.tolist(),
+                         "MaxPoint": max_point_xyz.tolist() }
 
         r = requests.post( '{dvid_server}/api/node/{uuid}/{name}/extents'.format(**locals()),
                            json=extents_json )
