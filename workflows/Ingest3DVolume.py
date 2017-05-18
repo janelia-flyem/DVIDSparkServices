@@ -564,21 +564,21 @@ class Ingest3DVolume(Workflow):
 
         # create pyramid data instances
         if options["create-pyramid-jpeg"]:
-            downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
-            if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+            dataname_jpeg = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
+            if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dataname_jpeg):
                 create_rawarray8( dvid_info["dvid-server"],
                                   dvid_info["uuid"],
-                                  downname,
+                                  dataname_jpeg,
                                   block_shape,
                                   Compression.JPEG )
 
             update_extents( dvid_info["dvid-server"],
                             dvid_info["uuid"],
-                            dvid_info["dataname"],
+                            dataname_jpeg,
                             global_box_zyx )
 
             # Bottom level of pyramid is listed as neuroglancer-compatible
-            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [downname])
+            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dataname_jpeg])
 
     
         for level in range(1, options["pyramid-depth"]+1):
