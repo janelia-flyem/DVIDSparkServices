@@ -601,7 +601,7 @@ class Ingest3DVolume(Workflow):
 
                 update_extents( dvid_info["dvid-server"],
                                 dvid_info["uuid"],
-                                dvid_info["dataname"],
+                                downname,
                                 downsampled_box_zyx )
 
                 # Higher-levels of the pyramid should not appear in the DVID-lite console.
@@ -618,7 +618,7 @@ class Ingest3DVolume(Workflow):
 
                 update_extents( dvid_info["dvid-server"],
                                 dvid_info["uuid"],
-                                dvid_info["dataname"],
+                                downname,
                                 downsampled_box_zyx )
 
                 # Higher-levels of the pyramid should not appear in the DVID-lite console.
