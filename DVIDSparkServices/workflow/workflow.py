@@ -7,6 +7,7 @@ exception type for workflow errors.
 import sys
 import os
 import functools
+import requests
 import subprocess
 from jsonschema import ValidationError
 import json
@@ -251,6 +252,10 @@ class Workflow(object):
                                       #'--debug=True',
                                       '--log-dir={}'.format(self.log_dir),
                                       '--port={}'.format(log_port)])
+        
+        # Wait for the server to actually start up before proceeding...
+        r = requests.get('http://0.0.0.0:{}'.format(log_port) )
+        assert r.status_code == 200
 
         # Send all driver log messages to the server, too.
         handler = HTTPHandlerWithExtraData( { 'task_key': '_DRIVER' }, "127.0.0.1:{}".format(log_port), '/logsink', 'POST' )
