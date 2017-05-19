@@ -258,7 +258,10 @@ class Workflow(object):
         assert r.status_code == 200
 
         # Send all driver log messages to the server, too.
-        handler = HTTPHandlerWithExtraData( { 'task_key': '_DRIVER' }, "127.0.0.1:{}".format(log_port), '/logsink', 'POST' )
+        driver_logname = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
+        formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
+        handler = HTTPHandlerWithExtraData( { 'task_key': driver_logname }, "0.0.0.0:{}".format(log_port), '/logsink', 'POST' )
+        handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
         
         try:

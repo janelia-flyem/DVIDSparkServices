@@ -10,7 +10,9 @@ import traceback
 import logging
 import StringIO
 
+formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
 handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(formatter)
 logging.getLogger().addHandler(handler)
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger('requests').setLevel('DEBUG')
