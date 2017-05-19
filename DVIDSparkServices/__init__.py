@@ -5,12 +5,55 @@ if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_
     tempfile.tempdir = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
 
 import sys
+import threading
+import traceback
 import logging
+import StringIO
+
 handler = logging.StreamHandler(sys.stdout)
 logging.getLogger().addHandler(handler)
 logging.getLogger().setLevel(logging.INFO)
 logging.getLogger('requests').setLevel('DEBUG')
 logging.getLogger('DVIDSparkServices.dvid.metadata').setLevel(logging.DEBUG)
+
+
+def initialize_excepthook():
+    """
+    This excepthook simply logs all unhandled exception tracebacks with Logger.error()
+    """
+    sys.excepthook = _log_exception
+    _install_thread_excepthook()
+
+def _log_exception(*exc_info):
+    thread_name = threading.current_thread().name
+    logging.getLogger().error( "Unhandled exception in thread: '{}'".format(thread_name) )
+    sio = StringIO.StringIO()
+    traceback.print_exception( exc_info[0], exc_info[1], exc_info[2], file=sio )
+    logging.getLogger().error( sio.getvalue() )
+
+def _install_thread_excepthook():
+    # This function was copied from: http://bugs.python.org/issue1230540
+    # It is necessary because sys.excepthook doesn't work for unhandled exceptions in other threads.
+    """
+    Workaround for sys.excepthook thread bug
+    (https://sourceforge.net/tracker/?func=detail&atid=105470&aid=1230540&group_id=5470).
+    Call once from __main__ before creating any threads.
+    If using psyco, call psycho.cannotcompile(threading.Thread.run)
+    since this replaces a new-style class method.
+    """
+    run_old = threading.Thread.run
+    def run(*args, **kwargs):
+        try:
+            run_old(*args, **kwargs)
+        #except (KeyboardInterrupt, SystemExit):
+        #    raise
+        except:
+            sys.excepthook(*sys.exc_info())
+            raise
+    threading.Thread.run = run
+
+
+initialize_excepthook()
 
 # Activate compressed numpy pickling in all workflows
 from .sparkdvid.CompressedNumpyArray import activate_compressed_numpy_pickling
