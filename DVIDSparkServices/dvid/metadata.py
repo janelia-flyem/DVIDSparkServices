@@ -2,6 +2,9 @@
 """
 
 import json
+import logging
+logger = logging.getLogger(__name__)
+
 import requests
 from enum import Enum
 import numpy as np
@@ -10,6 +13,7 @@ from libdvid import DVIDNodeService
 from libdvid import ConnectionMethod
 from libdvid import DVIDConnection
 from libdvid._dvid_python import DVIDException
+
 
 """Defines label and raw array types currently supported.
 
@@ -80,12 +84,14 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
         DVIDExceptions are not caught in this function and will be
         transferred to the caller.
     """
-    
     conn = DVIDConnection(dvid_server) 
+    typename = "labelblk"
+
+    logger.info("Creating {typename} instance: {uuid}/{name}".format( **locals() ))
 
     endpoint = "/repo/" + uuid + "/instance"
     blockstr = "%d,%d,%d" % (blocksize[2], blocksize[1], blocksize[0])
-    data = {"typename": "labelblk", "dataname": name, "BlockSize": blockstr}
+    data = {"typename": typename, "dataname": name, "BlockSize": blockstr}
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
 
@@ -115,11 +121,14 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
         transferred to the caller.
     """
     
-    conn = DVIDConnection(dvid_server) 
+    conn = DVIDConnection(dvid_server)
+    typename = "uint8blk" 
+
+    logger.info("Creating {typename} instance: {uuid}/{name}".format( **locals() ))
 
     endpoint = "/repo/" + uuid + "/instance"
     blockstr = "%d,%d,%d" % (blocksize[2], blocksize[1], blocksize[0])
-    data = {"typename": "uint8blk", "dataname": name, "BlockSize": blockstr}
+    data = {"typename": typename, "dataname": name, "BlockSize": blockstr}
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
 
@@ -141,6 +150,7 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
     minimal_extents_zyx = np.array(minimal_extents_zyx, dtype=int)
     assert minimal_extents_zyx.shape == (2,3), \
         "Minimal extents must be provided as a 3D bounding box: [(z0,y0,x0), (z1,y1,x1)]"
+    logger.info("Updating extents for {uuid}/{name}".format(**locals()) )
     
     minimal_extents_xyz = minimal_extents_zyx[:, ::-1]
     new_extents_xyz = minimal_extents_xyz.copy()
@@ -150,6 +160,7 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
     r.raise_for_status()
 
     info = r.json()
+    logger.debug( "Read extents: " + json.dumps(info) )
     
     if info["Extended"]["MinPoint"] is not None:
         new_extents_xyz[0] = np.minimum(new_extents_xyz[0], info["Extended"]["MinPoint"])
@@ -196,6 +207,7 @@ def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
 
     new_list = list(set(old_list + new_list))
     
+    logger.debug("Updating '{}/{}' list from: {} to: {}".format( kv_instance, key, old_list, new_list ))
     r = requests.post('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()),
                       json=new_list)
     r.raise_for_status()

@@ -6,8 +6,11 @@ if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_
 
 import sys
 import logging
+handler = logging.StreamHandler(sys.stdout)
+logging.getLogger().addHandler(handler)
 logging.getLogger().setLevel(logging.INFO)
-logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
+logging.getLogger('requests').setLevel('DEBUG')
+logging.getLogger('DVIDSparkServices.dvid.metadata').setLevel(logging.DEBUG)
 
 # Activate compressed numpy pickling in all workflows
 from .sparkdvid.CompressedNumpyArray import activate_compressed_numpy_pickling
