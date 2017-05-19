@@ -16,7 +16,8 @@ from DVIDSparkServices.util import mkdir_p, unicode_to_str
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
-from logcollector.client_utils import make_log_collecting_decorator, noop_decorator
+import logging
+from logcollector.client_utils import HTTPHandlerWithExtraData, make_log_collecting_decorator, noop_decorator
 
 try:
     #driver_ip_addr = '127.0.0.1'
@@ -238,27 +239,33 @@ class Workflow(object):
         return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
 
     def run(self):
-        port = self.config_data["options"]["log-collector-port"]
+        log_port = self.config_data["options"]["log-collector-port"]
         self.log_dir = self.config_data["options"]["log-collector-directory"]
         
-        if not self.config_data["options"]["log-collector-port"]:
+        if log_port == 0:
             self.execute()
-        else:
-            # Start the log server in a separate process
-            logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
-                                          #'--debug=True',
-                                          '--log-dir={}'.format(self.config_data["options"]["log-collector-directory"]),
-                                          '--port={}'.format(self.config_data["options"]["log-collector-port"])])
-            try:
-                self.execute()
-            finally:
-                # NOTE: Apparently the flask server doesn't respond
-                #       to SIGTERM if the server is used in debug mode.
-                #       If you're using the logserver in debug mode,
-                #       you may need to kill it yourself.
-                #       See https://github.com/pallets/werkzeug/issues/58
-                print("Terminating logserver with PID {}".format(logserver.pid))
-                logserver.terminate()
+            return
+
+        # Start the log server in a separate process
+        logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
+                                      #'--debug=True',
+                                      '--log-dir={}'.format(self.log_dir),
+                                      '--port={}'.format(log_port)])
+
+        # Send all driver log messages to the server, too.
+        handler = HTTPHandlerWithExtraData( { 'task_key': '_DRIVER' }, "127.0.0.1:{}".format(log_port), '/logsink', 'POST' )
+        logging.getLogger().addHandler(handler)
+        
+        try:
+            self.execute()
+        finally:
+            # NOTE: Apparently the flask server doesn't respond
+            #       to SIGTERM if the server is used in debug mode.
+            #       If you're using the logserver in debug mode,
+            #       you may need to kill it yourself.
+            #       See https://github.com/pallets/werkzeug/issues/58
+            print("Terminating logserver with PID {}".format(logserver.pid))
+            logserver.terminate()
 
     # make this an explicit abstract method ??
     def execute(self):
