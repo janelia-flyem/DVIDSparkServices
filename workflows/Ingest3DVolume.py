@@ -8,6 +8,8 @@ import copy
 import json
 import logging
 
+logger = logging.getLogger(__name__)
+
 import numpy as np
 
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -115,6 +117,8 @@ class Ingest3DVolume(Workflow):
     DvidInfoSchema = \
     {
       "type": "object",
+      "required": ["dvid-server", "uuid", "dataname"],
+      "additionalProperties": False,
       "properties": {
         "dvid-server": {
           "description": "location of DVID server",
@@ -134,6 +138,7 @@ class Ingest3DVolume(Workflow):
 
     IngestionWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
     IngestionWorkflowOptionsSchema["required"] = ["minslice", "maxslice", "basename"]
+    IngestionWorkflowOptionsSchema["additionalProperties"] = False
     IngestionWorkflowOptionsSchema["properties"].update(
     {
         #
@@ -245,6 +250,8 @@ class Ingest3DVolume(Workflow):
       "$schema": "http://json-schema.org/schema#",
       "title": "Service to load raw and label data into DVID",
       "type": "object",
+      "required": ["dvid-info", "options"],
+      "additionalProperties": False,
       "properties": {
         "dvid-info": DvidInfoSchema,
         "options" : IngestionWorkflowOptionsSchema
@@ -528,12 +535,16 @@ class Ingest3DVolume(Workflow):
 
         global_box_zyx[1] = global_box_zyx[0] + volume_shape
 
-        if not is_datainstance( dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"] ):
+        if is_datainstance( dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"] ):
+            logger.info("'{dataname}' already exists, skipping creation".format(**dvid_info) )
+        else:
             # create data instance and disable dvidmask
             # !! assume if data instance exists and mask is set that all pyramid
             # !! also exits, meaning the mask should be used. 
             options["has-dvidmask"] = False
-            if not options["disable-original"]:
+            if options["disable-original"]:
+                logger.info("Not creating '{dataname}' due to 'disable-original' config setting".format(**dvid_info) )
+            else:
                 if options["is-rawarray"]:
                     create_rawarray8( dvid_info["dvid-server"],
                                       dvid_info["uuid"],
@@ -565,7 +576,9 @@ class Ingest3DVolume(Workflow):
         # create pyramid data instances
         if options["create-pyramid-jpeg"]:
             dataname_jpeg = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
-            if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dataname_jpeg):
+            if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dataname_jpeg):
+                logger.info("'{}' already exists, skipping creation".format(dataname_jpeg) )
+            else:
                 create_rawarray8( dvid_info["dvid-server"],
                                   dvid_info["uuid"],
                                   dataname_jpeg,
@@ -581,13 +594,14 @@ class Ingest3DVolume(Workflow):
             extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dataname_jpeg])
 
     
-        for level in range(1, options["pyramid-depth"]+1):
-            downsampled_box_zyx = global_box_zyx / (2**level)
-            if options["create-pyramid"]: 
-                downname = dvid_info["dataname"] 
-                downname += "_%d" % level
+        if options["create-pyramid"]:
+            for level in range(1, 1 + options["pyramid-depth"]):
+                downsampled_box_zyx = global_box_zyx / (2**level)
+                downname = dvid_info["dataname"] + "_%d" % level
 
-                if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+                if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+                    logger.info("'{}' already exists, skipping creation".format(downname) )
+                else:
                     if options["is-rawarray"]:
                         create_rawarray8( dvid_info["dvid-server"],
                                           dvid_info["uuid"],
@@ -607,12 +621,16 @@ class Ingest3DVolume(Workflow):
                 # Higher-levels of the pyramid should not appear in the DVID-lite console.
                 extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'restrictions', [downname])
 
-            if options["create-pyramid-jpeg"]: 
-                downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
-                downname += "_%d" % level
-                if not is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+        if options["create-pyramid-jpeg"]: 
+            for level in range(1, 1 + options["pyramid-depth"]):
+                downsampled_box_zyx = global_box_zyx / (2**level)
+                downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME + "_%d" % level
+                if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
+                    logger.info("'{}' already exists, skipping creation".format(downname) )
+                else:
                     create_rawarray8( dvid_info["dvid-server"],
-                                      dvid_info["uuid"], downname,
+                                      dvid_info["uuid"],
+                                      downname,
                                       block_shape,
                                       Compression.JPEG )
 
