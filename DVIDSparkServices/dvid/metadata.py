@@ -206,11 +206,11 @@ def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
         assert isinstance(old_list, list)
 
     new_list = list(set(old_list + new_list))
-    
-    logger.debug("Updating '{}/{}' list from: {} to: {}".format( kv_instance, key, old_list, new_list ))
-    r = requests.post('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()),
-                      json=new_list)
-    r.raise_for_status()
+    if set(new_list) != set(old_list):
+        logger.debug("Updating '{}/{}' list from: {} to: {}".format( kv_instance, key, old_list, new_list ))
+        r = requests.post('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()),
+                          json=new_list)
+        r.raise_for_status()
     
 
 def get_blocksize(dvid_server, uuid, dataname):
