@@ -251,7 +251,8 @@ class Workflow(object):
         logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
                                       #'--debug=True',
                                       '--log-dir={}'.format(self.log_dir),
-                                      '--port={}'.format(log_port)])
+                                      '--port={}'.format(log_port)],
+                                     stderr=subprocess.STDOUT)
         
         # Wait for the server to actually start up before proceeding...
         r = requests.get('http://0.0.0.0:{}'.format(log_port) )
