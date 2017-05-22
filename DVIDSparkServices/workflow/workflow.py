@@ -6,7 +6,7 @@ exception type for workflow errors.
 """
 import sys
 import os
-import functools
+import time
 import requests
 import subprocess
 from jsonschema import ValidationError
@@ -255,8 +255,15 @@ class Workflow(object):
                                      stderr=subprocess.STDOUT)
         
         # Wait for the server to actually start up before proceeding...
-        r = requests.get('http://0.0.0.0:{}'.format(log_port) )
-        assert r.status_code == 200
+        try:
+            time.sleep(2.0)
+            r = requests.get('http://0.0.0.0:{}'.format(log_port), timeout=60.0 )
+        except:
+            # Retry once if necessary.
+            time.sleep(5.0)
+            r = requests.get('http://0.0.0.0:{}'.format(log_port), timeout=60.0 )
+
+        r.raise_for_status()
 
         # Send all driver log messages to the server, too.
         driver_logname = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
