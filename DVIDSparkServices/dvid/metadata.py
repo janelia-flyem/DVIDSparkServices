@@ -152,8 +152,7 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
         "Minimal extents must be provided as a 3D bounding box: [(z0,y0,x0), (z1,y1,x1)]"
     logger.info("Updating extents for {uuid}/{name}".format(**locals()) )
     
-    minimal_extents_xyz = minimal_extents_zyx[:, ::-1]
-    new_extents_xyz = minimal_extents_xyz.copy()
+    minimal_extents_xyz = minimal_extents_zyx[:, ::-1].copy()
     
     # Fetch original extents.
     r = requests.get('{dvid_server}/api/node/{uuid}/{name}/info'.format(**locals()))
@@ -161,17 +160,21 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
 
     info = r.json()
     logger.debug( "Read extents: " + json.dumps(info) )
-    
+
+    orig_extents_xyz = np.array( [(1e9, 1e9, 1e9), (-1e9, -1e9, -1e9)], dtype=int )
     if info["Extended"]["MinPoint"] is not None:
-        new_extents_xyz[0] = np.minimum(new_extents_xyz[0], info["Extended"]["MinPoint"])
+        orig_extents_xyz[0] = info["Extended"]["MinPoint"]
 
     if info["Extended"]["MaxPoint"] is not None:
-        max_point = np.array(info["Extended"]["MaxPoint"])
-        new_extents_xyz[1] = np.maximum(new_extents_xyz[1], max_point+1)
+        orig_extents_xyz[1] = info["Extended"]["MaxPoint"]
+        orig_extents_xyz[1] += 1
 
-    if (new_extents_xyz != minimal_extents_xyz).any():
-        min_point_xyz = new_extents_xyz[0]
-        max_point_xyz = new_extents_xyz[1] - 1
+    minimal_extents_xyz[0] = np.minimum(minimal_extents_xyz[0], orig_extents_xyz[0])
+    minimal_extents_xyz[1] = np.maximum(minimal_extents_xyz[1], orig_extents_xyz[1])
+
+    if (minimal_extents_xyz != orig_extents_xyz).any():
+        min_point_xyz = minimal_extents_xyz[0]
+        max_point_xyz = minimal_extents_xyz[1] - 1
         extents_json = { "MinPoint": min_point_xyz.tolist(),
                          "MaxPoint": max_point_xyz.tolist() }
 
