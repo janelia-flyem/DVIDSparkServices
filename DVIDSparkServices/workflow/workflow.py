@@ -239,13 +239,18 @@ class Workflow(object):
         # Therefore, disable batching with batchSize=1
         return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
 
-    def run(self):
+    def _start_logserver(self):
+        """
+        If the user's config specifies a non-zero logserver port to use,
+        start the logserver as a separate process and return the subprocess.Popen object.
+        
+        If the user's config doesn't specify a logserver port, return None.
+        """
         log_port = self.config_data["options"]["log-collector-port"]
         self.log_dir = self.config_data["options"]["log-collector-directory"]
         
         if log_port == 0:
-            self.execute()
-            return
+            return None
 
         # Start the log server in a separate process
         logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
@@ -272,16 +277,22 @@ class Workflow(object):
         handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
         
+        return logserver
+
+    def run(self):
+        logserver = self._start_logserver()
+        
         try:
             self.execute()
         finally:
-            # NOTE: Apparently the flask server doesn't respond
-            #       to SIGTERM if the server is used in debug mode.
-            #       If you're using the logserver in debug mode,
-            #       you may need to kill it yourself.
-            #       See https://github.com/pallets/werkzeug/issues/58
-            print("Terminating logserver with PID {}".format(logserver.pid))
-            logserver.terminate()
+            if logserver:
+                # NOTE: Apparently the flask server doesn't respond
+                #       to SIGTERM if the server is used in debug mode.
+                #       If you're using the logserver in debug mode,
+                #       you may need to kill it yourself.
+                #       See https://github.com/pallets/werkzeug/issues/58
+                print("Terminating logserver with PID {}".format(logserver.pid))
+                logserver.terminate()
 
     # make this an explicit abstract method ??
     def execute(self):
