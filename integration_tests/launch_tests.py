@@ -278,6 +278,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     #####  run tests ####
 
     tests = OrderedDict()
+    tests["test_copyseg"] = "CopySegmentation"
     tests["test_stitch_grid"] = "CreateSegmentation"
     tests["test_stitch_grid_diagonal"] = "CreateSegmentation"
     tests["test_seg"] = "CreateSegmentation"
