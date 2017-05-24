@@ -63,7 +63,8 @@ def is_datainstance(dvid_server, uuid, name):
 
 def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
                       compression=Compression.DEFAULT ):
-    """Create 64 bit labels data structure.
+    """
+    Create 64 bit labels data structure.
 
     Note:
         Currenly using labelblk.  Does not check whether
@@ -79,10 +80,14 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
         compression (Compression enum): compression to be used
         minimal_extents: box [(z0,y0,x0), (z1,y1,x1)].
                         If provided, data extents will be at least this large (possibly larger).
+
+    Returns:
+        True if the labels instance didn't already exist on the server
+        False if it already existed. (In which case this function has no effect.)
     
     Raises:
         DVIDExceptions are not caught in this function and will be
-        transferred to the caller.
+        transferred to the caller, except for the 'already exists' exception.
     """
     conn = DVIDConnection(dvid_server) 
     typename = "labelblk"
@@ -95,8 +100,15 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
 
-    conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+    try:
+        conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+    except DVIDException as ex:
+        if 'already exists' in ex.message:
+            pass
+        else:
+            raise
 
+    return True
 def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
                      compression=Compression.DEFAULT ):
     """Create 8 bit labels data structure.
@@ -178,8 +190,9 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
         extents_json = { "MinPoint": min_point_xyz.tolist(),
                          "MaxPoint": max_point_xyz.tolist() }
 
-        r = requests.post( '{dvid_server}/api/node/{uuid}/{name}/extents'.format(**locals()),
-                           json=extents_json )
+        url = '{dvid_server}/api/node/{uuid}/{name}/extents'.format(**locals())
+        logger.debug("Posting new extents: {}".format( json.dumps(extents_json) ))
+        r = requests.post( url, json=extents_json )
         r.raise_for_status()
 
 def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
