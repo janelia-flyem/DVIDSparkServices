@@ -238,6 +238,14 @@ class Ingest3DVolume(Workflow):
             "type": "integer",
             "default": 0
         },
+        "skipped-pyramid-levels": {
+            "description": "List of pyramid levels to skip writing to DVID.  (They will still be computed, but not written.)",
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 0,
+            "maxItems": 10,
+            "default": []
+        },
         "num-tasks": {
             "description": "Number of tasks to use (min is 2*blocksize and should be multiple of this)",
             "type": "integer",
@@ -544,6 +552,8 @@ class Ingest3DVolume(Workflow):
             options["has-dvidmask"] = False
             if options["disable-original"]:
                 logger.info("Not creating '{dataname}' due to 'disable-original' config setting".format(**dvid_info) )
+            elif 0 in options["skipped-pyramid-levels"]:
+                logger.info("Not creating '{dataname}' due to 'skipped-pyramid-levels' config setting".format(**dvid_info) )
             else:
                 if options["is-rawarray"]:
                     create_rawarray8( dvid_info["dvid-server"],
@@ -556,7 +566,7 @@ class Ingest3DVolume(Workflow):
                                        dvid_info["dataname"],
                                        block_shape )
 
-        if not options["disable-original"]:
+        if not options["disable-original"] and 0 not in options["skipped-pyramid-levels"]:
             update_extents( dvid_info["dvid-server"],
                             dvid_info["uuid"],
                             dvid_info["dataname"],
@@ -576,22 +586,25 @@ class Ingest3DVolume(Workflow):
         # create pyramid data instances
         if options["create-pyramid-jpeg"]:
             dataname_jpeg = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
-            if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dataname_jpeg):
-                logger.info("'{}' already exists, skipping creation".format(dataname_jpeg) )
+            if 0 in options["skipped-pyramid-levels"]:
+                logger.info("Not creating '{}' due to 'skipped-pyramid-levels' config setting".format(dataname_jpeg) )
             else:
-                create_rawarray8( dvid_info["dvid-server"],
-                                  dvid_info["uuid"],
-                                  dataname_jpeg,
-                                  block_shape,
-                                  Compression.JPEG )
-
-            update_extents( dvid_info["dvid-server"],
-                            dvid_info["uuid"],
-                            dataname_jpeg,
-                            global_box_zyx )
-
-            # Bottom level of pyramid is listed as neuroglancer-compatible
-            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dataname_jpeg])
+                if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], dataname_jpeg):
+                    logger.info("'{}' already exists, skipping creation".format(dataname_jpeg) )
+                else:
+                    create_rawarray8( dvid_info["dvid-server"],
+                                      dvid_info["uuid"],
+                                      dataname_jpeg,
+                                      block_shape,
+                                      Compression.JPEG )
+    
+                update_extents( dvid_info["dvid-server"],
+                                dvid_info["uuid"],
+                                dataname_jpeg,
+                                global_box_zyx )
+    
+                # Bottom level of pyramid is listed as neuroglancer-compatible
+                extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dataname_jpeg])
 
     
         if options["create-pyramid"]:
@@ -599,6 +612,10 @@ class Ingest3DVolume(Workflow):
                 downsampled_box_zyx = global_box_zyx / (2**level)
                 downname = dvid_info["dataname"] + "_%d" % level
 
+                if level in options["skipped-pyramid-levels"]:
+                    logger.info("Not creating '{}' due to 'skipped-pyramid-levels' config setting".format(downname) )
+                    continue
+                
                 if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
                     logger.info("'{}' already exists, skipping creation".format(downname) )
                 else:
@@ -625,6 +642,11 @@ class Ingest3DVolume(Workflow):
             for level in range(1, 1 + options["pyramid-depth"]):
                 downsampled_box_zyx = global_box_zyx / (2**level)
                 downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME + "_%d" % level
+
+                if level in options["skipped-pyramid-levels"]:
+                    logger.info("Not creating '{}' due to 'skipped-pyramid-levels' config setting".format(downname) )
+                    continue
+                
                 if is_datainstance(dvid_info["dvid-server"], dvid_info["uuid"], downname):
                     logger.info("'{}' already exists, skipping creation".format(downname) )
                 else:
@@ -715,7 +737,9 @@ class Ingest3DVolume(Workflow):
                     datanamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME
                 if options["create-pyramid"]:
                     dataname = dvid_info["dataname"]
-                self._write_blocks(arraypartition, dataname, datanamelossy) 
+                
+                if 0 not in options["skipped-pyramid-levels"]:
+                    self._write_blocks(arraypartition, dataname, datanamelossy) 
 
             if options["create-tiles"] or options["create-tiles-jpeg"]:
                 # repartition into tiles
@@ -802,7 +826,9 @@ class Ingest3DVolume(Workflow):
                         downname = dvid_info["dataname"] + "_%d" % curr_level 
                     if options["create-pyramid-jpeg"]:
                         downnamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME + "_%d" % curr_level 
-                    self._write_blocks(downsampled_array, downname, downnamelossy) 
+
+                    if curr_level not in options["skipped-pyramid-levels"]:
+                        self._write_blocks(downsampled_array, downname, downnamelossy)
 
                     # remove previous level
                     del levels_cache[curr_level-1]
