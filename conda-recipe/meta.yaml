@@ -41,6 +41,7 @@ requirements:
     - ilastik-meta
     - quilted >=0.0.post13
     - logcollector >=0.1.post13
+    - dvid-resource-manager
 
 test:
   requires:

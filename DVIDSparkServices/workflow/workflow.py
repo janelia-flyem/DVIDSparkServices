@@ -1,6 +1,6 @@
 """Defines the a workflow within the context of DVIDSparkServices.
 
-This module only contains the Workflow class and a sepcial
+This module only contains the Workflow class and a special
 exception type for workflow errors.
 
 """
@@ -58,38 +58,48 @@ class Workflow(object):
 
     OptionsSchema = \
     {
-      "type": "object",
-      "properties": {
-        "corespertask": {
-          "type": "integer",
-          "default": 1
-        },
-        "resource-server": {
-          "type": "string",
-          "default": ""
-        },
-        "resource-port": {
-          "type": "integer",
-          "default": 0
-        },
-        "log-collector-port": {
-          "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
-          "type": "integer",
-          "default": 0
-        },
-        "log-collector-directory": {
-          "description": "",
-          "type": "string",
-          "default": "" # If not provided, a temp directory will be overwritten here.
-        },
-        "debug": {
-          "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
-          "type": "boolean",
-          "default": False
+        "type": "object",
+        "default": {},
+        "additionalProperties": True,
+
+        "properties": {
+            ## RESOURCE SERVER
+            "resource-server": {
+                "description": "If provided, workflows MAY use this resource server to coordinate competing requests from worker nodes. "
+                               "Set to the IP address of the (already-running) resource server, or use the special word 'driver' "
+                               "to automatically start a new resource server on the driver node.",
+                "type": "string",
+                "default": ""
+            },
+            "resource-port": {
+                "description": "Which port the resource server is running on.  (See description above.)",
+                "type": "integer",
+                "default": 0
+            },
+
+            ## LOG SERVER
+            "log-collector-port": {
+                "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
+                "type": "integer",
+                "default": 0
+            },
+            "log-collector-directory": {
+                "description": "",
+                "type": "string",
+                "default": "" # If not provided, a temp directory will be overwritten here.
+            },
+
+            "corespertask": {
+                "type": "integer",
+                "default": 1
+            },
+
+            "debug": {
+                "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
+                "type": "boolean",
+                "default": False
+            }
         }
-      },
-      "additionalProperties": True,
-      "default": {}
     }
     
     def __init__(self, jsonfile, schema, appname, corespertask=1):
@@ -107,15 +117,14 @@ class Workflow(object):
 
         if jsonfile.startswith('http'):
             try:
-                import requests
                 self.config_data = requests.get(jsonfile).json()
             except Exception, e:
-                raise WorkflowError("Coud not load file: ", str(e))
+                raise WorkflowError("Could not load file: ", str(e))
         else:
             try:
                 self.config_data = json.load(open(jsonfile))
             except Exception, e:
-                raise WorkflowError("Coud not load file: ", str(e))
+                raise WorkflowError("Could not load file: ", str(e))
 
         # validate JSON
         try:
@@ -126,7 +135,7 @@ class Workflow(object):
         # Convert unicode values to str (easier to pass to C++ code)
         self.config_data = unicode_to_str(self.config_data)
 
-        self.logger = WorkflowLogger(appname)
+        self.workflow_entry_exit_printer = WorkflowLogger(appname)
 
         # create spark context
         self.corespertask=corespertask
@@ -136,6 +145,49 @@ class Workflow(object):
 
         self._execution_uuid = str(uuid.uuid1())
         self._worker_task_id = 0
+
+    def _init_spark(self, appname):
+        """Internal function to setup spark context
+        
+        Note: only include spark modules here so that
+        the interface can be queried outside of pyspark.
+
+        """
+        from pyspark import SparkContext, SparkConf
+
+        # set spark config
+        sconfig = SparkConf()
+        sconfig.setAppName(appname)
+
+        # check config file for generic corespertask option
+        corespertask = self.corespertask
+        if "corespertask" in self.config_data["options"]:
+            corespertask = self.config_data["options"]["corespertask"]
+
+        # always store job info for later retrieval on master
+        # set 1 cpu per task for now but potentially allow
+        # each workflow to overwrite this for certain high
+        # memory situations.  Maxfailures could probably be 1 if rollback
+        # mechanisms exist
+        sconfig.setAll([("spark.task.cpus", str(corespertask)),
+                        ("spark.task.maxFailures", "2")
+                       ]
+                      )
+        #("spark.eventLog.enabled", "true"),
+        #("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
+
+        # currently using LZ4 compression: should not degrade runtime much
+        # but will help with some operations like shuffling, especially when
+        # dealing with things object like highly compressible label volumes
+        # NOTE: objects > INT_MAX will cause problems for LZ4
+        worker_env = {}
+        if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
+            worker_env["DVIDSPARK_WORKFLOW_TMPDIR"] = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
+        
+        # Auto-batching heuristic doesn't work well with our auto-compressed numpy array pickling scheme.
+        # Therefore, disable batching with batchSize=1
+        return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
+
 
     def _init_logcollector_config(self, config_path):
         """
@@ -166,6 +218,7 @@ class Workflow(object):
 
         if self.config_data["options"]["log-collector-port"]:
             mkdir_p(log_dir)
+
 
     def collect_log(self, task_key_factory=lambda *args, **kwargs: args[0]):
         """
@@ -199,54 +252,6 @@ class Workflow(object):
         else:
             return make_log_collecting_decorator(driver_ip_addr, port)(task_key_factory)
 
-    def _init_spark(self, appname):
-        """Internal function to setup spark context
-        
-        Note: only include spark modules here so that
-        the interface can be queried outside of pyspark.
-
-        """
-        from pyspark import SparkContext, SparkConf
-
-        # set spark config
-        sconfig = SparkConf()
-        sconfig.setAppName(appname)
-
-        # check config file for generic corespertask option
-        corespertask = self.corespertask
-        if "corespertask" in self.config_data["options"]:
-            corespertask = self.config_data["options"]["corespertask"]
-
-        # always store job info for later retrieval on master
-        # set 1 cpu per task for now but potentially allow
-        # each workflow to overwrite this for certain high
-        # memory situations.  Maxfailures could probably be 1 if rollback
-        # mechanisms exist
-        sconfig.setAll([("spark.task.cpus", str(corespertask)),
-                        ("spark.task.maxFailures", "2")
-                       ]
-                      )
-        #("spark.eventLog.enabled", "true"),
-        #("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
-
-        # check if a server is specified that can manage load to DVID resources
-        self.resource_server = ""
-        self.resource_port = 0
-        if "resource-server" in self.config_data["options"] and "resource-port" in self.config_data["options"]:
-            self.resource_server = str(self.config_data["options"]["resource-server"])
-            self.resource_port = int(self.config_data["options"]["resource-port"])
-
-        # currently using LZ4 compression: should not degrade runtime much
-        # but will help with some operations like shuffling, especially when
-        # dealing with things object like highly compressible label volumes
-        # NOTE: objects > INT_MAX will cause problems for LZ4
-        worker_env = {}
-        if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
-            worker_env["DVIDSPARK_WORKFLOW_TMPDIR"] = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
-        
-        # Auto-batching heuristic doesn't work well with our auto-compressed numpy array pickling scheme.
-        # Therefore, disable batching with batchSize=1
-        return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
 
     def _start_logserver(self):
         """
@@ -263,10 +268,10 @@ class Workflow(object):
 
         # Start the log server in a separate process
         logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
-                                      #'--debug=True',
                                       '--log-dir={}'.format(self.log_dir),
                                       '--port={}'.format(log_port)],
-                                     stderr=subprocess.STDOUT)
+                                      #'--debug=True', # See note below about terminate() in debug mode...
+                                      stderr=subprocess.STDOUT)
         
         # Wait for the server to actually start up before proceeding...
         try:
@@ -282,26 +287,83 @@ class Workflow(object):
         # Send all driver log messages to the server, too.
         driver_logname = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
         formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
-        handler = HTTPHandlerWithExtraData( { 'task_key': driver_logname }, "0.0.0.0:{}".format(log_port), '/logsink', 'POST' )
+        handler = HTTPHandlerWithExtraData( { 'task_key': driver_logname },
+                                            "0.0.0.0:{}".format(log_port),
+                                            '/logsink', 'POST' )
         handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
         
         return logserver
 
+
+    def _start_resource_server(self):
+        """
+        Initialize the resource server config members and, if necessary,
+        start the resource server process on the driver node.
+        
+        If the resource server is started locally, the "resource-server"
+        setting is OVERWRITTEN in the config data with the driver IP.
+        
+        Returns:
+            The resource server Popen object (if started), or None
+        """
+        # Not all workflow schemas have been ported to inherit Workflow.OptionsSchema,
+        # so we have to manually provide default values
+        if "resource-server" not in self.config_data["options"]:
+            self.config_data["options"]["resource-server"] = ""
+        if "resource-port" not in self.config_data["options"]:
+            self.config_data["options"]["resource-port"] = 0
+
+        self.resource_server = self.config_data["options"]["resource-server"]
+        self.resource_port = self.config_data["options"]["resource-port"]
+
+        if self.resource_server == "":
+            return None
+        
+        if self.resource_port == 0:
+            raise RuntimeError("You specified a resource server ({}), but no port"
+                               .format(self.resource_server))
+        
+        if self.resource_server != "driver":
+            return None
+
+        # Overwrite config data so workers see our IP address.
+        self.config_data["options"]["resource-server"] = driver_ip_addr
+        self.resource_server = driver_ip_addr
+
+        logger.info("Starting resource manager on the driver ({})".format(driver_ip_addr))
+        resource_server_script = sys.prefix + '/bin/resource_manager.py'
+        resource_server_process = subprocess.Popen([sys.executable, resource_server_script, str(self.resource_port)],
+                                                   stderr=subprocess.STDOUT)
+
+        return resource_server_process
+
+
     def run(self):
-        logserver = self._start_logserver()
+        """
+        Run the workflow by calling the subclass's execute() function
+        (with some startup/shutdown steps before/after).
+        """
+        log_server_proc = self._start_logserver()
+        resource_server_proc = self._start_resource_server()
         
         try:
             self.execute()
         finally:
-            if logserver:
+            sys.stderr.flush()
+            
+            if resource_server_proc:
+                logger.info("Terminating resource manager (PID {})".format(resource_server_proc.pid))
+                resource_server_proc.terminate()
+
+            if log_server_proc:
                 # NOTE: Apparently the flask server doesn't respond
                 #       to SIGTERM if the server is used in debug mode.
                 #       If you're using the logserver in debug mode,
                 #       you may need to kill it yourself.
                 #       See https://github.com/pallets/werkzeug/issues/58
-                print("Terminating logserver with PID {}".format(logserver.pid))
-                logserver.terminate()
+                logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
+                log_server_proc.terminate()
 
     def run_on_each_worker(self, func):
         """
@@ -345,11 +407,10 @@ class Workflow(object):
         
         raise WorkflowError("No execution function provided")
 
+
     # make this an explicit abstract method ??
     @staticmethod
     def dumpschema():
         """Children must provide their own json specification"""
 
         raise WorkflowError("Derived class must provide a schema")
-         
-
