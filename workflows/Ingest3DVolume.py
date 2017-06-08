@@ -285,8 +285,13 @@ class Ingest3DVolume(Workflow):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
 
+        # Canonicalize the server name in various ways.
         if not dvid_info["dvid-server"].startswith("http://"):
             dvid_info["dvid-server"] = "http://" + dvid_info["dvid-server"]
+        if dvid_info["dvid-server"].endswith("/"):
+            dvid_info["dvid-server"] = dvid_info["dvid-server"][:-1]
+        if dvid_info["dvid-server"].startswith("http://localhost"):
+            dvid_info["dvid-server"] = dvid_info["dvid-server"].replace('localhost', '127.0.0.1')
 
         if not options["is-rawarray"]:
             assert not options["create-tiles"], "Bad config: Can't create tiles for label data."
@@ -478,13 +483,13 @@ class Ingest3DVolume(Workflow):
                     with Timer() as put_timer:
                         if not israw: 
                             logger.info("STARTING Put: labels block {}".format())
-                            if resource_server != "":
+                            if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
                                 node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True, throttle=False)
                             else:
                                 node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True)
                         else:
                             logger.info("STARTING Put: raw block {}".format(data_offset_zyx))
-                            if resource_server != "":
+                            if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
                                 node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False, throttle=False)
                             else:
                                 node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False)
@@ -493,7 +498,7 @@ class Ingest3DVolume(Workflow):
                 if dataname_lossy is not None:
                     logger.info("STARTING Put: lossy block {}".format(data_offset_zyx))
                     with Timer() as put_lossy_timer:
-                        if resource_server != "":
+                        if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
                             node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False, throttle=False)
                         else:
                             node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False)
