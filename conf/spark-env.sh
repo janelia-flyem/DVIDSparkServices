@@ -123,7 +123,9 @@ export SPARK_LOCAL_DIRS=/data1/sparklocaldir,/data2/sparklocaldir,/data3/sparklo
 
 #################################
 
-export PYSPARK_PYTHON=/groups/scheffer/home/plazas/miniconda2/envs/cluster/bin/python
+#export PYSPARK_PYTHON=/groups/scheffer/home/plazas/miniconda2/envs/cluster/bin/python
+#export PYSPARK_PYTHON=/usr/local/python-2.7.11/bin/python
+export PYSPARK_PYTHON=/groups/flyem/proj/cluster/miniconda/envs/flyem/bin/python
 export SPARK_SLAVES=/scratch/spark/tmp/slaves
 export SPARK_SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=30"
 export SPARK_PUBLIC_DNS=$HOSTNAME
