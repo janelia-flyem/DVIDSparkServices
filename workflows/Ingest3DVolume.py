@@ -18,7 +18,8 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
 from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression, extend_list_value, update_extents 
+from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, \
+    create_rawarray8, create_labelarray, Compression, extend_list_value, update_extents, reload_server_metadata 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
 from DVIDSparkServices.util import Timer, runlength_encode, unicode_to_str
 
@@ -702,6 +703,11 @@ class Ingest3DVolume(Workflow):
                 requests.post("{dvid-server}/api/repo/{uuid}/{dataname_jpeg_tile}/metadata"
                               .format( dataname_jpeg_tile=dvid_info["dataname"]+self.JPEGTILENAME, **dvid_info ),
                               json=tilemeta)
+
+        if dvid_info["dvid-server"].startswith("http://127.0.0.1"):
+            def reload_meta():
+                reload_server_metadata(dvid_info["dvid-server"])
+            self.run_on_each_worker( reload_meta )
 
         # TODO Validation: should verify syncs exist, should verify pyramid depth 
 

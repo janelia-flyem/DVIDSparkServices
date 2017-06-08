@@ -13,12 +13,18 @@ from jsonschema import ValidationError
 import json
 import uuid
 import socket
+
+from quilted.filelock import FileLock
 from DVIDSparkServices.util import mkdir_p, unicode_to_str
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
 import logging
 from logcollector.client_utils import HTTPHandlerWithExtraData, make_log_collecting_decorator, noop_decorator
+
+logger = logging.getLogger(__name__)
+
+    
 
 try:
     #driver_ip_addr = '127.0.0.1'
@@ -127,6 +133,9 @@ class Workflow(object):
         self.sc = self._init_spark(appname)
         
         self._init_logcollector_config(jsonfile)
+
+        self._execution_uuid = str(uuid.uuid1())
+        self._worker_task_id = 0
 
     def _init_logcollector_config(self, config_path):
         """
@@ -293,6 +302,42 @@ class Workflow(object):
                 #       See https://github.com/pallets/werkzeug/issues/58
                 print("Terminating logserver with PID {}".format(logserver.pid))
                 logserver.terminate()
+
+    def run_on_each_worker(self, func):
+        """
+        Run the given function once per worker node.
+        """
+        status_filepath = '/tmp/' + self._execution_uuid + str(self._worker_task_id)
+        
+        @self.collect_log(lambda i: socket.gethostname() + '[' + func.__name__ + ']')
+        def task_f(i):
+            with FileLock(status_filepath):
+                if os.path.exists(status_filepath):
+                    return None
+                
+                # create empty file to indicate the task was executed
+                open(status_filepath, 'w')
+
+            func()
+            return socket.gethostname()
+
+        num_nodes = self.sc._jsc.sc().getExecutorMemoryStatus().size()
+        num_workers = max(1, num_nodes - 1) # Don't count the driver, unless it's the only thing
+        
+        # It would be nice if we only had to schedule N tasks for N workers,
+        # but we couldn't ensure that tasks are hashed 1-to-1 onto workers.
+        # Instead, we'll schedule lots of extra tasks, but the logic in
+        # task_f() will skip the unnecessary work.
+        num_tasks = num_workers * 16
+
+        # Execute the tasks!
+        node_names = self.sc.parallelize(list(range(num_tasks)), num_tasks).map(task_f).collect()
+        node_names = filter(None, node_names) # Drop Nones
+
+        assert len(set(node_names)) == num_workers, \
+            "Tasks were not onto all workers! Nodes processed: \n{}".format(node_names)
+        logger.info("Ran {} on {} nodes: {}".format(func.__name__, len(node_names), node_names))
+        return node_names
 
     # make this an explicit abstract method ??
     def execute(self):
