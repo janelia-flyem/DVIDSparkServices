@@ -14,6 +14,7 @@ from libdvid import ConnectionMethod
 from libdvid import DVIDConnection
 from libdvid._dvid_python import DVIDException
 
+from DVIDSparkServices.auto_retry import auto_retry
 
 """Defines label and raw array types currently supported.
 
@@ -148,6 +149,7 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
     conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
     
 
+@auto_retry(3, 5.0, __name__)
 def reload_server_metadata(dvid_server):
     r = requests.post("{}/api/server/reload-metadata".format(dvid_server))
     r.raise_for_status()
