@@ -102,7 +102,7 @@ class Workflow(object):
         }
     }
     
-    def __init__(self, jsonfile, schema, appname, corespertask=1):
+    def __init__(self, jsonfile, schema, appname):
         """Initialization of workflow object.
 
         Args:
@@ -138,7 +138,6 @@ class Workflow(object):
         self.workflow_entry_exit_printer = WorkflowLogger(appname)
 
         # create spark context
-        self.corespertask=corespertask
         self.sc = self._init_spark(appname)
         
         self._init_logcollector_config(jsonfile)
@@ -160,7 +159,7 @@ class Workflow(object):
         sconfig.setAppName(appname)
 
         # check config file for generic corespertask option
-        corespertask = self.corespertask
+        corespertask = 1
         if "corespertask" in self.config_data["options"]:
             corespertask = self.config_data["options"]["corespertask"]
 

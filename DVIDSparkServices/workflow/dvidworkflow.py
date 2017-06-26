@@ -47,8 +47,8 @@ class DVIDWorkflow(Workflow):
     """
    
     # calls base initializer and verifies own schema
-    def __init__(self, jsonfile, schema, appname, corespertask=1):
-        super(DVIDWorkflow, self).__init__(jsonfile, schema, appname, corespertask)
+    def __init__(self, jsonfile, schema, appname):
+        super(DVIDWorkflow, self).__init__(jsonfile, schema, appname)
 
         # separate schema to enforce "server" and "uuid" for all calls
         try:
