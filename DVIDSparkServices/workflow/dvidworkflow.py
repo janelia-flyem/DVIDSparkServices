@@ -56,6 +56,17 @@ class DVIDWorkflow(Workflow):
         except ValidationError, e:
             raise WorkflowError("DVID validation error: ", e.what())
 
+        dvid_info = self.config_data['dvid-info']
+
+        # Prepend 'http://' if necessary.
+        if not dvid_info['dvid-server'].startswith('http'):
+            dvid_info['dvid-server'] = 'http://' + dvid_info['dvid-server']
+
+        # Convert dvid parameters from unicode to str for easier C++ calls
+        for k,v in list(dvid_info.items()):
+            if isinstance(v, unicode):
+                dvid_info[k] = str(v)
+
         # create spark dvid context
         self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
                 self.config_data["dvid-info"]["dvid-server"],
