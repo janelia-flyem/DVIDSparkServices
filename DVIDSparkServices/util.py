@@ -1,7 +1,12 @@
+import os
 import copy
 import time
 import contextlib
+import inspect
+import logging
 from itertools import starmap
+
+import psutil
 import numpy as np
 from skimage.util import view_as_blocks
 
@@ -14,6 +19,37 @@ def Timer():
 
 class _TimerResult(object):
     seconds = -1.0
+
+def line_number():
+    """
+    Return the currently executing line number in the caller's function.
+    """
+    return inspect.currentframe().f_back.f_lineno
+
+class MemoryWatcher(object):
+    def __init__(self):
+        self.current_process = psutil.Process()
+        self.initial_memory_usage = -1
+    
+    def __enter__(self):
+        self.initial_memory_usage = self.current_process.memory_info().rss
+        return self
+    
+    def __exit__(self, *args):
+        pass
+
+    def memory_increase(self):
+        return self.current_process.memory_info().rss - self.initial_memory_usage
+    
+    def memory_increase_mb(self):
+        return self.memory_increase() / 1024.0 / 1024.0
+
+    def log_increase(self, logger, level=logging.DEBUG, note=""):
+        if logger.isEnabledFor(level):
+            caller_line = inspect.currentframe().f_back.f_lineno
+            caller_file = os.path.basename( inspect.currentframe().f_back.f_code.co_filename )
+            logger.log(level, "Memory increase: {:.1f} MB [{}:{}] ({})".format(self.memory_increase_mb(), caller_file, caller_line, note) )
+
 
 def unicode_to_str(json_data):
     if isinstance(json_data, unicode):

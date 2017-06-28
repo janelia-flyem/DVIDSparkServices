@@ -15,6 +15,9 @@
     },
     "options": {
         "chunk-size": 128,
-        "downsample-factor": 32
+        "downsample-factor": 32,
+        
+        "log-collector-port": 3000,
+        "log-collector-directory": ""
     }
 }
