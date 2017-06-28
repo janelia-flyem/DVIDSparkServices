@@ -58,6 +58,11 @@ class CreateSkeletons(DVIDWorkflow):
         "description": "Factor by which to downsample bodies before skeletonization. (0 means 'choose automatically')",
         "type": "integer",
         "default": 0 # 0 means "auto", based on RAM.
+      },
+      "max-skeletonization-volume": {
+        "description": "The above downsample-factor will be overridden if the body would still be too large to skeletonize, as defined by this setting.",
+        "type": "number",
+        "default": 1e9 # 1 GB
       }
     })
     
