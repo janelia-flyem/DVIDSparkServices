@@ -197,7 +197,7 @@ class CreateSkeletons(DVIDWorkflow):
                 memory_watcher.log_increase(logger, logging.INFO, 'After mask assembly')
                 
                 if combined_mask is None:
-                    return None
+                    return (body_id, None)
     
                 tree = skeletonize_array(combined_mask, config["skeleton-config"])
                 tree.rescale(downsample_factor, downsample_factor, downsample_factor, True)
