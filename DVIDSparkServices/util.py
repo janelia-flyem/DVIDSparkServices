@@ -3,6 +3,7 @@ import copy
 import time
 import contextlib
 import inspect
+import socket
 import logging
 from itertools import starmap
 
@@ -28,6 +29,7 @@ def line_number():
 
 class MemoryWatcher(object):
     def __init__(self):
+        self.hostname = socket.gethostname().split('.')[0]
         self.current_process = psutil.Process()
         self.initial_memory_usage = -1
     
@@ -48,7 +50,7 @@ class MemoryWatcher(object):
         if logger.isEnabledFor(level):
             caller_line = inspect.currentframe().f_back.f_lineno
             caller_file = os.path.basename( inspect.currentframe().f_back.f_code.co_filename )
-            logger.log(level, "Memory increase: {:.1f} MB [{}:{}] ({})".format(self.memory_increase_mb(), caller_file, caller_line, note) )
+            logger.log(level, "Memory increase: {:.1f} MB [{}] [{}:{}] ({})".format(self.memory_increase_mb(), self.hostname, caller_file, caller_line, note) )
 
 
 def unicode_to_str(json_data):
