@@ -176,7 +176,8 @@ class CreateSkeletons(DVIDWorkflow):
                 assemble_masks( boxes,
                                 masks,
                                 config["options"]["downsample-factor"],
-                                config["options"]["minimum-segment-size"] )
+                                config["options"]["minimum-segment-size"],
+                                config["options"]["max-skeletonization-volume"] )
 
             return (combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
@@ -194,21 +195,25 @@ class CreateSkeletons(DVIDWorkflow):
                 body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
                 (combined_box_start, _combined_box_stop), combined_mask, downsample_factor = combine_masks( body_id, boxes_and_compressed_masks )
 
-                memory_watcher.log_increase(logger, logging.INFO, 'After mask assembly')
-                
                 if combined_mask is None:
                     return (body_id, None)
     
+                memory_watcher.log_increase(logger, logging.INFO,
+                                            'After mask assembly (combined_mask.shape: {} downsample_factor: {})'
+                                            .format(combined_mask.shape, downsample_factor))
+                
                 tree = skeletonize_array(combined_mask, config["skeleton-config"])
                 tree.rescale(downsample_factor, downsample_factor, downsample_factor, True)
                 tree.translate(*combined_box_start[::-1]) # Pass x,y,z, not z,y,x
 
                 memory_watcher.log_increase(logger, logging.INFO, 'After skeletonization')
+
+                del combined_mask
+                memory_watcher.log_increase(logger, logging.INFO, 'After mask deletion')
                 
                 # Also show which downsample factor was actually chosen
                 config_copy = copy.deepcopy(config)
-                if config_copy["options"]["downsample-factor"] < 1:
-                    config_copy["options"]["(dynamic-downsample-factor)"] = downsample_factor
+                config_copy["options"]["(final-downsample-factor)"] = downsample_factor
                 
                 config_comment = json.dumps(config_copy, sort_keys=True, indent=4, separators=(',', ': '))
                 config_comment = "\n".join( "# " + line for line in config_comment.split("\n") )

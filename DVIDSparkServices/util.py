@@ -28,10 +28,12 @@ def line_number():
     return inspect.currentframe().f_back.f_lineno
 
 class MemoryWatcher(object):
-    def __init__(self):
+    def __init__(self, threshold_mb=1.0):
         self.hostname = socket.gethostname().split('.')[0]
         self.current_process = psutil.Process()
         self.initial_memory_usage = -1
+        self.threshold_mb = threshold_mb
+        self.ignore_threshold = False
     
     def __enter__(self):
         self.initial_memory_usage = self.current_process.memory_info().rss
@@ -50,7 +52,13 @@ class MemoryWatcher(object):
         if logger.isEnabledFor(level):
             caller_line = inspect.currentframe().f_back.f_lineno
             caller_file = os.path.basename( inspect.currentframe().f_back.f_code.co_filename )
-            logger.log(level, "Memory increase: {:.1f} MB [{}] [{}:{}] ({})".format(self.memory_increase_mb(), self.hostname, caller_file, caller_line, note) )
+            increase_mb = self.memory_increase_mb()
+            
+            if increase_mb > self.threshold_mb or self.ignore_threshold:
+                # As soon as any message exceeds the threshold, show all messages from then on.
+                self.ignore_threshold = True
+                logger.log(level, "Memory increase: {:.1f} MB [{}] [{}:{}] ({})"
+                                  .format(increase_mb, self.hostname, caller_file, caller_line, note) )
 
 
 def unicode_to_str(json_data):
