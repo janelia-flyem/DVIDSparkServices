@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap
+from DVIDSparkServices.dvid.metadata import create_labelarray
     
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
@@ -491,6 +492,45 @@ class sparkdvid(object):
             return []
 
         elements.foreachPartition(writer)
+
+    def foreach_ingest_labelarray(self, label_name, seg_chunks):
+        """
+        Create a labelarray instance and indest the given RDD of
+        segmentation chunks using DVID's API for high-speed ingestion
+        of native blocks.
+        
+        Note: seg_chunks must be block-aligned!
+        """
+        server = self.dvid_server
+        uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
+
+        # Create labelarray instance if necessary
+        create_labelarray(server, uuid, label_name)
+        
+        def writer(subvolume_seg):
+            _key, (subvolume, seg) = subvolume_seg
+            
+            # Discard border (if any)
+            b = subvolume.border
+            seg = seg[b:-b, b:-b, b:-b]
+            
+            # Ensure contiguous
+            seg = np.asarray(seg, order='C')
+            
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+            def put_labels():
+                throttle = (resource_server == "")
+                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+                node_service.put_labels3D( str(label_name),
+                                           seg,
+                                           subvolume.box[:3],
+                                           throttle )
+            put_labels()
+
+        return seg_chunks.foreach(writer)
+
 
     # (key, (ROI, segmentation compressed+border))
     # => segmentation output in DVID

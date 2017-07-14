@@ -240,10 +240,8 @@ class CopySegmentation(Workflow):
         # (sv_id, (sv, data))
         seg_chunks = distsubvolumes.zip( seg_chunks ).map( combine_values )
 
-        self.sparkdvid_output_context.foreach_write_labels3d( output_config['segmentation-name'],
-                                                              seg_chunks,
-                                                              roi_config["name"],
-                                                              mutateseg="yes" )
+        self.sparkdvid_output_context.foreach_ingest_labelarray( output_config['segmentation-name'],
+                                                                 seg_chunks )
 
 ##
 ## FUNCTIONS BELOW THIS LINE ARE NOT USED (YET?)
