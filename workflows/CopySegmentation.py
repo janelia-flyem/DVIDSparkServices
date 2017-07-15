@@ -136,16 +136,7 @@ class CopySegmentation(Workflow):
             "description": "Number of pyramid levels to generate (0 means choose automatically)",
             "type": "integer",
             "default": 0 # automatic by default
-        },
-        "quit-after-instance-creation": {
-            # This is useful when we are using our trick of local dvids that share a google bucket back-end.
-            # The metadata isn't automatically updated, so if the new label instance needs to be created,
-            # then we need to restart anyway.
-            "description": "If the output segmentation instance doesn't exist yet, " +
-                           "create it (via the driver) and exit immediately.",
-            "type": "boolean",
-            "default": False # TODO: Not implemented yet.  (Do not use.)
-        },
+        }
     })
 
     Schema = \
@@ -208,12 +199,6 @@ class CopySegmentation(Workflow):
         src_info = RoiInfo(input_config["server"], input_config["uuid"], roi_config["name"])
         dest_info = RoiInfo(output_config["server"], output_config["uuid"], roi_config["name"])
         copy_roi(src_info, dest_info)
-
-        ## TODO:
-        # Actually implement this feature...
-        assert not options_config["quit-after-instance-creation"], "FIXME: not implemented yet." 
-
-        
 
         # (sv_id, sv)
         distsubvolumes = self.sparkdvid_input_context.parallelize_roi( roi_config["name"],
@@ -318,7 +303,6 @@ if __name__ == "__main__":
     
             "offset": [0,0,0],
             "pyramid-depth": 0,
-            "quit-after-instance-creation": False,
     
             "resource-port": 0,
             "resource-server": "",
