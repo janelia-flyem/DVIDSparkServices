@@ -91,7 +91,7 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
         transferred to the caller, except for the 'already exists' exception.
     """
     conn = DVIDConnection(dvid_server) 
-    typename = "labelblk"
+    typename = "labelarray"
 
     logger.info("Creating {typename} instance: {uuid}/{name}".format( **locals() ))
 

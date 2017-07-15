@@ -539,10 +539,10 @@ class sparkdvid(object):
             def put_labels():
                 throttle = (resource_server == "")
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
-                node_service.put_labels3D( str(label_name),
-                                           seg,
-                                           subvolume.box[:3],
-                                           throttle )
+                node_service.put_labelblocks3D( str(label_name),
+                                                seg,
+                                                subvolume.box[:3],
+                                                throttle )
             put_labels()
 
         return seg_chunks.foreach(writer)
