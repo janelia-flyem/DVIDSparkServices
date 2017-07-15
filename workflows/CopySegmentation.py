@@ -99,7 +99,7 @@ class CopySegmentation(Workflow):
                         "description": "Strategy to divide the ROI into substacks for processing.",
                         "type": "string",
                         "minLength": 1,
-                        "enum": ["ask-dvid", "grid-aligned"],
+                        "enum": ["ask-dvid", "grid-aligned", "grid-aligned-32", "grid-aligned-64", "grid-aligned-128", "grid-aligned-256", "grid-aligned-512"],
                         "default": "ask-dvid"
                     },
                     "partition-filter": {

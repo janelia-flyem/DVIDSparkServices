@@ -25,6 +25,7 @@ from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 import logging
 logger = logging.getLogger(__name__)
 
+from libdvid import SubstackZYX
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap
 from DVIDSparkServices.dvid.metadata import create_labelarray
@@ -120,7 +121,9 @@ class sparkdvid(object):
         return self.sc.parallelize(enumerated_subvolumes, len(enumerated_subvolumes))
 
     def _initialize_subvolumes(self, roi, chunk_size, border=0, find_neighbors=False, partition_method='ask-dvid', partition_filter=None):
-        assert partition_method in ('ask-dvid', 'grid-aligned')
+        if partition_method == 'grid-aligned':
+            partition_method = 'grid-aligned-32'
+        assert partition_method == 'ask-dvid' or partition_method.startswith('grid-aligned-')
         assert partition_filter in (None, "all", 'interior-only')
         if partition_filter == "all":
             partition_filter = None
@@ -187,7 +190,7 @@ class sparkdvid(object):
         subvol_size:
             The size of the substack without overlap border
         partition_method:
-            One of 'ask-dvid' or 'grid-aligned'.
+            Either 'ask-dvid' or 'grid-aligned-<N>', where <N> is the grid width in px, e.g. 'grid-aligned-64'
             Note: If using 'grid-aligned', the set of Substacks may
                   include 'empty' substacks that don't overlap the ROI at all.
             
@@ -200,12 +203,25 @@ class sparkdvid(object):
             subvol_tuples, _ = node_service.get_roi_partition(str(roi_name), subvol_size // self.BLK_SIZE)
             return subvol_tuples
 
-        from libdvid import SubstackZYX
+        if partition_method == 'grid-aligned':
+            # old default
+            partition_method = 'grid-aligned-32'
 
-        if partition_method == 'grid-aligned':        
+        if partition_method.startswith('grid-aligned-'):
+            grid_spacing_px = int(partition_method.split('-')[-1])
+            grid_spacing_blocks = grid_spacing_px / self.BLK_SIZE
+
+            assert subvol_size % grid_spacing_px == 0, \
+                "Subvolume partitions won't be aligned to grid unless subvol_size is a multiple of the grid size."
+            
             roi_blocks = np.asarray(list(self.get_roi(roi_name)))
             roi_blocks_start = np.min(roi_blocks, axis=0)
             roi_blocks_stop = 1 + np.max(roi_blocks, axis=0)
+            
+            # Clip start/stop to grid
+            roi_blocks_start = (roi_blocks_start // grid_spacing_blocks) * grid_spacing_blocks # round down to grid
+            roi_blocks_stop = ((roi_blocks_stop + grid_spacing_blocks - 1) // grid_spacing_blocks) * grid_spacing_blocks # round up to grid
+            
             roi_blocks_shape = roi_blocks_stop - roi_blocks_start
     
             sv_size_in_blocks = (subvol_size // self.BLK_SIZE)
