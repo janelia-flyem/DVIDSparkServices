@@ -22,6 +22,13 @@
         "resource-server": "driver",
         "resource-port": 4000,
 
+        "worker-initialization": {
+            "script-path": "./hello.sh",
+            "script-args": ["WORLD!"],
+            "launch-delay": 1,
+            "log-dir": "./worker-logs"
+        },
+
         "blocksize": 64,
         "tilesize": 1024,
         "offset": [5, 10, 20],

@@ -1,4 +1,5 @@
 import os
+import signal
 import copy
 import time
 import contextlib
@@ -123,6 +124,16 @@ def mkdir_p(path):
         if exc.errno == errno.EEXIST and os.path.isdir(path):
             pass
         else:
+            raise
+
+def kill_if_running(pid):
+    """
+    Kill the given process (via SIGTERM) if it is still running.
+    """
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as ex:
+        if ex.errno != 3: # "No such process"
             raise
 
 

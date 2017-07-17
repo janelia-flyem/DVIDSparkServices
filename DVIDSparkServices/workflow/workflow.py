@@ -6,6 +6,7 @@ exception type for workflow errors.
 """
 import sys
 import os
+import signal
 import time
 import requests
 import subprocess
@@ -15,7 +16,7 @@ import uuid
 import socket
 
 from quilted.filelock import FileLock
-from DVIDSparkServices.util import mkdir_p, unicode_to_str
+from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
@@ -77,6 +78,40 @@ class Workflow(object):
                 "default": 0
             },
 
+            ## WORKER INITIALIZATION SCRIPT
+            "worker-initialization": {
+                "type": "object",
+                "default": {},
+                "additionalProperties": False,
+                "description": "The given script will be called once per worker node, before the workflow executes.",
+                "properties": {
+                    "script-path": {
+                        "type": "string",
+                        "default": ""
+                    },
+                    "script-args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "default": []
+                    },
+                    "launch-delay": {
+                        "description": "By default, wait for the script to complete before continuing."
+                                       "Otherwise, launch the script asynchronously and then pause for N seconds before continuing.",
+                        "type": "integer",
+                        "default": -1 # default: blocking execution
+                    },
+                    "log-dir": {
+                        "type": "string",
+                        "default": "/tmp"
+                    },
+                    "also-run-on-driver": {
+                        "description": "Also run this initialization script on the driver machine.",
+                        "type": "boolean",
+                        "default": False
+                    }
+                }
+            },
+
             ## LOG SERVER
             "log-collector-port": {
                 "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
@@ -112,6 +147,7 @@ class Workflow(object):
 
         """
 
+        self.config_path = jsonfile
         self.config_data = None
         schema_data = json.loads(schema)
 
@@ -140,10 +176,14 @@ class Workflow(object):
         # create spark context
         self.sc = self._init_spark(appname)
         
-        self._init_logcollector_config(jsonfile)
+        self._init_logcollector_config()
 
         self._execution_uuid = str(uuid.uuid1())
         self._worker_task_id = 0
+        
+        self._driver_init_pid = None
+        self._init_pids = {}
+        self._run_worker_initializations()
 
     def _init_spark(self, appname):
         """Internal function to setup spark context
@@ -187,8 +227,22 @@ class Workflow(object):
         # Therefore, disable batching with batchSize=1
         return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
 
+    def relpath_to_abspath(self, relpath):
+        """
+        Given a path relative to the CONFIG FILE DIRECTORY (not CWD),
+        return an absolute path.
+        """
+        if relpath.startswith('/'):
+            return relpath
+        
+        assert not self.config_path.startswith("http"), \
+            "Can't convert relpath ({}) to abspath, since config comers from an http endpoint ({})".format(relpath, self.config_path)
 
-    def _init_logcollector_config(self, config_path):
+        config_dir = os.path.dirname( os.path.normpath(self.config_path) )
+        relpath = os.path.normpath( os.path.join(config_dir, relpath) )
+        return relpath
+
+    def _init_logcollector_config(self):
         """
         If necessary, provide default values for the logcollector settings.
         Also, convert log-collector-directory to an abspath.
@@ -205,14 +259,7 @@ class Workflow(object):
         if not log_dir:
             log_dir = '/tmp/' + str(uuid.uuid1())
 
-        # Convert logcollector directory to absolute path,
-        # assuming it was relative to config file.
-        if not log_dir.startswith('/'):
-            assert not config_path.startswith("http"), \
-                "Can't use relative path for log collector directory if config is from http."
-            config_dir = os.path.dirname( os.path.normpath(config_path) )
-            log_dir = os.path.normpath( os.path.join(config_dir, log_dir) )
-
+        log_dir = self.relpath_to_abspath(log_dir)
         self.config_data["options"]["log-collector-directory"] = log_dir
 
         if self.config_data["options"]["log-collector-port"]:
@@ -363,12 +410,15 @@ class Workflow(object):
                 #       See https://github.com/pallets/werkzeug/issues/58
                 logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
                 log_server_proc.terminate()
+            
+            self._kill_initialization_procs()
 
     def run_on_each_worker(self, func):
         """
         Run the given function once per worker node.
         """
-        status_filepath = '/tmp/' + self._execution_uuid + str(self._worker_task_id)
+        status_filepath = '/tmp/' + self._execution_uuid + '-' + str(self._worker_task_id)
+        self._worker_task_id += 1
         
         @self.collect_log(lambda i: socket.gethostname() + '[' + func.__name__ + ']')
         def task_f(i):
@@ -379,26 +429,106 @@ class Workflow(object):
                 # create empty file to indicate the task was executed
                 open(status_filepath, 'w')
 
-            func()
-            return socket.gethostname()
+            result = func()
+            return (socket.gethostname(), result)
 
-        num_nodes = self.sc._jsc.sc().getExecutorMemoryStatus().size()
-        num_workers = max(1, num_nodes - 1) # Don't count the driver, unless it's the only thing
+        if "NUM_SPARK_WORKERS" not in os.environ:
+            # See sparklaunch_janelia_lsf
+            raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
+
+        num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
+        num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
         
         # It would be nice if we only had to schedule N tasks for N workers,
         # but we couldn't ensure that tasks are hashed 1-to-1 onto workers.
-        # Instead, we'll schedule lots of extra tasks, but the logic in
+        # Instead, we'll schedule **LOTS** of extra tasks, but the logic in
         # task_f() will skip the unnecessary work.
-        num_tasks = num_workers * 16
+        num_tasks = num_workers * 1000
 
-        # Execute the tasks!
-        node_names = self.sc.parallelize(list(range(num_tasks)), num_tasks).map(task_f).collect()
-        node_names = filter(None, node_names) # Drop Nones
+        # Execute the tasks.  Returns [(hostname, result), None, None, (hostname, result), ...],
+        # with 'None' interspersed for hosts that were hit multiple times.
+        # (Each host only returns a single non-None result)
+        host_results = self.sc.parallelize(list(range(num_tasks)), num_tasks)\
+                            .repartition(num_tasks).map(task_f).collect()
+        host_results = filter(None, host_results) # Drop Nones
+        
+        host_results = dict(host_results)
 
-        assert len(set(node_names)) == num_workers, \
-            "Tasks were not onto all workers! Nodes processed: \n{}".format(node_names)
-        logger.info("Ran {} on {} nodes: {}".format(func.__name__, len(node_names), node_names))
-        return node_names
+        assert len(host_results) == num_workers, \
+            "Task '{}' was not executed all workers ({}), or some tasks failed! Nodes processed: \n{}"\
+            .format(func.__name__, num_workers, host_results)
+        logger.info("Ran {} on {} nodes: {}".format(func.__name__, len(host_results), host_results))
+        return host_results
+
+    def _run_worker_initializations(self):
+        """
+        Run an initialization script (e.g. a bash script) on each worker node.
+        A dict of { hostname : PID } is staved in self._init_pids so the workers can kill the processes later.
+        """
+        from subprocess import STDOUT
+        from os.path import basename, splitext
+
+        init_options = self.config_data["options"]["worker-initialization"]
+        if not init_options["script-path"]:
+            return
+
+        init_options["script-path"] = self.relpath_to_abspath(init_options["script-path"])
+        init_options["log-dir"] = self.relpath_to_abspath(init_options["log-dir"])
+        mkdir_p(init_options["log-dir"])
+        
+        def launch_init_script():
+            script_name = splitext(basename(init_options["script-path"]))[0]
+            log_file = open('{}/{}-{}.log'.format(init_options["log-dir"], script_name, socket.gethostname()), 'w')
+
+            try:
+                p = subprocess.Popen( map(bytes, [init_options["script-path"]] + init_options["script-args"]),
+                                      stdout=log_file,
+                                      stderr=STDOUT )
+            except OSError as ex:
+                if ex.errno == 8: # Exec format error
+                    raise RuntimeError("OSError: [Errno 8] Exec format error\n"
+                                       "Make sure your script begins with a shebang line, e.g. !#/bin/bash")
+                raise
+
+            if init_options["launch-delay"] == -1:
+                p.wait()
+                if p.returncode == 126:
+                    raise RuntimeError("Permission Error: Worker initialization script is not executable: {}"
+                                       .format(init_options["script-path"]))
+                assert p.returncode == 0, \
+                    "Worker initialization script ({}) failed with exit code: {}"\
+                    .format(init_options["script-path"], p.returncode)
+                return None
+
+            time.sleep(init_options["launch-delay"])
+            return p.pid
+        
+        self._init_pids = self.run_on_each_worker(launch_init_script)
+
+        if init_options["also-run-on-driver"]:
+            self._driver_init_pid = launch_init_script()
+
+    def _kill_initialization_procs(self):
+        """
+        Kill any initialization processes (as launched from _run_worker_initializations)
+        that might still running on the workers.
+        """
+        init_pids = self._init_pids
+        if not any(init_pids.values()):
+            return
+
+        def kill_init_proc():
+            try:
+                pid_to_kill = init_pids[socket.gethostname()]
+            except KeyError:
+                return
+            
+            kill_if_running(pid_to_kill)
+        
+        self.run_on_each_worker(kill_init_proc)
+
+        if self._driver_init_pid:
+            kill_if_running(self._driver_init_pid)
 
     # make this an explicit abstract method ??
     def execute(self):

@@ -18,6 +18,8 @@ import vigra
 from libdvid import DVIDNodeService
 
 def run_test(test_name, plugin, test_dir, uuid1, uuid2):
+    os.environ["NUM_SPARK_WORKERS"] = "1"
+    
     start = time.time()
     print "Starting test: ", test_name
 
