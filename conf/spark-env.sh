@@ -69,7 +69,9 @@
 # - SPARK_NICENESS      The scheduling priority for daemons. (Default: 0)
 
 
-ulimit -n 65535
+# Apparently we don't have permission to raise ulimit on cluster nodes
+#ulimit -n 65535
+
 export SCALA_HOME=/misc/local/scala-2.11.8
 
 export SPARK_WORKER_DIR=/scratch/$USER/work
