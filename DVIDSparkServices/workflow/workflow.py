@@ -409,7 +409,17 @@ class Workflow(object):
                 #       you may need to kill it yourself.
                 #       See https://github.com/pallets/werkzeug/issues/58
                 logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
-                log_server_proc.terminate()
+                
+                # Sometimes the server doesn't die from SIGTERM (if it was handling a request).
+                # Try to kill it gracefully ten times, then just force-kill it (SIGKILL).
+                for _ in range(10):
+                    log_server_proc.terminate()
+                    time.sleep(1.0)
+                    if log_server_proc.poll() is not None:
+                        break
+                if log_server_proc.poll() is None:
+                    # Force kill
+                    log_server_proc.kill()
             
             self._kill_initialization_procs()
 
