@@ -35,6 +35,11 @@ class CreateSkeletons(DVIDWorkflow):
           "description": "location of segmentation",
           "type": "string",
           "minLength": 1
+        },
+        "skeletons-destination": {
+            "description": "name of key-value instance to store the skeletons",
+            "type": "string",
+            "minLength": 1
         }
       },
       "required": ["dvid-server", "uuid", "roi", "segmentation"],
@@ -247,7 +252,8 @@ class CreateSkeletons(DVIDWorkflow):
                                                  config["options"]["resource-server"],
                                                  config["options"]["resource-port"])
 
-            node_service.create_keyvalue("skeletons")
-            node_service.put("skeletons", "{}_swc".format(body_id), swc_contents)
+            skeletons_kv_instance = config["dvid-info"]["skeletons-destination"]
+            node_service.create_keyvalue(skeletons_kv_instance)
+            node_service.put(skeletons_kv_instance, "{}_swc".format(body_id), swc_contents)
 
         body_ids_and_skeletons.foreach(post_swc_to_dvid)
