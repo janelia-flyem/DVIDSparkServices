@@ -741,13 +741,10 @@ class Ingest3DVolume(Workflow):
             finallayer = imgreader.curr_slice > imgreader.end_slice
 
             if not options["disable-original"]:
-                # for each statement to disk (write jpeg at same time)
-                dataname = None
-                datanamelossy = None
+                # Write level-0 of the raw data, even if we aren't writing the rest of the pyramid.
+                dataname = dvid_info["dataname"]
                 if options["create-pyramid-jpeg"]:
                     datanamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME
-                if options["create-pyramid"]:
-                    dataname = dvid_info["dataname"]
                 
                 if 0 not in options["skipped-pyramid-levels"]:
                     self._write_blocks(arraypartition, dataname, datanamelossy) 
