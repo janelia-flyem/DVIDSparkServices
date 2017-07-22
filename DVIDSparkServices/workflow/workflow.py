@@ -6,7 +6,6 @@ exception type for workflow errors.
 """
 import sys
 import os
-import signal
 import time
 import requests
 import subprocess
@@ -181,10 +180,6 @@ class Workflow(object):
         self._execution_uuid = str(uuid.uuid1())
         self._worker_task_id = 0
         
-        self._driver_init_pid = None
-        self._init_pids = {}
-        self._run_worker_initializations()
-
     def _init_spark(self, appname):
         """Internal function to setup spark context
         
@@ -390,6 +385,7 @@ class Workflow(object):
         Run the workflow by calling the subclass's execute() function
         (with some startup/shutdown steps before/after).
         """
+        worker_init_pids, driver_init_pid = self._run_worker_initializations()
         log_server_proc = self._start_logserver()
         resource_server_proc = self._start_resource_server()
         
@@ -400,28 +396,13 @@ class Workflow(object):
             
             if resource_server_proc:
                 logger.info("Terminating resource manager (PID {})".format(resource_server_proc.pid))
-                resource_server_proc.terminate()
+                kill_if_running(resource_server_proc.pid, 10.0)
 
             if log_server_proc:
-                # NOTE: Apparently the flask server doesn't respond
-                #       to SIGTERM if the server is used in debug mode.
-                #       If you're using the logserver in debug mode,
-                #       you may need to kill it yourself.
-                #       See https://github.com/pallets/werkzeug/issues/58
                 logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
-                
-                # Sometimes the server doesn't die from SIGTERM (if it was handling a request).
-                # Try to kill it gracefully ten times, then just force-kill it (SIGKILL).
-                for _ in range(10):
-                    log_server_proc.terminate()
-                    time.sleep(1.0)
-                    if log_server_proc.poll() is not None:
-                        break
-                if log_server_proc.poll() is None:
-                    # Force kill
-                    log_server_proc.kill()
+                kill_if_running(log_server_proc.pid, 10.0)
             
-            self._kill_initialization_procs()
+            self._kill_initialization_procs(worker_init_pids, driver_init_pid)
 
     def run_on_each_worker(self, func):
         """
@@ -473,7 +454,10 @@ class Workflow(object):
     def _run_worker_initializations(self):
         """
         Run an initialization script (e.g. a bash script) on each worker node.
-        A dict of { hostname : PID } is staved in self._init_pids so the workers can kill the processes later.
+        Returns:
+            (worker_init_pids, driver_init_pid), where worker_init_pids is a
+            dict of { hostname : PID } containing the PIDs of the init process
+            IDs running on the workers.
         """
         from subprocess import STDOUT
         from os.path import basename, splitext
@@ -513,32 +497,39 @@ class Workflow(object):
             time.sleep(init_options["launch-delay"])
             return p.pid
         
-        self._init_pids = self.run_on_each_worker(launch_init_script)
+        worker_init_pids = self.run_on_each_worker(launch_init_script)
 
+        driver_init_pid = None
         if init_options["also-run-on-driver"]:
-            self._driver_init_pid = launch_init_script()
+            driver_init_pid = launch_init_script()
+        
+        return (worker_init_pids, driver_init_pid)
 
-    def _kill_initialization_procs(self):
+    def _kill_initialization_procs(self, worker_init_pids, driver_init_pid):
         """
         Kill any initialization processes (as launched from _run_worker_initializations)
-        that might still running on the workers.
+        that might still running on the workers and/or the driver.
+        
+        If they don't respond to SIGTERM, they'll be force-killed with SIGKILL after 10 seconds.
         """
-        init_pids = self._init_pids
-        if not any(init_pids.values()):
-            return
-
         def kill_init_proc():
             try:
-                pid_to_kill = init_pids[socket.gethostname()]
+                pid_to_kill = worker_init_pids[socket.gethostname()]
             except KeyError:
                 return
-            
-            kill_if_running(pid_to_kill)
+            else:
+                kill_if_running(pid_to_kill, 10.0)
         
-        self.run_on_each_worker(kill_init_proc)
+        if any(worker_init_pids.values()):
+            self.run_on_each_worker(kill_init_proc)
+        else:
+            logger.info("No worker init processes to kill")
+            
 
-        if self._driver_init_pid:
-            kill_if_running(self._driver_init_pid)
+        if driver_init_pid:
+            kill_if_running(driver_init_pid, 10.0)
+        else:
+            logger.info("No driver init process to kill")
 
     # make this an explicit abstract method ??
     def execute(self):

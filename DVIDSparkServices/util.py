@@ -12,6 +12,9 @@ import psutil
 import numpy as np
 from skimage.util import view_as_blocks
 
+logger = logging.getLogger(__name__)
+
+
 @contextlib.contextmanager
 def Timer():
     result = _TimerResult
@@ -126,16 +129,63 @@ def mkdir_p(path):
         else:
             raise
 
-def kill_if_running(pid):
+def kill_if_running(pid, escalation_delay_seconds=10.0):
     """
-    Kill the given process (via SIGTERM) if it is still running.
+    Kill the given process if it is still running.
+    The process will be sent SIGINT, then SIGTERM if
+    necessary (after escalation_delay seconds)
+    and finally SIGKILL if it still hasn't died.
+    
+    This is similar to the behavior of the LSF 'bkill' command.
     """
     try:
-        os.kill(pid, signal.SIGTERM)
+        proc_cmd = ' '.join( psutil.Process(pid).cmdline() )
+    except psutil.NoSuchProcess:
+        return
+
+    _try_kill(pid, signal.SIGINT)
+    if not _is_still_running_after_delay(pid, escalation_delay_seconds):
+        logger.info("Successfully interrupted process {}".format(pid))
+        logger.warn("Interrupted process was: " + proc_cmd)
+    else:
+        _try_kill(pid, signal.SIGTERM)
+        if not _is_still_running_after_delay(pid, escalation_delay_seconds):
+            logger.info("Successfully terminated process {}".format(pid))
+            logger.warn("Terminated process was: " + proc_cmd)
+        else:
+            logger.warn("Process {} did not respond to SIGINT or SIGTERM.  Killing!".format(pid))
+            logger.warn("Killed process was: " + proc_cmd)
+            _try_kill(pid, signal.SIGKILL)
+
+def _try_kill(pid, sig):
+    try:
+        os.kill(pid, sig)
     except OSError as ex:
         if ex.errno != 3: # "No such process"
             raise
 
+def _is_still_running_after_delay(pid, secs):
+    still_running = is_process_running(pid)
+    while still_running and secs > 0.0:
+        time.sleep(2.0)
+        secs -= 2.0
+        still_running = is_process_running(pid)
+    return still_running
+    
+def is_process_running(pid):
+    """
+    Return True if a process with the given PID
+    is currently running, False otherwise.    
+    """
+    # Sending signal 0 to a pid will raise an OSError 
+    # exception if the pid is not running, and do nothing otherwise.        
+    # https://stackoverflow.com/a/568285/162094
+    try:
+        os.kill(pid, 0) # Signal 0
+    except OSError:
+        return False
+    else:
+        return True
 
 class RoiMap(object):
     """
