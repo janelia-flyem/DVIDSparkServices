@@ -15,13 +15,13 @@ import numpy as np
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
-from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, \
-    create_rawarray8, create_labelarray, Compression, extend_list_value, update_extents, reload_server_metadata 
+from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, create_labelarray, Compression,
+                                              extend_list_value, update_extents, reload_server_metadata ) 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode, unicode_to_str
+from DVIDSparkServices.util import Timer, runlength_encode
 
 class Ingest3DVolumeDirect(object):
     """Called by Ingest3DVolume (see below for detailed documentation).
@@ -267,6 +267,11 @@ class Ingest3DVolume(Workflow):
       }
     }
 
+    @staticmethod
+    def dumpschema():
+        return json.dumps(Ingest3DVolume.Schema)
+
+
     # name of application for DVID queries
     APPNAME = "ingest3dvolume"
        
@@ -308,204 +313,6 @@ class Ingest3DVolume(Workflow):
             self.mintasks = (options["num-tasks"]/self.mintasks) * self.mintasks
 
         self.partition_size = options["blockwritelimit"] * options["blocksize"]
-
-    def _writeimagepyramid(self, tilepartition):
-        """Write image tiles to DVID.
-
-        Note:
-            This function makes a series of small tile writes.  One
-            should consider multi-threaded requests as in 'CreateTiles'
-            in situations with poor server latency.
-        """
-        dvid_info = self.config_data["dvid-info"]
-        options = self.config_data["options"]
-
-        maxlevel = self.maxlevel
-        tilesize = options["tilesize"]
-        delimiter = options["blankdelimiter"]
-        createtiles = options["create-tiles"]
-        createtilesjpeg = options["create-tiles-jpeg"]
-        server = dvid_info["dvid-server"]
-        tilename = dvid_info["dataname"]+self.TILENAME
-        tilenamejpeg = dvid_info["dataname"]+self.JPEGTILENAME
-        uuid = dvid_info["uuid"]
-
-        @self.collect_log(lambda (part, vol): part.get_offset())
-        def writeimagepyramid(part_data):
-            logger = logging.getLogger(__name__)
-            part, vol = part_data
-            offset = part.get_offset() 
-            zslice = offset.z
-            from PIL import Image
-            from scipy import ndimage
-            import StringIO
-            import requests
-            s = requests.Session()
-    
-            # pad data with delimiter if needed
-            timslice = vol[0, :, :]
-            shiftx = offset.x % tilesize
-            shifty = offset.y % tilesize
-            tysize, txsize = timslice.shape
-            ysize = tysize + shifty
-            xsize = txsize + shiftx
-            imslice = np.zeros((ysize, xsize))
-            imslice[:,:] = delimiter
-            imslice[shifty:ysize, shiftx:xsize] = timslice
-            curry = (offset.y - shifty)/2 
-            currx = (offset.x - shiftx)/2
-
-            imlevels = []
-            tileoffsetyx = []
-            imlevels.append(imslice)
-            tileoffsetyx.append((offset.y/tilesize, offset.x/tilesize))  
-
-            with Timer() as downsample_timer:
-                # use generic downsample algorithm
-                for level in range(1, maxlevel+1):
-                    
-                    tysize, txsize = imlevels[level-1].shape
-    
-                    shiftx = currx % tilesize
-                    shifty = curry % tilesize
-                    
-                    ysize = tysize + shifty
-                    xsize = txsize + shiftx
-                    imslice = np.zeros((ysize, xsize))
-                    imslice[:,:] = delimiter
-                    timslice = ndimage.interpolation.zoom(imlevels[level-1], 0.5)
-                    imslice[shifty:ysize, shiftx:xsize] = timslice
-                    imlevels.append(imslice) 
-                    tileoffsetyx.append((currx/tilesize, curry/tilesize))  
-                    
-                    curry = (curry - shifty)/2 
-                    currx = (currx - shiftx)/2
-
-            logger.info("Downsampled {} levels in {:.3f} seconds".format(maxlevel, downsample_timer.seconds))
-
-            # write tile pyramid using custom requests
-            for levelnum in range(0, len(imlevels)):
-                levelslice = imlevels[levelnum]
-                dim1, dim2 = levelslice.shape
-
-                num1tiles = (dim1-1)/tilesize + 1
-                num2tiles = (dim2-1)/tilesize + 1
-
-                with Timer() as post_timer:
-                    for iter1 in range(0, num1tiles):
-                        for iter2 in range(0, num2tiles):
-                            # extract tile
-                            tileholder = np.zeros((tilesize, tilesize), np.uint8)
-                            tileholder[:,:] = delimiter
-                            min1 = iter1*tilesize
-                            min2 = iter2*tilesize
-                            tileslice = levelslice[min1:min1+tilesize, min2:min2+tilesize]
-                            t1, t2 = tileslice.shape
-                            tileholder[0:t1, 0:t2] = tileslice
-    
-                            starty, startx = tileoffsetyx[levelnum]
-                            starty += iter1
-                            startx += iter2
-                            if createtiles:
-                                buf = StringIO.StringIO() 
-                                img = Image.frombuffer('L', (tilesize, tilesize), tileholder.tostring(), 'raw', 'L', 0, 1)
-                                img.save(buf, format="png")
-    
-                                urlreq = server + "/api/node/" + uuid + "/" + tilename + "/tile/xy/" + str(levelnum) + "/" + str(startx) + "_" + str(starty) + "_" + str(zslice)
-                                s.post(urlreq , data=buf.getvalue())
-                                buf.close()
-                            
-                            if createtilesjpeg:
-                                buf = StringIO.StringIO() 
-                                img = Image.frombuffer('L', (tilesize, tilesize), tileholder.tostring(), 'raw', 'L', 0, 1)
-                                img.save(buf, format="jpeg")
-    
-                                urlreq = server + "/api/node/" + uuid + "/" + tilenamejpeg + "/tile/xy/" + str(levelnum) + "/" + str(startx) + "_" + str(starty) + "_" + str(zslice)
-                                s.post(urlreq , data=buf.getvalue())
-                                buf.close()
-                logger.info("Posted {} tiles (level={}) in {} seconds".format( num1tiles*num2tiles, levelnum, post_timer.seconds ) )
-
-        tilepartition.foreach(writeimagepyramid)
-
-    def _write_blocks(self, partitions, dataname, dataname_lossy):
-        dvid_info = self.config_data["dvid-info"]
-        options = self.config_data["options"]
-        appname = self.APPNAME
-
-        server = dvid_info["dvid-server"]
-        uuid = dvid_info["uuid"]
-        resource_server = self.resource_server
-        resource_port = self.resource_port
-        blksize = options["blocksize"]
-        delimiter = options["blankdelimiter"]
-        israw = options["is-rawarray"]
-
-        @self.collect_log(lambda (part, data): part.get_offset())
-        def write_blocks(part_vol):
-            logger = logging.getLogger(__name__)
-            part, data = part_vol
-            offset = part.get_offset()
-            _, _, x_size = data.shape
-            if x_size % blksize != 0:
-                # check if padded
-                raise ValueError("Data is not block aligned")
-
-            logger.info("Starting WRITE of partition at: {} size: {}".format(offset, data.shape))
-            node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
-
-            # Find all non-zero blocks (and record by block index)
-            block_coords = []
-            for block_index, block_x in enumerate(range(0, x_size, blksize)):
-                if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
-                    block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
-
-            # Find *runs* of non-zero blocks
-            block_runs = runlength_encode(block_coords, True) # returns [[Z,Y,X1,X2], [Z,Y,X1,X2], ...]
-            
-            # Convert stop indexes from inclusive to exclusive
-            block_runs[:,-1] += 1
-            
-            # Discard Z,Y indexes and convert from indexes to pixels
-            ranges = blksize * block_runs[:, 2:4]
-            
-            ranges[:] += offset.x
-            
-            # iterate through contiguous blocks and write to DVID
-            # TODO: write compressed data directly into DVID
-            for (offsetx, endx) in ranges:
-                with Timer() as copy_timer:
-                    datacrop = data[:,:,offsetx:endx].copy()
-                logger.info("Copied {}:{} in {:.3f} seconds".format(offsetx, endx, copy_timer.seconds))
-
-                data_offset_zyx = (offset.z, offset.y, offsetx)
-
-                if dataname is not None:
-                    with Timer() as put_timer:
-                        if not israw: 
-                            logger.info("STARTING Put: labels block {}".format())
-                            if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
-                                node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True, throttle=False)
-                            else:
-                                node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True)
-                        else:
-                            logger.info("STARTING Put: raw block {}".format(data_offset_zyx))
-                            if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
-                                node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False, throttle=False)
-                            else:
-                                node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False)
-                    logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
-
-                if dataname_lossy is not None:
-                    logger.info("STARTING Put: lossy block {}".format(data_offset_zyx))
-                    with Timer() as put_lossy_timer:
-                        if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
-                            node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False, throttle=False)
-                        else:
-                            node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False)
-                    logger.info("Put lossy block {} in {:.3f} seconds".format(data_offset_zyx, put_lossy_timer.seconds))
-
-        partitions.foreach(write_blocks)
-
 
     def execute(self):
         """Execute spark workflow.
@@ -843,7 +650,203 @@ class Ingest3DVolume(Workflow):
                     curr_level += 1
                     downsample_factor *= 2
 
+    def _write_blocks(self, partitions, dataname, dataname_lossy):
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
+        appname = self.APPNAME
+
+        server = dvid_info["dvid-server"]
+        uuid = dvid_info["uuid"]
+        resource_server = self.resource_server
+        resource_port = self.resource_port
+        blksize = options["blocksize"]
+        delimiter = options["blankdelimiter"]
+        israw = options["is-rawarray"]
+
+        @self.collect_log(lambda (part, data): part.get_offset())
+        def write_blocks(part_vol):
+            logger = logging.getLogger(__name__)
+            part, data = part_vol
+            offset = part.get_offset()
+            _, _, x_size = data.shape
+            if x_size % blksize != 0:
+                # check if padded
+                raise ValueError("Data is not block aligned")
+
+            logger.info("Starting WRITE of partition at: {} size: {}".format(offset, data.shape))
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
+
+            # Find all non-zero blocks (and record by block index)
+            block_coords = []
+            for block_index, block_x in enumerate(range(0, x_size, blksize)):
+                if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
+                    block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
+
+            # Find *runs* of non-zero blocks
+            block_runs = runlength_encode(block_coords, True) # returns [[Z,Y,X1,X2], [Z,Y,X1,X2], ...]
+            
+            # Convert stop indexes from inclusive to exclusive
+            block_runs[:,-1] += 1
+            
+            # Discard Z,Y indexes and convert from indexes to pixels
+            ranges = blksize * block_runs[:, 2:4]
+            
+            ranges[:] += offset.x
+            
+            # iterate through contiguous blocks and write to DVID
+            # TODO: write compressed data directly into DVID
+            for (offsetx, endx) in ranges:
+                with Timer() as copy_timer:
+                    datacrop = data[:,:,offsetx:endx].copy()
+                logger.info("Copied {}:{} in {:.3f} seconds".format(offsetx, endx, copy_timer.seconds))
+
+                data_offset_zyx = (offset.z, offset.y, offsetx)
+
+                if dataname is not None:
+                    with Timer() as put_timer:
+                        if not israw: 
+                            logger.info("STARTING Put: labels block {}".format())
+                            if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
+                                node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True, throttle=False)
+                            else:
+                                node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True)
+                        else:
+                            logger.info("STARTING Put: raw block {}".format(data_offset_zyx))
+                            if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
+                                node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False, throttle=False)
+                            else:
+                                node_service.put_gray3D(dataname, datacrop, data_offset_zyx, compress=False)
+                    logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
+
+                if dataname_lossy is not None:
+                    logger.info("STARTING Put: lossy block {}".format(data_offset_zyx))
+                    with Timer() as put_lossy_timer:
+                        if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
+                            node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False, throttle=False)
+                        else:
+                            node_service.put_gray3D(dataname_lossy, datacrop, data_offset_zyx, compress=False)
+                    logger.info("Put lossy block {} in {:.3f} seconds".format(data_offset_zyx, put_lossy_timer.seconds))
+
+        partitions.foreach(write_blocks)
+
+
+    def _writeimagepyramid(self, tilepartition):
+        """Write image tiles to DVID.
+
+        Note:
+            This function makes a series of small tile writes.  One
+            should consider multi-threaded requests as in 'CreateTiles'
+            in situations with poor server latency.
+        """
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
+
+        maxlevel = self.maxlevel
+        tilesize = options["tilesize"]
+        delimiter = options["blankdelimiter"]
+        createtiles = options["create-tiles"]
+        createtilesjpeg = options["create-tiles-jpeg"]
+        server = dvid_info["dvid-server"]
+        tilename = dvid_info["dataname"]+self.TILENAME
+        tilenamejpeg = dvid_info["dataname"]+self.JPEGTILENAME
+        uuid = dvid_info["uuid"]
+
+        @self.collect_log(lambda (part, vol): part.get_offset())
+        def writeimagepyramid(part_data):
+            logger = logging.getLogger(__name__)
+            part, vol = part_data
+            offset = part.get_offset() 
+            zslice = offset.z
+            from PIL import Image
+            from scipy import ndimage
+            import StringIO
+            import requests
+            s = requests.Session()
+    
+            # pad data with delimiter if needed
+            timslice = vol[0, :, :]
+            shiftx = offset.x % tilesize
+            shifty = offset.y % tilesize
+            tysize, txsize = timslice.shape
+            ysize = tysize + shifty
+            xsize = txsize + shiftx
+            imslice = np.zeros((ysize, xsize))
+            imslice[:,:] = delimiter
+            imslice[shifty:ysize, shiftx:xsize] = timslice
+            curry = (offset.y - shifty)/2 
+            currx = (offset.x - shiftx)/2
+
+            imlevels = []
+            tileoffsetyx = []
+            imlevels.append(imslice)
+            tileoffsetyx.append((offset.y/tilesize, offset.x/tilesize))  
+
+            with Timer() as downsample_timer:
+                # use generic downsample algorithm
+                for level in range(1, maxlevel+1):
+                    
+                    tysize, txsize = imlevels[level-1].shape
+    
+                    shiftx = currx % tilesize
+                    shifty = curry % tilesize
+                    
+                    ysize = tysize + shifty
+                    xsize = txsize + shiftx
+                    imslice = np.zeros((ysize, xsize))
+                    imslice[:,:] = delimiter
+                    timslice = ndimage.interpolation.zoom(imlevels[level-1], 0.5)
+                    imslice[shifty:ysize, shiftx:xsize] = timslice
+                    imlevels.append(imslice) 
+                    tileoffsetyx.append((currx/tilesize, curry/tilesize))  
+                    
+                    curry = (curry - shifty)/2 
+                    currx = (currx - shiftx)/2
+
+            logger.info("Downsampled {} levels in {:.3f} seconds".format(maxlevel, downsample_timer.seconds))
+
+            # write tile pyramid using custom requests
+            for levelnum in range(0, len(imlevels)):
+                levelslice = imlevels[levelnum]
+                dim1, dim2 = levelslice.shape
+
+                num1tiles = (dim1-1)/tilesize + 1
+                num2tiles = (dim2-1)/tilesize + 1
+
+                with Timer() as post_timer:
+                    for iter1 in range(0, num1tiles):
+                        for iter2 in range(0, num2tiles):
+                            # extract tile
+                            tileholder = np.zeros((tilesize, tilesize), np.uint8)
+                            tileholder[:,:] = delimiter
+                            min1 = iter1*tilesize
+                            min2 = iter2*tilesize
+                            tileslice = levelslice[min1:min1+tilesize, min2:min2+tilesize]
+                            t1, t2 = tileslice.shape
+                            tileholder[0:t1, 0:t2] = tileslice
+    
+                            starty, startx = tileoffsetyx[levelnum]
+                            starty += iter1
+                            startx += iter2
+                            if createtiles:
+                                buf = StringIO.StringIO() 
+                                img = Image.frombuffer('L', (tilesize, tilesize), tileholder.tostring(), 'raw', 'L', 0, 1)
+                                img.save(buf, format="png")
+    
+                                urlreq = server + "/api/node/" + uuid + "/" + tilename + "/tile/xy/" + str(levelnum) + "/" + str(startx) + "_" + str(starty) + "_" + str(zslice)
+                                s.post(urlreq , data=buf.getvalue())
+                                buf.close()
+                            
+                            if createtilesjpeg:
+                                buf = StringIO.StringIO() 
+                                img = Image.frombuffer('L', (tilesize, tilesize), tileholder.tostring(), 'raw', 'L', 0, 1)
+                                img.save(buf, format="jpeg")
+    
+                                urlreq = server + "/api/node/" + uuid + "/" + tilenamejpeg + "/tile/xy/" + str(levelnum) + "/" + str(startx) + "_" + str(starty) + "_" + str(zslice)
+                                s.post(urlreq , data=buf.getvalue())
+                                buf.close()
+                logger.info("Posted {} tiles (level={}) in {} seconds".format( num1tiles*num2tiles, levelnum, post_timer.seconds ) )
+
+        tilepartition.foreach(writeimagepyramid)
+
+
         
-    @staticmethod
-    def dumpschema():
-        return json.dumps(Ingest3DVolume.Schema)
