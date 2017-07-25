@@ -394,7 +394,7 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
     
     return body_ids_and_masks
 
-def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, _MAX_COMBINED_MASK_SIZE=2e9 ):
+def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, max_combined_mask_size=1e9 ):
     """
     Given a list of bounding boxes and corresponding binary mask arrays,
     assemble the superset of those masks in a larger array.
@@ -409,17 +409,17 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, _M
     downsample_factor:
         How much to downsample the result:
             0 - "auto", i.e. pick a factor based on how large the final bounding box will be
-            1 - no downsampling
-            2+ - Downsample the result by the 2x,3x, etc.
+            1 - no downsampling (if possible, considering max_combined_mask_size)
+            2+ - Downsample the result by at least 2x,3x, etc.
 
     minimum_object_size:
         If the final result is smaller than this number (as measured in NON-downsampled pixels),
         return 'None' instead of an actual mask.
     
-    _MAX_COMBINED_MASK_SIZE:
-        A constant defining the maximum allowed size for the combined downsampled array.
-        Only used when the downsample_factor is automatically chosen (i.e. when downsample_factor == 0).
-        (Exposed as a function argument just to facilitate testing.)
+    max_combined_mask_size:
+        The maximum allowed size for the combined downsampled array.
+        If the given downsample_factor would result in an array that exceeds max_combined_mask_size,
+        then a new downsample_factor is automatically chosen.
     
     Returns: (combined_bounding_box, combined_mask, downsample_factor)
 
@@ -441,12 +441,11 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, _M
     combined_box[0] = boxes[:, 0, :].min(axis=0)
     combined_box[1] = boxes[:, 1, :].max(axis=0)
     
-    chosen_downsample_factor = downsample_factor
-    if chosen_downsample_factor < 1:
-        # Auto-choose a downsample factor that will result in a
-        # combined downsampled array no larger than _MAX_COMBINED_MASK_SIZE
-        full_size = np.prod(combined_box[1] - combined_box[0])
-        chosen_downsample_factor = 1 + int(np.power(full_size / _MAX_COMBINED_MASK_SIZE, (1./3)))
+    # Auto-choose a downsample factor that will result in a
+    # combined downsampled array no larger than max_combined_mask_size
+    full_size = np.prod(combined_box[1] - combined_box[0])
+    auto_downsample_factor = 1 + int(np.power(full_size / max_combined_mask_size, (1./3)))
+    chosen_downsample_factor = max(downsample_factor, auto_downsample_factor)
 
     block_shape = np.array((chosen_downsample_factor,)*3)
     combined_downsampled_box = downsample_box( combined_box, block_shape )

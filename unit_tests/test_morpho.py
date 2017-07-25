@@ -285,7 +285,7 @@ class Test_assemble_masks(unittest.TestCase):
                             [complete_mask],
                             downsample_factor=-1, # 'auto'
                             minimum_object_size=1,
-                            _MAX_COMBINED_MASK_SIZE=RAM_LIMIT)
+                            max_combined_mask_size=RAM_LIMIT)
 
         assert (combined_bounding_box == box ).all()
         assert combined_mask.all()

@@ -47,14 +47,25 @@ class DVIDWorkflow(Workflow):
     """
    
     # calls base initializer and verifies own schema
-    def __init__(self, jsonfile, schema, appname, corespertask=1):
-        super(DVIDWorkflow, self).__init__(jsonfile, schema, appname, corespertask)
+    def __init__(self, jsonfile, schema, appname):
+        super(DVIDWorkflow, self).__init__(jsonfile, schema, appname)
 
         # separate schema to enforce "server" and "uuid" for all calls
         try:
             validate(self.config_data, json.loads(self.DVIDSchema))
         except ValidationError, e:
             raise WorkflowError("DVID validation error: ", e.what())
+
+        dvid_info = self.config_data['dvid-info']
+
+        # Prepend 'http://' if necessary.
+        if not dvid_info['dvid-server'].startswith('http'):
+            dvid_info['dvid-server'] = 'http://' + dvid_info['dvid-server']
+
+        # Convert dvid parameters from unicode to str for easier C++ calls
+        for k,v in list(dvid_info.items()):
+            if isinstance(v, unicode):
+                dvid_info[k] = str(v)
 
         # create spark dvid context
         self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,

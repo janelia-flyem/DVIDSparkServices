@@ -154,7 +154,7 @@ class ConnectedComponents(DVIDWorkflow):
 
         # write data to DVID
         self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["newsegmentation"], mapped_seg_chunks)
-        self.logger.write_data("Wrote DVID labels") # write to logger after spark job
+        self.workflow_entry_exit_printer.write_data("Wrote DVID labels") # write to logger after spark job
 
 
     @staticmethod

@@ -45,7 +45,11 @@ class CreateTiles(DVIDWorkflow):
           "type": "string",
           "enum": ["png", "jpg"],
           "default": "png"
-        }
+        },
+        "corespertask": {
+            "type": "integer",
+            "default": 2
+        },
       }
     }
   }
@@ -54,7 +58,7 @@ class CreateTiles(DVIDWorkflow):
     
     # calls the default initializer
     def __init__(self, config_filename):
-        super(CreateTiles, self).__init__(config_filename, self.Schema, "Create Tiles", 2)
+        super(CreateTiles, self).__init__(config_filename, self.Schema, "Create Tiles")
 
     # creates tiles for dataset loaded as grayscale blocks
     def execute(self):

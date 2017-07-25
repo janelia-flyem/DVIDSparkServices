@@ -399,7 +399,7 @@ class CreateSegmentation(DVIDWorkflow):
 
         # write data to DVID
         self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["segmentation-name"], mapped_seg_chunks, self.config_data["dvid-info"]["roi"], mutateseg)
-        self.logger.write_data("Wrote DVID labels") # write to logger after spark job
+        self.workflow_entry_exit_printer.write_data("Wrote DVID labels") # write to logger after spark job
 
         if self.config_data["options"]["debug"]:
             # grab 256 cube from ROI 

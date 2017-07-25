@@ -18,6 +18,8 @@ import vigra
 from libdvid import DVIDNodeService
 
 def run_test(test_name, plugin, test_dir, uuid1, uuid2):
+    os.environ["NUM_SPARK_WORKERS"] = "1"
+    
     start = time.time()
     print "Starting test: ", test_name
 
@@ -278,6 +280,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     #####  run tests ####
 
     tests = OrderedDict()
+    tests["test_copyseg"] = "CopySegmentation"
     tests["test_stitch_grid"] = "CreateSegmentation"
     tests["test_stitch_grid_diagonal"] = "CreateSegmentation"
     tests["test_seg"] = "CreateSegmentation"

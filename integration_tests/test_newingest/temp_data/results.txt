@@ -1,6 +1,18 @@
-Ingest 3D Volume: Started [2017-04-21 17:20:24]
-['/Users/bergs/Documents/workspace/logcollector/logcollector/logserver.py', '--log-dir=/tmp/5755d463-26d8-11e7-8cea-a45e60e933fb', '--port=3000']
-Starting server on 0.0.0.0:3000
-Saving logs to /tmp/5755d463-26d8-11e7-8cea-a45e60e933fb
-Terminating logserver with PID 57243
-Ingest 3D Volume: Finished [2017-04-21 17:21:31]
+Ingest 3D Volume: Started [2017-07-17 20:06:30]
+ERROR [2017-07-17 20:06:32,488] __init__ Unhandled exception in thread: 'MainThread'
+ERROR [2017-07-17 20:06:32,489] __init__ Traceback (most recent call last):
+  File "/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/launchworkflow.py", line 72, in <module>
+    main(sys.argv)
+  File "/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/../workflows/launchworkflow.py", line 56, in main
+    workflow_inst = workflow_cls(args.config_file)
+  File "/magnetic/workspace/DVIDSparkServices/workflows/Ingest3DVolume.py", line 283, in __init__
+    super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
+  File "/magnetic/workspace/DVIDSparkServices/DVIDSparkServices/workflow/workflow.py", line 186, in __init__
+    self._run_worker_initializations()
+  File "/magnetic/workspace/DVIDSparkServices/DVIDSparkServices/workflow/workflow.py", line 506, in _run_worker_initializations
+    self._init_pids = self.run_on_each_worker(launch_init_script)
+  File "/magnetic/workspace/DVIDSparkServices/DVIDSparkServices/workflow/workflow.py", line 437, in run_on_each_worker
+    raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
+RuntimeError: Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.
+
+Ingest 3D Volume: Finished [2017-07-17 20:06:32]

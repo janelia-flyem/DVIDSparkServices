@@ -25,8 +25,10 @@ from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 import logging
 logger = logging.getLogger(__name__)
 
+from libdvid import SubstackZYX
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap
+from DVIDSparkServices.dvid.metadata import create_labelarray
     
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
@@ -119,7 +121,9 @@ class sparkdvid(object):
         return self.sc.parallelize(enumerated_subvolumes, len(enumerated_subvolumes))
 
     def _initialize_subvolumes(self, roi, chunk_size, border=0, find_neighbors=False, partition_method='ask-dvid', partition_filter=None):
-        assert partition_method in ('ask-dvid', 'grid-aligned')
+        if partition_method == 'grid-aligned':
+            partition_method = 'grid-aligned-32'
+        assert partition_method == 'ask-dvid' or partition_method.startswith('grid-aligned-')
         assert partition_filter in (None, "all", 'interior-only')
         if partition_filter == "all":
             partition_filter = None
@@ -186,7 +190,7 @@ class sparkdvid(object):
         subvol_size:
             The size of the substack without overlap border
         partition_method:
-            One of 'ask-dvid' or 'grid-aligned'.
+            Either 'ask-dvid' or 'grid-aligned-<N>', where <N> is the grid width in px, e.g. 'grid-aligned-64'
             Note: If using 'grid-aligned', the set of Substacks may
                   include 'empty' substacks that don't overlap the ROI at all.
             
@@ -199,12 +203,25 @@ class sparkdvid(object):
             subvol_tuples, _ = node_service.get_roi_partition(str(roi_name), subvol_size // self.BLK_SIZE)
             return subvol_tuples
 
-        from libdvid import SubstackZYX
+        if partition_method == 'grid-aligned':
+            # old default
+            partition_method = 'grid-aligned-32'
 
-        if partition_method == 'grid-aligned':        
+        if partition_method.startswith('grid-aligned-'):
+            grid_spacing_px = int(partition_method.split('-')[-1])
+            grid_spacing_blocks = grid_spacing_px / self.BLK_SIZE
+
+            assert subvol_size % grid_spacing_px == 0, \
+                "Subvolume partitions won't be aligned to grid unless subvol_size is a multiple of the grid size."
+            
             roi_blocks = np.asarray(list(self.get_roi(roi_name)))
             roi_blocks_start = np.min(roi_blocks, axis=0)
             roi_blocks_stop = 1 + np.max(roi_blocks, axis=0)
+            
+            # Clip start/stop to grid
+            roi_blocks_start = (roi_blocks_start // grid_spacing_blocks) * grid_spacing_blocks # round down to grid
+            roi_blocks_stop = ((roi_blocks_stop + grid_spacing_blocks - 1) // grid_spacing_blocks) * grid_spacing_blocks # round up to grid
+            
             roi_blocks_shape = roi_blocks_stop - roi_blocks_start
     
             sv_size_in_blocks = (subvol_size // self.BLK_SIZE)
@@ -491,6 +508,45 @@ class sparkdvid(object):
             return []
 
         elements.foreachPartition(writer)
+
+    def foreach_ingest_labelarray(self, label_name, seg_chunks):
+        """
+        Create a labelarray instance and indest the given RDD of
+        segmentation chunks using DVID's API for high-speed ingestion
+        of native blocks.
+        
+        Note: seg_chunks must be block-aligned!
+        """
+        server = self.dvid_server
+        uuid = self.uuid
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
+
+        # Create labelarray instance if necessary
+        create_labelarray(server, uuid, label_name)
+        
+        def writer(subvolume_seg):
+            _key, (subvolume, seg) = subvolume_seg
+            
+            # Discard border (if any)
+            b = subvolume.border
+            seg = seg[b:-b, b:-b, b:-b]
+            
+            # Ensure contiguous
+            seg = np.asarray(seg, order='C')
+            
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+            def put_labels():
+                throttle = (resource_server == "")
+                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+                node_service.put_labelblocks3D( str(label_name),
+                                                seg,
+                                                subvolume.box[:3],
+                                                throttle )
+            put_labels()
+
+        return seg_chunks.foreach(writer)
+
 
     # (key, (ROI, segmentation compressed+border))
     # => segmentation output in DVID

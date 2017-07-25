@@ -346,7 +346,7 @@ class IngestGrayscale(Workflow):
 
                 yblockssplit.foreach(write2dvid)
         
-            self.logger.write_data("Ingested %d slices" % iterslices)
+            self.workflow_entry_exit_printer.write_data("Ingested %d slices" % iterslices)
         
         # just fetch one image at driver to get dims
         width = height = 1

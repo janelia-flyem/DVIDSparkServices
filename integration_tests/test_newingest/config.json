@@ -14,8 +14,20 @@
         "create-tiles": false,
         "create-tiles-jpeg": false,
 
+        "pyramid-depth": 2,
+
         "log-collector-port": 3000,
-        "log-collector-directory": "",
+        "log-collector-directory": "./logs",
+
+        "resource-server": "driver",
+        "resource-port": 4000,
+
+        "worker-initialization": {
+            "script-path": "./hello.sh",
+            "script-args": ["WORLD!"],
+            "launch-delay": 1,
+            "log-dir": "./worker-logs"
+        },
 
         "blocksize": 64,
         "tilesize": 1024,
@@ -25,7 +37,6 @@
         "disable-original": false,
         "blankdelimiter": 100,
         "is-rawarray": true,
-        "pyramid-depth": 2,
         "num-tasks": 128
     }
 }
