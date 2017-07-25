@@ -678,7 +678,7 @@ class Ingest3DVolume(Workflow):
 
             # Find all non-zero blocks (and record by block index)
             block_coords = []
-            for block_index, block_x in enumerate(range(0, x_size, blksize)):
+            for block_index, block_x in enumerate(xrange(0, x_size, blksize)):
                 if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
@@ -691,16 +691,14 @@ class Ingest3DVolume(Workflow):
             # Discard Z,Y indexes and convert from indexes to pixels
             ranges = blksize * block_runs[:, 2:4]
             
-            ranges[:] += offset.x
-            
             # iterate through contiguous blocks and write to DVID
             # TODO: write compressed data directly into DVID
-            for (offsetx, endx) in ranges:
+            for (data_x_start, data_x_end) in ranges:
                 with Timer() as copy_timer:
-                    datacrop = data[:,:,offsetx:endx].copy()
-                logger.info("Copied {}:{} in {:.3f} seconds".format(offsetx, endx, copy_timer.seconds))
+                    datacrop = data[:,:,data_x_start:data_x_end].copy()
+                logger.info("Copied {}:{} in {:.3f} seconds".format(data_x_start, data_x_end, copy_timer.seconds))
 
-                data_offset_zyx = (offset.z, offset.y, offsetx)
+                data_offset_zyx = (offset.z, offset.y, offset.x + data_x_start)
 
                 if dataname is not None:
                     with Timer() as put_timer:
