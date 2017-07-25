@@ -250,7 +250,8 @@ class Ingest3DVolume(Workflow):
         "num-tasks": {
             "description": "Number of tasks to use (min is 2*blocksize and should be multiple of this)",
             "type": "integer",
-            "default": 128
+            "default": 128,
+            "minimum": 32
         }
     })
 
@@ -307,10 +308,9 @@ class Ingest3DVolume(Workflow):
             assert options["pyramid-depth"] == 0, \
                 "Bad config: Pyramid depth specified, but no 'create-pyramid' setting given."
 
-        self.mintasks = options["blocksize"] * 2
-        if options["num-tasks"] > self.mintasks:
-            # fetch data in multiples of mintasks
-            self.mintasks = (options["num-tasks"]/self.mintasks) * self.mintasks
+        # fetch data in multiples of mintasks
+        assert options["num-tasks"] % (options["blocksize"] * 2) == 0, \
+            "Bad config: num-tasks must be a multiple of 2*blocksize"
 
         self.partition_size = options["blockwritelimit"] * options["blocksize"]
 
@@ -341,7 +341,7 @@ class Ingest3DVolume(Workflow):
         # this just makes the downstream processing a little more convenient, and reduces
         # unnecessary DVID patching if that is enabled.
         # (must be a multiple of block size)
-        imgreader.iteration_size = self.mintasks
+        imgreader.iteration_size = options["num-tasks"]
 
         # get dims from image (hackage)
         from PIL import Image
