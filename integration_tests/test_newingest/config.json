@@ -32,7 +32,7 @@
         "blocksize": 64,
         "tilesize": 1024,
         "offset": [5, 10, 20],
-        "blockwritelimit": 100,
+        "blockwritelimit": 3,
         "has-dvidmask": true,
         "disable-original": false,
         "blankdelimiter": 100,
