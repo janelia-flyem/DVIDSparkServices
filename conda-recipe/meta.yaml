@@ -17,7 +17,7 @@ build:
   string: py{{CONDA_PY}}_{{PKG_BUILDNUM}}_g{{GIT_FULL_HASH[:7]}}
   
   entry_points:
-    #- launchworkflow = workflows.launchworkflow:main (TODO)
+    - launchworkflow = DVIDSparkServices.workflow.launchworkflow:main
 
 requirements:
   build:

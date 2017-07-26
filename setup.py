@@ -7,15 +7,20 @@ packages=['DVIDSparkServices',
           'DVIDSparkServices.dvid',
           'DVIDSparkServices.sparkdvid',
           'DVIDSparkServices.workflow',
-          'workflows'
+          'DVIDSparkServices.workflows'
          ]
 
 package_data={}
 
-setup(name='DVIDSparkServices',
-      version='0.3',
-      description='Spark-based reconstruction tools working on DVID',
-      url='https://github.com/janelia-flyem/DVIDSparkServices',
-      packages=packages,
-      package_data=package_data
-      )
+setup( name='DVIDSparkServices',
+       version='0.3',
+       description='Spark-based reconstruction tools working on DVID',
+       url='https://github.com/janelia-flyem/DVIDSparkServices',
+       packages=packages,
+       package_data=package_data,
+       entry_points={
+          'console_scripts': [
+              'launchworkflow = DVIDSparkServices.workflow.launchworkflow:main'
+          ]
+       }
+     )

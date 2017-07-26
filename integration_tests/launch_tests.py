@@ -29,7 +29,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
 
     num_jobs = 8
     temp_config_json = temp_data_dir + "/config.json"
-    job_command = 'spark-submit --driver-memory 2G --executor-memory 4G --master local[{num_jobs}] {test_dir}/../workflows/launchworkflow.py {plugin} -c {temp_config_json}'\
+    job_command = 'spark-submit --driver-memory 2G --executor-memory 4G --master local[{num_jobs}] {test_dir}/../DVIDSparkServices/workflow/launchworkflow.py {plugin} -c {temp_config_json}'\
                    .format(**locals())
 
     print job_command

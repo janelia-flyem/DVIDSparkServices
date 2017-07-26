@@ -66,7 +66,7 @@ Once installed, the workflows can be called even with a local spark context.  Th
 
 Example command:
 
-    % spark-submit --master local[4]  workflows/launchworkflow.py ComputeGraph -c <configfile>.json
+    % spark-submit --master local[4]  DVIDSparkServices/workflow/launchworkflow.py ComputeGraph -c <configfile>.json
 
 This calls the module ComputeGraph with the provided configuration in JSON using 4 spark workers.  Each plugin defines its own configuration.
 One can supply the flag '-d' instead of '-c' and the config file to retrieve a JSON schema describing the expected input.  
@@ -91,7 +91,7 @@ This section describes some of the workflows available in DVIDSparkServices and 
 
 DVIDSparkServices python workflows all have the same pattern:
 
-    % spark-submit workflows/launchworkflow.py WORKFLOWNAME -c CONFIG
+    % spark-submit DVIDSparkServices/workflow/launchworkflow.py WORKFLOWNAME -c CONFIG
 
 Where WORKFLOWNAME should exist as a python file in the module *workflows* and define a class with the same name that inherits from
 the python object *DVIDSparkServices.workflow.Workflow* or *DVIDSparkServices.workflow.DVIDWorkflow*.  launchworkflow.py acts as the entry point that invokes the provided module.
