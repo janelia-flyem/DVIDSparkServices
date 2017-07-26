@@ -464,7 +464,7 @@ class Workflow(object):
 
         init_options = self.config_data["options"]["worker-initialization"]
         if not init_options["script-path"]:
-            return
+            return ({}, None)
 
         init_options["script-path"] = self.relpath_to_abspath(init_options["script-path"])
         init_options["log-dir"] = self.relpath_to_abspath(init_options["log-dir"])
