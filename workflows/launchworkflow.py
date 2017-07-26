@@ -9,7 +9,13 @@ logger = logging.getLogger(__name__)
 
 from DVIDSparkServices.workflow.workflow import WorkflowError
 
-def main(argv):
+def main():
+    DEBUG_LOGGING = True
+    if DEBUG_LOGGING:
+        handler = logging.StreamHandler(sys.stdout)
+        logger.addHandler(handler)
+        logger.setLevel(logging.INFO)
+    
     try:
         # get workflow path
         workflowpath = sys.argv[0]
@@ -63,10 +69,4 @@ def main(argv):
         raise
 
 if __name__ == "__main__":
-    DEBUG_LOGGING = True
-    if DEBUG_LOGGING:
-        handler = logging.StreamHandler(sys.stdout)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    
-    main(sys.argv)
+    main()
