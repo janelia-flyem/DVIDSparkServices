@@ -703,7 +703,7 @@ class Ingest3DVolume(Workflow):
                 if dataname is not None:
                     with Timer() as put_timer:
                         if not israw: 
-                            logger.info("STARTING Put: labels block {}".format())
+                            logger.info("STARTING Put: labels block {}".format(data_offset_zyx))
                             if resource_server != "" or dvid_info["dvid-server"].startswith("http://127.0.0.1"):
                                 node_service.put_labels3D(dataname, datacrop, data_offset_zyx, compress=True, throttle=False)
                             else:

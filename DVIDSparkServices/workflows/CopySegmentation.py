@@ -5,11 +5,14 @@ import logging
 import requests
 import numpy as np
 
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray
 from libdvid.util.roi_utils import copy_roi, RoiInfo
+from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
+from DVIDSparkServices.util import Timer, runlength_encode
 #from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
 
 class CopySegmentation(Workflow):
@@ -122,20 +125,15 @@ class CopySegmentation(Workflow):
             "type": "integer",
             "default": 512
         },
-        "offset": {
-            "description": "Offset (x,y,z) for loading data, relative to the input source coordinates",
-            "type": "array",
-            "items": {
-                "type": "integer",
-            },
-           "minItems": 3,
-           "maxItems": 3,
-           "default": [0,0,0]
-        },
         "pyramid-depth": {
-            "description": "Number of pyramid levels to generate (0 means choose automatically)",
+            "description": "Number of pyramid levels to generate (0 means choose automatically, -1 means no pyramid)",
             "type": "integer",
             "default": 0 # automatic by default
+        },
+        "blockwritelimit": {
+           "description": "Maximum number of blocks written per task request (0=no limit)",
+           "type": "integer",
+           "default": 100
         }
     })
 
@@ -155,7 +153,7 @@ class CopySegmentation(Workflow):
         return json.dumps(CopySegmentation.Schema)
 
     # name of application for DVID queries
-    APP_NAME = "copysegmentation"
+    APPNAME = "copysegmentation"
 
     def __init__(self, config_filename):
         super(CopySegmentation, self).__init__( config_filename,
@@ -187,7 +185,7 @@ class CopySegmentation(Workflow):
         input_config = self.config_data["data-info"]["input"]
         output_config = self.config_data["data-info"]["output"]
         roi_config = self.config_data["data-info"]["roi"]
-        options_config = self.config_data["options"]
+        options = self.config_data["options"]
 
         #input_type = get_input_instance_type(input_config)
         create_labelarray( output_config["server"],
@@ -202,11 +200,12 @@ class CopySegmentation(Workflow):
 
         # (sv_id, sv)
         distsubvolumes = self.sparkdvid_input_context.parallelize_roi( roi_config["name"],
-                                                                       options_config["chunk-size"],
+                                                                       options["chunk-size"],
                                                                        0,
                                                                        False, # Change to TRUE if stitching needed.
                                                                        roi_config["partition-method"],
                                                                        roi_config["partition-filter"] )
+
 
         # do not recompute ROI for each iteration
         distsubvolumes.persist()
@@ -217,17 +216,172 @@ class CopySegmentation(Workflow):
                                                                 0,
                                                                 roi_config["name"] )
 
+
+        # repartition to be z=blksize, y=blksize, x=runlength (x=0 is unlimited)
+        partition_size = options["blockwritelimit"] * output_config["block-size"]
+        partition_dims = PartitionDims(output_config["block-size"], output_config["block-size"], partition_size)
+        schema = partitionSchema(partition_dims, padding=output_config["block-size"])
+        
+        # format segmentation chunks to be used with the partitionschema
         def combine_values( item ):
             (sv_id1, sv), (sv_id2, data) = item
             assert sv_id1 == sv_id2
-            return (sv_id1, (sv, data))
+            z = sv.box.z1
+            y = sv.box.y1
+            x = sv.box.x1
+            return (volumePartition((z,y,x), VolumeOffset(z,y,x)), data)
+        seg_chunks = distsubvolumes.zip(seg_chunks).map(combine_values)
+
+        # RDD shuffling operation to get data into the correct partitions
+        seg_chunks_partitioned = schema.partition_data(seg_chunks)
         
-        # (sv_id, (sv, data))
-        seg_chunks = distsubvolumes.zip( seg_chunks ).map( combine_values )
+        # data must exist after writing to dvid for downsampling
+        seg_chunks_partitioned.persist()
 
-        self.sparkdvid_output_context.foreach_ingest_labelarray( output_config['segmentation-name'],
-                                                                 seg_chunks )
+        # TODO: if labelarray already exists set pyramid depth from that
 
+        # if no pyramid depth is specified, determine the max 
+        if options["pyramid-depth"] == 0:
+            # grab max dim from data
+            subvolumes = distsubvolumes.collect()
+            xmin = ymin = zmin = 9999999999999
+            xmax = ymax = zmax = -9999999999999
+            for (sid, subvolume) in subvolumes:
+                if subvolume.box.x1 < xmin:
+                    xmin = subvolume.box.x1
+                if subvolume.box.y1 < ymin:
+                    ymin = subvolume.box.y1
+                if subvolume.box.z1 < zmin:
+                    zmin = subvolume.box.z1
+                if subvolume.box.x2 > xmax:
+                    xmax = subvolume.box.x2
+                if subvolume.box.y2 > ymax:
+                    ymax = subvolume.box.y2
+                if subvolume.box.z2 > zmax:
+                    zmax = subvolume.box.z2
+            xdiff = xmax - xmin
+            ydiff = ymax - ymin
+            xdiff = xmax - xmin
+            maxdim = max(xdiff, ydiff, xdiff)
+
+            while maxdim > 512:
+                options["pyramid-depth"] += 1
+                maxdim /= 2
+
+        # write level 0
+        dataname = output_config["segmentation-name"]
+        self._write_blocks(seg_chunks_partitioned, dataname, 0)
+
+        # write pyramid levels for >=1 
+        for level in range(1, options["pyramid-depth"] + 1):
+            # downsample seg partition
+            def downsample(part_vol):
+                part, vol = part_vol
+                vol = downsample_3Dlabels(vol, 1)[0]
+                return (part, vol)
+            downsampled_array = seg_chunks_partitioned.map(downsample)
+
+            # prepare for repartition
+            # (!!assume vol and offset will always be power of two because of padding)
+            def repartition_down(part_volume):
+                part, volume = part_volume
+                downsampled_offset = np.array(part.get_offset()) / 2
+                downsampled_reloffset = np.array(part.get_reloffset()) / 2
+                offsetnew = VolumeOffset(*downsampled_offset)
+                reloffsetnew = VolumeOffset(*downsampled_reloffset)
+                partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew, reloffset=reloffsetnew)
+                return partnew, volume
+            downsampled_array = downsampled_array.map(repartition_down)
+            
+            # repartition downsampled data (unpersist previous level)
+            schema = partitionSchema(partition_dims, padding=output_config["block-size"])
+            seg_chunks_partitioned = schema.partition_data(downsampled_array)
+
+            # persist for next level
+            seg_chunks_partitioned.persist()
+            
+            # TODO: init levels when creating datatype or if already created, check how many levels are available
+            # TEMPORARY HACK (NEED TO MODIFY LIBDVID)
+            dataname = output_config["segmentation-name"] + "_" + str(level)
+            create_labelarray( output_config["server"],
+                               output_config["uuid"],
+                               dataname,
+                               3*(output_config["block-size"],) )
+
+            #  write data new level
+            self._write_blocks(seg_chunks_partitioned, dataname, level)
+
+    def _write_blocks(self, partitions, dataname, level):
+        """Writes partition to specified dvid.
+        """
+        output_config = self.config_data["data-info"]["output"]
+        appname = self.APPNAME
+
+        server = output_config["server"]
+        uuid = output_config["uuid"]
+        blksize = output_config["block-size"]
+        
+        resource_server = self.resource_server 
+        resource_port = self.resource_port 
+        
+        # default delimiter
+        delimiter = 0
+    
+        @self.collect_log(lambda (part, data): part.get_offset())
+        def write_blocks(part_vol):
+            logger = logging.getLogger(__name__)
+            part, data = part_vol
+            offset = part.get_offset()
+            reloffset = part.get_reloffset()
+            print "!!", offset, reloffset, level
+            _, _, x_size = data.shape
+            if x_size % blksize != 0:
+                # check if padded
+                raise ValueError("Data is not block aligned")
+
+            shiftedoffset = (offset.z+reloffset.z, offset.y+reloffset.y, offset.x+reloffset.x)
+            logger.info("Starting WRITE of partition at: {} size: {}".format(shiftedoffset, data.shape))
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
+
+            # Find all non-zero blocks (and record by block index)
+            block_coords = []
+            for block_index, block_x in enumerate(xrange(0, x_size, blksize)):
+                if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
+                    block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
+
+            # Find *runs* of non-zero blocks
+            block_runs = runlength_encode(block_coords, True) # returns [[Z,Y,X1,X2], [Z,Y,X1,X2], ...]
+            
+            # Convert stop indexes from inclusive to exclusive
+            block_runs[:,-1] += 1
+            
+            # Discard Z,Y indexes and convert from indexes to pixels
+            ranges = blksize * block_runs[:, 2:4]
+            
+            # iterate through contiguous blocks and write to DVID
+            for (data_x_start, data_x_end) in ranges:
+                with Timer() as copy_timer:
+                    datacrop = data[:,:,data_x_start:data_x_end].copy()
+                logger.info("Copied {}:{} in {:.3f} seconds".format(data_x_start, data_x_end, copy_timer.seconds))
+
+                data_offset_zyx = (shiftedoffset[0], shiftedoffset[1], shiftedoffset[2] + data_x_start)
+
+                # TODO: modify labelblocks3D to take optional level information
+                with Timer() as put_timer:
+                    logger.info("STARTING Put: labels block {}".format(data_offset_zyx))
+                    if resource_server != "" or server.startswith("http://127.0.0.1"):
+                        node_service.put_labelblocks3D( str(dataname), datacrop,
+                                                 data_offset_zyx, throttle=False )
+                    else:
+                        node_service.put_labelblocks3D( str(dataname), datacrop,
+                                                 data_offset_zyx, throttle=True )
+
+                logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
+
+        partitions.foreach(write_blocks)
+       
+        
+        
 ##
 ## FUNCTIONS BELOW THIS LINE ARE NOT USED (YET?)
 ##
@@ -243,7 +397,7 @@ def download_segmentation_chunk( input_config, options_config, subvolume ):
                                           input_config["uuid"],
                                           options_config["resource-server"],
                                           options_config["resource-port"],
-                                          CopySegmentation.APP_NAME )
+                                          CopySegmentation.APPNAME )
 
     start_zyx = subvolume.box[:3]
     stop_zyx = subvolume.box[3:]
@@ -258,7 +412,7 @@ def upload_segmentation_chunk( output_config, options_config, subvolume, seg_arr
                                           output_config["uuid"],
                                           options_config["resource-server"],
                                           options_config["resource-port"],
-                                          CopySegmentation.APP_NAME )
+                                          CopySegmentation.APPNAME )
 
     start_zyx = subvolume.box[:3]
     stop_zyx = subvolume.box[3:]
@@ -301,8 +455,8 @@ if __name__ == "__main__":
             "corespertask": 1,
             "chunk-size": 512,
     
-            "offset": [0,0,0],
             "pyramid-depth": 0,
+            "blockwritelimit": 0,
     
             "resource-port": 0,
             "resource-server": "",
@@ -317,6 +471,5 @@ if __name__ == "__main__":
     validate_and_inject_defaults(config, CopySegmentation.Schema)
     print json.dumps(config, indent=4, separators=(',', ': '))
 
-#     config_text = str(open('/magnetic/workspace/DVIDSparkServices/integration_tests/test_copyseg/temp_data/config.json').read())
-#     config_data = json.loads(config_text)
-#     print type(config_data['data-info']['input']['server'])
+
+
