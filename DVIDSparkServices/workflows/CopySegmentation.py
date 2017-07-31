@@ -355,15 +355,10 @@ class CopySegmentation(Workflow):
                 data_offset_zyx = (shiftedoffset[0], shiftedoffset[1], shiftedoffset[2] + data_x_start)
 
                 # TODO: modify labelblocks3D to take optional level information
+                logger.info("STARTING Put: labels block {}".format(data_offset_zyx))
+                throttle = (resource_server == "" and not server.startswith("http://127.0.0.1"))
                 with Timer() as put_timer:
-                    logger.info("STARTING Put: labels block {}".format(data_offset_zyx))
-                    if resource_server != "" or server.startswith("http://127.0.0.1"):
-                        node_service.put_labelblocks3D( str(dataname), datacrop,
-                                                 data_offset_zyx, throttle=False )
-                    else:
-                        node_service.put_labelblocks3D( str(dataname), datacrop,
-                                                 data_offset_zyx, throttle=True )
-
+                    node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle )
                 logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
 
         partitions.foreach(write_blocks)
