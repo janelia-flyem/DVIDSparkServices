@@ -209,7 +209,7 @@ def make_blockwise_reducer_3d(reducer_func, nopython=True):
 
 
 @jit(nopython=True, cache=True)
-def flat_mode(data, exclude_label=0):
+def flat_mode_except_excluded(data, exclude_label=0):
     """
     Given an array, flatten it and return the mode, without including
     the given 'exclude_label', if possible.
@@ -224,7 +224,27 @@ def flat_mode(data, exclude_label=0):
     data = data[data != exclude_label]
     if data.size == 0:
         return exclude_label
+    return _flat_mode(data, True)
+
+
+@jit(nopython=True, cache=True)
+def flat_mode(data):
+    """
+    Given an ND array, flatten it and return the mode.
+    """
+    data = data.copy().reshape(-1)
+    return _flat_mode(data)
+
+
+@jit(nopython=True, cache=True)
+def _flat_mode(data, already_flat=False):
+    """
+    Given an contiguous flat array, return the mode.
     
+    Note: We could have used scipy.stats.mode() here,
+          but that implementation is insanely slow for large arrays,
+          especially if there are many label values in the array.
+    """
     data.sort()
     diff = np.diff(data)
     diff_bool = np.ones((len(diff)+2,), dtype=np.uint8)
@@ -236,9 +256,24 @@ def flat_mode(data, exclude_label=0):
     return data[diff_nonzero[max_run]]
 
 
-downsample_labels_3d = make_blockwise_reducer_3d(flat_mode)
-downsample_binary_3d = make_blockwise_reducer_3d(np.any)
+@jit(nopython=True, cache=True)
+def flat_binary_mode(data):
+    nonzero = 0
+    for index in np.ndindex(data.shape):
+        z,y,x = index
+        if data[z,y,x] != 0:
+            nonzero += 1
 
+    if nonzero > data.size // 2:
+        return 1
+    return 0
+
+downsample_labels_3d = make_blockwise_reducer_3d(flat_mode)
+downsample_binary_3d = make_blockwise_reducer_3d(flat_binary_mode)
+
+# These variants will not return zero as the block mode UNLESS it's the only value in the block.
+downsample_labels_3d_suppress_zero = make_blockwise_reducer_3d(flat_mode_except_excluded)
+downsample_binary_3d_suppress_zero = make_blockwise_reducer_3d(np.any)
 
 if __name__ == "__main__":
     # These work, too:
