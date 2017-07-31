@@ -24,7 +24,7 @@ def downsample_raw(data, numlevels=1):
         data = res[level]
     return res
 
-@jit
+@jit(cache=True)
 def downsample_3Dlabels(data, numlevels=1):
     """Downsamples 3D label data using maximum element.
     
@@ -105,7 +105,7 @@ def downsample_3Dlabels(data, numlevels=1):
 
     return res[1:]
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def downsample_box( box, block_shape ):
     """
     Given a box (i.e. start and stop coordinates) and a
@@ -132,7 +132,7 @@ def make_blockwise_reducer_3d(reducer_func, nopython=True):
     Implemented according to guidelines in numba FAQ:
     http://numba.pydata.org/numba-doc/dev/user/faq.html#can-i-pass-a-function-as-an-argument-to-a-jitted-function
     """
-    @jit(nopython=nopython)
+    @jit(nopython=nopython, cache=True)
     def _reduce_blockwise_compiled(data, block_shape, data_box, reduced_box):
         _output_shape = reduced_box[1] - reduced_box[0]
         output_shape = (_output_shape[0], _output_shape[1], _output_shape[2])
@@ -208,7 +208,7 @@ def make_blockwise_reducer_3d(reducer_func, nopython=True):
     return reduce_blockwise
 
 
-@jit(nopython=True)
+@jit(nopython=True, cache=True)
 def flat_mode(data, exclude_label=0):
     """
     Given an array, flatten it and return the mode, without including
@@ -250,6 +250,9 @@ if __name__ == "__main__":
     # 
     # from functools import partial
     # downsample_labels_3d = make_blockwise_reducer_3d(partial(flat_mode, exclude_label=1), nopython=False)
+
+    import time
+    start = time.time()
 
     a = np.random.randint(0,4, (1,4,8)).view(np.uint64)
     print a
@@ -308,3 +311,5 @@ if __name__ == "__main__":
     print downsampled
     print box.tolist()
     print ""
+
+    print "total seconds: {:.2f}".format(time.time() - start)
