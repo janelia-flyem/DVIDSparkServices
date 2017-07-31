@@ -240,29 +240,17 @@ class CopySegmentation(Workflow):
 
         # TODO: if labelarray already exists set pyramid depth from that
 
-        # if no pyramid depth is specified, determine the max 
+        # if no pyramid depth is specified, determine the max
         if options["pyramid-depth"] == 0:
-            # grab max dim from data
-            subvolumes = distsubvolumes.collect()
-            xmin = ymin = zmin = 9999999999999
-            xmax = ymax = zmax = -9999999999999
-            for (sid, subvolume) in subvolumes:
-                if subvolume.box.x1 < xmin:
-                    xmin = subvolume.box.x1
-                if subvolume.box.y1 < ymin:
-                    ymin = subvolume.box.y1
-                if subvolume.box.z1 < zmin:
-                    zmin = subvolume.box.z1
-                if subvolume.box.x2 > xmax:
-                    xmax = subvolume.box.x2
-                if subvolume.box.y2 > ymax:
-                    ymax = subvolume.box.y2
-                if subvolume.box.z2 > zmax:
-                    zmax = subvolume.box.z2
-            xdiff = xmax - xmin
-            ydiff = ymax - ymin
-            xdiff = xmax - xmin
-            maxdim = max(xdiff, ydiff, xdiff)
+            subvolumes = [sv for (_sid, sv) in distsubvolumes.collect()]
+            sv_boxes = np.zeros( (len(subvolumes), 2, 3), np.int64 )
+            sv_boxes[:,0] = [sv.box[:3] for sv in subvolumes]
+            sv_boxes[:,1] = [sv.box[3:] for sv in subvolumes]
+            
+            global_start = sv_boxes.min(axis=0)
+            global_stop  = sv_boxes.max(axis=0)
+            global_shape = global_stop - global_start
+            maxdim = global_shape.max()
 
             while maxdim > 512:
                 options["pyramid-depth"] += 1
