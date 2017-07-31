@@ -3,7 +3,8 @@
         "dvid-server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "roi": "temproi256",
-        "segmentation": "seglabels"
+        "segmentation": "seglabels",
+        "skeletons-destination": "seglabels_vol_skeletons"
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],
