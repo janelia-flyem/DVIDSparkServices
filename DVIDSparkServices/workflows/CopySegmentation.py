@@ -12,7 +12,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.dvid.metadata import create_labelarray
 from libdvid.util.roi_utils import copy_roi, RoiInfo
 from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth
 #from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
 
 class CopySegmentation(Workflow):
@@ -243,18 +243,7 @@ class CopySegmentation(Workflow):
         # if no pyramid depth is specified, determine the max
         if options["pyramid-depth"] == 0:
             subvolumes = [sv for (_sid, sv) in distsubvolumes.collect()]
-            sv_boxes = np.zeros( (len(subvolumes), 2, 3), np.int64 )
-            sv_boxes[:,0] = [sv.box[:3] for sv in subvolumes]
-            sv_boxes[:,1] = [sv.box[3:] for sv in subvolumes]
-            
-            global_start = sv_boxes.min(axis=0)
-            global_stop  = sv_boxes.max(axis=0)
-            global_shape = global_stop - global_start
-            maxdim = global_shape.max()
-
-            while maxdim > 512:
-                options["pyramid-depth"] += 1
-                maxdim /= 2
+            options["pyramid-depth"] = choose_pyramid_depth(subvolumes)
 
         # write level 0
         dataname = output_config["segmentation-name"]
