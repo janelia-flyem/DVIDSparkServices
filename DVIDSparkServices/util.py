@@ -385,6 +385,29 @@ except ImportError:
     pass
 
 
+def choose_pyramid_depth(subvolumes, top_level_max_dim=512):
+    """
+    If a 3D volume pyramid were generated to encompass the given list of Subvolume objects,
+    determine how many pyramid levels you would need such that the top
+    level of the pyramid is no wider than `top_level_max_dim` in any dimension.
+    """
+    from numpy import ceil, log2
+    assert len(subvolumes) > 0, "No subvolumes given."
+    
+    sv_starts = [sv.box[:3] for sv in subvolumes]
+    sv_stops  = [sv.box[3:] for sv in subvolumes]
+
+    global_start = np.amin(sv_starts, axis=0)
+    global_stop  = np.amax(sv_stops,  axis=0)
+    global_shape = global_stop - global_start
+
+    full_res_max_dim = float(global_shape.max())
+    assert full_res_max_dim > 0.0, "Subvolumes encompass no volume!"
+    
+    depth = int(ceil(log2(full_res_max_dim/top_level_max_dim)))
+    return max(depth, 0)
+
+
 def mask_roi(data, subvolume, border='default'):
     """
     masks data to 0 if outside of ROI stored in subvolume

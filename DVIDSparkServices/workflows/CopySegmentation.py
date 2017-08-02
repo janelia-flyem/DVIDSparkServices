@@ -12,7 +12,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.dvid.metadata import create_labelarray
 from libdvid.util.roi_utils import copy_roi, RoiInfo
 from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth
 #from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
 
 class CopySegmentation(Workflow):
@@ -233,30 +233,18 @@ class CopySegmentation(Workflow):
         # data must exist after writing to dvid for downsampling
         seg_chunks_partitioned.persist()
 
-        # if labelarray already exists set pyramid depth from that
-        
         node_service = retrieve_node_service(output_config["server"], output_config["uuid"], self.resource_server, self.resource_port, self.APPNAME)
         try:
+            # if labelarray already exists set pyramid depth from that
             info = node_service.get_typeinfo(dataname)
             options["pyramid-depth"] = int(info["Extended"]["MaxLevel"])
         except:
             # if no pyramid depth is specified, determine the max
             if options["pyramid-depth"] == 0:
                 subvolumes = [sv for (_sid, sv) in distsubvolumes.collect()]
-                sv_boxes = np.zeros( (len(subvolumes), 2, 3), np.int64 )
-                sv_boxes[:,0] = [sv.box[:3] for sv in subvolumes]
-                sv_boxes[:,1] = [sv.box[3:] for sv in subvolumes]
-                
-                global_start = sv_boxes.min(axis=0)
-                global_stop  = sv_boxes.max(axis=0)
-                global_shape = global_stop - global_start
-                maxdim = global_shape.max()
+                options["pyramid-depth"] = choose_pyramid_depth(subvolumes)
 
-                while maxdim > 512:
-                    options["pyramid-depth"] += 1
-                    maxdim /= 2
-
-            # create new label array with correct number of pyrmaids
+            # create new label array with correct number of pyramid levels
             depth = options["pyramid-depth"]
             if depth == -1:
                 depth = 0
@@ -265,7 +253,6 @@ class CopySegmentation(Workflow):
                                dataname,
                                depth,
                                3*(output_config["block-size"],) )
-
 
         # write level 0
         self._write_blocks(seg_chunks_partitioned, dataname, 0)
