@@ -9,8 +9,7 @@ package:
   {% endif %}
 
 source:
-  git_url: ../
-  git_tag: HEAD
+  path: ../
 
 build:
   number: 0
@@ -21,10 +20,12 @@ build:
 
 requirements:
   build:
-    - python 2.7*
+    - python >=2.7
+    - python {{PY_VER}}*
     - setuptools
   run:
-    - python 2.7*  
+    - python >=2.7
+    - python {{PY_VER}}*
     - jsonschema
     - numpy
     - numba
@@ -36,9 +37,9 @@ requirements:
     - pillow
     - scipy
     - python-lz4
-    - ilastik-versions-no-solvers  1.2  np111py27_14   # [osx]
-    - ilastik-versions-no-solvers  1.2  np111py27_12   # [linux]
-    - ilastik-meta
+    #- ilastik-versions-no-solvers  1.2  np111py27_14   # [osx]
+    #- ilastik-versions-no-solvers  1.2  np111py27_12   # [linux]
+    #- ilastik-meta
     - quilted >=0.0.post13
     - logcollector >=0.1.post13
     - dvid-resource-manager
@@ -52,7 +53,7 @@ test:
 
   imports:
     - DVIDSparkServices
-    - ilastik
+    #- ilastik
 
 about:
   home: http://github.com/janelia-flyem/DVIDSparkServices
