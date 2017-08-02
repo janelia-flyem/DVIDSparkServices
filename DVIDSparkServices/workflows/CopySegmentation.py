@@ -186,12 +186,7 @@ class CopySegmentation(Workflow):
         output_config = self.config_data["data-info"]["output"]
         roi_config = self.config_data["data-info"]["roi"]
         options = self.config_data["options"]
-
-        #input_type = get_input_instance_type(input_config)
-        create_labelarray( output_config["server"],
-                           output_config["uuid"],
-                           output_config["segmentation-name"],
-                           3*(output_config["block-size"],) )
+        dataname = output_config["segmentation-name"]
 
         # Copy the ROI from source to destination
         src_info = RoiInfo(input_config["server"], input_config["uuid"], roi_config["name"])
@@ -238,26 +233,41 @@ class CopySegmentation(Workflow):
         # data must exist after writing to dvid for downsampling
         seg_chunks_partitioned.persist()
 
-        # TODO: if labelarray already exists set pyramid depth from that
+        # if labelarray already exists set pyramid depth from that
+        
+        node_service = retrieve_node_service(output_config["server"], output_config["uuid"], self.resource_server, self.resource_port, self.APPNAME)
+        try:
+            info = node_service.get_typeinfo(dataname)
+            options["pyramid-depth"] = int(info["Extended"]["MaxLevel"])
+        except:
+            # if no pyramid depth is specified, determine the max
+            if options["pyramid-depth"] == 0:
+                subvolumes = [sv for (_sid, sv) in distsubvolumes.collect()]
+                sv_boxes = np.zeros( (len(subvolumes), 2, 3), np.int64 )
+                sv_boxes[:,0] = [sv.box[:3] for sv in subvolumes]
+                sv_boxes[:,1] = [sv.box[3:] for sv in subvolumes]
+                
+                global_start = sv_boxes.min(axis=0)
+                global_stop  = sv_boxes.max(axis=0)
+                global_shape = global_stop - global_start
+                maxdim = global_shape.max()
 
-        # if no pyramid depth is specified, determine the max
-        if options["pyramid-depth"] == 0:
-            subvolumes = [sv for (_sid, sv) in distsubvolumes.collect()]
-            sv_boxes = np.zeros( (len(subvolumes), 2, 3), np.int64 )
-            sv_boxes[:,0] = [sv.box[:3] for sv in subvolumes]
-            sv_boxes[:,1] = [sv.box[3:] for sv in subvolumes]
-            
-            global_start = sv_boxes.min(axis=0)
-            global_stop  = sv_boxes.max(axis=0)
-            global_shape = global_stop - global_start
-            maxdim = global_shape.max()
+                while maxdim > 512:
+                    options["pyramid-depth"] += 1
+                    maxdim /= 2
 
-            while maxdim > 512:
-                options["pyramid-depth"] += 1
-                maxdim /= 2
+            # create new label array with correct number of pyrmaids
+            depth = options["pyramid-depth"]
+            if depth == -1:
+                depth = 0
+            create_labelarray( output_config["server"],
+                               output_config["uuid"],
+                               dataname,
+                               depth,
+                               3*(output_config["block-size"],) )
+
 
         # write level 0
-        dataname = output_config["segmentation-name"]
         self._write_blocks(seg_chunks_partitioned, dataname, 0)
 
         # write pyramid levels for >=1 
@@ -288,16 +298,20 @@ class CopySegmentation(Workflow):
             # persist for next level
             seg_chunks_partitioned.persist()
             
-            # TODO: init levels when creating datatype or if already created, check how many levels are available
-            # TEMPORARY HACK (NEED TO MODIFY LIBDVID)
-            dataname = output_config["segmentation-name"] + "_" + str(level)
+            writelevel = level
+            """
+            # writes pyramid out into separate datatype names
+            dataname = dataname + "_" + str(level)
             create_labelarray( output_config["server"],
                                output_config["uuid"],
                                dataname,
+                               0,
                                3*(output_config["block-size"],) )
+            writelevel = 0
+            """
 
             #  write data new level
-            self._write_blocks(seg_chunks_partitioned, dataname, level)
+            self._write_blocks(seg_chunks_partitioned, dataname, writelevel)
 
     def _write_blocks(self, partitions, dataname, level):
         """Writes partition to specified dvid.
@@ -353,11 +367,10 @@ class CopySegmentation(Workflow):
 
                 data_offset_zyx = (shiftedoffset[0], shiftedoffset[1], shiftedoffset[2] + data_x_start)
 
-                # TODO: modify labelblocks3D to take optional level information
                 logger.info("STARTING Put: labels block {}".format(data_offset_zyx))
                 throttle = (resource_server == "" and not server.startswith("http://127.0.0.1"))
                 with Timer() as put_timer:
-                    node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle )
+                    node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle, level)
                 logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
 
         partitions.foreach(write_blocks)

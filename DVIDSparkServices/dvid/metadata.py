@@ -62,13 +62,13 @@ def is_datainstance(dvid_server, uuid, name):
         return False
     return True
 
-def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
+def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
                       compression=Compression.DEFAULT ):
     """
     Create 64 bit labels data structure.
 
     Note:
-        Currenly using labelblk.  Does not check whether
+        Does not check whether
         the type already exists.  DVIDExceptions are uncaught.
         libdvid-cpp can be used directly but this also supports
         setting the compression type.
@@ -97,7 +97,7 @@ def create_labelarray(dvid_server, uuid, name, blocksize=(64,64,64),
 
     endpoint = "/repo/" + uuid + "/instance"
     blockstr = "%d,%d,%d" % (blocksize[2], blocksize[1], blocksize[0])
-    data = {"typename": typename, "dataname": name, "BlockSize": blockstr}
+    data = {"typename": typename, "dataname": name, "MaxLevel": levels, "BlockSize": blockstr}
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
 

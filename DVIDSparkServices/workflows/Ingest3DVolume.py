@@ -377,6 +377,7 @@ class Ingest3DVolume(Workflow):
                     create_labelarray( dvid_info["dvid-server"],
                                        dvid_info["uuid"],
                                        dvid_info["dataname"],
+                                       0,
                                        block_shape )
 
         if not options["disable-original"] and 0 not in options["skipped-pyramid-levels"]:
@@ -441,6 +442,7 @@ class Ingest3DVolume(Workflow):
                         create_labelarray( dvid_info["dvid-server"],
                                            dvid_info["uuid"],
                                            downname,
+                                           0,
                                            block_shape )
 
                 update_extents( dvid_info["dvid-server"],
