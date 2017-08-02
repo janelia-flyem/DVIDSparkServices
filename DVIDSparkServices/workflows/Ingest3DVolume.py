@@ -595,8 +595,10 @@ class Ingest3DVolume(Workflow):
                     def repartition_down(part_volume):
                         part, volume = part_volume
                         downsampled_offset = np.array(part.get_offset()) / 2
+                        downsampled_reloffset = np.array(part.get_reloffset()) / 2
                         offsetnew = VolumeOffset(*downsampled_offset)
-                        partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew)
+                        reloffsetnew = VolumeOffset(*downsampled_reloffset)
+                        partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew, reloffset=reloffsetnew)
                         return partnew, volume
 
                     downsampled_array = downsampled_array.map(repartition_down)
@@ -668,12 +670,14 @@ class Ingest3DVolume(Workflow):
             logger = logging.getLogger(__name__)
             part, data = part_vol
             offset = part.get_offset()
+            reloffset = part.get_reloffset()
             _, _, x_size = data.shape
             if x_size % blksize != 0:
                 # check if padded
                 raise ValueError("Data is not block aligned")
 
-            logger.info("Starting WRITE of partition at: {} size: {}".format(offset, data.shape))
+            shiftedoffset = (offset.z+reloffset.z, offset.y+reloffset.y, offset.x+reloffset.x)
+            logger.info("Starting WRITE of partition at: {} size: {}".format(shiftedoffset, data.shape))
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
 
             # Find all non-zero blocks (and record by block index)
@@ -698,8 +702,8 @@ class Ingest3DVolume(Workflow):
                     datacrop = data[:,:,data_x_start:data_x_end].copy()
                 logger.info("Copied {}:{} in {:.3f} seconds".format(data_x_start, data_x_end, copy_timer.seconds))
 
-                data_offset_zyx = (offset.z, offset.y, offset.x + data_x_start)
-
+                data_offset_zyx = (shiftedoffset[0], shiftedoffset[1], shiftedoffset[2] + data_x_start)
+                
                 if dataname is not None:
                     with Timer() as put_timer:
                         if not israw: 

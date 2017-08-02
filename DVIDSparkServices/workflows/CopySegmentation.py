@@ -321,7 +321,6 @@ class CopySegmentation(Workflow):
             part, data = part_vol
             offset = part.get_offset()
             reloffset = part.get_reloffset()
-            print "!!", offset, reloffset, level
             _, _, x_size = data.shape
             if x_size % blksize != 0:
                 # check if padded
