@@ -237,7 +237,7 @@ class CopySegmentation(Workflow):
         try:
             # if labelarray already exists set pyramid depth from that
             info = node_service.get_typeinfo(dataname)
-            options["pyramid-depth"] = int(info["Extended"]["MaxLevel"])
+            options["pyramid-depth"] = int(info["Extended"]["MaxDownresLevel"])
         except:
             # if no pyramid depth is specified, determine the max
             if options["pyramid-depth"] == 0:
