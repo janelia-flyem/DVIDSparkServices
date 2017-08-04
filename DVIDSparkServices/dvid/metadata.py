@@ -97,7 +97,7 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
 
     endpoint = "/repo/" + uuid + "/instance"
     blockstr = "%d,%d,%d" % (blocksize[2], blocksize[1], blocksize[0])
-    data = {"typename": typename, "dataname": name, "MaxDownresLevel": levels, "BlockSize": blockstr}
+    data = {"typename": typename, "dataname": name, "MaxDownresLevel": str(levels), "BlockSize": blockstr}
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
 
