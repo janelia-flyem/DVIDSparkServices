@@ -124,8 +124,23 @@ class Workflow(object):
             },
 
             "corespertask": {
+                # DEPRECATED.
+                # Configure spark-config:spark.task.cpus directly.
                 "type": "integer",
-                "default": 1
+                "default": 0 # Default is to use spark.task.cpus
+            },
+            
+            "spark-config": {
+                "description": "Values to override in the spark config.",
+                "type": "object",
+                "additionalProperties": True,
+                
+                "default": {
+                    #"spark.eventLog.enabled": True,
+                    #"spark.eventLog.dir": "/tmp"
+                    "spark.task.cpus": 1,
+                    "spark.task.maxFailures": 1
+                }
             },
 
             "debug": {
@@ -187,29 +202,6 @@ class Workflow(object):
         the interface can be queried outside of pyspark.
 
         """
-        from pyspark import SparkContext, SparkConf
-
-        # set spark config
-        sconfig = SparkConf()
-        sconfig.setAppName(appname)
-
-        # check config file for generic corespertask option
-        corespertask = 1
-        if "corespertask" in self.config_data["options"]:
-            corespertask = self.config_data["options"]["corespertask"]
-
-        # always store job info for later retrieval on master
-        # set 1 cpu per task for now but potentially allow
-        # each workflow to overwrite this for certain high
-        # memory situations.  Maxfailures could probably be 1 if rollback
-        # mechanisms exist
-        sconfig.setAll([("spark.task.cpus", str(corespertask)),
-                        ("spark.task.maxFailures", "2")
-                       ]
-                      )
-        #("spark.eventLog.enabled", "true"),
-        #("spark.eventLog.dir", "/tmp"), # is this a good idea -- really is temp
-
         # currently using LZ4 compression: should not degrade runtime much
         # but will help with some operations like shuffling, especially when
         # dealing with things object like highly compressible label volumes
@@ -218,9 +210,28 @@ class Workflow(object):
         if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
             worker_env["DVIDSPARK_WORKFLOW_TMPDIR"] = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
         
+        spark_config = self.config_data["options"]["spark-config"]
+        for k in list(spark_config.keys()):
+            spark_config[k] = str(spark_config[k])
+            if spark_config[k] in ('True', 'False'):
+                spark_config[k] = spark_config[k].lower()
+        
+        # Backwards compatibility:
+        # if 'corespertask' option exists, override it in the spark config
+        if "corespertask" in self.config_data["options"]:
+            if spark_config["spark.task.cpus"] != '1':
+                raise RuntimeError("Bad config: You can't set both 'corespertask' and 'spark.task.cpus'.  Use 'spark.task.cpus'.")
+            spark_config["spark.task.cpus"] = str(self.config_data["options"]["corespertask"])
+
+        # set spark config
+        from pyspark import SparkContext, SparkConf
+        conf = SparkConf()
+        conf.setAppName(appname)
+        conf.setAll(list(spark_config.items()))
+
         # Auto-batching heuristic doesn't work well with our auto-compressed numpy array pickling scheme.
         # Therefore, disable batching with batchSize=1
-        return SparkContext(conf=sconfig, batchSize=1, environment=worker_env)
+        return SparkContext(conf=conf, batchSize=1, environment=worker_env)
 
     def relpath_to_abspath(self, relpath):
         """
