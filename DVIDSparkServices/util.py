@@ -146,23 +146,38 @@ def kill_if_running(pid, escalation_delay_seconds=10.0):
     _try_kill(pid, signal.SIGINT)
     if not _is_still_running_after_delay(pid, escalation_delay_seconds):
         logger.info("Successfully interrupted process {}".format(pid))
-        logger.warn("Interrupted process was: " + proc_cmd)
+        logger.info("Interrupted process was: " + proc_cmd)
     else:
         _try_kill(pid, signal.SIGTERM)
         if not _is_still_running_after_delay(pid, escalation_delay_seconds):
             logger.info("Successfully terminated process {}".format(pid))
-            logger.warn("Terminated process was: " + proc_cmd)
+            logger.info("Terminated process was: " + proc_cmd)
         else:
             logger.warn("Process {} did not respond to SIGINT or SIGTERM.  Killing!".format(pid))
             logger.warn("Killed process was: " + proc_cmd)
-            _try_kill(pid, signal.SIGKILL)
+            
+            # No more Mr. Nice Guy
+            _try_kill(pid, signal.SIGKILL, kill_children=True)
 
-def _try_kill(pid, sig):
-    try:
-        os.kill(pid, sig)
-    except OSError as ex:
-        if ex.errno != 3: # "No such process"
-            raise
+def _try_kill(pid, sig, kill_children=False):
+    """
+    Attempt to terminate the process with the given ID via os.kill() with the given signal.
+    If kill_children is True, then all child processes (and their children) 
+    will be sent the signal as well, in unspecified order.
+    """
+    proc = psutil.Process(pid)
+    procs_to_kill = [proc]
+    
+    if kill_children:
+        for child in proc.children(recursive=True):
+            procs_to_kill.append(child)
+    
+    for proc in procs_to_kill:
+        try:
+            os.kill(proc.pid, sig)
+        except OSError as ex:
+            if ex.errno != 3: # "No such process"
+                raise
 
 def _is_still_running_after_delay(pid, secs):
     still_running = is_process_running(pid)
