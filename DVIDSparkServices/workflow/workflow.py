@@ -305,7 +305,7 @@ class Workflow(object):
         self.log_dir = self.config_data["options"]["log-collector-directory"]
         
         if log_port == 0:
-            return None
+            return None, None
 
         # Start the log server in a separate process
         logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
@@ -334,8 +334,13 @@ class Workflow(object):
         handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
         
-        return logserver
+        return handler, logserver
 
+    def _kill_logserver(self, handler, log_server_proc):
+        if log_server_proc:
+            logging.getLogger().removeHandler(handler)
+            logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
+            kill_if_running(log_server_proc.pid, 10.0)
 
     def _start_resource_server(self):
         """
@@ -379,31 +384,29 @@ class Workflow(object):
 
         return resource_server_process
 
+    def _kill_resource_server(self, resource_server_proc):
+        if resource_server_proc:
+            logger.info("Terminating resource manager (PID {})".format(resource_server_proc.pid))
+            kill_if_running(resource_server_proc.pid, 10.0)
 
     def run(self):
         """
         Run the workflow by calling the subclass's execute() function
         (with some startup/shutdown steps before/after).
         """
-        worker_init_pids, driver_init_pid = self._run_worker_initializations()
-        log_server_proc = self._start_logserver()
+        handler, log_server_proc = self._start_logserver()
         resource_server_proc = self._start_resource_server()
+        worker_init_pids, driver_init_pid = self._run_worker_initializations()
         
         try:
             self.execute()
         finally:
             sys.stderr.flush()
             
-            if resource_server_proc:
-                logger.info("Terminating resource manager (PID {})".format(resource_server_proc.pid))
-                kill_if_running(resource_server_proc.pid, 10.0)
-
-            if log_server_proc:
-                logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
-                kill_if_running(log_server_proc.pid, 10.0)
-            
             self._kill_initialization_procs(worker_init_pids, driver_init_pid)
-
+            self._kill_resource_server(resource_server_proc)
+            self._kill_logserver(handler, log_server_proc)
+            
     def run_on_each_worker(self, func):
         """
         Run the given function once per worker node.

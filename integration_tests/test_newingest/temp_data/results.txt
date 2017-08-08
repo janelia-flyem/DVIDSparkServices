@@ -1,72 +1,74 @@
-Ingest 3D Volume: Started [2017-07-25 18:37:01]
-INFO [2017-07-25 18:37:18,536] workflow Ran launch_init_script on 1 nodes: {'bergs-lm3': 67386}
+Ingest 3D Volume: Started [2017-08-08 11:54:14]
 ['/Users/bergs/Documents/workspace/logcollector/logcollector/logserver.py', '--log-dir=integration_tests/test_newingest/temp_data/logs', '--port=3000']
 Starting server on 0.0.0.0:3000
 Saving logs to integration_tests/test_newingest/temp_data/logs
-INFO [2017-07-25 18:37:20,561] connectionpool Starting new HTTP connection (1): 0.0.0.0
-DEBUG [2017-07-25 18:37:20,566] connectionpool "GET / HTTP/1.1" 302 217
-INFO [2017-07-25 18:37:20,568] connectionpool Resetting dropped connection: 0.0.0.0
-DEBUG [2017-07-25 18:37:20,607] connectionpool "GET /logs HTTP/1.1" 200 918
-INFO [2017-07-25 18:37:20,608] workflow Starting resource manager on the driver (10.8.1.93)
-INFO [2017-07-25 18:37:21,036] Ingest3DVolume 'grayscale' already exists, skipping creation
-INFO [2017-07-25 18:37:21,039] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscale
-INFO [2017-07-25 18:37:21,042] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,047] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscale/info HTTP/1.1" 200 652
-DEBUG [2017-07-25 18:37:21,050] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [319, 319, 319], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 5], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "5c0cc3a3737347edad4cce492f1ad324", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "LZ4 compression, level -1", "Name": "grayscale"}, "Extents": {"MaxPoint": [319, 319, 319], "MinPoint": [0, 0, 5]}}
-INFO [2017-07-25 18:37:21,053] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,058] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
-INFO [2017-07-25 18:37:21,063] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,065] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/neuroglancer HTTP/1.1" 200 30
-INFO [2017-07-25 18:37:21,072] Ingest3DVolume 'grayscalejpeg' already exists, skipping creation
-INFO [2017-07-25 18:37:21,074] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscalejpeg
-INFO [2017-07-25 18:37:21,077] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,080] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg/info HTTP/1.1" 200 658
-DEBUG [2017-07-25 18:37:21,083] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [319, 319, 319], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 64], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "014f0449436f482a87b6c514ca6dbaff", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "jpeg compression, level 64", "Name": "grayscalejpeg"}, "Extents": {"MaxPoint": [319, 319, 319], "MinPoint": [0, 0, 5]}}
-DEBUG [2017-07-25 18:37:21,085] metadata Posting new extents: {"MaxPoint": [319, 319, 319], "MinPoint": [0, 0, 5]}
-INFO [2017-07-25 18:37:21,089] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,113] connectionpool "POST /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg/extents HTTP/1.1" 200 0
-INFO [2017-07-25 18:37:21,118] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,121] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
-INFO [2017-07-25 18:37:21,125] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,128] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/neuroglancer HTTP/1.1" 200 30
-INFO [2017-07-25 18:37:21,133] Ingest3DVolume 'grayscale_1' already exists, skipping creation
-INFO [2017-07-25 18:37:21,135] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscale_1
-INFO [2017-07-25 18:37:21,138] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,141] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscale_1/info HTTP/1.1" 200 654
-DEBUG [2017-07-25 18:37:21,143] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [191, 191, 191], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "f731e7427fa1446dbc1f15ce214fc97c", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "LZ4 compression, level -1", "Name": "grayscale_1"}, "Extents": {"MaxPoint": [191, 191, 191], "MinPoint": [0, 0, 0]}}
-INFO [2017-07-25 18:37:21,147] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,150] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
-INFO [2017-07-25 18:37:21,154] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,157] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
-INFO [2017-07-25 18:37:21,161] Ingest3DVolume 'grayscale_2' already exists, skipping creation
-INFO [2017-07-25 18:37:21,164] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscale_2
-INFO [2017-07-25 18:37:21,167] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,170] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscale_2/info HTTP/1.1" 200 654
-DEBUG [2017-07-25 18:37:21,173] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [127, 127, 127], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "867e6efcf7824e11afd070c858e5bee6", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "LZ4 compression, level -1", "Name": "grayscale_2"}, "Extents": {"MaxPoint": [127, 127, 127], "MinPoint": [0, 0, 0]}}
-INFO [2017-07-25 18:37:21,177] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,179] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
-INFO [2017-07-25 18:37:21,183] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,186] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
-INFO [2017-07-25 18:37:21,192] Ingest3DVolume 'grayscalejpeg_1' already exists, skipping creation
-INFO [2017-07-25 18:37:21,194] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_1
-INFO [2017-07-25 18:37:21,198] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,200] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_1/info HTTP/1.1" 200 659
-DEBUG [2017-07-25 18:37:21,203] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [191, 191, 191], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "f9ba52e7a66a42aa9238ca4188384052", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "jpeg compression, level 64", "Name": "grayscalejpeg_1"}, "Extents": {"MaxPoint": [191, 191, 191], "MinPoint": [0, 0, 0]}}
-INFO [2017-07-25 18:37:21,207] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,210] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
-INFO [2017-07-25 18:37:21,213] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,216] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
-INFO [2017-07-25 18:37:21,221] Ingest3DVolume 'grayscalejpeg_2' already exists, skipping creation
-INFO [2017-07-25 18:37:21,224] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_2
-INFO [2017-07-25 18:37:21,227] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,230] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_2/info HTTP/1.1" 200 659
-DEBUG [2017-07-25 18:37:21,233] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [127, 127, 127], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "ec3b6ed5446c427e8f395723f67b1c48", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "jpeg compression, level 64", "Name": "grayscalejpeg_2"}, "Extents": {"MaxPoint": [127, 127, 127], "MinPoint": [0, 0, 0]}}
-INFO [2017-07-25 18:37:21,237] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,240] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
-INFO [2017-07-25 18:37:21,244] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-07-25 18:37:21,247] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
-INFO [2017-07-25 18:37:31,646] workflow Ran reload_meta on 1 nodes: {'bergs-lm3': None}
-INFO [2017-07-25 18:38:29,425] workflow Terminating resource manager (PID 67399)
+INFO [2017-08-08 11:54:19,119] connectionpool Starting new HTTP connection (1): 0.0.0.0
+DEBUG [2017-08-08 11:54:19,123] connectionpool "GET / HTTP/1.1" 302 217
+INFO [2017-08-08 11:54:19,125] connectionpool Resetting dropped connection: 0.0.0.0
+DEBUG [2017-08-08 11:54:19,135] connectionpool "GET /logs HTTP/1.1" 200 918
+INFO [2017-08-08 11:54:19,136] workflow Starting resource manager on the driver (10.8.1.93)
+INFO [2017-08-08 11:54:28,364] workflow Ran launch_init_script on 1 nodes: {'bergs-lm3': 42343}
+INFO [2017-08-08 11:54:28,479] Ingest3DVolume 'grayscale' already exists, skipping creation
+INFO [2017-08-08 11:54:28,482] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscale
+INFO [2017-08-08 11:54:28,485] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,489] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscale/info HTTP/1.1" 200 652
+DEBUG [2017-08-08 11:54:28,492] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [319, 319, 319], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 5], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "5c0cc3a3737347edad4cce492f1ad324", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "LZ4 compression, level -1", "Name": "grayscale"}, "Extents": {"MaxPoint": [319, 319, 319], "MinPoint": [0, 0, 5]}}
+INFO [2017-08-08 11:54:28,495] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,499] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
+INFO [2017-08-08 11:54:28,503] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,506] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/neuroglancer HTTP/1.1" 200 30
+INFO [2017-08-08 11:54:28,513] Ingest3DVolume 'grayscalejpeg' already exists, skipping creation
+INFO [2017-08-08 11:54:28,515] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscalejpeg
+INFO [2017-08-08 11:54:28,518] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,521] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg/info HTTP/1.1" 200 658
+DEBUG [2017-08-08 11:54:28,523] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [319, 319, 319], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 64], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "014f0449436f482a87b6c514ca6dbaff", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "jpeg compression, level 64", "Name": "grayscalejpeg"}, "Extents": {"MaxPoint": [319, 319, 319], "MinPoint": [0, 0, 5]}}
+DEBUG [2017-08-08 11:54:28,525] metadata Posting new extents: {"MaxPoint": [319, 319, 319], "MinPoint": [0, 0, 5]}
+INFO [2017-08-08 11:54:28,529] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,533] connectionpool "POST /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg/extents HTTP/1.1" 200 0
+INFO [2017-08-08 11:54:28,537] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,540] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
+INFO [2017-08-08 11:54:28,544] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,547] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/neuroglancer HTTP/1.1" 200 30
+INFO [2017-08-08 11:54:28,551] Ingest3DVolume 'grayscale_1' already exists, skipping creation
+INFO [2017-08-08 11:54:28,553] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscale_1
+INFO [2017-08-08 11:54:28,556] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,559] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscale_1/info HTTP/1.1" 200 654
+DEBUG [2017-08-08 11:54:28,562] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [191, 191, 191], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "f731e7427fa1446dbc1f15ce214fc97c", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "LZ4 compression, level -1", "Name": "grayscale_1"}, "Extents": {"MaxPoint": [191, 191, 191], "MinPoint": [0, 0, 0]}}
+INFO [2017-08-08 11:54:28,565] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,568] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
+INFO [2017-08-08 11:54:28,571] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,574] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
+INFO [2017-08-08 11:54:28,580] Ingest3DVolume 'grayscale_2' already exists, skipping creation
+INFO [2017-08-08 11:54:28,583] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscale_2
+INFO [2017-08-08 11:54:28,586] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,589] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscale_2/info HTTP/1.1" 200 654
+DEBUG [2017-08-08 11:54:28,591] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [127, 127, 127], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "867e6efcf7824e11afd070c858e5bee6", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "LZ4 compression, level -1", "Name": "grayscale_2"}, "Extents": {"MaxPoint": [127, 127, 127], "MinPoint": [0, 0, 0]}}
+INFO [2017-08-08 11:54:28,595] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,598] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
+INFO [2017-08-08 11:54:28,602] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,604] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
+INFO [2017-08-08 11:54:28,611] Ingest3DVolume 'grayscalejpeg_1' already exists, skipping creation
+INFO [2017-08-08 11:54:28,613] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_1
+INFO [2017-08-08 11:54:28,617] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,620] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_1/info HTTP/1.1" 200 659
+DEBUG [2017-08-08 11:54:28,622] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [191, 191, 191], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "f9ba52e7a66a42aa9238ca4188384052", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "jpeg compression, level 64", "Name": "grayscalejpeg_1"}, "Extents": {"MaxPoint": [191, 191, 191], "MinPoint": [0, 0, 0]}}
+INFO [2017-08-08 11:54:28,626] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,629] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
+INFO [2017-08-08 11:54:28,632] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,635] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
+INFO [2017-08-08 11:54:28,640] Ingest3DVolume 'grayscalejpeg_2' already exists, skipping creation
+INFO [2017-08-08 11:54:28,643] metadata Updating extents for f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_2
+INFO [2017-08-08 11:54:28,646] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,649] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/grayscalejpeg_2/info HTTP/1.1" 200 659
+DEBUG [2017-08-08 11:54:28,651] metadata Read extents: {"Extended": {"MinIndex": null, "Interpolable": true, "MaxPoint": [127, 127, 127], "BlockSize": [64, 64, 64], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": [0, 0, 0], "Values": [{"DataType": "uint8", "Label": "uint8"}], "MaxIndex": null, "Background": 0, "VoxelSize": [8, 8, 8]}, "Base": {"DataUUID": "ec3b6ed5446c427e8f395723f67b1c48", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "RepoUUID": "f15a3c272355425d9197ec51ea5e9081", "Versioned": true, "TypeVersion": "0.2", "Checksum": "No checksum", "Syncs": [], "TypeName": "uint8blk", "Compression": "jpeg compression, level 64", "Name": "grayscalejpeg_2"}, "Extents": {"MaxPoint": [127, 127, 127], "MinPoint": [0, 0, 0]}}
+INFO [2017-08-08 11:54:28,655] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,657] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/keys HTTP/1.1" 200 31
+INFO [2017-08-08 11:54:28,661] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-08 11:54:28,663] connectionpool "GET /api/node/f15a3c272355425d9197ec51ea5e9081/.meta/key/restrictions HTTP/1.1" 200 170
+INFO [2017-08-08 11:54:38,163] workflow Ran reload_meta on 1 nodes: {'bergs-lm3': None}
+INFO [2017-08-08 11:55:48,354] workflow Ran kill_init_proc on 1 nodes: {'bergs-lm3': None}
+INFO [2017-08-08 11:55:48,357] workflow No driver init process to kill
+INFO [2017-08-08 11:55:48,359] workflow Terminating resource manager (PID 42332)
 Traceback (most recent call last):
   File "/miniconda2/envs/flyem/bin/resource_manager.py", line 147, in <module>
     request = comm_socket.recv_json()
@@ -77,71 +79,9 @@ Traceback (most recent call last):
   File "zmq/backend/cython/socket.pyx", line 145, in zmq.backend.cython.socket._recv_copy (zmq/backend/cython/socket.c:2344)
   File "zmq/backend/cython/checkrc.pxd", line 12, in zmq.backend.cython.checkrc._check_rc (zmq/backend/cython/socket.c:9621)
 KeyboardInterrupt
-WARNING [2017-07-25 18:38:49,458] util Process 67399 did not respond to SIGINT or SIGTERM.  Killing!
-WARNING [2017-07-25 18:38:49,461] util Killed process was: /miniconda2/envs/flyem/bin/python /miniconda2/envs/flyem/bin/resource_manager.py 4000
-INFO [2017-07-25 18:38:49,464] workflow Terminating logserver (PID 67396)
-WARNING [2017-07-25 18:39:09,500] util Process 67396 did not respond to SIGINT or SIGTERM.  Killing!
-Traceback (most recent call last):
-  File "/miniconda2/envs/flyem/lib/python2.7/logging/handlers.py", line 1105, in emit
-    h.endheaders(data if self.method == "POST" else None)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 1053, in endheaders
-    self._send_output(message_body)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 897, in _send_output
-    self.send(msg)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 859, in send
-    self.connect()
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 836, in connect
-    self.timeout, self.source_address)
-  File "/miniconda2/envs/flyem/lib/python2.7/socket.py", line 575, in create_connection
-    raise err
-error: [Errno 61] Connection refused
-Logged from file util.py, line 156
-WARNING [2017-07-25 18:39:09,506] util Killed process was: /miniconda2/envs/flyem/bin/python -m logcollector.logserver --log-dir=integration_tests/test_newingest/temp_data/logs --port=3000
-Traceback (most recent call last):
-  File "/miniconda2/envs/flyem/lib/python2.7/logging/handlers.py", line 1105, in emit
-    h.endheaders(data if self.method == "POST" else None)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 1053, in endheaders
-    self._send_output(message_body)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 897, in _send_output
-    self.send(msg)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 859, in send
-    self.connect()
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 836, in connect
-    self.timeout, self.source_address)
-  File "/miniconda2/envs/flyem/lib/python2.7/socket.py", line 575, in create_connection
-    raise err
-error: [Errno 61] Connection refused
-Logged from file util.py, line 157
-INFO [2017-07-25 18:39:30,385] workflow Ran kill_init_proc on 1 nodes: {'bergs-lm3': None}
-Traceback (most recent call last):
-  File "/miniconda2/envs/flyem/lib/python2.7/logging/handlers.py", line 1105, in emit
-    h.endheaders(data if self.method == "POST" else None)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 1053, in endheaders
-    self._send_output(message_body)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 897, in _send_output
-    self.send(msg)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 859, in send
-    self.connect()
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 836, in connect
-    self.timeout, self.source_address)
-  File "/miniconda2/envs/flyem/lib/python2.7/socket.py", line 575, in create_connection
-    raise err
-error: [Errno 61] Connection refused
-Logged from file workflow.py, line 451
-INFO [2017-07-25 18:39:30,385] workflow No driver init process to kill
-Traceback (most recent call last):
-  File "/miniconda2/envs/flyem/lib/python2.7/logging/handlers.py", line 1105, in emit
-    h.endheaders(data if self.method == "POST" else None)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 1053, in endheaders
-    self._send_output(message_body)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 897, in _send_output
-    self.send(msg)
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 859, in send
-    self.connect()
-  File "/miniconda2/envs/flyem/lib/python2.7/httplib.py", line 836, in connect
-    self.timeout, self.source_address)
-  File "/miniconda2/envs/flyem/lib/python2.7/socket.py", line 575, in create_connection
-    raise err
-error: [Errno 61] Connection refused
-Logged from file workflow.py, line 532
-Ingest 3D Volume: Finished [2017-07-25 18:39:30]
+WARNING [2017-08-08 11:56:08,385] util Process 42332 did not respond to SIGINT or SIGTERM.  Killing!
+WARNING [2017-08-08 11:56:08,388] util Killed process was: /miniconda2/envs/flyem/bin/python /miniconda2/envs/flyem/bin/resource_manager.py 4000
+INFO [2017-08-08 11:56:08,405] workflow Terminating logserver (PID 42331)
+WARNING [2017-08-08 11:56:28,435] util Process 42331 did not respond to SIGINT or SIGTERM.  Killing!
+WARNING [2017-08-08 11:56:28,435] util Killed process was: /miniconda2/envs/flyem/bin/python -m logcollector.logserver --log-dir=integration_tests/test_newingest/temp_data/logs --port=3000
+Ingest 3D Volume: Finished [2017-08-08 11:56:28]
