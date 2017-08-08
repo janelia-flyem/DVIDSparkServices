@@ -215,10 +215,10 @@ class Workflow(object):
             spark_config[k] = str(spark_config[k])
             if spark_config[k] in ('True', 'False'):
                 spark_config[k] = spark_config[k].lower()
-        
+            
         # Backwards compatibility:
         # if 'corespertask' option exists, override it in the spark config
-        if "corespertask" in self.config_data["options"]:
+        if "corespertask" in self.config_data["options"] and self.config_data["options"]["corespertask"] != 0:
             if spark_config["spark.task.cpus"] != '1':
                 raise RuntimeError("Bad config: You can't set both 'corespertask' and 'spark.task.cpus'.  Use 'spark.task.cpus'.")
             spark_config["spark.task.cpus"] = str(self.config_data["options"]["corespertask"])
