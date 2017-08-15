@@ -21,7 +21,9 @@ from DVIDSparkServices.auto_retry import auto_retry
 Format: "typename" : (is_label, numpy type)
 """
 
-supportedArrayTypes = {"uint8blk": (False, np.uint8), "labelblk": (True, np.uint64)}
+supportedArrayTypes = { "uint8blk": (False, np.uint8),
+                        "labelblk": (True, np.uint64),
+                        "labelarray": (True, np.uint64) }
 
 class Compression(Enum):
     """Defines compression types supported by Google.
