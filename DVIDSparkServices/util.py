@@ -400,6 +400,32 @@ except ImportError:
     pass
 
 
+def blockwise_boxes( bounding_box, block_shape ):
+    """
+    Generator.
+    Divide the given global bounding box into blocks and iterate over the block boxes.
+    Block boxes on the edge of the global bounding box will be clipped so as not to
+    extend outside the global bounding box.
+    """
+    bounding_box = np.asarray(bounding_box, dtype=int)
+    block_shape = np.asarray(block_shape)
+
+    # round down, round up
+    aligned_start = (bounding_box[0] // block_shape) * block_shape
+    aligned_stop = ((bounding_box[1] + block_shape-1) // block_shape) * block_shape
+    aligned_shape = aligned_stop - aligned_start
+
+    for box_index in np.ndindex( *(aligned_shape // block_shape) ):
+        box_index = np.asarray(box_index)
+        box_start = aligned_start + block_shape * box_index
+        box_stop  = aligned_start + block_shape * (box_index+1)
+        
+        # Clip to global bounding box
+        box_start = np.maximum( box_start, bounding_box[0] )
+        box_stop  = np.minimum( box_stop,  bounding_box[1] )
+
+        yield np.asarray((box_start, box_stop))
+
 def choose_pyramid_depth(subvolumes, top_level_max_dim=512):
     """
     If a 3D volume pyramid were generated to encompass the given list of Subvolume objects,

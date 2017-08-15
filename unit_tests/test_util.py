@@ -1,5 +1,5 @@
 import numpy as np
-from DVIDSparkServices.util import runlength_encode, unicode_to_str
+from DVIDSparkServices.util import runlength_encode, unicode_to_str, blockwise_boxes
 
 def test_runlength_encode():
     mask = np.array( [[[0,1,1,0,1],
@@ -37,6 +37,24 @@ def test_unicode_to_str():
     assert isinstance(new_data['list'][0], int)
     assert isinstance(new_data['hello'], str)
     assert isinstance(new_data['dict']['hello'], str)
+
+
+def test_blockwise_boxes():
+    bb = [(10,10), (100,100)]
+    block_shape = (30,40)
+    boxes = np.array(list(blockwise_boxes(bb, block_shape)))
+    assert boxes.tolist() == [[[10, 10], [30, 40]],
+                              [[10, 40], [30, 80]],
+                              [[10, 80], [30, 100]],
+                              [[30, 10], [60, 40]],
+                              [[30, 40], [60, 80]],
+                              [[30, 80], [60, 100]],
+                              [[60, 10], [90, 40]],
+                              [[60, 40], [90, 80]],
+                              [[60, 80], [90, 100]],
+                              [[90, 10], [100, 40]],
+                              [[90, 40], [100, 80]],
+                              [[90, 80], [100, 100]]]
 
 import logging
 logger = logging.getLogger("unit_tests.test_util")
