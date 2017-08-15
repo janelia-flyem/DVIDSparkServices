@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 from libdvid import SubstackZYX
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap
-from DVIDSparkServices.dvid.metadata import create_labelarray
+from DVIDSparkServices.io_util.partitionSchema import volumePartition
+from DVIDSparkServices.dvid.metadata import create_labelarray, dataInstance
     
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
@@ -371,7 +372,34 @@ class sparkdvid(object):
             return get_labels()
         return distrois.mapValues(mapper)
 
-    
+    def map_voxels(self, partitions, instance_name):
+        server = self.dvid_server
+        uuid = self.uuid
+        instance_name = str(instance_name)
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
+        throttle = (resource_server == "")
+        is_labels = dataInstance(server, uuid, instance_name).is_labels()
+
+        def mapper(partition):
+            assert isinstance(partition, volumePartition)
+            assert np.prod(partition.volsize) > 0, \
+                "volumePartition must have nonzero size.  You gave: {}".format( volumePartition )
+            
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+            def get_voxels():
+                # extract labels 64
+                # retrieve data from box start position considering border
+                # Note: libdvid uses zyx order for python functions
+                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+                
+                if is_labels:
+                    return node_service.get_labels3D( instance_name, partition.volsize, partition.offset, throttle, compress=True )
+                else:
+                    return node_service.get_gray3D( instance_name, partition.volsize, partition.offset, throttle, compress=False )
+            return (partition, get_voxels())
+        return self.sc.parallelize(partitions, len(partitions)).map(mapper)
+        
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):
         """Creates RDD of two subvolumes (same ROI but different datasets)
 
