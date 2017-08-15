@@ -1,0 +1,37 @@
+{
+    "data-info": {
+        "input": {
+            "server": "127.0.0.1:8000",
+            "uuid": "UUID1",
+            "segmentation-name": "labels"
+        },
+        "roi": {
+            "name": "temproi256",
+            "partition-method": "grid-aligned-64",
+            "partition-filter": "all"
+        },
+        "output": {
+            "server": "127.0.0.1:8000",
+            "uuid": "UUID2",
+            "segmentation-name": "labels-copy",
+            "block-size": 64
+        }
+    },
+    "options": {
+        "corespertask": 1,
+
+        "chunk-size": 128,
+        "offset": [0,0,0],
+
+        "pyramid-depth": 0,
+        "quit-after-instance-creation": false,
+
+        "resource-server": "",
+        "resource-port": 0,
+
+        "log-collector-directory": "",
+        "log-collector-port": 0,
+
+        "debug": false
+    }
+}

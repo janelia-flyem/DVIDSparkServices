@@ -47,6 +47,9 @@ class volumePartition(object):
     def __repr__(self):
         return "volumePartition({}, {}, {}, {}, {})".format( self.index, self.offset, self.reloffset, self.volsize, self.mask )
 
+    def __str__(self):
+        return self.__repr__()
+
     def __eq__(self, other):
         """Equality only done over index.
         """

@@ -1,0 +1,35 @@
+{
+    "data-info": {
+        "input": {
+            "server": "127.0.0.1:8000",
+            "uuid": "UUID1",
+            "segmentation-name": "labels"
+        },
+        "bounding-box": {
+            "start": [0, 0, 0],
+            "stop":  [256, 256, 256]
+        },
+        "output": {
+            "server": "127.0.0.1:8000",
+            "uuid": "UUID2",
+            "segmentation-name": "labels-copy",
+            "block-size": 64
+        }
+    },
+    "options": {
+        "corespertask": 1,
+
+        "chunk-size": 128,
+        "blockwritelimit": 100,
+        "offset": [0,0,0],
+        "pyramid-depth": 0,
+        
+        "resource-server": "",
+        "resource-port": 0,
+
+        "log-collector-directory": "",
+        "log-collector-port": 0,
+
+        "debug": false
+    }
+}
