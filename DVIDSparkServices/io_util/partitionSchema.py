@@ -34,11 +34,15 @@ class volumePartition(object):
             volsize (VolumeSize): size of the partition
             mask (numpy): defines which bits of data have been written (0 means unwritten)
         """
+        if isinstance(index, np.ndarray):
+            # Ensure hashable
+            assert index.ndim == 1
+            index = tuple(index)
         self.index = index 
-        self.offset = offset
-        self.reloffset = reloffset
+        self.offset = VolumeOffset(*offset)
+        self.reloffset = VolumeOffset(*reloffset)
+        self.volsize = VolumeSize(*volsize)
         self.mask = mask
-        self.volsize = volsize
 
     def __repr__(self):
         return "volumePartition({}, {}, {}, {}, {})".format( self.index, self.offset, self.reloffset, self.volsize, self.mask )
@@ -67,6 +71,13 @@ class volumePartition(object):
     def get_reloffset(self):
         return self.reloffset
 
+    def bounding_box(self):
+        bb = np.zeros((2,3), dtype=int)
+        bb[0] = self.offset
+        bb[0] += self.reloffset
+        bb[1] = bb[0] + self.volsize
+        return bb
+    
 
 class partitionSchema(object):
     """Defines a 3D volume and its partitioning.
@@ -146,7 +157,7 @@ class partitionSchema(object):
 
         partdims = self.partdims
         def assignPartitions(partvolume):
-            """Splits an input numpy array and assigs to different partitions for grouping.
+            """Splits an input numpy array and assigns to different partitions for grouping.
                 
             The volumePartition will define the global offset of this volume and
             whether it has a data border.
