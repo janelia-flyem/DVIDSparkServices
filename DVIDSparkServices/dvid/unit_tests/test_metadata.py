@@ -2,7 +2,7 @@ import unittest
 import json
 from libdvid import DVIDNodeService, DVIDServerService, ConnectionMethod, DVIDConnection
 
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, dataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
+from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, DataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
 
 dvidserver = "http://127.0.0.1:8000"
 
@@ -75,8 +75,8 @@ class Testmetadata(unittest.TestCase):
         self.assertEqual(blocksize, (64,64,64))
 
 
-    def test_dataInstance(self):
-        """Tests is_dataInstance class.
+    def test_DataInstance(self):
+        """Tests DataInstance class.
         """
         
         service = DVIDServerService(dvidserver)
@@ -88,14 +88,14 @@ class Testmetadata(unittest.TestCase):
         ns.create_keyvalue("kv")
 
         try:
-            temp = dataInstance(dvidserver, uuid, "blah")
+            temp = DataInstance(dvidserver, uuid, "blah")
         except ValueError:
             # correct caught error
             self.assertTrue(True)
             
-        labels = dataInstance(dvidserver, uuid, "labels")
-        gray = dataInstance(dvidserver, uuid, "gray")
-        kv = dataInstance(dvidserver, uuid, "kv")
+        labels = DataInstance(dvidserver, uuid, "labels")
+        gray = DataInstance(dvidserver, uuid, "gray")
+        kv = DataInstance(dvidserver, uuid, "kv")
 
         self.assertTrue(labels.is_array())
         self.assertTrue(labels.is_labels())

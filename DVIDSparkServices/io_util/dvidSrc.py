@@ -4,7 +4,7 @@
 from volumeSrc import volumeSrc
 import partitionSchema
 import numpy as np
-from DVIDSparkServices.dvid.metadata import dataInstance
+from DVIDSparkServices.dvid.metadata import DataInstance
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 
 class dvidSrc(volumeSrc):
@@ -55,7 +55,7 @@ class dvidSrc(volumeSrc):
         super(dvidSrc, self).__init__(None)
 
         # will throw error if not available
-        self.instance = dataInstance(dvidserver, uuid, dataname)
+        self.instance = DataInstance(dvidserver, uuid, dataname)
 
         # only supports volume interfaces
         if not self.instance.is_array():

@@ -21,10 +21,6 @@ from DVIDSparkServices.auto_retry import auto_retry
 Format: "typename" : (is_label, numpy type)
 """
 
-supportedArrayTypes = { "uint8blk": (False, np.uint8),
-                        "labelblk": (True, np.uint64),
-                        "labelarray": (True, np.uint64) }
-
 class Compression(Enum):
     """Defines compression types supported by Google.
     """
@@ -309,7 +305,7 @@ def has_sync(dvid_server, uuid, srcname, destname):
     return destname in sync_data
 
 
-class dataInstance(object):
+class DataInstance(object):
     """Container for DVID data instance meta information.
 
     Note:
@@ -341,17 +337,23 @@ class dataInstance(object):
         """Checks if data instance is a raw or label array.
         """
 
-        if self.datatype in supportedArrayTypes:
-            return True
-        return False
+        return self.datatype in ("uint8blk", "labelblk", "labelarray", "googlevoxels")
 
     def is_labels(self):
         """Checks if data instance is label array type.
         """
-        
-        if self.datatype not in supportedArrayTypes:
+        if not self.is_array():
             return False
-        typeinfo = supportedArrayTypes[self.datatype]
-        return typeinfo[0]
+        
+        if self.datatype == 'uint8blk':
+            return False
 
+        if self.datatype in ('labelblk', 'labelarray'):
+            return True
+        
+        if self.datatype == 'googlevoxels':
+            # Googlevoxels can be either grayscale or labels...
+            return (self.info["Extended"]["Scales"][0]["channelType"] == "UINT64")
 
+        # Everything else is non-array
+        return False

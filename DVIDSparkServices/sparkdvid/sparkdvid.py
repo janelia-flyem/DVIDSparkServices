@@ -29,7 +29,7 @@ from libdvid import SubstackZYX
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
-from DVIDSparkServices.dvid.metadata import create_labelarray, dataInstance
+from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
     
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
@@ -379,7 +379,7 @@ class sparkdvid(object):
         resource_server = self.workflow.resource_server
         resource_port = self.workflow.resource_port
         throttle = (resource_server == "")
-        is_labels = dataInstance(server, uuid, instance_name).is_labels()
+        is_labels = DataInstance(server, uuid, instance_name).is_labels()
 
         def mapper(partition):
             assert isinstance(partition, volumePartition)
