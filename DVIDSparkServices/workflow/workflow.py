@@ -76,6 +76,11 @@ class Workflow(object):
                 "type": "integer",
                 "default": 0
             },
+            "resource-server-config": {
+                "type": "object",
+                "default": {},
+                "additionalProperties": True
+            },
 
             ## WORKER INITIALIZATION SCRIPT
             "worker-initialization": {
@@ -382,16 +387,32 @@ class Workflow(object):
                                .format(self.resource_server))
         
         if self.resource_server != "driver":
+            if self.config_data["options"]["resource-server-config"]:
+                raise RuntimeError("The 'resource-server-config' should only be specified when 'resource-server' is 'driver'.")
             return None
 
-        # Overwrite config data so workers see our IP address.
+        if self.config_data["options"]["resource-server-config"]:
+            server_config_path = '/tmp/driver-resource-server-config.json'
+            with open(server_config_path, 'w') as f:
+                json.dump(self.config_data["options"]["resource-server-config"], f)
+            config_arg = '--config-file=server_config_path'
+        else:
+            config_arg = ''
+        
+        # Overwrite workflow config data so workers see our IP address.
         self.config_data["options"]["resource-server"] = driver_ip_addr
         self.resource_server = driver_ip_addr
 
         logger.info("Starting resource manager on the driver ({})".format(driver_ip_addr))
         resource_server_script = sys.prefix + '/bin/resource_manager.py'
-        resource_server_process = subprocess.Popen([sys.executable, resource_server_script, str(self.resource_port)],
-                                                   stderr=subprocess.STDOUT)
+        resource_server_process = subprocess.Popen("{python} {server_script} {port} {config_arg}"\
+                                                   .format( python=sys.executable,
+                                                            server_script=resource_server_script,
+                                                            port=self.resource_port,
+                                                            config_arg=config_arg),
+                                                   stderr=subprocess.STDOUT,
+                                                   shell=True)
+        logger.info("Started resource manager")
 
         return resource_server_process
 
