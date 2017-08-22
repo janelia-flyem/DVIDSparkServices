@@ -17,7 +17,11 @@
         "body-threshold": 1000,
         "point-threshold": 0,
         "boundary-size": 2,
-        "chunk-size": 64
+        "chunk-size": 64,
+        "spark-config": {},
+        "worker-initialization": {
+            "script-path": false
+        }
     },
     "debug": true
 }

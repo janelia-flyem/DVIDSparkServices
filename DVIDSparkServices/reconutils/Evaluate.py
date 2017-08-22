@@ -5,7 +5,7 @@ evaluate workflow.  Code requires pyspark to execute.
 
 """
 
-import libNeuroProofMetrics as np
+import libNeuroProofMetrics as npmetrics
 import numpy
 
 # contains helper functions
@@ -188,8 +188,8 @@ class Evaluate(object):
             label2 = label2.astype(numpy.float64)
 
             # creates stack and adds boundary padding
-            stackgt = np.Stack(labelgt, boundary_iter)
-            stack2 = np.Stack(label2, 0)
+            stackgt = npmetrics.Stack(labelgt, boundary_iter)
+            stack2 = npmetrics.Stack(label2, 0)
 
             # returns list of (body1, body2, overlap)
             overlaps12 = stackgt.find_overlaps(stack2)
