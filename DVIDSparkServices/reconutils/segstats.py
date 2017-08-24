@@ -523,6 +523,7 @@ class SubvolumeStats(object):
         # not needed
         self.gt_syn_connections = []
         self.seg_syn_connections = []
+        self.gtseg_syn_connections = []
 
 
     def merge_syn_connections(self, connections1, connections2):
@@ -583,6 +584,9 @@ class SubvolumeStats(object):
             raise Exception("incomparable subvolumes")
         if len(self.seg_syn_connections) != len(subvolume.seg_syn_connections):
             raise Exception("incomparable subvolumes")
+        
+        if len(self.gtseg_syn_connections) != len(subvolume.gtseg_syn_connections):
+            raise Exception("incomparable subvolumes")
 
         for iter1 in range(0, len(self.gt_overlaps)):
             self.gt_overlaps[iter1].combine_tables(subvolume.gt_overlaps[iter1])           
@@ -593,12 +597,18 @@ class SubvolumeStats(object):
         
         self.merge_syn_connections(self.seg_syn_connections,
                 subvolume.seg_syn_connections) 
+        
+        self.merge_syn_connections(self.gtseg_syn_connections,
+                subvolume.gtseg_syn_connections) 
 
     def add_gt_syn_connections(self, stats, leftover):
         self.gt_syn_connections.append((stats, leftover))
 
     def add_seg_syn_connections(self, stats, leftover):
         self.seg_syn_connections.append((stats, leftover))
+    
+    def add_gtseg_syn_connections(self, stats, leftover):
+        self.gtseg_syn_connections.append((stats, leftover))
 
     def add_gt_overlap(self, table):
         self.gt_overlaps.append(table)

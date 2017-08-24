@@ -254,7 +254,7 @@ class EvaluateSeg(DVIDWorkflow):
             debug = self.config_data["debug"]
 
         if debug:
-            print "DEBUG:", json.dumps(stats)
+            print "DEBUG:", json.dumps(stats, indent=2)
 
         # TODO: !! maybe generate a summary view from stats, write that back
         # with simplify output, dump the more complicated file to keyvalue as well

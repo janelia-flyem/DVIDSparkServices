@@ -3,6 +3,7 @@ from setuptools import setup
 packages=['DVIDSparkServices', 
           'DVIDSparkServices.reconutils',
           'DVIDSparkServices.reconutils.plugins',
+          'DVIDSparkServices.reconutils.metrics',
           'DVIDSparkServices.io_util',
           'DVIDSparkServices.dvid',
           'DVIDSparkServices.sparkdvid',
