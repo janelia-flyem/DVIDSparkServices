@@ -9,6 +9,7 @@ import logging
 from itertools import starmap
 
 import psutil
+import vigra
 import numpy as np
 from skimage.util import view_as_blocks
 
@@ -453,6 +454,44 @@ def mask_roi(data, subvolume, border='default'):
     assert data.shape == mask.shape
     data[np.logical_not(mask)] = 0
     return None # Emphasize in-place behavior
+
+
+def vigra_bincount(labels):
+    """
+    A RAM-efficient implementation of numpy.bincount() when you're dealing with uint32 labels.
+    If your data isn't int64, numpy.bincount() will copy it internally -- a huge RAM overhead.
+    (This implementation may also need to make a copy, but it prefers uint32, not int64.)
+    """
+    labels = labels.astype(np.uint32, copy=False)
+    labels = np.ravel(labels, order='K').reshape((-1, 1), order='A')
+    # We don't care what the 'image' parameter is, but we have to give something
+    image = labels.view(np.float32)
+    counts = vigra.analysis.extractRegionFeatures(image, labels, ['Count'])['Count']
+    return counts.astype(np.int64)
+
+def nonconsecutive_bincount(labels):
+    assert isinstance(labels, np.ndarray)
+    assert np.issubdtype(labels.dtype, np.integer)
+
+    # Remap to consecutive labels for faster bincounting
+    # (Pre-allocate destination to force output dtype)
+    labels_consecutive = np.zeros_like(labels, np.uint32)
+    labels_consecutive, _max_consecutive_label, orig_to_consecutive = \
+        vigra.analysis.relabelConsecutive(labels, start_label=0, keep_zeros=False, out=labels_consecutive)
+
+    # Count sizes
+    counts = vigra_bincount(labels_consecutive)
+    
+    # Remap from consecutive to original labels
+    consecutive_to_orig = reverse_dict(orig_to_consecutive)
+
+    # Return { label : count }
+    return { consecutive_to_orig[k] : count for k, count in enumerate(counts) }
+            
+def reverse_dict(d):
+    rev = { v:k for k,v in d.items() }
+    assert len(rev) == len(d), "dict is not reversable: {}".format(d)
+    return rev
 
 
 def select_item(rdd, *indexes):

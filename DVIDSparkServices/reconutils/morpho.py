@@ -9,7 +9,7 @@ import numpy
 import numpy as np
 import vigra
 import scipy.sparse
-from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple
+from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple, reverse_dict
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_box
 
@@ -269,11 +269,6 @@ def _sparse_row_argmax(sparse_cols, sparse_rows, sparse_data, num_dense_rows):
         if element > prev_max:
             row_maxcols[row] = [element, col]
     return row_maxcols[:,1]
-
-def reverse_dict(d):
-    rev = { v:k for k,v in d.items() }
-    assert len(rev) == len(d), "dict is not reversable: {}".format(d)
-    return rev
 
 
 def compose_mappings( *mappings ):
