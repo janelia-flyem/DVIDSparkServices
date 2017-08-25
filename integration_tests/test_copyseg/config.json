@@ -26,9 +26,15 @@
         
         "resource-server": "",
         "resource-port": 0,
+    	"resource-server-config": {
+            "read_reqs": 128,
+            "read_data": 4000000000,
+            "write_reqs": 128,
+            "write_data": 4000000000
+        },
 
-        "log-collector-directory": "",
-        "log-collector-port": 0,
+        "log-collector-directory": "/tmp/test_copyseg_logs",
+        "log-collector-port": 3000,
 
         "debug": false
     }

@@ -29,7 +29,7 @@ class volumePartition(object):
 
         Args:
             index (hashable type): Defines hashable unique index (often just the offset)
-            offset (VolumeOffset): x,y,z offset for partition in global space
+            offset (VolumeOffset): z,y,x offset for partition in global space
             reloffset (VolumeOffset): the relative offset where data exists
             volsize (VolumeSize): size of the partition
             mask (numpy): defines which bits of data have been written (0 means unwritten)
@@ -255,8 +255,9 @@ class partitionSchema(object):
 
                         # map all partitions as an array
                         subvol = volume[z1local:z2local, y1local:y2local, x1local:x2local]
-                        partitions.append( (volumePartition((z,y,x), VolumeOffset(z*partdims.zsize, y*partdims.ysize, x*partdims.xsize)),
-                                                           [(VolumeOffset(relpartz, relparty, relpartx), subvol)]))
+                        subvol_partition = volumePartition((z,y,x), VolumeOffset(z*partdims.zsize, y*partdims.ysize, x*partdims.xsize))
+                        subvol_offset = VolumeOffset(relpartz, relparty, relpartx)
+                        partitions.append( (subvol_partition, [(subvol_offset, subvol)]) )
 
             return partitions 
 
@@ -334,11 +335,11 @@ class partitionSchema(object):
                 glby -= (glby % padding)
                 glbz -= (glbz % padding)
                 
-                if (glbx2%padding) != 0:
+                if (glbx2 % padding) != 0:
                     glbx2 += (padding - (glbx2 % padding))
-                if (glby2%padding) != 0:
+                if (glby2 % padding) != 0:
                     glby2 += (padding - (glby2 % padding))
-                if (glbz2%padding) != 0:
+                if (glbz2 % padding) != 0:
                     glbz2 += (padding - (glbz2 % padding))
 
             # create buffer
@@ -374,10 +375,7 @@ class partitionSchema(object):
             return (newpartition, newvol)
 
         if not usespark:
-            dataout = []
-            for (partition, subparts) in datagroup.items():
-                dataout.append(padAndSplice((partition, subparts)))
-            return dataout
+            return map(padAndSplice, datagroup.items())
         else:
             return datagroup.map(padAndSplice)
 

@@ -1,6 +1,7 @@
 import copy
 import json
 import logging
+from collections import defaultdict
 
 import requests
 import numpy as np
@@ -12,7 +13,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.dvid.metadata import create_labelarray
 from libdvid.util.roi_utils import copy_roi, RoiInfo
 from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes, nonconsecutive_bincount
 #from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
 
 class CopySegmentation(Workflow):
@@ -144,6 +145,16 @@ class CopySegmentation(Workflow):
     OptionsSchema = copy.copy(Workflow.OptionsSchema)
     OptionsSchema["properties"].update(
     {
+        "body-size-output-path" : {
+            "description": "A file name to write the body size JSON output. Relative paths are interpreted as relative to this config file.",
+            "type": "string",
+            "default": "./body-sizes.json"
+        },
+        "body-size-minimum" : {
+            "description": "Minimum size to include in the body size JSON output.  Smaller bodies are omitted.",
+            "type": "integer",
+            "default": 0
+        },
         "chunk-size": {
             "description": "Size of block to download in each thread",
             "type": "integer",
@@ -256,6 +267,9 @@ class CopySegmentation(Workflow):
         # write level 0
         self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
 
+        # Write body sizes to JSON
+        self._write_body_sizes( seg_chunks_partitioned )
+        
         # write pyramid levels for >=1 
         for level in range(1, options["pyramid-depth"] + 1):
             # downsample seg partition
@@ -427,8 +441,35 @@ class CopySegmentation(Workflow):
 
         partitions.foreach(write_blocks)
        
+    
+    def _write_body_sizes( self, seg_chunks_partitioned ):
+        logger = logging.getLogger(__name__)
+        logger.info("Computing body sizes...")
         
-        
+        def merge_label_counts( counts_a, counts_b ):
+            combined_counts = defaultdict(lambda: 0, counts_a)
+            for label, count in counts_b.items():
+                combined_counts[label] += count
+            return combined_counts
+
+        with Timer() as timer:
+            body_sizes = seg_chunks_partitioned \
+                            .values() \
+                            .map( nonconsecutive_bincount ) \
+                            .reduce( merge_label_counts )
+        logger.info("Computing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
+
+        min_size = self.config_data["options"]["body-size-minimum"]
+        if min_size > 1:
+            logger.info("Omitting body sizes below {} voxels".format(min_size))
+            body_sizes = { k:v for k,v in body_sizes.items() if v >= min_size }
+
+        output_path = self.relpath_to_abspath(self.config_data["options"]["body-size-output-path"])
+        with Timer() as timer:
+            with open(output_path, 'w') as f:
+                json.dump(body_sizes, f, sort_keys=True, indent=0, separators=(',', ': '))
+        logger.info("Writing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
+
 ##
 ## FUNCTIONS BELOW THIS LINE ARE NOT USED (YET?)
 ##

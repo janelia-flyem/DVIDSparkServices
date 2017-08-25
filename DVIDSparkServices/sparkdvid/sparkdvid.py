@@ -373,6 +373,9 @@ class sparkdvid(object):
         return distrois.mapValues(mapper)
 
     def map_voxels(self, partitions, instance_name):
+        """
+        Given a list of volumePartition objects, return an RDD of (partition, volume_data).
+        """
         server = self.dvid_server
         uuid = self.uuid
         instance_name = str(instance_name)

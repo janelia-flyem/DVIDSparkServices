@@ -1,5 +1,5 @@
 import numpy as np
-from DVIDSparkServices.util import runlength_encode, unicode_to_str, blockwise_boxes
+from DVIDSparkServices.util import runlength_encode, unicode_to_str, blockwise_boxes, nonconsecutive_bincount
 
 def test_runlength_encode():
     mask = np.array( [[[0,1,1,0,1],
@@ -56,6 +56,25 @@ def test_blockwise_boxes():
                               [[90, 40], [100, 80]],
                               [[90, 80], [100, 100]]]
 
+def test_nonconsecutive_bincount():
+    labels = [[1,1,1,1,1],
+              [2,2,2,2,0],
+              [5,5,5,0,0],
+              [7,7,0,0,0],
+              [2**33,0,0,0,0]]
+
+    labels = np.asarray(labels, dtype=np.uint64)
+    counts = nonconsecutive_bincount(labels)
+    assert counts[0] == 10
+    assert counts[1] == 5
+    assert counts[2] == 4
+    assert counts[5] == 3
+    assert counts[7] == 2
+    assert counts[2**33] == 1
+    assert set(counts.keys()) == {0,1,2,5,7,2**33}
+
+
+    
 import logging
 logger = logging.getLogger("unit_tests.test_util")
 
