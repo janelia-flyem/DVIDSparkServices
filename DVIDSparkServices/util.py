@@ -469,24 +469,29 @@ def vigra_bincount(labels):
     counts = vigra.analysis.extractRegionFeatures(image, labels, ['Count'])['Count']
     return counts.astype(np.int64)
 
-def nonconsecutive_bincount(labels):
-    assert isinstance(labels, np.ndarray)
-    assert np.issubdtype(labels.dtype, np.integer)
+def nonconsecutive_bincount(label_vol):
+    """
+    Like np.bincount(), but works well for label volumes with non-consecutive label values.
+    Returns two 1D arrays: unique_labels, counts
+    Neither array is sorted.
+    """
+    assert isinstance(label_vol, np.ndarray)
+    assert np.issubdtype(label_vol.dtype, np.integer)
 
     # Remap to consecutive labels for faster bincounting
     # (Pre-allocate destination to force output dtype)
-    labels_consecutive = np.zeros_like(labels, np.uint32)
-    labels_consecutive, _max_consecutive_label, orig_to_consecutive = \
-        vigra.analysis.relabelConsecutive(labels, start_label=0, keep_zeros=False, out=labels_consecutive)
+    labels_consecutive = np.zeros_like(label_vol, np.uint32)
+    labels_consecutive, max_consecutive_label, orig_to_consecutive = \
+        vigra.analysis.relabelConsecutive(label_vol, start_label=0, keep_zeros=False, out=labels_consecutive)
 
     # Count sizes
-    counts = vigra_bincount(labels_consecutive)
+    counts = vigra_bincount(labels_consecutive).view(np.uint64)
     
-    # Remap from consecutive to original labels
+    # Map from consecutive to original labels
     consecutive_to_orig = reverse_dict(orig_to_consecutive)
+    unique_labels = vigra.analysis.applyMapping(np.arange(max_consecutive_label+1, dtype=np.uint64), consecutive_to_orig)
 
-    # Return { label : count }
-    return { consecutive_to_orig[k] : count for k, count in enumerate(counts) }
+    return (unique_labels, counts)
             
 def reverse_dict(d):
     rev = { v:k for k,v in d.items() }

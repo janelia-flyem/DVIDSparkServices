@@ -1,10 +1,11 @@
 import copy
 import json
 import logging
-from collections import defaultdict
 
 import requests
 import numpy as np
+import vigra
+import h5py
 
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
@@ -146,12 +147,12 @@ class CopySegmentation(Workflow):
     OptionsSchema["properties"].update(
     {
         "body-size-output-path" : {
-            "description": "A file name to write the body size JSON output. Relative paths are interpreted as relative to this config file.",
+            "description": "A file name to write the body size HDF5 output. Relative paths are interpreted as relative to this config file.",
             "type": "string",
-            "default": "./body-sizes.json"
+            "default": "./body-sizes.h5"
         },
         "body-size-minimum" : {
-            "description": "Minimum size to include in the body size JSON output.  Smaller bodies are omitted.",
+            "description": "Minimum size to include in the body size HDF5 output.  Smaller bodies are omitted.",
             "type": "integer",
             "default": 0
         },
@@ -444,30 +445,51 @@ class CopySegmentation(Workflow):
     
     def _write_body_sizes( self, seg_chunks_partitioned ):
         logger = logging.getLogger(__name__)
-        logger.info("Computing body sizes...")
         
-        def merge_label_counts( counts_a, counts_b ):
-            combined_counts = defaultdict(lambda: 0, counts_a)
-            for label, count in counts_b.items():
-                combined_counts[label] += count
-            return combined_counts
+        def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
+            labels_A, counts_A = labels_and_counts_A
+            labels_B, counts_B = labels_and_counts_B
+            
+            combined_labels = vigra.analysis.unique( np.concatenate((labels_A, labels_B)) ).view(np.uint64)
+
+            positions_A = np.searchsorted(combined_labels, labels_A)
+            positions_B = np.searchsorted(combined_labels, labels_B)
+
+            combined_counts = np.zeros(combined_labels.shape, dtype=np.uint64)
+            combined_counts[positions_A] += counts_A
+            combined_counts[positions_B] += counts_B
+
+            return (combined_labels, combined_counts)
 
         with Timer() as timer:
-            body_sizes = seg_chunks_partitioned \
+            logger.info("Computing body sizes...")
+            body_labels, body_sizes = seg_chunks_partitioned \
                             .values() \
                             .map( nonconsecutive_bincount ) \
                             .reduce( merge_label_counts )
-        logger.info("Computing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
+        logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
 
         min_size = self.config_data["options"]["body-size-minimum"]
         if min_size > 1:
-            logger.info("Omitting body sizes below {} voxels".format(min_size))
-            body_sizes = { k:v for k,v in body_sizes.items() if v >= min_size }
+            logger.info("Omitting body sizes below {} voxels...".format(min_size))
+            valid_rows = body_sizes >= min_size
+            body_labels = body_labels[valid_rows]
+            body_sizes = body_sizes[valid_rows]
+        assert body_labels.shape == body_sizes.shape
+
+        with Timer() as timer:
+            logger.info("Sorting {} bodies by size...".format(len(body_labels)))
+            sort_indices = np.argsort(body_sizes)[::-1]
+            body_sizes = body_sizes[sort_indices]
+            body_labels = body_labels[sort_indices]
+        logger.info("Sorting {} bodies by size took {} seconds".format(len(body_labels), timer.seconds))
 
         output_path = self.relpath_to_abspath(self.config_data["options"]["body-size-output-path"])
         with Timer() as timer:
-            with open(output_path, 'w') as f:
-                json.dump(body_sizes, f, sort_keys=True, indent=0, separators=(',', ': '))
+            logger.info("Writing {} body sizes to {}".format(len(body_labels), output_path))
+            with h5py.File(output_path, 'w') as f:
+                f.create_dataset('labels', data=body_labels, chunks=True)
+                f.create_dataset('sizes', data=body_sizes, chunks=True)
         logger.info("Writing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
 
 ##

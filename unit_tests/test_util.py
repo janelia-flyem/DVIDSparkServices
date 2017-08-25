@@ -64,14 +64,19 @@ def test_nonconsecutive_bincount():
               [2**33,0,0,0,0]]
 
     labels = np.asarray(labels, dtype=np.uint64)
-    counts = nonconsecutive_bincount(labels)
-    assert counts[0] == 10
-    assert counts[1] == 5
-    assert counts[2] == 4
-    assert counts[5] == 3
-    assert counts[7] == 2
-    assert counts[2**33] == 1
-    assert set(counts.keys()) == {0,1,2,5,7,2**33}
+    labels, counts = nonconsecutive_bincount(labels)
+    
+    assert labels.dtype == np.uint64
+    assert counts.dtype == np.uint64
+    
+    assert counts[labels == 0] == 10
+    assert counts[labels == 1] == 5
+    assert counts[labels == 2] == 4
+    assert counts[labels == 5] == 3
+    assert counts[labels == 7] == 2
+    assert counts[labels == 2**33] == 1
+
+    assert (np.unique(labels) == [0,1,2,5,7,2**33]).all()
 
 
     
