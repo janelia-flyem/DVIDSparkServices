@@ -49,7 +49,7 @@ def compute_bodymatch(overlapmap, threshold=0):
 
     # algorithm run on NxN table -- pad with 0
     maxdim = max(tablewidth, tableheight)
-    table = numpy.zeros((maxdim, maxdim))
+    table = numpy.zeros((maxdim, maxdim), dtype=numpy.uint32)
 
     # populate table
     for (b1,b2), overlap in overlapflat.items():
@@ -58,17 +58,13 @@ def compute_bodymatch(overlapmap, threshold=0):
             table[bodies1[b1],bodies2[b2]] = overlap
 
     # create profit matrix and run hungarian match
-    table = table.max() - table
+    tableflip = table.max() - table
     m = Munkres()
-    res = m.compute(table)
-    
-    # flip table back to reprsent overlap
-    table = table.max() - table
+    res = m.compute(tableflip)
 
     # create match overlap list: b1,b2,overlap,b1size,b2size
     match_overlap = []
     for (b1,b2) in res:
-        # ?!
         body1 = 0
         if b1 in indextobodies1:
             body1 = indextobodies1[b1]
@@ -133,8 +129,8 @@ def compute_tablestats(match_overlap, tableseg1seg2, thresholds):
         # ignore small bodies from segmentation 1
         
         # get encoded seg1 and seg2
-        pre1 = pre >> 64
-        pre2 = pre & 0xffffffffffffffff
+        pre1 = int(pre >> 64)
+        pre2 = int(pre & 0xffffffffffffffff)
 
         if pre1 not in seg1stats:
             continue
@@ -142,8 +138,8 @@ def compute_tablestats(match_overlap, tableseg1seg2, thresholds):
         # show all other bodies even if match is small or 0
         for (post, overlap) in overlapset:
             # get encoded seg1 and seg2
-            post1 = post >> 64
-            post2 = post & 0xffffffffffffffff
+            post1 = int(post >> 64)
+            post2 = int(post & 0xffffffffffffffff)
             
             if post1 not in seg1stats:
                 continue
@@ -155,7 +151,7 @@ def compute_tablestats(match_overlap, tableseg1seg2, thresholds):
             seg1conns[pre1][post1] += overlap
     
             # find matching overlap
-            if seg2toseg1[pre2] == pre1 and seg2toseg1[post2] == post1:
+            if (pre2 in seg2toseg1 and seg2toseg1[pre2] == pre1) and (post2 in seg2toseg1 and seg2toseg1[post2] == post1):
                 # probably should only be called once by construction
                 assert (pre1, post1) not in seg2conns_mapped
                 seg2conns_mapped[(pre1,post1)] = overlap

@@ -4,6 +4,7 @@ packages=['DVIDSparkServices',
           'DVIDSparkServices.reconutils',
           'DVIDSparkServices.reconutils.plugins',
           'DVIDSparkServices.reconutils.metrics',
+          'DVIDSparkServices.reconutils.metrics.tests',
           'DVIDSparkServices.io_util',
           'DVIDSparkServices.dvid',
           'DVIDSparkServices.sparkdvid',
@@ -19,6 +20,7 @@ setup( name='DVIDSparkServices',
        url='https://github.com/janelia-flyem/DVIDSparkServices',
        packages=packages,
        package_data=package_data,
+       test_suite="DVIDSparkServices.reconutils.metrics.tests",
        entry_points={
           'console_scripts': [
               'launchworkflow = DVIDSparkServices.workflow.launchworkflow:main'
