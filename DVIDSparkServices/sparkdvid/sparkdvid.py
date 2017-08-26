@@ -382,7 +382,9 @@ class sparkdvid(object):
         resource_server = self.workflow.resource_server
         resource_port = self.workflow.resource_port
         throttle = (resource_server == "")
-        is_labels = DataInstance(server, uuid, instance_name).is_labels()
+        data_instance = DataInstance(server, uuid, instance_name)
+        datatype = data_instance.datatype
+        is_labels = data_instance.is_labels()
 
         def mapper(partition):
             assert isinstance(partition, volumePartition)
@@ -396,7 +398,11 @@ class sparkdvid(object):
                 # Note: libdvid uses zyx order for python functions
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
                 
-                if is_labels:
+                if datatype == 'labelarray' and (np.array(partition.offset) % 64 == 0).all() and (np.array(partition.volsize) % 64 == 0).all():
+                    # Labelarray data can be fetched very efficiently if the request is block-aligned
+                    return node_service.get_labelarray_blocks3D( instance_name, partition.volsize, partition.offset, throttle )
+                elif is_labels:
+                    # labelblk (or non-aligned labelarray) must be fetched the old-fashioned way
                     return node_service.get_labels3D( instance_name, partition.volsize, partition.offset, throttle, compress=True )
                 else:
                     return node_service.get_gray3D( instance_name, partition.volsize, partition.offset, throttle, compress=False )
