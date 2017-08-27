@@ -450,6 +450,7 @@ class Evaluate(object):
         all_stats = lpairs_splits.map(lambda x: x[1][0]).collect()
         
         metric_results = {}
+        metric_results["summarystats"] = []
 
         # accumulate all subvolume stats
         whole_volume_stats = None # SubvolumeStats(None)
@@ -513,7 +514,6 @@ class Evaluate(object):
 
         # write results for each comparison type
         comparison_type_metrics = {}
-        comparison_type_metrics["summarystats"] = []
 
         for iter1 in range(0, len(whole_volume_stats.gt_overlaps)):
             # check for comparison and create if necessary
@@ -731,7 +731,7 @@ class Evaluate(object):
                 sumstatsbm, bodystatsbm, tablestatsbm = compute_tablestats(bodymatches, gtseg_synapses, typename, [1, 5, 10])
                 
                 comparison_type_metrics["connection-matrix2"] = {}
-                comparison_type_metrics["summarystats"].extend(sumstatsbm)
+                metric_results["summarystats"].extend(sumstatsbm)
                 comparison_type_metrics["connection-matrix2"]["body"] = bodystatsbm
                 comparison_type_metrics["connection-matrix2"]["table"] = tablestatsbm
                 # --- end compute new connectivity table ---
