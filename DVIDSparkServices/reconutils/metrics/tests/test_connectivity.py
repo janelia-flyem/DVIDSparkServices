@@ -62,9 +62,14 @@ class Testconnectivity(unittest.TestCase):
         tablemap[((30 << 64) | 101)] = set([(((30 << 64) | 101), 1)])
 
         # extract stats for at least 1 and 5 connections
-        sumstats, bodystats, conntablestats = compute_tablestats(matches, tablemap, [1, 5])  
+        sumstats, bodystats, conntablestats = compute_tablestats(matches, tablemap, "blah", [1, 5])  
 
-        self.assertTrue(sumstats == [55, 77, 3, [1, 5], [3, 1], [3, 2]])
+        #self.assertTrue(sumstats == [55, 77, 3, [1, 5], [3, 1], [3, 2]])
+        self.assertTrue(len(sumstats) == 3)
+        self.assertTrue(sumstats[0]["val"] == round(55/float(77),4))
+        self.assertTrue(sumstats[1]["val"] == round(3/float(3),4))
+        self.assertTrue(sumstats[2]["val"] == round(1/float(2),4))
+        
         self.assertTrue(len(bodystats) == 2)
         self.assertTrue([3, 100, 54, 76] in bodystats)
         self.assertTrue([30, 101, 1, 1] in bodystats)
@@ -81,9 +86,13 @@ class Testconnectivity(unittest.TestCase):
         # create edge with removed node
         tablemap[((15 << 64) | 23)] = set([(((3 << 64) | 100), 4)])
        
-        sumstats, bodystats, conntablestats = compute_tablestats(matches, tablemap, [1, 5])
+        sumstats, bodystats, conntablestats = compute_tablestats(matches, tablemap, "blah", [1, 5])
         self.assertTrue(len(bodystats) == 1)
-        self.assertTrue(sumstats == [0, 4, 1, [1, 5], [0, 0], [1, 0]])
+        #self.assertTrue(sumstats == [0, 4, 1, [1, 5], [0, 0], [1, 0]])
+        self.assertTrue(len(sumstats) == 3)
+        self.assertTrue(sumstats[0]["val"] == round(0/float(4),4))
+        self.assertTrue(sumstats[1]["val"] == round(0/float(1),4))
+        self.assertTrue(sumstats[2]["val"] == 0)
         
  
 if __name__ == "main":

@@ -513,6 +513,7 @@ class Evaluate(object):
 
         # write results for each comparison type
         comparison_type_metrics = {}
+        comparison_type_metrics["summarystats"] = []
 
         for iter1 in range(0, len(whole_volume_stats.gt_overlaps)):
             # check for comparison and create if necessary
@@ -727,10 +728,10 @@ class Evaluate(object):
                 
                 # --- compute new connectivity table ---
                 bodymatches = compute_bodymatch(gt_overlap, importance_threshold)   
-                sumstatsbm, bodystatsbm, tablestatsbm = compute_tablestats(bodymatches, gtseg_synapses, [1, 5, 10])
+                sumstatsbm, bodystatsbm, tablestatsbm = compute_tablestats(bodymatches, gtseg_synapses, typename, [1, 5, 10])
                 
                 comparison_type_metrics["connection-matrix2"] = {}
-                comparison_type_metrics["connection-matrix2"]["total"] = sumstatsbm
+                comparison_type_metrics["summarystats"].extend(sumstatsbm)
                 comparison_type_metrics["connection-matrix2"]["body"] = bodystatsbm
                 comparison_type_metrics["connection-matrix2"]["table"] = tablestatsbm
                 # --- end compute new connectivity table ---

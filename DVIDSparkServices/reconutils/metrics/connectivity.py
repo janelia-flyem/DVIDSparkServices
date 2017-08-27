@@ -86,7 +86,7 @@ def compute_bodymatch(overlapmap, threshold=0):
     return match_overlap
 
 
-def compute_tablestats(match_overlap, tableseg1seg2, thresholds):
+def compute_tablestats(match_overlap, tableseg1seg2, typename, thresholds):
     """Generates summary and connectivity stats into a dict.
 
     The input table encodes all the connections between seg1 and seg2 intersection.
@@ -95,15 +95,18 @@ def compute_tablestats(match_overlap, tableseg1seg2, thresholds):
 
     Args:
         match_overlap: list of seg1, seg2 matches
-        tableseg1seg2: connectivity table showing pairs of seg1seg2 matches 
+        tableseg1seg2: connectivity table showing pairs of seg1seg2 matches
+        typename: type name for this stat
         thresholds: list of thresholds for accepting a connection
 
     Returns:
         dict for summary stats, dict for body stats, dict for connectivity table
 
         Format:
-            summary stats: [ amount matched, amount total, num_pairs, [thresholds], [threshold match], threshold totals]]
-
+            summary stats: [ 
+                {"val": "percent matched", "name": "conn.match", "description": "<<amount matched> connection out of <amount total> matched}", "higher-better": true, "typename": <typename>}",
+                {"val": "percent matched", "name": "connpairs.matched-%d", "description": "%d body pairs matched out of %d with >=%d connections", "higher-better": true, "typename": <typename>}" ...
+            ]
             body stats: list of [body, bodymatch, connections, connections total]
 
             connectivity table: list of [pre, prematch, post1, post1 match, overlap, total, post2, ...]
@@ -205,6 +208,23 @@ def compute_tablestats(match_overlap, tableseg1seg2, thresholds):
         overall_match += totmatch
         bodystats.append([pre, pre2, totmatch, totconn])
 
-    sum_stats = [overall_match, overall_tot, num_pairs, thresholds, thresholded_match2, thresholded_match]
+    sum_stats = [{"name": "conn.match", "description": "%d matched out of %d" % (overall_match, overall_tot), "higher-better": True, "typename": typename}]
+    if overall_tot == 0:
+        sum_stats[0]["val"] = 0
+    else:
+        sum_stats[0]["val"] = round(overall_match / float(overall_tot), 4)
 
+    for pos, threshold in enumerate(thresholds):
+        thresstat = {}
+        thresstat["name"] = "connpairs.matched-%d" % threshold
+        thresstat["higher-better"] = True
+        thresstat["typename"] = typename
+        if thresholded_match[pos] == 0:
+            thresstat["val"] = 0 
+        else:
+            thresstat["val"] = round(thresholded_match2[pos] / float(thresholded_match[pos]), 4)
+        thresstat["description"] = "%d body pairs matched out of %d with >=%d connections" % (thresholded_match2[pos], thresholded_match[pos], threshold)
+
+        sum_stats.append(thresstat)
+    
     return sum_stats, bodystats, conntable_stats

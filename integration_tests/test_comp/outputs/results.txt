@@ -1,6 +1,6 @@
-Evaluate Segmentation: Started [2017-08-24 14:59:19]
-DEBUG [2017-08-24 14:59:22,103] connectionpool Starting new HTTP connection (1): 127.0.0.1
-DEBUG [2017-08-24 14:59:22,106] connectionpool http://127.0.0.1:8000 "GET /api/node/ea38f9ff7049428ca8a5b168daeb469b/temproi/roi HTTP/1.1" 200 None
+Evaluate Segmentation: Started [2017-08-27 00:56:53]
+DEBUG [2017-08-27 00:56:55,928] connectionpool Starting new HTTP connection (1): 127.0.0.1
+DEBUG [2017-08-27 00:56:55,930] connectionpool http://127.0.0.1:8000 "GET /api/node/83d482d68a034b70ab371f8237ca514f/temproi/roi HTTP/1.1" 200 None
 DEBUG: {
   "subvolumes": {
     "ids": {
@@ -77855,28 +77855,38 @@ DEBUG: {
           0, 
           6
         ]
-      ], 
-      "total": [
-        8, 
-        14, 
-        3, 
-        [
-          1, 
-          5, 
-          10
-        ], 
-        [
-          2, 
-          1, 
-          0
-        ], 
-        [
-          3, 
-          2, 
-          0
-        ]
       ]
     }, 
+    "summarystats": [
+      {
+        "typename": "synapse:syn", 
+        "higher-better": true, 
+        "name": "conn.match", 
+        "val": 0.5714, 
+        "description": "8 matched out of 14"
+      }, 
+      {
+        "higher-better": true, 
+        "description": "2 body pairs matched out of 3 with >=1 connections", 
+        "name": "connpairs.matched-1", 
+        "val": 0.6667, 
+        "typename": "synapse:syn"
+      }, 
+      {
+        "higher-better": true, 
+        "description": "1 body pairs matched out of 2 with >=5 connections", 
+        "name": "connpairs.matched-5", 
+        "val": 0.5, 
+        "typename": "synapse:syn"
+      }, 
+      {
+        "higher-better": true, 
+        "description": "0 body pairs matched out of 0 with >=10 connections", 
+        "name": "connpairs.matched-10", 
+        "val": 0, 
+        "typename": "synapse:syn"
+      }
+    ], 
     "connection-matrix": {
       "seg": [
         [
@@ -77926,6 +77936,6 @@ DEBUG: {
     }
   }
 }
-INFO [2017-08-24 15:01:18,069] workflow No worker init processes to kill
-INFO [2017-08-24 15:01:18,070] workflow No driver init process to kill
-Evaluate Segmentation: Finished [2017-08-24 15:01:18]
+INFO [2017-08-27 00:58:19,190] workflow No worker init processes to kill
+INFO [2017-08-27 00:58:19,190] workflow No driver init process to kill
+Evaluate Segmentation: Finished [2017-08-27 00:58:19]
