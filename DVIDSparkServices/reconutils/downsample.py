@@ -1,6 +1,7 @@
 """Downsampling operations used for raw and label data.
 """
 from __future__ import print_function, absolute_import
+from __future__ import division
 import numpy as np
 from scipy import ndimage
 from numba import jit
@@ -59,7 +60,7 @@ def downsample_3Dlabels(data, numlevels=1):
         if ((zmax % 2) != 0) or ((ymax % 2) != 0) or ((xmax % 2) != 0):
             raise ValueError("Level: " + str(level+1) + " is not a multiple of two")
 
-        data2 = np.zeros((zmax/2,ymax/2,xmax/2)).astype(data.dtype)
+        data2 = np.zeros((zmax//2, ymax//2, xmax//2)).astype(data.dtype)
 
         for ziter in range(0,zmax,2):
             for yiter in range(0,ymax,2):
@@ -99,7 +100,7 @@ def downsample_3Dlabels(data, numlevels=1):
                                     maxval = val
                                     freqkey = key
 
-                    data2[ziter/2, yiter/2, xiter/2] = freqkey
+                    data2[ziter//2, yiter//2, xiter//2] = freqkey
         
         res.append(data2)
         data = data2

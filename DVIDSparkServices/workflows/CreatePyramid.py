@@ -1,3 +1,4 @@
+from __future__ import division
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -93,7 +94,7 @@ class CreatePyramid(DVIDWorkflow):
         maxdim = max(xmax,ymax,zmax)
         # build pyramid until BLKSIZE * 4
         import math
-        maxlevel = int(math.log(maxdim+1)/math.log(2)) - 2
+        maxlevel = int(math.log(maxdim+1) / math.log(2)) - 2
 
         # assume 0,0,0 start for now
         xspan, yspan, zspan = xmax+1, ymax+1, zmax+1
@@ -118,7 +119,7 @@ class CreatePyramid(DVIDWorkflow):
                 # set extents for new volume (only need to do for grayscale)
                 newsourceext = {}
                 newsourceext["MinPoint"] = [0,0,0] # for now no offset
-                newsourceext["MaxPoint"] = [((xspan-1)/2+1)*BLKSIZE-1,((yspan-1)/2+1)*BLKSIZE-1,((zspan-1)/2+1)*BLKSIZE-1]
+                newsourceext["MaxPoint"] = [((xspan-1) // 2+1)*BLKSIZE-1,((yspan-1)//2+1)*BLKSIZE-1,((zspan-1)//2+1)*BLKSIZE-1]
                 requests.post(server + "/api/node/" + uuid + "/" + currsource + "/extents", json=newsourceext)
 
             # determine number of requests
@@ -128,11 +129,11 @@ class CreatePyramid(DVIDWorkflow):
             if maxxrun % 2:
                 maxxrun += 1
 
-            xsize = xspan / maxxrun
+            xsize = xspan // maxxrun
             if xspan % maxxrun:
                 xsize += 1
-            ysize = (yspan+1)/2
-            zsize = (zspan+1)/2
+            ysize = (yspan+1) // 2
+            zsize = (zspan+1) // 2
             resource_server = self.resource_server
             resource_port = self.resource_port
 
@@ -175,7 +176,7 @@ class CreatePyramid(DVIDWorkflow):
                     coords, data = vdata
                     import numpy 
                     zmax, ymax, xmax = data.shape
-                    data2 = numpy.zeros((zmax/2,ymax/2,xmax/2)).astype(numpy.uint64)
+                    data2 = numpy.zeros((zmax // 2, ymax // 2, xmax // 2)).astype(numpy.uint64)
 
                     for ziter in range(0,zmax,2):
                         for yiter in range(0, ymax,2):
@@ -214,7 +215,7 @@ class CreatePyramid(DVIDWorkflow):
                                                 maxval = val
                                                 freqkey = key
         
-                                data2[ziter/2, yiter/2, xiter/2] = freqkey
+                                data2[ziter // 2, yiter // 2, xiter // 2] = freqkey
             
                     return (coords, data2)
 
@@ -274,7 +275,7 @@ class CreatePyramid(DVIDWorkflow):
 
                             else:
                                 if startblock == False:
-                                    xbindex = xiter*maxxrun/2 + iterx/BLKSIZE
+                                    xbindex = xiter*maxxrun/2 + iterx // BLKSIZE
                                
                                 startblock = True
                                 blockbuffer += block.tostring() #numpy.getbuffer(block)
@@ -289,9 +290,9 @@ class CreatePyramid(DVIDWorkflow):
                 downsampleddata.foreach(write2dvid)
 
             # adjust max coordinate for new level
-            xspan = (xspan-1) / 2
-            yspan = (yspan-1) / 2
-            zspan = (zspan-1) / 2
+            xspan = (xspan-1) // 2
+            yspan = (yspan-1) // 2
+            zspan = (zspan-1) // 2
 
     @staticmethod
     def dumpschema():

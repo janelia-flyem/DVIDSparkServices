@@ -1,4 +1,5 @@
 from __future__ import print_function, absolute_import
+from __future__ import division
 import sys
 import copy
 import json
@@ -292,8 +293,8 @@ class CopySegmentation(Workflow):
             # (!!assume vol and offset will always be power of two because of padding)
             def repartition_down(part_volume):
                 part, volume = part_volume
-                downsampled_offset = np.array(part.get_offset()) / 2
-                downsampled_reloffset = np.array(part.get_reloffset()) / 2
+                downsampled_offset = np.array(part.get_offset()) // 2
+                downsampled_reloffset = np.array(part.get_reloffset()) // 2
                 offsetnew = VolumeOffset(*downsampled_offset)
                 reloffsetnew = VolumeOffset(*downsampled_reloffset)
                 partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew, reloffset=reloffsetnew)

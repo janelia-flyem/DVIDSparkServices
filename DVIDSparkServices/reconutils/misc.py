@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from __future__ import division
 import numpy
 import vigra
 import logging
@@ -267,7 +268,7 @@ def normalize_channels_in_place(predictions):
     
     # Avoid divide-by-zero: Replace all-zero pixels with 1/N for all channels
     num_channels = predictions.shape[-1]
-    predictions[:] = np.where( channel_totals[...,None] == 0.0, 1.0/num_channels, predictions )
+    predictions[:] = np.where( channel_totals[...,None] == 0.0, 1.0 / num_channels, predictions )
     channel_totals[:] = np.where( channel_totals == 0.0, 1.0, channel_totals )
 
     # Normalize

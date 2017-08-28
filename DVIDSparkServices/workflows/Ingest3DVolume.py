@@ -4,6 +4,7 @@ This file contains a top-level class that is callable via DVIDSparkServices
 workflow interface.  It also contains a library for access as a standalone
 library without requiring Apache Spark.
 """
+from __future__ import division
 import sys
 import copy
 import json
@@ -428,7 +429,7 @@ class Ingest3DVolume(Workflow):
     
         if options["create-pyramid"]:
             for level in range(1, 1 + options["pyramid-depth"]):
-                downsampled_box_zyx = global_box_zyx / (2**level)
+                downsampled_box_zyx = global_box_zyx // (2**level)
                 downname = dvid_info["dataname"] + "_%d" % level
 
                 if level in options["skipped-pyramid-levels"]:
@@ -460,7 +461,7 @@ class Ingest3DVolume(Workflow):
 
         if options["create-pyramid-jpeg"]: 
             for level in range(1, 1 + options["pyramid-depth"]):
-                downsampled_box_zyx = global_box_zyx / (2**level)
+                downsampled_box_zyx = global_box_zyx // (2**level)
                 downname = dvid_info["dataname"] + self.JPEGPYRAMID_NAME + "_%d" % level
 
                 if level in options["skipped-pyramid-levels"]:
@@ -486,13 +487,13 @@ class Ingest3DVolume(Workflow):
             
         # create tiles
         if options["create-tiles"] or options["create-tiles-jpeg"]:
-            MinTileCoord = global_box_zyx[0][::-1] / options["tilesize"]
-            MaxTileCoord = global_box_zyx[1][::-1] / options["tilesize"]
+            MinTileCoord = global_box_zyx[0][::-1] // options["tilesize"]
+            MaxTileCoord = global_box_zyx[1][::-1] // options["tilesize"]
             
             # get max level by just finding max tile coord
             maxval = max(MaxTileCoord) - min(MinTileCoord) + 1
             import math
-            self.maxlevel = int(math.log(maxval)/math.log(2))
+            self.maxlevel = int(math.log(maxval) / math.log(2))
 
             tilemeta = {}
             tilemeta["MinTileCoord"] = MinTileCoord.tolist()
@@ -580,7 +581,7 @@ class Ingest3DVolume(Workflow):
 
                 # should be a multiple of Z blocks or the final fetch
                 assert imgreader.curr_slice % options["blocksize"] == 0
-                while ((((imgreader.curr_slice / options["blocksize"]) % downsample_factor) == 0) or finallayer) and curr_level <= options["pyramid-depth"]:
+                while ((((imgreader.curr_slice // options["blocksize"]) % downsample_factor) == 0) or finallayer) and curr_level <= options["pyramid-depth"]:
                     partlist = levels_cache[curr_level-1]
                     part = partlist[0]
                     # union all RDDs from the same level
@@ -601,8 +602,8 @@ class Ingest3DVolume(Workflow):
                     # repart (vol and offset will always be power of two because of padding)
                     def repartition_down(part_volume):
                         part, volume = part_volume
-                        downsampled_offset = np.array(part.get_offset()) / 2
-                        downsampled_reloffset = np.array(part.get_reloffset()) / 2
+                        downsampled_offset = np.array(part.get_offset()) // 2
+                        downsampled_reloffset = np.array(part.get_reloffset()) // 2
                         offsetnew = VolumeOffset(*downsampled_offset)
                         reloffsetnew = VolumeOffset(*downsampled_reloffset)
                         partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew, reloffset=reloffsetnew)
@@ -782,13 +783,13 @@ class Ingest3DVolume(Workflow):
             imslice = np.zeros((ysize, xsize))
             imslice[:,:] = delimiter
             imslice[shifty:ysize, shiftx:xsize] = timslice
-            curry = (offset.y - shifty)/2 
-            currx = (offset.x - shiftx)/2
+            curry = (offset.y - shifty) // 2 
+            currx = (offset.x - shiftx) // 2
 
             imlevels = []
             tileoffsetyx = []
             imlevels.append(imslice)
-            tileoffsetyx.append((offset.y/tilesize, offset.x/tilesize))  
+            tileoffsetyx.append((offset.y // tilesize, offset.x // tilesize))  
 
             with Timer() as downsample_timer:
                 # use generic downsample algorithm
@@ -806,10 +807,10 @@ class Ingest3DVolume(Workflow):
                     timslice = ndimage.interpolation.zoom(imlevels[level-1], 0.5)
                     imslice[shifty:ysize, shiftx:xsize] = timslice
                     imlevels.append(imslice) 
-                    tileoffsetyx.append((currx/tilesize, curry/tilesize))  
+                    tileoffsetyx.append((currx // tilesize, curry // tilesize))  
                     
-                    curry = (curry - shifty)/2 
-                    currx = (currx - shiftx)/2
+                    curry = (curry - shifty) // 2 
+                    currx = (currx - shiftx) // 2
 
             logger.info("Downsampled {} levels in {:.3f} seconds".format(maxlevel, downsample_timer.seconds))
 
@@ -818,8 +819,8 @@ class Ingest3DVolume(Workflow):
                 levelslice = imlevels[levelnum]
                 dim1, dim2 = levelslice.shape
 
-                num1tiles = (dim1-1)/tilesize + 1
-                num2tiles = (dim2-1)/tilesize + 1
+                num1tiles = (dim1-1) // tilesize + 1
+                num2tiles = (dim2-1) // tilesize + 1
 
                 with Timer() as post_timer:
                     for iter1 in range(0, num1tiles):

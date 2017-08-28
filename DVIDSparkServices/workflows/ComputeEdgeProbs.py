@@ -9,6 +9,7 @@ weight as affinity is pushed to either DVID labelgraph or to disk.
 
 """
 from __future__ import print_function, absolute_import
+from __future__ import division
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 import DVIDSparkServices
@@ -169,7 +170,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
         if iteration_size == 0:
             iteration_size = num_parts
 
-        num_iters = num_parts/iteration_size
+        num_iters = num_parts // iteration_size
         if num_parts % iteration_size > 0:
             num_iters += 1
 

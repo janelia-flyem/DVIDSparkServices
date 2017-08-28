@@ -7,6 +7,7 @@ the results together.
 
 """
 from __future__ import print_function, absolute_import
+from __future__ import division
 import os
 import sys
 import uuid
@@ -211,7 +212,7 @@ class CreateSegmentation(DVIDWorkflow):
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
                 self.config_data["dvid-info"]["roi"],
-                self.chunksize, self.overlap/2,
+                self.chunksize, self.overlap // 2,
                 True,
                 self.config_data["dvid-info"]["partition-method"],
                 self.config_data["dvid-info"]["partition-filter"] )
@@ -235,7 +236,7 @@ class CreateSegmentation(DVIDWorkflow):
         if iteration_size == 0:
             iteration_size = num_parts
 
-        num_iters = num_parts/iteration_size
+        num_iters = num_parts // iteration_size
         if num_parts % iteration_size > 0:
             num_iters += 1
 
@@ -409,7 +410,7 @@ class CreateSegmentation(DVIDWorkflow):
                     self.config_data["dvid-info"]["uuid"], resource_server, resource_port)
             
             substacks, packing_factor = node_service.get_roi_partition(str(self.config_data["dvid-info"]["roi"]),
-                                                                       256/self.blocksize)
+                                                                       256 // self.blocksize)
 
             if self.resource_server != "":
                 label_volume = node_service.get_labels3D( str(self.config_data["dvid-info"]["segmentation-name"]), 

@@ -18,6 +18,7 @@ greatly reduce scalability but will be changed as soon as DVID
 is backed by a clustered DB.
 
 """
+from __future__ import division
 
 import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
@@ -209,7 +210,7 @@ class sparkdvid(object):
 
         if partition_method.startswith('grid-aligned-'):
             grid_spacing_px = int(partition_method.split('-')[-1])
-            grid_spacing_blocks = grid_spacing_px / self.BLK_SIZE
+            grid_spacing_blocks = grid_spacing_px // self.BLK_SIZE
 
             assert subvol_size % grid_spacing_px == 0, \
                 "Subvolume partitions won't be aligned to grid unless subvol_size is a multiple of the grid size."

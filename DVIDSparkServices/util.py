@@ -1,4 +1,5 @@
 from __future__ import print_function, absolute_import
+from __future__ import division
 import os
 import sys
 import signal
@@ -446,7 +447,7 @@ def choose_pyramid_depth(bounding_box, top_level_max_dim=512):
     full_res_max_dim = float(global_shape.max())
     assert full_res_max_dim > 0.0, "Subvolumes encompass no volume!"
     
-    depth = int(ceil(log2(full_res_max_dim/top_level_max_dim)))
+    depth = int(ceil(log2(full_res_max_dim / top_level_max_dim)))
     return max(depth, 0)
 
 
