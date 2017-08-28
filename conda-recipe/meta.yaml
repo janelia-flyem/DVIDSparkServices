@@ -43,6 +43,7 @@ requirements:
     - logcollector >=0.1.post13
     - dvid-resource-manager
     - psutil
+    - pandas
 
 test:
   requires:

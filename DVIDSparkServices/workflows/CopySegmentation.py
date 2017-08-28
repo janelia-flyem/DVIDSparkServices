@@ -6,6 +6,7 @@ import requests
 import numpy as np
 import vigra
 import h5py
+import pandas as pd
 
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
@@ -450,16 +451,11 @@ class CopySegmentation(Workflow):
             labels_A, counts_A = labels_and_counts_A
             labels_B, counts_B = labels_and_counts_B
             
-            combined_labels = vigra.analysis.unique( np.concatenate((labels_A, labels_B)) ).view(np.uint64)
-
-            positions_A = np.searchsorted(combined_labels, labels_A)
-            positions_B = np.searchsorted(combined_labels, labels_B)
-
-            combined_counts = np.zeros(combined_labels.shape, dtype=np.uint64)
-            combined_counts[positions_A] += counts_A
-            combined_counts[positions_B] += counts_B
-
-            return (combined_labels, combined_counts)
+            series_A = pd.Series(index=labels_A, data=counts_A)
+            series_B = pd.Series(index=labels_B, data=counts_B)
+            
+            combined = series_A.add(series_B, fill_value=0)
+            return (combined.index, combined.values.astype(np.uint64))
 
         with Timer() as timer:
             logger.info("Computing body sizes...")

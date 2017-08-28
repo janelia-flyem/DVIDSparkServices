@@ -9,8 +9,8 @@ import logging
 from itertools import starmap
 
 import psutil
-import vigra
 import numpy as np
+import pandas as pd
 from skimage.util import view_as_blocks
 
 logger = logging.getLogger(__name__)
@@ -456,19 +456,6 @@ def mask_roi(data, subvolume, border='default'):
     return None # Emphasize in-place behavior
 
 
-def vigra_bincount(labels):
-    """
-    A RAM-efficient implementation of numpy.bincount() when you're dealing with uint32 labels.
-    If your data isn't int64, numpy.bincount() will copy it internally -- a huge RAM overhead.
-    (This implementation may also need to make a copy, but it prefers uint32, not int64.)
-    """
-    labels = labels.astype(np.uint32, copy=False)
-    labels = np.ravel(labels, order='K').reshape((-1, 1), order='A')
-    # We don't care what the 'image' parameter is, but we have to give something
-    image = labels.view(np.float32)
-    counts = vigra.analysis.extractRegionFeatures(image, labels, ['Count'])['Count']
-    return counts.astype(np.int64)
-
 def nonconsecutive_bincount(label_vol):
     """
     Like np.bincount(), but works well for label volumes with non-consecutive label values.
@@ -478,23 +465,12 @@ def nonconsecutive_bincount(label_vol):
     assert isinstance(label_vol, np.ndarray)
     assert np.issubdtype(label_vol.dtype, np.integer)
 
-    # Remap to consecutive labels for faster bincounting
-    # (Pre-allocate destination to force output dtype)
-    labels_consecutive = np.zeros_like(label_vol, np.uint32)
-    labels_consecutive, max_consecutive_label, orig_to_consecutive = \
-        vigra.analysis.relabelConsecutive(label_vol, start_label=0, keep_zeros=False, out=labels_consecutive)
-
-    # Count sizes
-    counts = vigra_bincount(labels_consecutive).view(np.uint64)
-    
-    # Map from consecutive to original labels
-    consecutive_to_orig = reverse_dict(orig_to_consecutive)
-    unique_labels = vigra.analysis.applyMapping(np.arange(max_consecutive_label+1, dtype=np.uint64), consecutive_to_orig)
-
-    return (unique_labels, counts)
+    counts = pd.Series(np.ravel(label_vol, order='K')).value_counts(sort=False)
+    assert counts.values.dtype == np.int64
+    return counts.index, counts.values.view(np.uint64)
             
 def reverse_dict(d):
-    rev = { v:k for k,v in d.items() }
+    rev = { v:k for k,v in d.iteritems() }
     assert len(rev) == len(d), "dict is not reversable: {}".format(d)
     return rev
 
