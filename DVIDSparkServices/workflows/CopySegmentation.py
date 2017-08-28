@@ -452,14 +452,20 @@ class CopySegmentation(Workflow):
             logger.info("Skipping body size calculation.")
             return
 
+        @self.collect_log(lambda *args: 'merge_label_counts')
         def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
+            logger = logging.getLogger(__name__)
             labels_A, counts_A = labels_and_counts_A
             labels_B, counts_B = labels_and_counts_B
             
-            series_A = pd.Series(index=labels_A, data=counts_A)
-            series_B = pd.Series(index=labels_B, data=counts_B)
+            with Timer() as timer:
+                series_A = pd.Series(index=labels_A, data=counts_A)
+                series_B = pd.Series(index=labels_B, data=counts_B)
+                combined = series_A.add(series_B, fill_value=0)
             
-            combined = series_A.add(series_B, fill_value=0)
+            logger.info("Merging label count lists of sizes {} + {} = {} took {} seconds"
+                        .format(len(labels_A), len(labels_B), len(combined), timer.seconds))
+
             return (combined.index, combined.values.astype(np.uint64))
 
         def reduce_partition( partition_elements ):
