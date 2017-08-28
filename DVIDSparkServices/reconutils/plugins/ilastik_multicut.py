@@ -1,11 +1,12 @@
+from __future__ import print_function, absolute_import
 import DVIDSparkServices
 
 def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_THREADS=1, LAZYFLOW_TOTAL_RAM_MB=None, logfile="/dev/null", extra_cmdline_args=[]):
-    print 'status=multicut'
-    print "Starting ilastik_multicut() ..."
-    print "grayscale volume: dtype={}, shape={}".format(str(grayscale.dtype), grayscale.shape)
-    print "boundary volume: dtype={}, shape={}".format(str(bounary_volume.dtype), bounary_volume.shape)
-    print "supervoxels volume: dtype={}, shape={}".format(str(supervoxels.dtype), supervoxels.shape)
+    print('status=multicut')
+    print("Starting ilastik_multicut() ...")
+    print("grayscale volume: dtype={}, shape={}".format(str(grayscale.dtype), grayscale.shape))
+    print("boundary volume: dtype={}, shape={}".format(str(bounary_volume.dtype), bounary_volume.shape))
+    print("supervoxels volume: dtype={}, shape={}".format(str(supervoxels.dtype), supervoxels.shape))
 
     import os
     from collections import OrderedDict
@@ -19,7 +20,7 @@ def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_
     import ilastik_main
     from ilastik.applets.dataSelection import DatasetInfo
 
-    print "ilastik_multicut(): Done with imports"
+    print("ilastik_multicut(): Done with imports")
 
     if LAZYFLOW_TOTAL_RAM_MB is None:
         # By default, assume our alotted RAM is proportional 
@@ -57,7 +58,7 @@ def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_
     # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
     args.logfile = logfile
 
-    print "ilastik_multicut(): Creating shell..."
+    print("ilastik_multicut(): Creating shell...")
 
     # Instantiate the 'shell', (in this case, an instance of ilastik.shell.HeadlessShell)
     # This also loads the project file into shell.projectManager
@@ -77,7 +78,7 @@ def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_
                                    ("Probabilities", [ DatasetInfo(preloaded_array=probabilities_array) ]),
                                    ("Superpixels", [ DatasetInfo(preloaded_array=superpixels_array) ]) ])
 
-    print "ilastik_multicut(): Starting export..."
+    print("ilastik_multicut(): Starting export...")
 
     # Run the export via the BatchProcessingApplet
     segmentation_list = shell.workflow.batchProcessingApplet.run_export(role_data_dict, export_to_array=True)
@@ -85,5 +86,5 @@ def ilastik_multicut(grayscale, bounary_volume, supervoxels, ilp_path, LAZYFLOW_
     segmentation = segmentation_list[0]
 
     assert segmentation.ndim == 3
-    print 'status=multicut finished'
+    print('status=multicut finished')
     return segmentation

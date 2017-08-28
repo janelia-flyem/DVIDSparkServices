@@ -1,6 +1,12 @@
+from __future__ import print_function, absolute_import
+import sys
 import copy
 import json
 import logging
+from functools import reduce
+
+if sys.version_info.major > 2:
+    xrange = range
 
 import requests
 import numpy as np
@@ -398,12 +404,13 @@ class CopySegmentation(Workflow):
         # default delimiter
         delimiter = 0
     
-        @self.collect_log(lambda (part, data): part.get_offset())
+        @self.collect_log(lambda part_data: part_data[0].get_offset())
         def write_blocks(part_vol):
             logger = logging.getLogger(__name__)
             part, data = part_vol
             offset = part.get_offset()
             reloffset = part.get_reloffset()
+            print("!!", offset, reloffset, level)
             _, _, x_size = data.shape
             if x_size % blksize != 0:
                 # check if padded
@@ -415,7 +422,7 @@ class CopySegmentation(Workflow):
 
             # Find all non-zero blocks (and record by block index)
             block_coords = []
-            for block_index, block_x in enumerate(xrange(0, x_size, blksize)):
+            for block_index, block_x in enumerate(range(0, x_size, blksize)):
                 if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
@@ -597,7 +604,7 @@ if __name__ == "__main__":
     }
 
     validate_and_inject_defaults(config, CopySegmentation.Schema)
-    print json.dumps(config, indent=4, separators=(',', ': '))
+    print(json.dumps(config, indent=4, separators=(',', ': ')))
 
 
 

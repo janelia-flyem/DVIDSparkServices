@@ -4,13 +4,13 @@ This module consists of the Evaluate class works with the
 evaluate workflow.  Code requires pyspark to execute.
 
 """
-
+from __future__ import absolute_import
 import libNeuroProofMetrics as npmetrics
 import numpy
 
 # contains helper functions
-from segstats import *
-from morpho import *
+from .segstats import *
+from .morpho import *
 from metrics.connectivity import *
 
 class Evaluate(object):

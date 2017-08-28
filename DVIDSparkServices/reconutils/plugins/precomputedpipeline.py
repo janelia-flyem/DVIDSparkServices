@@ -4,6 +4,7 @@ Simple algorithm that re-implements the Segmentor segment function
 This module is a placeholder to indicate how to use the segmentation
 plugin architecture.
 """
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.reconutils.Segmentor import Segmentor
 
 class precomputedpipeline(Segmentor):
@@ -24,14 +25,14 @@ class precomputedpipeline(Segmentor):
             fileloc = (pathloc + "/%d_%d_%d.h5") % (z1,y1,x1)
             import h5py
             import numpy
-            print "!!", fileloc
+            print("!!", fileloc)
             try:
                 hfile = h5py.File(fileloc, 'r')
                 seg = numpy.array(hfile["segmentation"])
-                print "!! good"
+                print("!! good")
                 return seg.astype(numpy.uint32)
             except:
-                print "!! bad"
+                print("!! bad")
                 return numpy.zeros((552,552,552), numpy.uint32)
 
         # preserver partitioner

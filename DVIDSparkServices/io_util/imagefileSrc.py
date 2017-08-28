@@ -1,8 +1,9 @@
 """This module defines routines to create 3D image volumes from 2D files.
 """
 
-from volumeSrc import volumeSrc
-import partitionSchema
+from __future__ import absolute_import
+from .volumeSrc import volumeSrc
+from . import partitionSchema
 from PIL import Image
 import numpy as np
 
@@ -135,13 +136,13 @@ class imagefileSrc(volumeSrc):
                 else:
                     img_array = np.array(img, dtype=dtype)
                 return partition, img_array
-            except Exception, e:
+            except Exception as e:
                 # just return a blank slice -- will be handled downstream
                 return partition, None 
 
         if self.spark_context is not None:
             # requires spark application
-            imgs = self.spark_context.parallelize(range(start, start+size), size)
+            imgs = self.spark_context.parallelize(list(range(start, start+size)), size)
             return imgs.map(img2npy)        
         else:
             # produces an array of 2D numpy images
@@ -151,7 +152,7 @@ class imagefileSrc(volumeSrc):
 
             return img_list
 
-    def next(self):
+    def __next__(self):
         """Iterates partitions specified in the partitionSchema.
         """
         if self.curr_slice > self.end_slice:
@@ -164,6 +165,8 @@ class imagefileSrc(volumeSrc):
         # partition data
         return self.part_schema.partition_data(images)
 
+    # Python 2
+    next = __next__
 
     def extract_volume(self):
         """Retrieve entire volume as numpy array or RDD.

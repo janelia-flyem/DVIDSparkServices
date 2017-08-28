@@ -9,7 +9,7 @@ class TestSubprocessDecorator(unittest.TestCase):
         assert result == 1+2+0, "Wrong result: {}".format(result)
 
         # Remove timing messages
-        collected_output = filter(lambda s: 'took' not in s, collected_output)
+        collected_output = [s for s in collected_output if 'took' not in s]
         
         assert collected_output == ['1\n', '2\n', '0\n'], \
             "Unexpected output: {}".format(collected_output)
@@ -31,7 +31,7 @@ class TestSubprocessDecorator(unittest.TestCase):
         #    sys.stdout.write(line)
 
         # Remove timing messages
-        collected_output = filter(lambda s: 'took' not in s, collected_output)
+        collected_output = [s for s in collected_output if 'took' not in s]
 
         assert 'Traceback' in collected_output[0], "Expected to see Traceback output"
         assert 'TypeError' in collected_output[-1]

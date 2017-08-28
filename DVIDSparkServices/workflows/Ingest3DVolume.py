@@ -4,11 +4,16 @@ This file contains a top-level class that is callable via DVIDSparkServices
 workflow interface.  It also contains a library for access as a standalone
 library without requiring Apache Spark.
 """
+import sys
 import copy
 import json
 import logging
 
+from io import BytesIO
 logger = logging.getLogger(__name__)
+
+if sys.version_info.major > 2:
+    xrange = range
 
 import numpy as np
 
@@ -667,7 +672,7 @@ class Ingest3DVolume(Workflow):
         delimiter = options["blankdelimiter"]
         israw = options["is-rawarray"]
 
-        @self.collect_log(lambda (part, data): part.get_offset())
+        @self.collect_log(lambda part_data1: part_data1[0].get_offset())
         def write_blocks(part_vol):
             logger = logging.getLogger(__name__)
             part, data = part_vol
@@ -684,7 +689,7 @@ class Ingest3DVolume(Workflow):
 
             # Find all non-zero blocks (and record by block index)
             block_coords = []
-            for block_index, block_x in enumerate(xrange(0, x_size, blksize)):
+            for block_index, block_x in enumerate(range(0, x_size, blksize)):
                 if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
@@ -755,7 +760,7 @@ class Ingest3DVolume(Workflow):
         tilenamejpeg = dvid_info["dataname"]+self.JPEGTILENAME
         uuid = dvid_info["uuid"]
 
-        @self.collect_log(lambda (part, vol): part.get_offset())
+        @self.collect_log(lambda part_vol2: part_vol2[0].get_offset())
         def writeimagepyramid(part_data):
             logger = logging.getLogger(__name__)
             part, vol = part_data
@@ -763,7 +768,7 @@ class Ingest3DVolume(Workflow):
             zslice = offset.z
             from PIL import Image
             from scipy import ndimage
-            import StringIO
+            import io
             import requests
             s = requests.Session()
     
@@ -832,7 +837,7 @@ class Ingest3DVolume(Workflow):
                             starty += iter1
                             startx += iter2
                             if createtiles:
-                                buf = StringIO.StringIO() 
+                                buf = BytesIO() 
                                 img = Image.frombuffer('L', (tilesize, tilesize), tileholder.tostring(), 'raw', 'L', 0, 1)
                                 img.save(buf, format="png")
     
@@ -841,7 +846,7 @@ class Ingest3DVolume(Workflow):
                                 buf.close()
                             
                             if createtilesjpeg:
-                                buf = StringIO.StringIO() 
+                                buf = BytesIO() 
                                 img = Image.frombuffer('L', (tilesize, tilesize), tileholder.tostring(), 'raw', 'L', 0, 1)
                                 img.save(buf, format="jpeg")
     

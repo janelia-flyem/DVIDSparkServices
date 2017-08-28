@@ -8,6 +8,7 @@ is done by NeuroProof.  A resulting graph with voxel size and edge
 weight as affinity is pushed to either DVID labelgraph or to disk.
 
 """
+from __future__ import print_function, absolute_import
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 import DVIDSparkServices
@@ -186,7 +187,8 @@ class ComputeEdgeProbs(DVIDWorkflow):
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
             # is randomish than this should be fine
-            def subset_part( (s_id, data) ):
+            def subset_part(sid_data):
+                (s_id, _data) = sid_data
                 if (s_id % num_iters) == iternum:
                     return True
                 return False
@@ -205,7 +207,8 @@ class ComputeEdgeProbs(DVIDWorkflow):
             # For now, we always read predictions if available, and always write them if not.
             # TODO: Add config settings to control read/write behavior.
             @Segmentor.use_block_cache(pred_checkpoint_dir, allow_read=True, allow_write=True)
-            def predict_voxels( (_subvolume, gray) ):
+            def predict_voxels( sv_gray ):
+                (_subvolume, gray) = sv_gray
                 return vprediction_function(gray, None)
 
             vox_preds = gray_chunks.values().map( predict_voxels ) # predictions only
@@ -435,7 +438,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
 
         if self.config_data["options"]["debug"]:
             import json
-            print "DEBUG:", json.dumps(graph)
+            print("DEBUG:", json.dumps(graph))
      
         # write dvid to specified file (if provided)
         if "output-file" in self.config_data["options"] and self.config_data["options"]["output-file"] != "":

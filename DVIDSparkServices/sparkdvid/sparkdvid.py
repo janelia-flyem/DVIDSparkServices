@@ -136,17 +136,16 @@ class sparkdvid(object):
         roi_map = RoiMap( self.get_roi(roi) )
 
         # Initialize all Subvolumes (sv_index is updated below)
-        subvolumes = map( lambda ss: Subvolume(None, (ss.z, ss.y, ss.x), chunk_size, border, roi_map),
-                          substack_tuples )
+        subvolumes = [Subvolume(None, (ss.z, ss.y, ss.x), chunk_size, border, roi_map) for ss in substack_tuples]
 
         # Discard empty subvolumes (ones that don't intersect the ROI at all).
         # The 'grid-aligned' partition-method can return such subvolumes;
         # it assumes we'll filter them out, which we're doing right now.
-        subvolumes = filter( lambda sv: len(sv.intersecting_blocks_noborder) != 0, subvolumes )
+        subvolumes = [sv for sv in subvolumes if len(sv.intersecting_blocks_noborder) != 0]
 
         # Discard 'interior' subvolumes if the user doesn't want them.
         if partition_filter == 'interior-only':
-            subvolumes = filter( lambda sv: sv.is_interior, subvolumes )
+            subvolumes = [sv for sv in subvolumes if sv.is_interior]
 
         # Assign sv_index
         for i, sv in enumerate(subvolumes):

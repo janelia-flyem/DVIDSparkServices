@@ -1,4 +1,5 @@
 """Defines base class for segmentation plugins."""
+from __future__ import print_function, absolute_import
 import sys
 import json
 import importlib
@@ -293,9 +294,10 @@ class Segmentor(object):
         The cached data isn't actually used by this pipeline, can be useful for viewing later
         (for debugging purposes).
         """
-        @self.workflow.collect_log(lambda (sv, _g): str(sv))
+        @self.workflow.collect_log(lambda sv_g: str(sv_g[0]))
         @Segmentor.use_block_cache(gray_checkpoint_dir, allow_read=False, dset_options={})
-        def _execute_for_chunk( (_subvolume, gray) ):
+        def _execute_for_chunk(xxx_todo_changeme ):
+            (_subvolume, gray) = xxx_todo_changeme
             logging.getLogger(__name__).debug("Caching grayscale")
             return gray
 
@@ -322,7 +324,7 @@ class Segmentor(object):
         """
         mask_function = self._get_segmentation_function('background-mask')
 
-        @self.workflow.collect_log(lambda (sv, _g): str(sv))
+        @self.workflow.collect_log(lambda sv_g1: str(sv_g1[0]))
         @Segmentor.use_block_cache(mask_checkpoint_dir, allow_read=False)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -359,7 +361,7 @@ class Segmentor(object):
         """
         prediction_function = self._get_segmentation_function('predict-voxels')
 
-        @self.workflow.collect_log(lambda (sv, (_g, _mc)): str(sv))
+        @self.workflow.collect_log(lambda sv_g_mc: str(sv_g_mc[0]))
         @Segmentor.use_block_cache(pred_checkpoint_dir, allow_read=allow_pred_rollback)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -408,7 +410,7 @@ class Segmentor(object):
         resource_server = self.context.workflow.resource_server
         resource_port = self.context.workflow.resource_port
 
-        @self.workflow.collect_log(lambda (sv, (_pc, _mc)): str(sv))
+        @self.workflow.collect_log(lambda sv_pc_mc: str(sv_pc_mc[0]))
         @Segmentor.use_block_cache(sp_checkpoint_dir, allow_read=allow_sp_rollback)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -502,7 +504,7 @@ class Segmentor(object):
         pdconf = self.pdconf
         preserve_bodies = self.preserve_bodies
 
-        @self.workflow.collect_log(lambda (sv, (_g, _pc, _sc)): str(sv))
+        @self.workflow.collect_log(lambda sv_g_pc_sc: str(sv_g_pc_sc[0]))
         @Segmentor.use_block_cache(seg_checkpoint_dir, allow_read=allow_seg_rollback)
         def _execute_for_chunk(args):
             import DVIDSparkServices
@@ -1100,7 +1102,7 @@ class Segmentor(object):
                 current_decisions2.unpersist()
                 current_decisions = current_decisions2
                 counter += 1
-                print "Convergence check:", counter, num_dec1, num_dec2
+                print("Convergence check:", counter, num_dec1, num_dec2)
 
 
             # return merge list array and handle any constraint violations
@@ -1268,7 +1270,7 @@ class Segmentor(object):
                         self.preserve_bodies.add(newval)
                     body1body2[key] = relabelconfs[val]
 
-        body2body = zip(body1body2.keys(), body1body2.values())
+        body2body = list(zip(body1body2.keys(), body1body2.values()))
        
         # potentially costly broadcast
         # (possible to split into substack to make more efficient but compression should help)

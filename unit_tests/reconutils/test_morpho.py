@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, absolute_import
 
 import unittest
 
@@ -25,7 +25,7 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         self.assertDictEqual(expected_map, map_result)
 
     def test_works_with_big_values(self):
-        BIG_INT = long(2 ** 50)
+        BIG_INT = int(2 ** 50)
         x = np.array([[[BIG_INT, 0, BIG_INT]]], dtype=np.dtype("uint64"))
         array_result, map_result = split_disconnected_bodies(x)
         expected_array = np.array([[[BIG_INT, 0, BIG_INT + 1]]], dtype=np.dtype("uint64"))

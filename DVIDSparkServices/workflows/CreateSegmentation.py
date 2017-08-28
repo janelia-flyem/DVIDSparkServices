@@ -6,6 +6,7 @@ This workflow will run this algorithm (or its default) and stitch
 the results together.
 
 """
+from __future__ import print_function, absolute_import
 import os
 import sys
 import uuid
@@ -289,8 +290,9 @@ class CreateSegmentation(DVIDWorkflow):
             # it might make sense to randomly map partitions for selection
             # in case something pathological is happening -- if original partitioner
             # is randomish than this should be fine
-            def subset_part( (s_id, data) ):
-                if (s_id % num_iters) == iternum:
+            def subset_part(sid_data):
+                (sid, _data) = sid_data
+                if (sid % num_iters) == iternum:
                     return True
                 return False
 
@@ -426,7 +428,7 @@ class CreateSegmentation(DVIDWorkflow):
             import hashlib
             md5 = hashlib.md5()
             md5.update( numpy.getbuffer(label_volume) )
-            print "DEBUG: ", md5.hexdigest()
+            print("DEBUG: ", md5.hexdigest())
 
     @classmethod
     def _split_subvols_by_cache_status(cls, blockstore_dir, subvol_list):
@@ -448,7 +450,7 @@ class CreateSegmentation(DVIDWorkflow):
             else:
                 return ((z1, y1, x1), (z2, y2, x2)) in block_store
                 
-        subvols_with_cache = filter( is_cached, subvol_list )
+        subvols_with_cache = list(filter( is_cached, subvol_list ))
         subvols_without_cache = list(set(subvol_list) - set(subvols_with_cache))
         return subvols_with_cache, subvols_without_cache
         

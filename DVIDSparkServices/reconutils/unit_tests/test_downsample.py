@@ -35,7 +35,7 @@ class Testdownsample(unittest.TestCase):
         try:
             data2d = np.zeros((32,32))
             res = downsample_3Dlabels(data2d)
-        except ValueError, err:
+        except ValueError as err:
             founderror = True 
         self.assertTrue(founderror)
  
@@ -45,7 +45,7 @@ class Testdownsample(unittest.TestCase):
         try:
             data2d = np.zeros((32,32,50))
             res = downsample_3Dlabels(data2d,1)
-        except ValueError, err:
+        except ValueError as err:
             founderror = True 
         self.assertFalse(founderror)
  
@@ -54,7 +54,7 @@ class Testdownsample(unittest.TestCase):
         try:
             data2d = np.zeros((32,32,50))
             res = downsample_3Dlabels(data2d,2)
-        except ValueError, err:
+        except ValueError as err:
             founderror = True 
         self.assertTrue(founderror)
  

@@ -1,3 +1,4 @@
+from __future__ import print_function, absolute_import
 import ctypes
 import json
 from DVIDSparkServices.json_util import validate_and_inject_defaults
@@ -153,7 +154,7 @@ if __name__ == "__main__":
     tree = skeletonize_array(binary_vol)
     tree.translate(1000,1000,1000)
     tree.save('/tmp/test-skeleton.swc')
-    print "..................."
-    print tree.toString()
-    print "..................."
+    print("...................")
+    print(tree.toString())
+    print("...................")
     print("DONE.")

@@ -1,4 +1,5 @@
 """Framework for large-scale connected components over an ROI."""
+from __future__ import print_function, absolute_import
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
@@ -111,7 +112,7 @@ class ConnectedComponents(DVIDWorkflow):
             
             # If any zero bodies were split, don't give them new labels.
             # Make them zero again
-            zero_split_mapping = dict( filter( lambda (k,v): v == 0, split_mapping.items() ) )
+            zero_split_mapping = dict( [k_v for k_v in split_mapping.items() if k_v[1] == 0] )
             if zero_split_mapping:
                 vigra.analysis.applyMapping(seg_split, zero_split_mapping, allow_incomplete_mapping=True, out=seg_split)
 

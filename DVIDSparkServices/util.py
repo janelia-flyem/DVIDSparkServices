@@ -1,4 +1,6 @@
+from __future__ import print_function, absolute_import
 import os
+import sys
 import signal
 import copy
 import time
@@ -67,6 +69,11 @@ class MemoryWatcher(object):
 
 
 def unicode_to_str(json_data):
+    if sys.version_info.major > 2:
+        # In Python 3, unicode and str are the same
+        return json_data
+
+    # Python 2
     if isinstance(json_data, unicode):
         return str(json_data)
     elif isinstance(json_data, list):
@@ -98,7 +105,7 @@ def bb_as_tuple(box):
 def boxlist_to_json( bounds_list, indent=0 ):
     # The 'json' module doesn't have nice pretty-printing options for our purposes,
     # so we'll do this ourselves.
-    from cStringIO import StringIO
+    from io import StringIO
     from os import SEEK_CUR
 
     buf = StringIO()
@@ -113,7 +120,7 @@ def boxlist_to_json( bounds_list, indent=0 ):
     buf.write('\n')
     buf.write(' '*indent + ']')
 
-    return buf.getvalue()
+    return str(buf.getvalue())
 
 def mkdir_p(path):
     """
@@ -244,8 +251,7 @@ def coordlist_to_boolmap(coordlist, bounding_box=None):
         start, stop = bounding_box
         if (coordlist_min < start).any() or (coordlist_max >= stop).any():
             # Remove the coords that are outside the user's bounding-box of interest
-            coordlist = filter(lambda coord: (coord - start >= 0).all() and (coord < stop).all(),
-                               coordlist)
+            coordlist = [coord for coord in coordlist if (coord - start >= 0).all() and (coord < stop).all()]
             coordlist = np.array(coordlist)
 
     shape = stop - start
@@ -470,7 +476,7 @@ def nonconsecutive_bincount(label_vol):
     return counts.index, counts.values.view(np.uint64)
 
 def reverse_dict(d):
-    rev = { v:k for k,v in d.iteritems() }
+    rev = { v:k for k,v in d.items() }
     assert len(rev) == len(d), "dict is not reversable: {}".format(d)
     return rev
 

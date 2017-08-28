@@ -1,3 +1,4 @@
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
 
 import logging
@@ -36,8 +37,8 @@ def two_stage_voxel_predictions(gray_vol, mask, stage_1_ilp_path, stage_2_ilp_pa
     LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB: Passed to ilastik via environment variables.
     """
     
-    print "two_stage_voxel_predictions(): Starting with raw data: dtype={}, shape={}"\
-          .format(str(gray_vol.dtype), gray_vol.shape)
+    print("two_stage_voxel_predictions(): Starting with raw data: dtype={}, shape={}"\
+          .format(str(gray_vol.dtype), gray_vol.shape))
 
     import tempfile
     import shutil
@@ -184,7 +185,7 @@ def run_ilastik_stage(stage_num, ilp_path, input_vol, mask, output_path,
 
     # Construct an OrderedDict of role-names -> DatasetInfos
     # (See PixelClassificationWorkflow.ROLE_NAMES)
-    if isinstance(input_vol, (str, unicode)):
+    if isinstance(input_vol, str):
         role_data_dict = OrderedDict([ ("Raw Data", [ DatasetInfo(filepath=input_vol) ]) ])
     else:
         # If given raw data, we assume it's grayscale, zyx order (stage 1)

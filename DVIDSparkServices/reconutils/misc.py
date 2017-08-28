@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 import numpy
 import vigra
 import logging
@@ -186,7 +187,7 @@ def compute_vi(seg1, seg2):
     seg2 = seg2.astype(numpy.float64)
 
     import libNeuroProofMetrics as np
-    from segstats import OverlapTable, calculate_vi
+    from .segstats import OverlapTable, calculate_vi
 
     # creates stack and adds boundary padding
     seg1 = np.Stack(seg1, 0)

@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, absolute_import
 from jsonschema import Draft4Validator, validators
 
 def extend_with_default(validator_class):
@@ -9,7 +9,7 @@ def extend_with_default(validator_class):
     validate_properties = validator_class.VALIDATORS["properties"]
 
     def set_defaults_and_validate(validator, properties, instance, schema):
-        for property, subschema in properties.iteritems():
+        for property, subschema in properties.items():
             if "default" in subschema:
                 instance.setdefault(property, subschema["default"])
 

@@ -1,3 +1,4 @@
+from io import BytesIO
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -124,13 +125,13 @@ class CreateTiles2(DVIDWorkflow):
         requests.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
        
         # make each image a separate task
-        imgs = self.sparkdvid_context.sc.parallelize(range(minslice, maxslice+1), maxslice-minslice+1)
+        imgs = self.sparkdvid_context.sc.parallelize(list(range(minslice, maxslice+1)), maxslice-minslice+1)
 
         def img2npy(slicenum):
             try:
                 img = Image.open(basename % slicenum)
                 return slicenum, numpy.array(img)
-            except Exception, e:
+            except Exception as e:
                 # could give empty image, but for now just fail
                 raise
         npy_images = imgs.map(img2npy) 
@@ -144,7 +145,7 @@ class CreateTiles2(DVIDWorkflow):
             
             from PIL import Image
             from scipy import ndimage
-            import StringIO
+            import io
             
             from libdvid import ConnectionMethod
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname) 
@@ -185,7 +186,7 @@ class CreateTiles2(DVIDWorkflow):
                         tileholder[0:t1, 0:t2] = tileslice
 
                         # write tileholder to dvid
-                        buf = StringIO.StringIO() 
+                        buf = BytesIO() 
                         img = Image.frombuffer('L', (TILESIZE, TILESIZE), tileholder.tostring(), 'raw', 'L', 0, 1)
                         imformatpil = imformat
                         if imformat == "jpg":

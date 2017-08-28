@@ -1,3 +1,4 @@
+from __future__ import print_function, absolute_import
 import os
 if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
     # Override the tempfile location for all python functions
@@ -8,8 +9,9 @@ import sys
 import threading
 import traceback
 import logging
-import StringIO
 
+from io import StringIO
+    
 formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
@@ -29,7 +31,7 @@ def initialize_excepthook():
 def _log_exception(*exc_info):
     thread_name = threading.current_thread().name
     logging.getLogger().error( "Unhandled exception in thread: '{}'".format(thread_name) )
-    sio = StringIO.StringIO()
+    sio = StringIO()
     traceback.print_exception( exc_info[0], exc_info[1], exc_info[2], file=sio )
     logging.getLogger().error( sio.getvalue() )
 
@@ -71,7 +73,7 @@ def connect_debugger():
                         "/usr/local/eclipse/plugins/org.python.pydev_4.2.0.201507041133/pysrc/",
                         '/Users/bergs/.p2/pool/plugins/org.python.pydev_5.5.0.201701191708/pysrc/' ]
 
-    pydev_src_paths = filter(os.path.exists, pydev_src_paths)
+    pydev_src_paths = list(filter(os.path.exists, pydev_src_paths))
     
     if not pydev_src_paths:
         raise RuntimeError("Error: Couldn't find the path to the pydev module.  You can't use PYDEV_DEBUGGER_ENABLED.")
@@ -81,7 +83,7 @@ def connect_debugger():
     
     sys.path.append(pydev_src_paths[0])
     import pydevd
-    print "Waiting for PyDev debugger..."
+    print("Waiting for PyDev debugger...")
     pydevd.settrace(stdoutToServer=True, stderrToServer=True, suspend=False)
 
 if int(os.getenv('PYDEV_DEBUGGER_ENABLED', 0)):

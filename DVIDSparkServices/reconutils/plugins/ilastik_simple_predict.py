@@ -1,3 +1,4 @@
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
 
 def ilastik_simple_predict(gray_vol, mask, classifier_path, filter_specs_path, selected_channels=None, normalize=True, 
@@ -31,7 +32,7 @@ def ilastik_simple_predict(gray_vol, mask, classifier_path, filter_specs_path, s
     LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB: Same meanings as in ilastik_predict_with_array().
                       (although we have to configure them in a different way)
     """
-    print "ilastik_simple_predict(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape)
+    print("ilastik_simple_predict(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape))
 
     import os
     from collections import OrderedDict
@@ -43,7 +44,7 @@ def ilastik_simple_predict(gray_vol, mask, classifier_path, filter_specs_path, s
     from ilastik.utility.simple_predict import load_and_predict
     from lazyflow.request import Request
     
-    print "ilastik_simple_predict(): Done with imports"
+    print("ilastik_simple_predict(): Done with imports")
 
     _prepare_lazyflow_config(LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB, 10)
 
@@ -64,7 +65,7 @@ def ilastik_simple_predict(gray_vol, mask, classifier_path, filter_specs_path, s
     # Construct an OrderedDict of role-names -> DatasetInfos
     # (See PixelClassificationWorkflow.ROLE_NAMES)
     raw_data_array = vigra.taggedView(gray_vol, 'zyx')
-    print "ilastik_simple_predict(): Starting export..."
+    print("ilastik_simple_predict(): Starting export...")
 
     predictions = load_and_predict( raw_data_array, classifier_path, filter_specs_path, compute_blockwise=True ) 
     selected_predictions = select_channels(predictions, selected_channels)

@@ -8,6 +8,7 @@ Example Usage:
     python init-bucket.py --create-bucket my-NEW-gbucket my-new-repo "This repo is for my stuff" 
 
 """
+from __future__ import print_function, absolute_import
 import os
 import sys
 import time
@@ -72,20 +73,20 @@ def main():
     with open(toml_path, 'w') as f_toml:
         f_toml.write(get_toml_text(args.bucket_name, DVID_CONSOLE_DIR, LOG_DIR))
     
-    print "Wrote {}".format(toml_path)
+    print("Wrote {}".format(toml_path))
     
     try:
         cmd = 'dvid -verbose serve {toml_path}'.format(toml_path=toml_path)
-        print cmd
+        print(cmd)
         dvid_proc = subprocess.Popen(cmd, shell=True)
         
-        print "Waiting 5 seconds for dvid to start...."
+        print("Waiting 5 seconds for dvid to start....")
         time.sleep(5.0)
     
         cmd = 'dvid repos new "{}" "{}"'.format(args.repo_name, args.repo_description)
-        print cmd
+        print(cmd)
         response = subprocess.check_output(cmd, shell=True).strip()
-        print response
+        print(response)
         #repo_uuid = response.split()[-1]
     finally:
         dvid_proc.terminate()

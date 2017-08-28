@@ -21,7 +21,7 @@ def auto_retry(total_tries=1, pause_between_tries=10.0, logging_name=None):
                         raise
                     if logging_name:
                         logger = logging.getLogger(logging_name)
-                        logger.warn("Call to '{}' failed with error: {}.".format(func.func_name, repr(ex)))
+                        logger.warn("Call to '{}' failed with error: {}.".format(func.__name__, repr(ex)))
                         logger.warn("Retrying {} more times".format( remaining_tries ))
                     import time
                     time.sleep(pause_between_tries)

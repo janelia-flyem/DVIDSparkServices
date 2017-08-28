@@ -1,5 +1,6 @@
 """Implements agglomerations of supervoxels using Segmentor workflow and neuroproof.
 """
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
 def neuroproof_agglomerate(grayscale, predictions, supervoxels, classifier, threshold = 0.20, mitochannel = 2):
@@ -17,7 +18,7 @@ def neuroproof_agglomerate(grayscale, predictions, supervoxels, classifier, thre
         segmentation = 3D numpy label array (z,y,x)
     """
 
-    print "neuroproof_agglomerate(): Starting with label data: dtype={}, shape={}".format(str(supervoxels.dtype), supervoxels.shape)
+    print("neuroproof_agglomerate(): Starting with label data: dtype={}, shape={}".format(str(supervoxels.dtype), supervoxels.shape))
 
 
     import numpy

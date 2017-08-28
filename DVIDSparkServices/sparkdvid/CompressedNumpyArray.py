@@ -16,7 +16,12 @@ small runtime fraction of the original compression.
 Workflow: npy.array => CompressedNumpyArray => RDD (w/lz4 compression)
 
 """
-import copy_reg
+import sys
+if sys.version_info.major == 2:
+    import copy_reg as copyreg
+else:
+    import copyreg
+
 import numpy as np
 import lz4
 import logging
@@ -26,7 +31,7 @@ def activate_compressed_numpy_pickling():
     Override the default pickle representation for numpy arrays.
     This affects all pickle behavior in the entire process.
     """
-    copy_reg.pickle(np.ndarray, reduce_ndarray_compressed)
+    copyreg.pickle(np.ndarray, reduce_ndarray_compressed)
     
     # Handle subclasses, too.
     # Obviously, this only works for subclasses have been imported so far...
@@ -35,7 +40,7 @@ def activate_compressed_numpy_pickling():
 
     for array_type in np.ndarray.__subclasses__():
         if array_type not in (np.ma.core.MaskedArray,):
-            copy_reg.pickle(array_type, reduce_ndarray_compressed)
+            copyreg.pickle(array_type, reduce_ndarray_compressed)
 
 class CompressedNumpyArray(object):
     """ Serialize/deserialize and compress/decompress numpy array.

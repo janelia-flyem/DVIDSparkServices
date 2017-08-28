@@ -306,7 +306,7 @@ class partitionSchema(object):
 
             import sys      
             part, partitions = subpartitions
-            glbx = glby = glbz = sys.maxint
+            glbx = glby = glbz = sys.maxsize
             glbx2 = glby2 = glbz2 = 0
         
             # extract bbox
@@ -375,7 +375,7 @@ class partitionSchema(object):
             return (newpartition, newvol)
 
         if not usespark:
-            return map(padAndSplice, datagroup.items())
+            return list(map(padAndSplice, list(datagroup.items())))
         else:
             return datagroup.map(padAndSplice)
 
