@@ -465,10 +465,10 @@ def nonconsecutive_bincount(label_vol):
     assert isinstance(label_vol, np.ndarray)
     assert np.issubdtype(label_vol.dtype, np.integer)
 
-    counts = pd.Series(np.ravel(label_vol, order='K')).value_counts(sort=False)
+    counts = pd.Series(np.ravel(label_vol, order='K')).value_counts()
     assert counts.values.dtype == np.int64
     return counts.index, counts.values.view(np.uint64)
-            
+
 def reverse_dict(d):
     rev = { v:k for k,v in d.iteritems() }
     assert len(rev) == len(d), "dict is not reversable: {}".format(d)

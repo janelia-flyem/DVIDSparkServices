@@ -4,7 +4,6 @@ import logging
 
 import requests
 import numpy as np
-import vigra
 import h5py
 import pandas as pd
 
@@ -463,12 +462,23 @@ class CopySegmentation(Workflow):
             combined = series_A.add(series_B, fill_value=0)
             return (combined.index, combined.values.astype(np.uint64))
 
+        def reduce_partition( partition_elements ):
+            # Almost like the builtin reduce() function, but wraps the result in a list,
+            # which is what RDD.mapPartitions() expects to see.
+            return [reduce(merge_label_counts, partition_elements, [(), ()])]
+
         with Timer() as timer:
             logger.info("Computing body sizes...")
-            body_labels, body_sizes = seg_chunks_partitioned \
-                            .values() \
-                            .map( nonconsecutive_bincount ) \
-                            .reduce( merge_label_counts )
+
+            # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
+            body_labels, body_sizes = ( seg_chunks_partitioned
+                                            .values()
+                                            .map( nonconsecutive_bincount )
+                                            .repartition( 16*self.num_worker_nodes() ) # per-core
+                                            .mapPartitions( reduce_partition )
+                                            .repartition( self.num_worker_nodes() ) # per-worker
+                                            .mapPartitions( reduce_partition )
+                                            .reduce( merge_label_counts ) )
         logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
 
         min_size = self.config_data["options"]["body-size-minimum"]
