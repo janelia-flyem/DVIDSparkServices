@@ -148,7 +148,9 @@ class CopySegmentation(Workflow):
     OptionsSchema["properties"].update(
     {
         "body-size-output-path" : {
-            "description": "A file name to write the body size HDF5 output. Relative paths are interpreted as relative to this config file.",
+            "description": "A file name to write the body size HDF5 output. "
+                           "Relative paths are interpreted as relative to this config file. "
+                           "An empty string forces body size calculation to be skipped.",
             "type": "string",
             "default": "./body-sizes.h5"
         },
@@ -447,6 +449,10 @@ class CopySegmentation(Workflow):
     def _write_body_sizes( self, seg_chunks_partitioned ):
         logger = logging.getLogger(__name__)
         
+        if not self.config_data["options"]["body-size-output-path"]:
+            logger.info("Skipping body size calculation.")
+            return
+
         def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
             labels_A, counts_A = labels_and_counts_A
             labels_B, counts_B = labels_and_counts_B
