@@ -23,18 +23,20 @@ import re
 import socket
 import sys
 import subprocess
-import traceback
 import argparse
 import time
 import requests
-import tempfile
 import json
 import getpass
 import smtplib
 from datetime import timedelta
 from collections import namedtuple
 from email.mime.text import MIMEText
-from StringIO import StringIO
+
+if sys.version_info.major == 2:
+    from StringIO import StringIO as BytesIO
+else:
+    from io import BytesIO
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices.workflow
@@ -61,16 +63,13 @@ def main():
                          'MASTER="{}"\n'.format(os.environ['MASTER']))
         sys.exit(1)
     
-    MASTER = os.environ['MASTER']
-
     if args.kill_master_on_exit:
         if 'MASTER_BJOB_ID' not in os.environ:
             sys.stderr.write('Error: MASTER_BJOB_ID environment variable not set!\n')
             sys.exit(1)
         MASTER_BJOB_ID = os.environ['MASTER_BJOB_ID']        
     
-    driver_output = StringIO()
-    successful = False
+    driver_output = BytesIO()
     
     json_header = {'content-type': 'app/json'}
     start = time.time()
