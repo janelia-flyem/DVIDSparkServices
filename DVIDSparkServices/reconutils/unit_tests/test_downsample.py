@@ -2,7 +2,11 @@ import unittest
 
 import numpy as np
 from DVIDSparkServices.util import bb_to_slicing
-from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels, downsample_labels_3d
+from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
+
+# Alternate downsampling method
+from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
+
 
 class Testdownsample(unittest.TestCase):
     """Tests array downsampling routines. 
@@ -122,7 +126,7 @@ class TestRecuderFunctions(unittest.TestCase):
         self.data = np.asarray(data)
     
     def test_downsample_labels_3d(self):
-        downsampled, box = downsample_labels_3d(self.data, (1,3,3))
+        downsampled, box = downsample_labels_3d_suppress_zero(self.data, (1,3,3))
         assert (box == [(0,0,0), (1,4,4)]).all()
         
         _ = 0
@@ -135,7 +139,7 @@ class TestRecuderFunctions(unittest.TestCase):
         assert (downsampled == expected).all()
 
     def downsample_binary_3d(self):
-        downsampled, box = downsample_labels_3d(self.data, (1,3,3))
+        downsampled, box = downsample_labels_3d_suppress_zero(self.data, (1,3,3))
         assert (box == [(0,0,0), (1,4,4)]).all()
         
         _ = 0
@@ -152,7 +156,7 @@ class TestRecuderFunctions(unittest.TestCase):
         data_box = [(0, 1, 2),
                     (1, 10, 9)]
         offset_data = self.data[bb_to_slicing(*data_box)]
-        downsampled, box = downsample_labels_3d(offset_data, (1,3,3), data_box)
+        downsampled, box = downsample_labels_3d_suppress_zero(offset_data, (1,3,3), data_box)
         assert (box == [(0,0,0), (1,4,3)]).all()
         
         _ = 0

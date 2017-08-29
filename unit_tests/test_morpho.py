@@ -263,10 +263,10 @@ class Test_assemble_masks(unittest.TestCase):
         combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=2, minimum_object_size=1 )
 
         expected_downsampled_mask = [[[1,_,_,1,_],
-                                      [1,1,1,1,_],
-                                      [_,1,1,1,_],
-                                      [_,_,1,1,1],
-                                      [_,_,1,_,_]]]
+                                      [0,_,_,1,_],
+                                      [0,1,1,1,_],
+                                      [0,_,1,_,_],
+                                      [0,_,1,_,_]]]
         expected_downsampled_mask = np.asarray(expected_downsampled_mask)
 
         assert (combined_bounding_box == ((0,1,1), (1,9,9)) ).all()
