@@ -95,10 +95,10 @@ def downsample_3Dlabels(data, numlevels=1):
 
                     maxval = 0
                     freqkey = 0
-                    for key, val in list(freqs.items()):
-                            if val > maxval or (val == maxval and key < freqkey):
-                                    maxval = val
-                                    freqkey = key
+                    for key, val in freqs.items():
+                        if val > maxval or (val == maxval and key < freqkey):
+                            maxval = val
+                            freqkey = key
 
                     data2[ziter//2, yiter//2, xiter//2] = freqkey
         
