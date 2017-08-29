@@ -83,7 +83,7 @@ def split_disconnected_bodies(labels_orig):
     consWithSplits_to_origWithSplits = reverse_dict(orig_to_consecutive)
     consWithSplits_to_origWithSplits.update(
         dict( zip( range( 1+max_consecutive_label, 1+max_consecutive_label+num_splits),
-                   range( 1+max_orig, 1+max_orig+num_splits) )) ) )
+                   range( 1+max_orig, 1+max_orig+num_splits) )) )
 
     # split -> consWithSplits -> origWithSplits
     split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
