@@ -462,7 +462,6 @@ class CopySegmentation(Workflow):
 
         @self.collect_log(lambda *args: 'merge_label_counts')
         def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
-            logger = logging.getLogger(__name__)
             labels_A, counts_A = labels_and_counts_A
             labels_B, counts_B = labels_and_counts_B
             
@@ -477,6 +476,7 @@ class CopySegmentation(Workflow):
                 series_B = pd.Series(index=labels_B, data=counts_B)
                 combined = series_A.add(series_B, fill_value=0)
             
+            logger = logging.getLogger(__name__)
             logger.info("Merging label count lists of sizes {} + {} = {} took {} seconds"
                         .format(len(labels_A), len(labels_B), len(combined), timer.seconds))
 
@@ -494,7 +494,9 @@ class CopySegmentation(Workflow):
             body_labels, body_sizes = ( seg_chunks_partitioned
                                             .values()
                                             .map( nonconsecutive_bincount )
-                                            .repartition( 16*self.num_worker_nodes() ) # per-core
+                                            .repartition( 16*16*self.num_worker_nodes() )
+                                            .mapPartitions( reduce_partition )
+                                            .repartition( 16*self.num_worker_nodes() ) # per-core (assuming 16 cores per node)
                                             .mapPartitions( reduce_partition )
                                             .repartition( self.num_worker_nodes() ) # per-worker
                                             .mapPartitions( reduce_partition )
