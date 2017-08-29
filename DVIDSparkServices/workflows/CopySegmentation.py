@@ -466,6 +466,12 @@ class CopySegmentation(Workflow):
             labels_A, counts_A = labels_and_counts_A
             labels_B, counts_B = labels_and_counts_B
             
+            # Fast path
+            if len(labels_A) == 0:
+                return (labels_B, counts_B)
+            if len(labels_B) == 0:
+                return (labels_A, counts_A)
+            
             with Timer() as timer:
                 series_A = pd.Series(index=labels_A, data=counts_A)
                 series_B = pd.Series(index=labels_B, data=counts_B)
