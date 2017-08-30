@@ -20,7 +20,6 @@ import time
 from datetime import datetime
 import argparse
 import subprocess
-from collections import namedtuple
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices
@@ -78,7 +77,7 @@ def get_job_hostname(job_id):
 def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
     num_nodes = num_spark_workers + 1 # Add one for master
     num_slots = num_nodes * 16
-    max_runtime_minutes = max_hours * 60
+    max_runtime_minutes = int(max_hours * 60)
     
     # Add directories to PATH
     PATH_DIRS = SPARK_HOME + "/bin:" + SPARK_HOME + "/sbin"
@@ -135,7 +134,7 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
     return master_job_id, master_hostname
 
 def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log_dir, max_hours, job_name, workflow_name, config_file):
-    max_runtime_minutes = max_hours * 60
+    max_runtime_minutes = int(max_hours * 60)
     # Set MASTER now so that it will be inherited by the driver process
     os.environ["MASTER"] = "spark://{}:7077".format(master_hostname)
     
@@ -164,7 +163,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--driver-slots', type=int, default=16)
     parser.add_argument('--job-log-dir', type=str, default='.')
-    parser.add_argument('--max-hours', type=int, default=8)
+    parser.add_argument('--max-hours', type=float, default=8)
     parser.add_argument('--job-name')
     parser.add_argument('num_spark_workers', type=int)
     parser.add_argument('workflow_name')
