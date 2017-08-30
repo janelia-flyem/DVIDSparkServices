@@ -70,7 +70,7 @@ def get_job_hostname(job_id):
     If it is running on more than one host, the first hostname listed by bjobs is returned.
     (For 'sparkbatch' jobs, the first host is the master.)
     """
-    bjobs_output = subprocess.check_output('bjobs -X -noheader -o EXEC_HOST {}'.format(job_id), shell=True)
+    bjobs_output = subprocess.check_output('bjobs -X -noheader -o EXEC_HOST {}'.format(job_id), shell=True).decode()
     hostname = bjobs_output.split(':')[0].split('*')[-1].strip()
     return hostname
 
@@ -114,7 +114,7 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
      
     print("Launching spark cluster:")
     print(cluster_launch_bsub_cmd + "\n")
-    bsub_output = subprocess.check_output(cluster_launch_bsub_cmd, shell=True)
+    bsub_output = subprocess.check_output(cluster_launch_bsub_cmd, shell=True).decode()
     print(bsub_output)
     
     master_job_id, queue_name = parse_bsub_output(bsub_output)
@@ -155,7 +155,7 @@ def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log
     
     print("Launching spark driver:")
     print(driver_submit_cmd + "\n")
-    bsub_output = subprocess.check_output(driver_submit_cmd, shell=True)
+    bsub_output = subprocess.check_output(driver_submit_cmd, shell=True).decode()
     print(bsub_output)
 
 

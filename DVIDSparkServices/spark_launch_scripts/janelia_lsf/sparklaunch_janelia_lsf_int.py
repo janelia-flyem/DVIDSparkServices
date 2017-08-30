@@ -120,8 +120,8 @@ def main():
     finally:
         # record time
         duration = timedelta(seconds=int(time.time() - start))
-        msg = "\n" + "Total Time: " + str(duration) 
-        driver_output.write(msg + "\n")
+        msg = "\n" + "Total Time: " + str(duration)  + '\n'
+        driver_output.write(msg.encode())
         print(msg)
         
         if workflow_proc is None:
