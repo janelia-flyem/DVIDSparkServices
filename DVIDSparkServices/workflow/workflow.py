@@ -406,7 +406,7 @@ class Workflow(object):
             server_config_path = '/tmp/driver-resource-server-config.json'
             with open(server_config_path, 'w') as f:
                 json.dump(self.config_data["options"]["resource-server-config"], f)
-            config_arg = '--config-file=server_config_path'
+            config_arg = '--config-file={}'.format(server_config_path)
         else:
             config_arg = ''
         
