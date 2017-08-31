@@ -27,7 +27,7 @@ import DVIDSparkServices
 ## NOTE: LSF jobs will inherit all of these environment variables by default. 
 
 # Location of spark distribution
-SPARK_HOME = "/misc/local/spark-versions/spark-2.2.0-bin-without-hadoop"
+SPARK_HOME = "/misc/local/spark-test" # /misc/local/spark-versions/spark-2.2.0-bin-without-hadoop
 
 # spark configuration path (disable default python)
 # FIXME: This won't work if DVIDSparkServices is 'installed' to the python interpreter.
@@ -105,7 +105,7 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
     cluster_launch_bsub_cmd = \
         ( "bsub"
           " -J {job_name}-cluster"                   # job name in LSF
-          " -a 'sparkbatch(current)'"                # Spark environment, equivalent to old SGE '-pe spark' mode
+          " -a 'sparkbatch(test)'"                   # Spark environment, equivalent to old SGE '-pe spark' mode
           " -n {num_slots}"                          # CPUs for master+workers
           " -W {max_runtime_minutes}"                # Terminate after max minutes
           " -o {job_log_dir}/{job_name}-cluster.log" # stdout log
