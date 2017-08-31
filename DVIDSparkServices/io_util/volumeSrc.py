@@ -32,10 +32,12 @@ class volumeSrc(object):
         """
         pass
 
-    def next(self):
+    def __next__(self):
         """Iterates partitions specified in the partSchema.
         """
         pass        
+
+    next = __next__ # Python 2
 
     def extract_volume(self):
         """Retrieve entire volume as numpy array or RDD.

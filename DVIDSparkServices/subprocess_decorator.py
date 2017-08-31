@@ -1,9 +1,10 @@
+from __future__ import print_function, absolute_import
 import sys
 import time
 import subprocess
 import tempfile
 import shutil
-import cPickle as pickle
+import pickle as pickle
 import logging
 import threading
 
@@ -119,12 +120,12 @@ def subprocess_main():
     with Timer() as timer:
         with open(args_filepath, 'r') as args_f:
             func, args, kwargs = pickle.load(args_f)
-    print "Deserializing args took: {:.03f}".format(timer.seconds)
+    print("Deserializing args took: {:.03f}".format(timer.seconds))
 
     try:    
         with Timer() as timer:
             result = func(*args, **kwargs)
-        print "Function execution took: {:.03f}".format(timer.seconds)
+        print("Function execution took: {:.03f}".format(timer.seconds))
 
     except Exception as ex:
         result = ex
@@ -134,7 +135,7 @@ def subprocess_main():
         with Timer() as timer:
             with open(result_filepath, 'w') as result_f:
                 pickle.dump(result, result_f, protocol=2)
-        print "Serializing result took: {:.03f}".format(timer.seconds)
+        print("Serializing result took: {:.03f}".format(timer.seconds))
 
 def test_helper(a,b,c):
     """
@@ -142,9 +143,9 @@ def test_helper(a,b,c):
     (It can't be defined in the test module due to edge
     cases involving modules named '__main__'.)
     """
-    print a
-    print b
-    print c
+    print(a)
+    print(b)
+    print(c)
     time.sleep(c)
     return a + b + c
 

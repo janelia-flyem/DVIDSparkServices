@@ -4,6 +4,7 @@ This module only contains the Workflow class and a special
 exception type for workflow errors.
 
 """
+from __future__ import print_function, absolute_import
 import sys
 import os
 import time
@@ -173,18 +174,18 @@ class Workflow(object):
         if jsonfile.startswith('http'):
             try:
                 self.config_data = requests.get(jsonfile).json()
-            except Exception, e:
+            except Exception as e:
                 raise WorkflowError("Could not load file: ", str(e))
         else:
             try:
                 self.config_data = json.load(open(jsonfile))
-            except Exception, e:
+            except Exception as e:
                 raise WorkflowError("Could not load file: ", str(e))
 
         # validate JSON
         try:
             validate_and_inject_defaults(self.config_data, schema_data)
-        except ValidationError, e:
+        except ValidationError as e:
             raise WorkflowError("Validation error: ", str(e))
 
         # Convert unicode values to str (easier to pass to C++ code)
@@ -199,7 +200,17 @@ class Workflow(object):
 
         self._execution_uuid = str(uuid.uuid1())
         self._worker_task_id = 0
+
+    def num_worker_nodes(self):
+        if "NUM_SPARK_WORKERS" not in os.environ:
+            # See sparklaunch_janelia_lsf
+            raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
+
+        num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
+        num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
+        return num_workers
         
+
     def _init_spark(self, appname):
         """Internal function to setup spark context
         
@@ -458,12 +469,7 @@ class Workflow(object):
             result = func()
             return (socket.gethostname(), result)
 
-        if "NUM_SPARK_WORKERS" not in os.environ:
-            # See sparklaunch_janelia_lsf
-            raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
-
-        num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
-        num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
+        num_workers = self.num_worker_nodes()
         
         # It would be nice if we only had to schedule N tasks for N workers,
         # but we couldn't ensure that tasks are hashed 1-to-1 onto workers.
@@ -476,7 +482,7 @@ class Workflow(object):
         # (Each host only returns a single non-None result)
         host_results = self.sc.parallelize(list(range(num_tasks)), num_tasks)\
                             .repartition(num_tasks).map(task_f).collect()
-        host_results = filter(None, host_results) # Drop Nones
+        host_results = [_f for _f in host_results if _f] # Drop Nones
         
         host_results = dict(host_results)
 
@@ -510,7 +516,7 @@ class Workflow(object):
             log_file = open('{}/{}-{}.log'.format(init_options["log-dir"], script_name, socket.gethostname()), 'w')
 
             try:
-                p = subprocess.Popen( map(bytes, [init_options["script-path"]] + init_options["script-args"]),
+                p = subprocess.Popen( list(map(bytes, [init_options["script-path"]] + init_options["script-args"])),
                                       stdout=log_file,
                                       stderr=STDOUT )
             except OSError as ex:

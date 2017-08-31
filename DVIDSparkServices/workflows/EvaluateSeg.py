@@ -1,5 +1,6 @@
 """Defines workflow for extracting stats to compare two segmentations."""
 
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -254,7 +255,7 @@ class EvaluateSeg(DVIDWorkflow):
             debug = self.config_data["debug"]
 
         if debug:
-            print "DEBUG:", json.dumps(stats)
+            print("DEBUG:", json.dumps(stats))
 
         # TODO: !! maybe generate a summary view from stats, write that back
         # with simplify output, dump the more complicated file to keyvalue as well

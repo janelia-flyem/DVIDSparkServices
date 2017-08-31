@@ -1,3 +1,4 @@
+from __future__ import division
 import unittest
 from DVIDSparkServices.reconutils.metrics.connectivity import *
 

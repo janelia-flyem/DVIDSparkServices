@@ -1,3 +1,5 @@
+from __future__ import print_function, absolute_import
+from __future__ import division
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -158,7 +160,7 @@ class IngestGrayscale(Workflow):
 
         # this will start the Z block writing at the specified offse
         # (changes default behavior when loading nonzero starting image slice)
-        zoffset -= (minslice / self.BLKSIZE)
+        zoffset -= (minslice // self.BLKSIZE)
 
 
         # create metadata before workers start if using DVID
@@ -176,7 +178,7 @@ class IngestGrayscale(Workflow):
 
         for slice in range(self.config_data["minslice"], self.config_data["maxslice"]+1, iterslices):
             # parallelize images across many machines
-            imgs = self.sc.parallelize(range(slice, slice+iterslices), iterslices)
+            imgs = self.sc.parallelize(list(range(slice, slice+iterslices)), iterslices)
 
             def img2npy(slicenum):
                 try:
@@ -196,7 +198,7 @@ class IngestGrayscale(Workflow):
                         gblobfile.seek(0)
                         img = Image.open(gblobfile)
                     return slicenum, numpy.array(img)
-                except Exception, e:
+                except Exception as e:
                     # just return a blank slice -- will be handled downstream
                     return slicenum, numpy.zeros((0,0), numpy.uint8)
 
@@ -211,14 +213,14 @@ class IngestGrayscale(Workflow):
                 npylines = []
                
                 for itery in range(0, ysize, blocksize):
-                    line = numpy.zeros((blocksize, ((xsize-1)/blocksize + 1)*blocksize), numpy.uint8)
+                    line = numpy.zeros((blocksize, ((xsize-1) // blocksize + 1)*blocksize), numpy.uint8)
                     uppery = blocksize
                     if (itery + blocksize) > ysize:
                         uppery = ysize - itery
 
                     line[0:uppery, 0:xsize] = arr[itery:itery+blocksize, 0:xsize]
 
-                    npylines.append((itery/blocksize, (z, line)))
+                    npylines.append((itery // blocksize, (z, line)))
 
                 return npylines
 
@@ -247,7 +249,7 @@ class IngestGrayscale(Workflow):
             def multi2single(yblocks):
                 ybindex, blocks = yblocks
                 blockarr = []
-                num_layers = iterslices / blocksize
+                num_layers = iterslices // blocksize
                 for layer in range(0,num_layers):
                     blockarr.append(((ybindex, layer), blocks[layer*blocksize:(layer*blocksize+blocksize),:,:]))
 
@@ -260,7 +262,7 @@ class IngestGrayscale(Workflow):
                 # write blocks to disk for separte post-process -- write directly to DVID eventually?
                 output_dir = self.config_data["output-dir"]
                 def write2disk(yblocks):
-                    zbindex = slice/blocksize 
+                    zbindex = slice // blocksize 
                     (ybindex, layer), blocks = yblocks
                     zbindex += layer
 
@@ -268,11 +270,11 @@ class IngestGrayscale(Workflow):
                     
                     outdir = output_dir 
                     outdir += "/" + ("%05d" % zbindex) + ".z/"
-                    filename = outdir + ("%05d" % ybindex) + "-" + str(xsize/blocksize) + ".blocks"
+                    filename = outdir + ("%05d" % ybindex) + "-" + str(xsize // blocksize) + ".blocks"
 
                     try: 
                         os.makedirs(outdir)
-                    except Exception, e:
+                    except Exception as e:
                         pass
 
                     # extract blocks from buffer and write to disk
@@ -297,11 +299,11 @@ class IngestGrayscale(Workflow):
                     node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname) 
                     
                     # get block coordinates
-                    zbindex = slice/blocksize 
+                    zbindex = slice // blocksize 
                     (ybindex, layer), blocks = yblocks
                     zbindex += layer
                     zsize,ysize,xsize = blocks.shape
-                    xrun = xsize/blocksize
+                    xrun = xsize // blocksize
                     xbindex = 0 # assume x starts at 0!!
 
                     # retrieve blocks
@@ -326,7 +328,7 @@ class IngestGrayscale(Workflow):
 
                         else:
                             if startblock == False:
-                                xbindex = iterx/blocksize
+                                xbindex = iterx // blocksize
                             
                             startblock = True
                             blockbuffer += block.tostring() #numpy.getbuffer(block)
@@ -368,7 +370,7 @@ class IngestGrayscale(Workflow):
                 gblobfile.seek(0)
                 img = Image.open(gblobfile)
                 width, height = img.width, img.height
-        except Exception, e:
+        except Exception as e:
             # just set size to 1 
             pass
 

@@ -1,3 +1,4 @@
+from __future__ import division
 import unittest
 
 import numpy as np
@@ -262,10 +263,10 @@ class Test_assemble_masks(unittest.TestCase):
         combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=2, minimum_object_size=1 )
 
         expected_downsampled_mask = [[[1,_,_,1,_],
-                                      [1,1,1,1,_],
-                                      [_,1,1,1,_],
-                                      [_,_,1,1,1],
-                                      [_,_,1,_,_]]]
+                                      [0,_,_,1,_],
+                                      [0,1,1,1,_],
+                                      [0,_,1,_,_],
+                                      [0,_,1,_,_]]]
         expected_downsampled_mask = np.asarray(expected_downsampled_mask)
 
         assert (combined_bounding_box == ((0,1,1), (1,9,9)) ).all()
@@ -278,7 +279,7 @@ class Test_assemble_masks(unittest.TestCase):
 
         # Restrict RAM usage to less than 1/8 of the full mask, so even downsampling by 2 isn't enough.
         # The function will be forced to use a downsampling factor of 3.
-        RAM_LIMIT = complete_mask.size / 8. - 1
+        RAM_LIMIT = (complete_mask.size / 8.) - 1
         
         combined_bounding_box, combined_mask, downsample_factor = \
             assemble_masks( [box],

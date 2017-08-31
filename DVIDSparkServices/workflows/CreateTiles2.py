@@ -1,3 +1,5 @@
+from __future__ import division
+from io import BytesIO
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -104,13 +106,13 @@ class CreateTiles2(DVIDWorkflow):
         imformat = str(self.config_data["options"]["format"])
         requests.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "source": grayname, "format": imformat})
 
-        MinTileCoord = [xmin/TILESIZE, ymin/TILESIZE, zmin/TILESIZE]
-        MaxTileCoord = [xmax/TILESIZE, ymax/TILESIZE, zmax/TILESIZE]
+        MinTileCoord = [xmin // TILESIZE, ymin // TILESIZE, zmin // TILESIZE]
+        MaxTileCoord = [xmax // TILESIZE, ymax // TILESIZE, zmax // TILESIZE]
         
         # get max level by just finding max tile coord
         maxval = max(MaxTileCoord) + 1
         import math
-        maxlevel = int(math.log(maxval)/math.log(2))
+        maxlevel = int(math.log(maxval) / math.log(2))
 
         tilemeta = {}
         tilemeta["MinTileCoord"] = MinTileCoord
@@ -124,13 +126,13 @@ class CreateTiles2(DVIDWorkflow):
         requests.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
        
         # make each image a separate task
-        imgs = self.sparkdvid_context.sc.parallelize(range(minslice, maxslice+1), maxslice-minslice+1)
+        imgs = self.sparkdvid_context.sc.parallelize(list(range(minslice, maxslice+1)), maxslice-minslice+1)
 
         def img2npy(slicenum):
             try:
                 img = Image.open(basename % slicenum)
                 return slicenum, numpy.array(img)
-            except Exception, e:
+            except Exception as e:
                 # could give empty image, but for now just fail
                 raise
         npy_images = imgs.map(img2npy) 
@@ -144,7 +146,7 @@ class CreateTiles2(DVIDWorkflow):
             
             from PIL import Image
             from scipy import ndimage
-            import StringIO
+            import io
             
             from libdvid import ConnectionMethod
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname) 
@@ -171,8 +173,8 @@ class CreateTiles2(DVIDWorkflow):
                 levelslice = imlevels[levelnum]
                 dim1, dim2 = levelslice.shape
 
-                num1tiles = (dim1-1)/TILESIZE + 1
-                num2tiles = (dim2-1)/TILESIZE + 1
+                num1tiles = (dim1-1) // TILESIZE + 1
+                num2tiles = (dim2-1) // TILESIZE + 1
 
                 for iter1 in range(0, num1tiles):
                     for iter2 in range(0, num2tiles):
@@ -185,7 +187,7 @@ class CreateTiles2(DVIDWorkflow):
                         tileholder[0:t1, 0:t2] = tileslice
 
                         # write tileholder to dvid
-                        buf = StringIO.StringIO() 
+                        buf = BytesIO() 
                         img = Image.frombuffer('L', (TILESIZE, TILESIZE), tileholder.tostring(), 'raw', 'L', 0, 1)
                         imformatpil = imformat
                         if imformat == "jpg":

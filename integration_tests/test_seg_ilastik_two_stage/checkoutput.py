@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, absolute_import
 import sys
 import json
 import numpy as np
@@ -8,7 +8,7 @@ from libdvid import DVIDNodeService
 dirpath = sys.argv[1]
 
 reference_segmentation_path = dirpath + "/outputs/reference-segmentation.npz"
-reference_segmentation_zyx = np.load(reference_segmentation_path).items()[0][1]
+reference_segmentation_zyx = list(np.load(reference_segmentation_path).items())[0][1]
 
 with open(dirpath + "/temp_data/config.json") as f:
     config = json.load(f)

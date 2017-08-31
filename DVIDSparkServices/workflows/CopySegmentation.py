@@ -1,11 +1,18 @@
+from __future__ import print_function, absolute_import
+from __future__ import division
+import sys
 import copy
 import json
 import logging
+from functools import reduce
+
+if sys.version_info.major > 2:
+    xrange = range
 
 import requests
 import numpy as np
-import vigra
 import h5py
+import pandas as pd
 
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
@@ -147,7 +154,9 @@ class CopySegmentation(Workflow):
     OptionsSchema["properties"].update(
     {
         "body-size-output-path" : {
-            "description": "A file name to write the body size HDF5 output. Relative paths are interpreted as relative to this config file.",
+            "description": "A file name to write the body size HDF5 output. "
+                           "Relative paths are interpreted as relative to this config file. "
+                           "An empty string forces body size calculation to be skipped.",
             "type": "string",
             "default": "./body-sizes.h5"
         },
@@ -284,8 +293,8 @@ class CopySegmentation(Workflow):
             # (!!assume vol and offset will always be power of two because of padding)
             def repartition_down(part_volume):
                 part, volume = part_volume
-                downsampled_offset = np.array(part.get_offset()) / 2
-                downsampled_reloffset = np.array(part.get_reloffset()) / 2
+                downsampled_offset = np.array(part.get_offset()) // 2
+                downsampled_reloffset = np.array(part.get_reloffset()) // 2
                 offsetnew = VolumeOffset(*downsampled_offset)
                 reloffsetnew = VolumeOffset(*downsampled_reloffset)
                 partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew, reloffset=reloffsetnew)
@@ -396,12 +405,13 @@ class CopySegmentation(Workflow):
         # default delimiter
         delimiter = 0
     
-        @self.collect_log(lambda (part, data): part.get_offset())
+        @self.collect_log(lambda part_data: part_data[0].get_offset())
         def write_blocks(part_vol):
             logger = logging.getLogger(__name__)
             part, data = part_vol
             offset = part.get_offset()
             reloffset = part.get_reloffset()
+            print("!!", offset, reloffset, level)
             _, _, x_size = data.shape
             if x_size % blksize != 0:
                 # check if padded
@@ -413,7 +423,7 @@ class CopySegmentation(Workflow):
 
             # Find all non-zero blocks (and record by block index)
             block_coords = []
-            for block_index, block_x in enumerate(xrange(0, x_size, blksize)):
+            for block_index, block_x in enumerate(range(0, x_size, blksize)):
                 if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
@@ -446,27 +456,51 @@ class CopySegmentation(Workflow):
     def _write_body_sizes( self, seg_chunks_partitioned ):
         logger = logging.getLogger(__name__)
         
+        if not self.config_data["options"]["body-size-output-path"]:
+            logger.info("Skipping body size calculation.")
+            return
+
+        @self.collect_log(lambda *args: 'merge_label_counts')
         def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
             labels_A, counts_A = labels_and_counts_A
             labels_B, counts_B = labels_and_counts_B
             
-            combined_labels = vigra.analysis.unique( np.concatenate((labels_A, labels_B)) ).view(np.uint64)
+            # Fast path
+            if len(labels_A) == 0:
+                return (labels_B, counts_B)
+            if len(labels_B) == 0:
+                return (labels_A, counts_A)
+            
+            with Timer() as timer:
+                series_A = pd.Series(index=labels_A, data=counts_A)
+                series_B = pd.Series(index=labels_B, data=counts_B)
+                combined = series_A.add(series_B, fill_value=0)
+            
+            logger = logging.getLogger(__name__)
+            logger.info("Merging label count lists of sizes {} + {} = {} took {} seconds"
+                        .format(len(labels_A), len(labels_B), len(combined), timer.seconds))
 
-            positions_A = np.searchsorted(combined_labels, labels_A)
-            positions_B = np.searchsorted(combined_labels, labels_B)
+            return (combined.index, combined.values.astype(np.uint64))
 
-            combined_counts = np.zeros(combined_labels.shape, dtype=np.uint64)
-            combined_counts[positions_A] += counts_A
-            combined_counts[positions_B] += counts_B
-
-            return (combined_labels, combined_counts)
+        def reduce_partition( partition_elements ):
+            # Almost like the builtin reduce() function, but wraps the result in a list,
+            # which is what RDD.mapPartitions() expects to see.
+            return [reduce(merge_label_counts, partition_elements, [(), ()])]
 
         with Timer() as timer:
             logger.info("Computing body sizes...")
-            body_labels, body_sizes = seg_chunks_partitioned \
-                            .values() \
-                            .map( nonconsecutive_bincount ) \
-                            .reduce( merge_label_counts )
+
+            # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
+            body_labels, body_sizes = ( seg_chunks_partitioned
+                                            .values()
+                                            .map( nonconsecutive_bincount )
+                                            .repartition( 16*16*self.num_worker_nodes() )
+                                            .mapPartitions( reduce_partition )
+                                            .repartition( 16*self.num_worker_nodes() ) # per-core (assuming 16 cores per node)
+                                            .mapPartitions( reduce_partition )
+                                            .repartition( self.num_worker_nodes() ) # per-worker
+                                            .mapPartitions( reduce_partition )
+                                            .reduce( merge_label_counts ) )
         logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
 
         min_size = self.config_data["options"]["body-size-minimum"]
@@ -579,7 +613,7 @@ if __name__ == "__main__":
     }
 
     validate_and_inject_defaults(config, CopySegmentation.Schema)
-    print json.dumps(config, indent=4, separators=(',', ': '))
+    print(json.dumps(config, indent=4, separators=(',', ': ')))
 
 
 

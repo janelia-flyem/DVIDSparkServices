@@ -4,7 +4,7 @@ This module contains helper functions for various morphological
 operations used throughout reconutils.
 
 """
-from itertools import izip
+
 import numpy
 import numpy as np
 import vigra
@@ -82,8 +82,8 @@ def split_disconnected_bodies(labels_orig):
     # Combine    
     consWithSplits_to_origWithSplits = reverse_dict(orig_to_consecutive)
     consWithSplits_to_origWithSplits.update(
-        dict( zip( range( 1+max_consecutive_label, 1+max_consecutive_label+num_splits ),
-                   range( 1+max_orig, 1+max_orig+num_splits ) ) ) )
+        dict( zip( range( 1+max_consecutive_label, 1+max_consecutive_label+num_splits),
+                   range( 1+max_orig, 1+max_orig+num_splits) )) )
 
     # split -> consWithSplits -> origWithSplits
     split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
@@ -101,7 +101,7 @@ def split_disconnected_bodies(labels_orig):
                                                cons_to_orig )
     
     # Return final reverse mapping, but remove the labels that stayed the same.
-    MINIMAL_origWithSplits_to_orig = dict( filter( lambda (k,v): k > max_orig, origWithSplits_to_orig.items() ) )
+    MINIMAL_origWithSplits_to_orig = dict( [k_v for k_v in origWithSplits_to_orig.items() if k_v[0] > max_orig] )
     
     # Update 2017-02-16:
     # Every label involved in a split must be returned in the mapping, even hasn't changed.
@@ -168,7 +168,7 @@ def _split_body_mappings( labels_orig, labels_split ):
 
     # Map the new split segments to new high ids, so they don't conflict with the old ones
     nonmain_split_ids_to_nonconflicting = dict( zip( nonmain_split_ids,
-                                                     range( 1+num_orig_segments, 1+num_split_segments ) ) )
+                                                     range( 1+num_orig_segments, 1+num_split_segments) ) )
 
     # Map from split -> nonconflicting, i.e. (split -> main old/nonconflicting + split -> nonmain nonconflicting)
     split_to_nonconflicting = dict(main_split_ids_to_nonconflicting)
@@ -368,7 +368,7 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
     acc = vigra.analysis.extractRegionFeatures(image, consecutive_seg, features=['Coord<Minimum >', 'Coord<Maximum >', 'Count'])
 
     body_ids_and_masks = []
-    for label in xrange(1, maxlabel+1): # Skip 0
+    for label in range(1, maxlabel+1): # Skip 0
         count = acc['Count'][label]
         min_coord = acc['Coord<Minimum >'][label].astype(int)
         max_coord = acc['Coord<Maximum >'][label].astype(int)
@@ -448,7 +448,7 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
 
     combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.uint8 )
     
-    for box_global, mask in izip(boxes, masks):
+    for box_global, mask in zip(boxes, masks):
         box_global = np.asarray(box_global)
         mask_downsampled, downsampled_box = downsample_binary_3d(mask, chosen_downsample_factor, box_global)
         downsampled_box[:] -= combined_downsampled_box[0]

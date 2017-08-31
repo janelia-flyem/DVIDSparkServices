@@ -1,4 +1,4 @@
-from __future__ import print_function
+from __future__ import print_function, absolute_import
 import argparse
 import sys
 import importlib
@@ -33,7 +33,7 @@ def main():
     # list all services if requested and exit
     if args.list_workflows:
         workflows_dir = os.path.dirname(DVIDSparkServices.workflows.__file__)
-        workflow_files = map(os.path.basename, glob.glob(workflows_dir + '/*.py'))
+        workflow_files = list(map(os.path.basename, glob.glob(workflows_dir + '/*.py')))
         workflow_names = [os.path.splitext(file)[0] for file in workflow_files]
         print(json.dumps(workflow_names, indent=4))
         return

@@ -1,14 +1,15 @@
 """Contains information for DVID-related workflows"""
 
+import sys
 import json
 from jsonschema import validate
 from jsonschema import ValidationError
 
-from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.workflow import workflow
+from DVIDSparkServices.workflow.workflow import Workflow, WorkflowError
 from DVIDSparkServices.sparkdvid import sparkdvid
 
-
+if sys.version_info.major > 2:
+    unicode = str
 
 # defines workflows that work over DVID
 class DVIDWorkflow(Workflow):
@@ -53,7 +54,7 @@ class DVIDWorkflow(Workflow):
         # separate schema to enforce "server" and "uuid" for all calls
         try:
             validate(self.config_data, json.loads(self.DVIDSchema))
-        except ValidationError, e:
+        except ValidationError as e:
             raise WorkflowError("DVID validation error: ", e.what())
 
         dvid_info = self.config_data['dvid-info']
@@ -62,10 +63,11 @@ class DVIDWorkflow(Workflow):
         if not dvid_info['dvid-server'].startswith('http'):
             dvid_info['dvid-server'] = 'http://' + dvid_info['dvid-server']
 
-        # Convert dvid parameters from unicode to str for easier C++ calls
-        for k,v in list(dvid_info.items()):
-            if isinstance(v, unicode):
-                dvid_info[k] = str(v)
+        if sys.version_info.major == 2:
+            # Convert dvid parameters from unicode to str for easier C++ calls
+            for k,v in list(dvid_info.items()):
+                if isinstance(v, unicode):
+                    dvid_info[k] = str(v)
 
         # create spark dvid context
         self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,

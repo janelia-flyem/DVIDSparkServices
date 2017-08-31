@@ -1,3 +1,6 @@
+from __future__ import print_function, absolute_import
+from __future__ import division
+from io import BytesIO
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -98,7 +101,7 @@ class CreateTiles(DVIDWorkflow):
         minval = abs(min(MinTileCoord))
         maxval = max(minval, maxval) + 1
         import math
-        maxlevel = int(math.log(maxval)/math.log(2))
+        maxlevel = int(math.log(maxval) / math.log(2))
 
         tilemeta = {}
         tilemeta["MinTileCoord"] = MinTileCoord
@@ -121,7 +124,7 @@ class CreateTiles(DVIDWorkflow):
 
         # retrieve 32 slices at a time and generate all tiles
         # TODO: only fetch 1 slice at a time if 32 slices cannot fit in memory
-        blkiters = self.sparkdvid_context.sc.parallelize(range(0,numiters), numiters) 
+        blkiters = self.sparkdvid_context.sc.parallelize(list(range(0,numiters)), numiters) 
         
         def retrieveslices(blknum):
             # grab slice with 3d volume call
@@ -174,7 +177,7 @@ class CreateTiles(DVIDWorkflow):
             
             from PIL import Image
             from scipy import ndimage
-            import StringIO
+            import io
             import numpy
             s = requests.Session()
 
@@ -210,8 +213,8 @@ class CreateTiles(DVIDWorkflow):
                     levelslice = imlevels[levelnum]
                     dim1, dim2 = levelslice.shape
 
-                    num1tiles = (dim1-1)/TILESIZE + 1
-                    num2tiles = (dim2-1)/TILESIZE + 1
+                    num1tiles = (dim1-1) // TILESIZE + 1
+                    num2tiles = (dim2-1) // TILESIZE + 1
 
                     for iter1 in range(0, num1tiles):
                         for iter2 in range(0, num2tiles):
@@ -224,7 +227,7 @@ class CreateTiles(DVIDWorkflow):
                             tileholder[0:t1, 0:t2] = tileslice
 
                             # write tileholder to dvid
-                            buf = StringIO.StringIO() 
+                            buf = BytesIO() 
                             img = Image.frombuffer('L', (TILESIZE, TILESIZE), tileholder.tostring(), 'raw', 'L', 0, 1)
                             imformatpil = imformat
                             if imformat == "jpg":

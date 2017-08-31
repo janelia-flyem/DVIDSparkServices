@@ -3,6 +3,7 @@
 This file contains a class to distinguish partitions
 in data volumes and a schema to create new partitions.
 """
+from __future__ import division
 
 import numpy as np
 import collections
@@ -205,14 +206,14 @@ class partitionSchema(object):
             offset = VolumeOffset(offset.z+reloffset.z, offset.y+reloffset.y, offset.x + reloffset.x)
 
             if partdims.zsize > 0:
-                zaddr = offset.z / partdims.zsize
-                zaddr2 = (offset.z + zsize-1) / partdims.zsize + 1
+                zaddr = offset.z // partdims.zsize
+                zaddr2 = (offset.z + zsize-1) // partdims.zsize + 1
             if partdims.ysize > 0:
-                yaddr = offset.y / partdims.ysize
-                yaddr2 = (offset.y + ysize-1) / partdims.ysize + 1
+                yaddr = offset.y // partdims.ysize
+                yaddr2 = (offset.y + ysize-1) // partdims.ysize + 1
             if partdims.xsize > 0:
-                xaddr = offset.x / partdims.xsize
-                xaddr2 = (offset.x + xsize-1) / partdims.xsize + 1
+                xaddr = offset.x // partdims.xsize
+                xaddr2 = (offset.x + xsize-1) // partdims.xsize + 1
 
             # partition volume based on schema 
             partitions = []
@@ -306,7 +307,7 @@ class partitionSchema(object):
 
             import sys      
             part, partitions = subpartitions
-            glbx = glby = glbz = sys.maxint
+            glbx = glby = glbz = sys.maxsize
             glbx2 = glby2 = glbz2 = 0
         
             # extract bbox
@@ -375,7 +376,7 @@ class partitionSchema(object):
             return (newpartition, newvol)
 
         if not usespark:
-            return map(padAndSplice, datagroup.items())
+            return list(map(padAndSplice, list(datagroup.items())))
         else:
             return datagroup.map(padAndSplice)
 

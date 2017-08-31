@@ -1,8 +1,9 @@
 """This module defines routines to load 3D data from DVID.
 """
 
-from volumeSrc import volumeSrc
-import partitionSchema
+from __future__ import absolute_import
+from .volumeSrc import volumeSrc
+from . import partitionSchema
 import numpy as np
 from DVIDSparkServices.dvid.metadata import DataInstance
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
@@ -85,7 +86,7 @@ class dvidSrc(volumeSrc):
         """
         return self
 
-    def next(self):
+    def __next__(self):
         """Iterates partitions specified in the partitionSchema.
 
         Node:
@@ -101,6 +102,9 @@ class dvidSrc(volumeSrc):
         vols = self._retrieve_vol(self.current_spot, self.iteration_size)
         self.current_spot += self.iteration_size
         return vols
+    
+    # Python 2
+    next = __next__
 
     def extract_volume(self):
         """Retrieve entire volume as numpy array or RDD.

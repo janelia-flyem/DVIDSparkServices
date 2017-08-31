@@ -5,6 +5,7 @@
 # 3. optionally, specify a subset of tests to run via command-line args. (see below)
 # 4. optionally, skip repeated initialization of dvid setup. (see below)
 
+from __future__ import print_function, absolute_import
 import sys
 import subprocess
 import os
@@ -21,7 +22,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     os.environ["NUM_SPARK_WORKERS"] = "1"
     
     start = time.time()
-    print "Starting test: ", test_name
+    print("Starting test: ", test_name)
 
     temp_data_dir = test_dir + "/" + test_name + "/temp_data"
     if not os.path.exists(temp_data_dir):
@@ -32,7 +33,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     job_command = 'spark-submit --driver-memory 2G --executor-memory 4G --master local[{num_jobs}] {test_dir}/../DVIDSparkServices/workflow/launchworkflow.py {plugin} -c {temp_config_json}'\
                    .format(**locals())
 
-    print job_command
+    print(job_command)
     with open(test_dir+"/"+test_name+"/config.json") as fin:
         data = fin.read()
 
@@ -50,7 +51,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
             fout.write(results)
         
     except subprocess.CalledProcessError as ex:
-        print "BAD RETURN CODE:", ex.returncode
+        print("BAD RETURN CODE:", ex.returncode)
         # write results out anyway
         with open(temp_data_dir+"/results.txt", 'w') as fout:
             fout.write(ex.output)
@@ -88,17 +89,17 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
             try: 
                 subprocess.check_call(checkoutput_cmd)
             except subprocess.CalledProcessError as ex:
-                print "FAIL: checkoutput.py returned bad status: {}".format(ex.returncode)
+                print("FAIL: checkoutput.py returned bad status: {}".format(ex.returncode))
                 correct = False
     
         if not correct:
-            print "FAILED"
+            print("FAILED")
         else:
-            print "SUCCESS"
+            print("SUCCESS")
     
     finish = time.time()
 
-    print "Finished test: ", test_name, " in ", finish-start, " seconds"
+    print("Finished test: ", test_name, " in ", finish-start, " seconds")
     return correct
 
 def init_dvid_database(test_dir, reuse_last=False):
@@ -111,7 +112,7 @@ def init_dvid_database(test_dir, reuse_last=False):
             uuid1, uuid2 = f.read().split()
             return uuid1, uuid2
 
-    print "Initializing DVID Database"
+    print("Initializing DVID Database")
    
     os.system("gunzip -f --keep " + test_dir + "/resources/labels.bin.gz")
     os.system("gunzip -f --keep " + test_dir + "/resources/labels_comp.bin.gz")
@@ -323,14 +324,14 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
         else:
             results[test_name] = None # Skipped
     
-    print "*****************************************"
-    print "*****************************************"
-    print "SUMMARY OF ALL INTEGRATION TEST RESULTS: "
-    print "-----------------------------------------"
-    for k,v in results.items():
-        print "{:.<30s} {}".format( k+' ', {True: "success", False: "FAILED", None: ""}[v] )
-    print "*****************************************"
-    print "*****************************************"
+    print("*****************************************")
+    print("*****************************************")
+    print("SUMMARY OF ALL INTEGRATION TEST RESULTS: ")
+    print("-----------------------------------------")
+    for k,v in list(results.items()):
+        print("{:.<30s} {}".format( k+' ', {True: "success", False: "FAILED", None: ""}[v] ))
+    print("*****************************************")
+    print("*****************************************")
 
 if __name__ == "__main__":
     import argparse

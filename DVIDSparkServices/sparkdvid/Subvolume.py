@@ -6,6 +6,7 @@ different transformations in sparkdvid.
 
 """
 
+from __future__ import print_function, absolute_import
 import collections
 import numpy as np
 
@@ -182,8 +183,7 @@ class Subvolume(object):
         from DVIDSparkServices.util import boxlist_to_json
         # The 'json' module doesn't have nice pretty-printing options for our purposes,
         # so we'll do this ourselves.
-        from cStringIO import StringIO
-        from os import SEEK_CUR
+        from io import StringIO
         
         buf = StringIO()
         buf.write('{\n')
@@ -199,7 +199,7 @@ class Subvolume(object):
         import json
         json.loads(buf.getvalue())
         
-        return buf.getvalue()
+        return str(buf.getvalue())
 
     @classmethod
     def subvol_list_all_blocks(cls, subvols):

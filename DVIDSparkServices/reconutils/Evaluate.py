@@ -4,13 +4,14 @@ This module consists of the Evaluate class works with the
 evaluate workflow.  Code requires pyspark to execute.
 
 """
-
+from __future__ import absolute_import
+from __future__ import division
 import libNeuroProofMetrics as npmetrics
 import numpy
 
 # contains helper functions
-from segstats import *
-from morpho import *
+from .segstats import *
+from .morpho import *
 from metrics.connectivity import *
 
 class Evaluate(object):
@@ -59,7 +60,7 @@ class Evaluate(object):
             cumdisttemp.append([localcount, body])
 
         # round to 4 decimals
-        cumdist = [ [round(val[0]/float(count),4), val[1]] for val in cumdisttemp]
+        cumdist = [ [round(val[0] / float(count),4), val[1]] for val in cumdisttemp]
         cumdist.sort()
         cumdist.reverse()
         return cumdist
@@ -632,7 +633,7 @@ class Evaluate(object):
                     total2 += overlap 
                 
                 # match body if over half of the seg
-                if max_val > total2/2:
+                if max_val > total2 // 2:
                     important_segbodies[max_id] = max_val
 
 
@@ -757,7 +758,7 @@ class Evaluate(object):
                         total2 += overlap 
                     
                     # match body if over half of the seg is in over half of the GT
-                    if max_val > total/2 and max_val > total2/2:
+                    if max_val > total // 2 and max_val > total2 // 2:
                         important_gtbodies.add(gt)
                         important_segbodies[max_id] = gt
                 

@@ -1,3 +1,4 @@
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.reconutils.misc import select_channels, normalize_channels_in_place
 
 def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None, normalize=True, 
@@ -29,7 +30,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     
     LAZYFLOW_THREADS, LAZYFLOW_TOTAL_RAM_MB: Passed to ilastik via environment variables.
     """
-    print "ilastik_predict_with_array(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape)
+    print("ilastik_predict_with_array(): Starting with raw data: dtype={}, shape={}".format(str(gray_vol.dtype), gray_vol.shape))
 
     import os
     from collections import OrderedDict
@@ -46,7 +47,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
 
     import logging
     logging.getLogger(__name__).info('status=ilastik prediction')
-    print "ilastik_predict_with_array(): Done with imports"
+    print("ilastik_predict_with_array(): Done with imports")
 
     if LAZYFLOW_TOTAL_RAM_MB is None:
         # By default, assume our alotted RAM is proportional 
@@ -83,7 +84,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
     # The "/dev/null" setting here is recognized by ilastik and means "Don't write a log file"
     args.logfile = logfile
 
-    print "ilastik_predict_with_array(): Creating shell..."
+    print("ilastik_predict_with_array(): Creating shell...")
 
     # Instantiate the 'shell', (in this case, an instance of ilastik.shell.HeadlessShell)
     # This also loads the project file into shell.projectManager
@@ -103,7 +104,7 @@ def ilastik_predict_with_array(gray_vol, mask, ilp_path, selected_channels=None,
         mask = vigra.taggedView(mask, 'zyx')
         role_data_dict["Prediction Mask"] = [ DatasetInfo(preloaded_array=mask) ]
 
-    print "ilastik_predict_with_array(): Starting export..."
+    print("ilastik_predict_with_array(): Starting export...")
 
     # Sanity checks
     opInteractiveExport = shell.workflow.batchProcessingApplet.dataExportApplet.topLevelOperator.getLane(0)

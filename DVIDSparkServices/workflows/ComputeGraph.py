@@ -1,3 +1,4 @@
+from __future__ import print_function, absolute_import
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -115,7 +116,7 @@ class ComputeGraph(DVIDWorkflow):
 
         if "debug" in self.config_data["options"] and self.config_data["options"]["debug"]:
             num_elements = graph_elements.count()
-            print "DEBUG: ", num_elements
+            print("DEBUG: ", num_elements)
 
         graph_elements_red.unpersist()
 

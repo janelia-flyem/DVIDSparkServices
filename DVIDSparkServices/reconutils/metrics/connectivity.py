@@ -1,3 +1,4 @@
+from __future__ import division
 from munkres import Munkres
 import numpy
 

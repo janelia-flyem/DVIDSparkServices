@@ -1,4 +1,7 @@
+from __future__ import print_function, absolute_import
+from __future__ import division
 import os
+import sys
 import signal
 import copy
 import time
@@ -9,8 +12,8 @@ import logging
 from itertools import starmap
 
 import psutil
-import vigra
 import numpy as np
+import pandas as pd
 from skimage.util import view_as_blocks
 
 logger = logging.getLogger(__name__)
@@ -67,6 +70,11 @@ class MemoryWatcher(object):
 
 
 def unicode_to_str(json_data):
+    if sys.version_info.major > 2:
+        # In Python 3, unicode and str are the same
+        return json_data
+
+    # Python 2
     if isinstance(json_data, unicode):
         return str(json_data)
     elif isinstance(json_data, list):
@@ -98,7 +106,7 @@ def bb_as_tuple(box):
 def boxlist_to_json( bounds_list, indent=0 ):
     # The 'json' module doesn't have nice pretty-printing options for our purposes,
     # so we'll do this ourselves.
-    from cStringIO import StringIO
+    from io import StringIO
     from os import SEEK_CUR
 
     buf = StringIO()
@@ -113,7 +121,7 @@ def boxlist_to_json( bounds_list, indent=0 ):
     buf.write('\n')
     buf.write(' '*indent + ']')
 
-    return buf.getvalue()
+    return str(buf.getvalue())
 
 def mkdir_p(path):
     """
@@ -244,8 +252,7 @@ def coordlist_to_boolmap(coordlist, bounding_box=None):
         start, stop = bounding_box
         if (coordlist_min < start).any() or (coordlist_max >= stop).any():
             # Remove the coords that are outside the user's bounding-box of interest
-            coordlist = filter(lambda coord: (coord - start >= 0).all() and (coord < stop).all(),
-                               coordlist)
+            coordlist = [coord for coord in coordlist if (coord - start >= 0).all() and (coord < stop).all()]
             coordlist = np.array(coordlist)
 
     shape = stop - start
@@ -440,7 +447,7 @@ def choose_pyramid_depth(bounding_box, top_level_max_dim=512):
     full_res_max_dim = float(global_shape.max())
     assert full_res_max_dim > 0.0, "Subvolumes encompass no volume!"
     
-    depth = int(ceil(log2(full_res_max_dim/top_level_max_dim)))
+    depth = int(ceil(log2(full_res_max_dim / top_level_max_dim)))
     return max(depth, 0)
 
 
@@ -456,19 +463,6 @@ def mask_roi(data, subvolume, border='default'):
     return None # Emphasize in-place behavior
 
 
-def vigra_bincount(labels):
-    """
-    A RAM-efficient implementation of numpy.bincount() when you're dealing with uint32 labels.
-    If your data isn't int64, numpy.bincount() will copy it internally -- a huge RAM overhead.
-    (This implementation may also need to make a copy, but it prefers uint32, not int64.)
-    """
-    labels = labels.astype(np.uint32, copy=False)
-    labels = np.ravel(labels, order='K').reshape((-1, 1), order='A')
-    # We don't care what the 'image' parameter is, but we have to give something
-    image = labels.view(np.float32)
-    counts = vigra.analysis.extractRegionFeatures(image, labels, ['Count'])['Count']
-    return counts.astype(np.int64)
-
 def nonconsecutive_bincount(label_vol):
     """
     Like np.bincount(), but works well for label volumes with non-consecutive label values.
@@ -478,21 +472,10 @@ def nonconsecutive_bincount(label_vol):
     assert isinstance(label_vol, np.ndarray)
     assert np.issubdtype(label_vol.dtype, np.integer)
 
-    # Remap to consecutive labels for faster bincounting
-    # (Pre-allocate destination to force output dtype)
-    labels_consecutive = np.zeros_like(label_vol, np.uint32)
-    labels_consecutive, max_consecutive_label, orig_to_consecutive = \
-        vigra.analysis.relabelConsecutive(label_vol, start_label=0, keep_zeros=False, out=labels_consecutive)
+    counts = pd.Series(np.ravel(label_vol, order='K')).value_counts()
+    assert counts.values.dtype == np.int64
+    return counts.index, counts.values.view(np.uint64)
 
-    # Count sizes
-    counts = vigra_bincount(labels_consecutive).view(np.uint64)
-    
-    # Map from consecutive to original labels
-    consecutive_to_orig = reverse_dict(orig_to_consecutive)
-    unique_labels = vigra.analysis.applyMapping(np.arange(max_consecutive_label+1, dtype=np.uint64), consecutive_to_orig)
-
-    return (unique_labels, counts)
-            
 def reverse_dict(d):
     rev = { v:k for k,v in d.items() }
     assert len(rev) == len(d), "dict is not reversable: {}".format(d)

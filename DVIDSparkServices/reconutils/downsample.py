@@ -1,5 +1,7 @@
 """Downsampling operations used for raw and label data.
 """
+from __future__ import print_function, absolute_import
+from __future__ import division
 import numpy as np
 from scipy import ndimage
 from numba import jit
@@ -58,7 +60,7 @@ def downsample_3Dlabels(data, numlevels=1):
         if ((zmax % 2) != 0) or ((ymax % 2) != 0) or ((xmax % 2) != 0):
             raise ValueError("Level: " + str(level+1) + " is not a multiple of two")
 
-        data2 = np.zeros((zmax/2,ymax/2,xmax/2)).astype(data.dtype)
+        data2 = np.zeros((zmax//2, ymax//2, xmax//2)).astype(data.dtype)
 
         for ziter in range(0,zmax,2):
             for yiter in range(0,ymax,2):
@@ -94,11 +96,11 @@ def downsample_3Dlabels(data, numlevels=1):
                     maxval = 0
                     freqkey = 0
                     for key, val in freqs.items():
-                            if val > maxval or (val == maxval and key < freqkey):
-                                    maxval = val
-                                    freqkey = key
+                        if val > maxval or (val == maxval and key < freqkey):
+                            maxval = val
+                            freqkey = key
 
-                    data2[ziter/2, yiter/2, xiter/2] = freqkey
+                    data2[ziter//2, yiter//2, xiter//2] = freqkey
         
         res.append(data2)
         data = data2
@@ -290,61 +292,61 @@ if __name__ == "__main__":
     start = time.time()
 
     a = np.random.randint(0,4, (1,4,8)).view(np.uint64)
-    print a
-    print ""
+    print(a)
+    print("")
     downsampled, box = downsample_labels_3d(a, 2)
     assert tuple(box[1] - box[0]) == downsampled.shape
-    print downsampled
-    print ""
-    print box.tolist()
-    print ""
+    print(downsampled)
+    print("")
+    print(box.tolist())
+    print("")
 
     a = np.random.randint(0,4, (1,4,8)).view(np.uint64)
-    print a
-    print ""
+    print(a)
+    print("")
     downsampled, box = downsample_binary_3d(a, 2)
     assert tuple(box[1] - box[0]) == downsampled.shape
-    print downsampled
-    print ""
-    print box.tolist()
-    print ""
+    print(downsampled)
+    print("")
+    print(box.tolist())
+    print("")
 
     a = np.array([[[0,1,0],
                    [0,0,0]]]).astype(np.uint64)
-    print a
-    print ""
+    print(a)
+    print("")
     downsampled, box = downsample_labels_3d(a, (1,1,3))
     assert tuple(box[1] - box[0]) == downsampled.shape
-    print downsampled
-    print box.tolist()
-    print ""
+    print(downsampled)
+    print(box.tolist())
+    print("")
 
     a = np.array([[[0,1,0],
                    [0,0,0]]]).astype(np.uint64)
-    print a
-    print ""
+    print(a)
+    print("")
     downsampled, box = downsample_binary_3d(a, (1,1,3))
     assert tuple(box[1] - box[0]) == downsampled.shape
-    print downsampled
-    print box.tolist()
-    print ""
+    print(downsampled)
+    print(box.tolist())
+    print("")
 
     a = np.random.randint(0,4, (1,6,8)).view(np.uint64)
-    print a
-    print ""
+    print(a)
+    print("")
     downsampled, box = downsample_labels_3d(a, (1,3,4))
     assert tuple(box[1] - box[0]) == downsampled.shape
-    print downsampled
-    print box.tolist()
-    print ""
+    print(downsampled)
+    print(box.tolist())
+    print("")
     
     a = np.random.randint(0,4, (4,6,8)).view(np.uint64)
-    print a
-    print ""
+    print(a)
+    print("")
     downsampled, box = downsample_labels_3d(a, (2,3,4))
     assert tuple(box[1] - box[0]) == downsampled.shape
-    print downsampled
-    print box.tolist()
-    print ""
+    print(downsampled)
+    print(box.tolist())
+    print("")
 
-    print "total seconds: {:.2f}".format(time.time() - start)
+    print("total seconds: {:.2f}".format(time.time() - start))

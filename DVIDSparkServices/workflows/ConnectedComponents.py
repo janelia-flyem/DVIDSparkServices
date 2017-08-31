@@ -1,4 +1,6 @@
 """Framework for large-scale connected components over an ROI."""
+from __future__ import print_function, absolute_import
+from __future__ import division
 import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
@@ -90,13 +92,13 @@ class ConnectedComponents(DVIDWorkflow):
         # grab ROI subvolumes and find neighbors
         distsubvolumes = self.sparkdvid_context.parallelize_roi(
                 self.config_data["dvid-info"]["roi"],
-                self.chunksize, self.overlap/2, True)
+                self.chunksize, self.overlap // 2, True)
         distsubvolumes.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
         # grab seg chunks 
         seg_chunks = self.sparkdvid_context.map_labels64(distsubvolumes,
                 self.config_data["dvid-info"]["segmentation"],
-                self.overlap/2, self.config_data["dvid-info"]["roi"])
+                self.overlap // 2, self.config_data["dvid-info"]["roi"])
 
         # pass substack with labels (no shuffling)
         seg_chunks2 = distsubvolumes.join(seg_chunks) # (sv_id, (subvolume, segmentation))
@@ -111,7 +113,7 @@ class ConnectedComponents(DVIDWorkflow):
             
             # If any zero bodies were split, don't give them new labels.
             # Make them zero again
-            zero_split_mapping = dict( filter( lambda (k,v): v == 0, split_mapping.items() ) )
+            zero_split_mapping = dict( [k_v for k_v in split_mapping.items() if k_v[1] == 0] )
             if zero_split_mapping:
                 vigra.analysis.applyMapping(seg_split, zero_split_mapping, allow_incomplete_mapping=True, out=seg_split)
 

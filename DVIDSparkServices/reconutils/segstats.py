@@ -1,3 +1,4 @@
+from __future__ import division
 from math import log
 
 class ComparisonType(object):
@@ -102,8 +103,8 @@ class VIStat(StatType):
                 fmerge = globalmap["types"][tname]["VI"]["average"][0] 
                 fsplit = globalmap["types"][tname]["VI"]["average"][1]
 
-                fmerge = (num_subvolumes*fmerge + self.fmerge)/float(num_subvolumes+1)
-                fsplit = (num_subvolumes*fsplit + self.fsplit)/float(num_subvolumes+1)
+                fmerge = (num_subvolumes*fmerge + self.fmerge) / float(num_subvolumes+1)
+                fsplit = (num_subvolumes*fsplit + self.fsplit) / float(num_subvolumes+1)
 
                 globalmap["types"][tname]["VI"]["average"] = [fmerge, fsplit]
 
@@ -152,8 +153,8 @@ class RandStat(StatType):
                 fmerge = globalmap["types"][tname]["rand"]["average"][0] 
                 fsplit = globalmap["types"][tname]["rand"]["average"][1]
 
-                fmerge = (num_subvolumes*fmerge + self.fmerge)/float(num_subvolumes+1)
-                fsplit = (num_subvolumes*fsplit + self.fsplit)/float(num_subvolumes+1)
+                fmerge = (num_subvolumes*fmerge + self.fmerge) / float(num_subvolumes+1)
+                fsplit = (num_subvolumes*fsplit + self.fsplit) / float(num_subvolumes+1)
 
                 globalmap["types"][tname]["rand"]["average"] = [fmerge, fsplit]
 
@@ -387,10 +388,10 @@ def body_vi(overlapset):
     decomp_bodies = {}
     vi_unnorm = 0
     for (segid, overlap) in overlapset:
-        vi_unnorm += overlap*log(total/float(overlap))/log(2.0)
+        vi_unnorm += overlap*log(total / float(overlap))/log(2.0)
         if segid not in decomp_bodies:
             decomp_bodies[segid] = 0
-        decomp_bodies[segid] += overlap*log(total/float(overlap))/log(2.0)
+        decomp_bodies[segid] += overlap*log(total / float(overlap))/log(2.0)
 
     return vi_unnorm, total, decomp_bodies
 
@@ -453,16 +454,16 @@ def calculate_vi(gtoverlap, segoverlap, body_threshold = 0):
         return 0, 0, fmerge_bodies, fsplit_bodies, perbody
 
     for key, val in fsplit_bodies.items():
-        fsplit_bodies[key] = round(val/float(glb_total),4)
+        fsplit_bodies[key] = round(val / float(glb_total),4)
     
     for key, val in fmerge_bodies.items():
-        fmerge_bodies[key] = round(val/float(glb_total),4)
+        fmerge_bodies[key] = round(val / float(glb_total),4)
     
     for key, val in perbody.items():
-        perbody[key] = round(val/float(glb_total),4)
+        perbody[key] = round(val / float(glb_total),4)
 
 
-    return round(fmerge_vi/float(glb_total),4), round(fsplit_vi/float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
+    return round(fmerge_vi / float(glb_total),4), round(fsplit_vi / float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
 
 # calculate Rand Index
 def calculate_rand(gtoverlap, segoverlap, body_threshold=0):
