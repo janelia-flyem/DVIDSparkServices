@@ -432,7 +432,6 @@ class CopySegmentation(Workflow):
                 raise ValueError("Data is not block aligned")
 
             shiftedoffset = (offset.z+reloffset.z, offset.y+reloffset.y, offset.x+reloffset.x)
-            logger.info("Starting WRITE of partition at: {} size: {}".format(shiftedoffset, data.shape))
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
 
             # Find all non-zero blocks (and record by block index)
@@ -452,17 +451,18 @@ class CopySegmentation(Workflow):
             
             # iterate through contiguous blocks and write to DVID
             for (data_x_start, data_x_end) in ranges:
-                with Timer() as copy_timer:
-                    datacrop = data[:,:,data_x_start:data_x_end].copy()
-                logger.info("Copied {}:{} in {:.3f} seconds".format(data_x_start, data_x_end, copy_timer.seconds))
-
+                datacrop = data[:,:,data_x_start:data_x_end].copy()
                 data_offset_zyx = (shiftedoffset[0], shiftedoffset[1], shiftedoffset[2] + data_x_start)
 
-                logger.info("STARTING Put: labels block {}".format(data_offset_zyx))
                 throttle = (resource_server == "" and not server.startswith("http://127.0.0.1"))
                 with Timer() as put_timer:
                     node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle, level)
-                logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
+
+                # Note: This timing data doesn't measure ideal throughput, since throttle
+                #       and/or the resource manager muddy the numbers a bit...
+                voxels_per_second = datacrop.size / put_timer.seconds
+                logger.info("Put block {} in {:.3f} seconds ({:.1f} Megavoxels/second)"
+                            .format(data_offset_zyx, put_timer.seconds, voxels_per_second / 1e6))
 
         seg_chunks_partitioned.foreach(write_blocks)
        
