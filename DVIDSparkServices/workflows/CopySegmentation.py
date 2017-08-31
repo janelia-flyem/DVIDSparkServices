@@ -244,13 +244,17 @@ class CopySegmentation(Workflow):
             # RDD: (volumePartition, data)
             seg_chunks_partitioned, bounding_box = self._partition_with_bounding_box(partition_dims)
 
-        # data must exist after writing to dvid for downsampling
-        seg_chunks_partitioned.persist()
-
         self._create_output_instance_if_necessary(bounding_box) 
 
         # Overwrite pyramid depth in our config (in case the user specified -1 == 'automatic')
         options["pyramid-depth"] = self._read_pyramid_depth()
+
+        # data must exist after writing to dvid for downsampling
+        seg_chunks_partitioned.persist()
+
+        # FIXME: Instead of interleaving read and write operations,
+        #        let's force the entire read first, then write, for easier benchmarking of those two steps.
+        seg_chunks_partitioned.count()
 
         # write level 0
         self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
