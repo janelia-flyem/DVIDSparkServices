@@ -20,6 +20,8 @@ from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes, nonconsecutive_bincount
 #from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
 
+logger = logging.getLogger(__name__)
+
 class CopySegmentation(Workflow):
     
     DataInfoSchema = \
@@ -254,10 +256,14 @@ class CopySegmentation(Workflow):
 
         # FIXME: Instead of interleaving read and write operations,
         #        let's force the entire read first, then write, for easier benchmarking of those two steps.
-        seg_chunks_partitioned.count()
+        with Timer() as timer:
+            seg_chunks_partitioned.count()
+        logger.info(f"Reading entire volume took {timer.timedelta}")
 
         # write level 0
-        self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
+        with Timer() as timer:
+            self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
+        logger.info(f"Writing entire volume at scale 0 took {timer.timedelta}")
 
         # Write body sizes to JSON
         self._write_body_sizes( seg_chunks_partitioned )
@@ -289,9 +295,17 @@ class CopySegmentation(Workflow):
 
             # persist for next level
             seg_chunks_partitioned.persist()
+
+            # FIXME: Instead of interleaving compute and write operations,
+            #        let's force the entire compute first, then write, for easier benchmarking of those two steps.
+            with Timer() as timer:
+                seg_chunks_partitioned.count()
+            logger.info(f"Computing scale {level} took {timer.timedelta}")
             
             #  write data new level
-            self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], level)
+            with Timer() as timer:
+                self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], level)
+            logger.info(f"Writing scale {level} took {timer.timedelta}")
 
     def _partition_with_roi(self, partition_dims):
         input_config = self.config_data["data-info"]["input"]

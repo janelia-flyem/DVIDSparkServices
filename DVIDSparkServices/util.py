@@ -10,6 +10,7 @@ import inspect
 import socket
 import logging
 from itertools import starmap
+from datetime import timedelta
 
 import psutil
 import numpy as np
@@ -25,6 +26,7 @@ def Timer():
     start = time.time()
     yield result
     result.seconds = time.time() - start
+    result.timedelta = timedelta(result.seconds)
 
 class _TimerResult(object):
     seconds = -1.0
