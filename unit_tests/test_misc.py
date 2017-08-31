@@ -14,7 +14,7 @@ logger = logging.getLogger("unit_tests.test_misc")
 
 def _load_grayscale():
     grayscale_path = os.path.split(DVIDSparkServices.__file__)[0] + '/../integration_tests/resources/grayscale-256-256-256-uint8.bin'
-    with open(grayscale_path) as f:
+    with open(grayscale_path, 'rb') as f:
         grayscale_bytes =  f.read()
 
     grayscale_flat = np.frombuffer(grayscale_bytes, dtype=np.uint8)

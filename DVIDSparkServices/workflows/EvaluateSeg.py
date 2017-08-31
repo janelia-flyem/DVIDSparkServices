@@ -277,7 +277,7 @@ class EvaluateSeg(DVIDWorkflow):
         fileloc = str(location + "--" + username + "--" + str(current_time))
 
         node_service.create_keyvalue(self.writelocation)
-        node_service.put(self.writelocation, fileloc, json.dumps(stats))
+        node_service.put(self.writelocation, fileloc, json.dumps(stats).encode('utf-8'))
 
 
     @staticmethod

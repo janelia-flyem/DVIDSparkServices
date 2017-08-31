@@ -4,7 +4,7 @@ import time
 import subprocess
 import tempfile
 import shutil
-import pickle as pickle
+import pickle
 import logging
 import threading
 
@@ -49,7 +49,7 @@ def execute_in_subprocess( stdout_callback=None, timeout=0 ):
             try:
                 # Write func/args to file
                 with Timer() as timer:
-                    with open(args_filepath, 'w') as args_f:
+                    with open(args_filepath, 'wb') as args_f:
                         pickle.dump((func, args, kwargs), args_f, protocol=2)
                 _stdout_callback("Serializing args took: {:.03f}\n".format(timer.seconds))
 
@@ -79,7 +79,7 @@ def execute_in_subprocess( stdout_callback=None, timeout=0 ):
 
                 # Wait for process to finish        
                 while True:
-                    line = p.stdout.readline()
+                    line = p.stdout.readline().decode()
                     if line == '' and p.poll() is not None:
                         break
                     _stdout_callback(line)
@@ -90,7 +90,7 @@ def execute_in_subprocess( stdout_callback=None, timeout=0 ):
 
                 # Read result
                 with Timer() as timer:
-                    with open(result_filepath, 'r') as result_f:
+                    with open(result_filepath, 'rb') as result_f:
                         result = pickle.load(result_f)
                 _stdout_callback("Deserializing result took: {:.03f}\n".format(timer.seconds))
 
@@ -118,7 +118,7 @@ def subprocess_main():
     result_filepath = sys.argv[2]
 
     with Timer() as timer:
-        with open(args_filepath, 'r') as args_f:
+        with open(args_filepath, 'rb') as args_f:
             func, args, kwargs = pickle.load(args_f)
     print("Deserializing args took: {:.03f}".format(timer.seconds))
 
@@ -133,11 +133,11 @@ def subprocess_main():
 
     finally:
         with Timer() as timer:
-            with open(result_filepath, 'w') as result_f:
+            with open(result_filepath, 'wb') as result_f:
                 pickle.dump(result, result_f, protocol=2)
         print("Serializing result took: {:.03f}".format(timer.seconds))
 
-def test_helper(a,b,c):
+def _test_helper(a,b,c):
     """
     This function is just here for the unit test to call.
     (It can't be defined in the test module due to edge

@@ -100,7 +100,7 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
         data["Compression"] = compression.value
 
     try:
-        conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+        conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data).encode('utf-8'))
     except DVIDException as ex:
         if 'already exists' in ex.message:
             pass
@@ -144,7 +144,7 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
 
-    conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+    conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data).encode('utf-8'))
     
 
 @auto_retry(3, 5.0, __name__)
@@ -280,7 +280,7 @@ def set_sync(dvid_server, uuid, srcname, destname):
 
     ns = DVIDNodeService(str(dvid_server), str(uuid))
     data = {"sync": destname}
-    ns.custom_request(srcname + "/sync", json.dumps(data), ConnectionMethod.POST)
+    ns.custom_request(srcname + "/sync", json.dumps(data).encode('utf-8'), ConnectionMethod.POST)
 
 def has_sync(dvid_server, uuid, srcname, destname):
     """Checks whether srcname is synced (listen to changes) on destname.

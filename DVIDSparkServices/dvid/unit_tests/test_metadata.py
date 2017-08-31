@@ -48,7 +48,7 @@ class Testmetadata(unittest.TestCase):
 
         endpoint = "/repo/" + uuid + "/instance"
         data = {"typename": "labelvol", "dataname": "bodies"}
-        conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data))
+        conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data).encode())
 
         set_sync(dvidserver, uuid, "labels", "bodies")
         self.assertTrue(has_sync(dvidserver, uuid, "labels", "bodies"))
