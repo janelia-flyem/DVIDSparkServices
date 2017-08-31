@@ -107,7 +107,7 @@ def compute_tablestats(match_overlap, tableseg1seg2, typename, thresholds):
                 {"val": "percent matched", "name": "conn.match", "description": "<<amount matched> connection out of <amount total> matched}", "higher-better": true, "typename": <typename>}",
                 {"val": "percent matched", "name": "connpairs.matched-%d", "description": "%d body pairs matched out of %d with >=%d connections", "higher-better": true, "typename": <typename>}" ...
             ]
-            body stats: list of [body, bodymatch, connections, connections total]
+            body stats: a body stat type where bodies are [connections, [connections total, bodymatch]]
 
             connectivity table: list of [pre, prematch, post1, post1 match, overlap, total, post2, ...]
     """
@@ -161,7 +161,7 @@ def compute_tablestats(match_overlap, tableseg1seg2, typename, thresholds):
                
     # generate stats
     conntable_stats = []
-    bodystats = []
+    bodystats = {}
 
     overall_tot = 0
     overall_match = 0
@@ -206,7 +206,7 @@ def compute_tablestats(match_overlap, tableseg1seg2, typename, thresholds):
         # accumulate global stats
         overall_tot += totconn
         overall_match += totmatch
-        bodystats.append([pre, pre2, totmatch, totconn])
+        bodystats[pre] = [totmatch, [totconn, pre2]]
 
     sum_stats = [{"name": "conn.match", "description": "%d matched out of %d" % (overall_match, overall_tot), "higher-better": True, "typename": typename}]
     if overall_tot == 0:
@@ -226,5 +226,9 @@ def compute_tablestats(match_overlap, tableseg1seg2, typename, thresholds):
         thresstat["description"] = "%d body pairs matched out of %d with >=%d connections" % (thresholded_match2[pos], thresholded_match[pos], threshold)
 
         sum_stats.append(thresstat)
-    
-    return sum_stats, bodystats, conntable_stats
+   
+    # configure body stats
+    bodytype = {"typename": typename, "name": "GTConn", "largest2smallest": True}
+    bodytype["bodies"] = bodystats
+
+    return sum_stats, [bodytype], conntable_stats

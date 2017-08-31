@@ -70,9 +70,11 @@ class Testconnectivity(unittest.TestCase):
         self.assertTrue(sumstats[1]["val"] == round(3/float(3),4))
         self.assertTrue(sumstats[2]["val"] == round(1/float(2),4))
         
-        self.assertTrue(len(bodystats) == 2)
-        self.assertTrue([3, 100, 54, 76] in bodystats)
-        self.assertTrue([30, 101, 1, 1] in bodystats)
+        self.assertTrue(len(bodystats[0]["bodies"]) == 2)
+        self.assertTrue(3 in bodystats[0]["bodies"])
+        self.assertEqual([54, [76, 100]], bodystats[0]["bodies"][3])
+        self.assertTrue(30 in bodystats[0]["bodies"])
+        self.assertEqual([1, [1, 101]], bodystats[0]["bodies"][30])
         self.assertTrue([3, 100, 3, 100, 50, 60] in conntablestats)
     
         # create overlap map where a body1 has no match
@@ -87,7 +89,7 @@ class Testconnectivity(unittest.TestCase):
         tablemap[((15 << 64) | 23)] = set([(((3 << 64) | 100), 4)])
        
         sumstats, bodystats, conntablestats = compute_tablestats(matches, tablemap, "blah", [1, 5])
-        self.assertTrue(len(bodystats) == 1)
+        self.assertTrue(len(bodystats[0]["bodies"]) == 1)
         #self.assertTrue(sumstats == [0, 4, 1, [1, 5], [0, 0], [1, 0]])
         self.assertTrue(len(sumstats) == 3)
         self.assertTrue(sumstats[0]["val"] == round(0/float(4),4))

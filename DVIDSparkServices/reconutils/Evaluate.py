@@ -451,6 +451,7 @@ class Evaluate(object):
         
         metric_results = {}
         metric_results["summarystats"] = []
+        metric_results["bodystats"] = []
 
         # accumulate all subvolume stats
         whole_volume_stats = None # SubvolumeStats(None)
@@ -732,7 +733,7 @@ class Evaluate(object):
                 
                 comparison_type_metrics["connection-matrix2"] = {}
                 metric_results["summarystats"].extend(sumstatsbm)
-                comparison_type_metrics["connection-matrix2"]["body"] = bodystatsbm
+                metric_results["bodystats"].extend(bodystatsbm)
                 comparison_type_metrics["connection-matrix2"]["table"] = tablestatsbm
                 # --- end compute new connectivity table ---
                 
