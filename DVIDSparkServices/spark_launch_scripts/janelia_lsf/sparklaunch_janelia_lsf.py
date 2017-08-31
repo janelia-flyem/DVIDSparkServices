@@ -27,7 +27,7 @@ import DVIDSparkServices
 ## NOTE: LSF jobs will inherit all of these environment variables by default. 
 
 # Location of spark distribution
-SPARK_HOME = "/usr/local/spark-current"
+SPARK_HOME = "/misc/local/spark-versions/spark-2.2.0-bin-without-hadoop"
 
 # spark configuration path (disable default python)
 # FIXME: This won't work if DVIDSparkServices is 'installed' to the python interpreter.
