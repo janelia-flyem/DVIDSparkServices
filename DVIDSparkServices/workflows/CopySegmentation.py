@@ -18,7 +18,7 @@ from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOff
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.dvid.metadata import create_labelarray
+from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from libdvid.util.roi_utils import copy_roi, RoiInfo
 from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes, nonconsecutive_bincount
@@ -171,9 +171,9 @@ class CopySegmentation(Workflow):
             "default": 512
         },
         "pyramid-depth": {
-            "description": "Number of pyramid levels to generate (0 means choose automatically, -1 means no pyramid)",
+            "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
-            "default": 0 # automatic by default
+            "default": -1 # automatic by default
         },
         "blockwritelimit": {
            "description": "Maximum number of blocks written per task request (0=no limit)",
@@ -251,28 +251,10 @@ class CopySegmentation(Workflow):
         # data must exist after writing to dvid for downsampling
         seg_chunks_partitioned.persist()
 
-        node_service = retrieve_node_service(output_config["server"], output_config["uuid"], self.resource_server, self.resource_port, self.APPNAME)
-        try:
-            # if labelarray already exists set pyramid depth from that
-            info = node_service.get_typeinfo(output_config["segmentation-name"])
-            auto_depth = int(info["Extended"]["MaxDownresLevel"])
-            if options["pyramid-depth"] not in (0, auto_depth):
-                raise Exception("Can't set pyramid-depth. Data instance already exists, with depth {}".format(auto_depth))
-            options["pyramid-depth"] = int(info["Extended"]["MaxDownresLevel"])
-        except Exception:
-            # if no pyramid depth is specified, determine the max
-            if options["pyramid-depth"] == 0:
-                options["pyramid-depth"] = choose_pyramid_depth(bounding_box, 512)
+        self._create_output_instance_if_necessary(bounding_box) 
 
-            # create new label array with correct number of pyramid levels
-            depth = options["pyramid-depth"]
-            if depth == -1:
-                depth = 0
-            create_labelarray( output_config["server"],
-                               output_config["uuid"],
-                               output_config["segmentation-name"],
-                               depth,
-                               3*(output_config["block-size"],) )
+        # Overwrite pyramid depth in our config (in case the user specified -1 == 'automatic')
+        options["pyramid-depth"] = self._read_pyramid_depth()
 
         # write level 0
         self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
@@ -388,6 +370,55 @@ class CopySegmentation(Workflow):
         seg_chunks_partitioned = self.sparkdvid_input_context.map_voxels( partitions, input_config['segmentation-name'] )
         return seg_chunks_partitioned, bounding_box_zyx
         
+
+    def _create_output_instance_if_necessary(self, bounding_box):
+        """
+        If it doesn't exist yet, create it first with the user's specified
+        pyramid-depth, or with an automatically chosen depth.
+        """
+        output_config = self.config_data["data-info"]["output"]
+        options = self.config_data["options"]
+
+        # Create new segmentation instance first if necessary
+        if is_datainstance( output_config["server"],
+                            output_config["uuid"],
+                            output_config["segmentation-name"] ):
+            return
+
+        depth = options["pyramid-depth"]
+        if depth == -1:
+            # if no pyramid depth is specified, determine the max
+            depth = choose_pyramid_depth(bounding_box, 512)
+
+        # create new label array with correct number of pyramid levels
+        create_labelarray( output_config["server"],
+                           output_config["uuid"],
+                           output_config["segmentation-name"],
+                           depth,
+                           3*(output_config["block-size"],) )
+
+    def _read_pyramid_depth(self):
+        """
+        Read the MaxDownresLevel from it and verify that it matches our config for pyramid-depth.
+        Return the MaxDownresLevel.
+        """
+        output_config = self.config_data["data-info"]["output"]
+        options = self.config_data["options"]
+
+        node_service = retrieve_node_service( output_config["server"],
+                                              output_config["uuid"], 
+                                              self.resource_server,
+                                              self.resource_port,
+                                              self.APPNAME )
+
+        info = node_service.get_typeinfo(output_config["segmentation-name"])
+
+        existing_depth = int(info["Extended"]["MaxDownresLevel"])
+        if options["pyramid-depth"] not in (-1, existing_depth):
+            raise Exception("Can't set pyramid-depth to {}. Data instance '{}' already existed, with depth {}"
+                            .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
+        return existing_depth
+
 
     def _write_blocks(self, partitions, dataname, level):
         """Writes partition to specified dvid.
