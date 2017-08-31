@@ -1,15 +1,10 @@
 from __future__ import print_function, absolute_import
 from __future__ import division
-import sys
 import copy
 import json
 import logging
 from functools import reduce
 
-if sys.version_info.major > 2:
-    xrange = range
-
-import requests
 import numpy as np
 import h5py
 import pandas as pd
@@ -290,20 +285,8 @@ class CopySegmentation(Workflow):
             # persist for next level
             seg_chunks_partitioned.persist()
             
-            writelevel = level
-            """
-            # writes pyramid out into separate datatype names
-            dataname = dataname + "_" + str(level)
-            create_labelarray( output_config["server"],
-                               output_config["uuid"],
-                               dataname,
-                               0,
-                               3*(output_config["block-size"],) )
-            writelevel = 0
-            """
-
             #  write data new level
-            self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], writelevel)
+            self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], level)
 
     def _partition_with_roi(self, partition_dims):
         input_config = self.config_data["data-info"]["input"]
@@ -420,7 +403,7 @@ class CopySegmentation(Workflow):
         return existing_depth
 
 
-    def _write_blocks(self, partitions, dataname, level):
+    def _write_blocks(self, seg_chunks_partitioned, dataname, level):
         """Writes partition to specified dvid.
         """
         output_config = self.config_data["data-info"]["output"]
@@ -442,7 +425,6 @@ class CopySegmentation(Workflow):
             part, data = part_vol
             offset = part.get_offset()
             reloffset = part.get_reloffset()
-            print("!!", offset, reloffset, level)
             _, _, x_size = data.shape
             if x_size % blksize != 0:
                 # check if padded
@@ -481,7 +463,7 @@ class CopySegmentation(Workflow):
                     node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle, level)
                 logger.info("Put block {} in {:.3f} seconds".format(data_offset_zyx, put_timer.seconds))
 
-        partitions.foreach(write_blocks)
+        seg_chunks_partitioned.foreach(write_blocks)
        
     
     def _write_body_sizes( self, seg_chunks_partitioned ):
@@ -556,95 +538,3 @@ class CopySegmentation(Workflow):
                 f.create_dataset('labels', data=body_labels, chunks=True)
                 f.create_dataset('sizes', data=body_sizes, chunks=True)
         logger.info("Writing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
-
-##
-## FUNCTIONS BELOW THIS LINE ARE NOT USED (YET?)
-##
-
-#         def download_and_upload_chunk(subvolume):
-#             seg_array = download_segmentation_chunk(input_config, options_config, subvolume)
-#             upload_segmentation_chunk(output_config, options_config, subvolume, seg_array)
-# 
-#         distsubvolumes.values().map(download_and_upload_chunk).collect()
-
-def download_segmentation_chunk( input_config, options_config, subvolume ):
-    node_service = retrieve_node_service( input_config["server"], 
-                                          input_config["uuid"],
-                                          options_config["resource-server"],
-                                          options_config["resource-port"],
-                                          CopySegmentation.APPNAME )
-
-    start_zyx = subvolume.box[:3]
-    stop_zyx = subvolume.box[3:]
-    shape_zyx = np.array(stop_zyx) - start_zyx
-    
-    # get_labels3D() happens to work for both labelblk AND googlevoxels.
-    # (DVID/libdvid can't handle googlevoxels grayscale, but segmentation works.)
-    return node_service.get_labels3D( input_config["segmentation-name"], shape_zyx, start_zyx )
-
-def upload_segmentation_chunk( output_config, options_config, subvolume, seg_array ):
-    node_service = retrieve_node_service( output_config["server"], 
-                                          output_config["uuid"],
-                                          options_config["resource-server"],
-                                          options_config["resource-port"],
-                                          CopySegmentation.APPNAME )
-
-    start_zyx = subvolume.box[:3]
-    stop_zyx = subvolume.box[3:]
-    shape_zyx = np.array(stop_zyx) - start_zyx
-    assert shape_zyx == seg_array.shape
-    
-    return node_service.put_labels3D( output_config["segmentation-name"], seg_array, start_zyx )
-
-
-def get_input_instance_type(input_config):
-    r = requests.get('{dvid-server}/api/node/{uuid}/{segmentation-name}/info'
-                     .format(**input_config))
-    r.raise_for_status()       
-
-    info = r.json()
-    typename = info["Base"]["TypeName"]
-    assert typename in ("googlevoxels", "labelblk")
-    return typename
-
-
-if __name__ == "__main__":
-    from DVIDSparkServices.json_util import validate_and_inject_defaults
-    config = {
-        "data-info": {
-            "input": {
-                "server": "127.0.0.1:8000",
-                "uuid": "UUID1",
-                "segmentation-name": "labels",
-            },
-            "output": {
-                "server": "bergs-ws1:9000",
-                "uuid": "UUID2",
-                "segmentation-name": "labels",
-            },
-            "roi": {
-                "name": "section-26"
-            },
-        },
-        "options": {
-            "corespertask": 1,
-            "chunk-size": 512,
-    
-            "pyramid-depth": 0,
-            "blockwritelimit": 0,
-    
-            "resource-port": 0,
-            "resource-server": "",
-    
-            "log-collector-directory": "",
-            "log-collector-port": 0,
-    
-            "debug": False,
-        }
-    }
-
-    validate_and_inject_defaults(config, CopySegmentation.Schema)
-    print(json.dumps(config, indent=4, separators=(',', ': ')))
-
-
-
