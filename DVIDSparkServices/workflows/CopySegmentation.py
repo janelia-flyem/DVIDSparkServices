@@ -163,6 +163,12 @@ class CopySegmentation(Workflow):
             "type": "integer",
             "default": 0
         },
+        "body-size-reduce-by-key" : {
+            "description": "(For performance experiments) Whether to perform the body size computation via reduceByKey.",
+            "type": "boolean",
+            "default": False
+        },
+     
         "chunk-size": {
             "description": "Size of block to download in each thread",
             "type": "integer",
@@ -492,49 +498,65 @@ class CopySegmentation(Workflow):
             logger.info("Skipping body size calculation.")
             return
 
-        @self.collect_log(lambda *args: 'merge_label_counts')
-        def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
-            labels_A, counts_A = labels_and_counts_A
-            labels_B, counts_B = labels_and_counts_B
-            
-            # Fast path
-            if len(labels_A) == 0:
-                return (labels_B, counts_B)
-            if len(labels_B) == 0:
-                return (labels_A, counts_A)
-            
+        if self.config_data["options"]["body-size-reduce-by-key"]:
+            # Reduce using reduceByKey and simply concatenating the results
+            from operator import add
+            def transpose(labels_and_sizes):
+                labels, sizes = labels_and_sizes
+                return np.array( (labels, sizes) ).transpose()
+    
+            def reduce_to_array( pair_list_1, pair_list_2 ):
+                return np.concatenate( (pair_list_1, pair_list_2) )
+    
             with Timer() as timer:
-                series_A = pd.Series(index=labels_A, data=counts_A)
-                series_B = pd.Series(index=labels_B, data=counts_B)
-                combined = series_A.add(series_B, fill_value=0)
-            
-            logger = logging.getLogger(__name__)
-            logger.info("Merging label count lists of sizes {} + {} = {} took {} seconds"
-                        .format(len(labels_A), len(labels_B), len(combined), timer.seconds))
+                labels_and_sizes = ( seg_chunks_partitioned
+                                        .values()
+                                        .map( nonconsecutive_bincount )
+                                        .flatMap( transpose )
+                                        .reduceByKey( add )
+                                        .map( lambda pair: [pair] )
+                                        .treeReduce( reduce_to_array, depth=4 ) )
+    
+                body_labels, body_sizes = np.transpose( labels_and_sizes )
+            logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
+        
+        else: # Reduce by merging pandas dataframes
+            @self.collect_log(lambda *args: 'merge_label_counts')
+            def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
+                labels_A, counts_A = labels_and_counts_A
+                labels_B, counts_B = labels_and_counts_B
+                
+                # Fast path
+                if len(labels_A) == 0:
+                    return (labels_B, counts_B)
+                if len(labels_B) == 0:
+                    return (labels_A, counts_A)
+                
+                with Timer() as timer:
+                    series_A = pd.Series(index=labels_A, data=counts_A)
+                    series_B = pd.Series(index=labels_B, data=counts_B)
+                    combined = series_A.add(series_B, fill_value=0)
+                
+                logger = logging.getLogger(__name__)
+                logger.info("Merging label count lists of sizes {} + {} = {} took {} seconds"
+                            .format(len(labels_A), len(labels_B), len(combined), timer.seconds))
+    
+                return (combined.index, combined.values.astype(np.uint64))
 
-            return (combined.index, combined.values.astype(np.uint64))
-
-        def reduce_partition( partition_elements ):
-            # Almost like the builtin reduce() function, but wraps the result in a list,
-            # which is what RDD.mapPartitions() expects to see.
-            return [reduce(merge_label_counts, partition_elements, [(), ()])]
-
-        with Timer() as timer:
-            logger.info("Computing body sizes...")
-
-            # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
-            body_labels, body_sizes = ( seg_chunks_partitioned
-                                            .values()
-                                            .map( nonconsecutive_bincount )
-                                            .repartition( 16*16*self.num_worker_nodes() )
-                                            .mapPartitions( reduce_partition )
-                                            .repartition( 16*self.num_worker_nodes() ) # per-core (assuming 16 cores per node)
-                                            .mapPartitions( reduce_partition )
-                                            .repartition( self.num_worker_nodes() ) # per-worker
-                                            .mapPartitions( reduce_partition )
-                                            .reduce( merge_label_counts ) )
-        logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
-
+            def reduce_partition( partition_elements ):
+                # Almost like the builtin reduce() function, but wraps the result in a list,
+                # which is what RDD.mapPartitions() expects to see.
+                return [reduce(merge_label_counts, partition_elements, [(), ()])]
+    
+            with Timer() as timer:
+                logger.info("Computing body sizes...")
+     
+                # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
+                body_labels, body_sizes = ( seg_chunks_partitioned
+                                                .values()
+                                                .map( nonconsecutive_bincount )
+                                                .treeReduce( merge_label_counts, depth=4 ) )
+            logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
         min_size = self.config_data["options"]["body-size-minimum"]
         if min_size > 1:
             logger.info("Omitting body sizes below {} voxels...".format(min_size))
