@@ -118,7 +118,7 @@ class imagefileSrc(volumeSrc):
                     gspath = filename[5:]
                     bucketpath = gspath.split('/')
                     gbucketname = bucketpath[0]
-                    filename = string.join(bucketpath[1:], '/')
+                    filename = '/'.join(bucketpath[1:])
                     client = storage.Client()
                     gbucket = client.get_bucket(gbucketname)
                     gblob = gbucket.get_blob(filename)

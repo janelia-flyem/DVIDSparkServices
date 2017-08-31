@@ -11,7 +11,6 @@ import subprocess
 import os
 import json
 import time
-import string
 from collections import OrderedDict
 
 import numpy as np
@@ -68,10 +67,10 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     
             # Compare only DEBUG lines, ignore everything else.
             for line in result_lines:
-                if string.find(line, "DEBUG:") != -1:
+                if line.find("DEBUG:") != -1:
                     debug1.append(line)
             for line in correct_lines:
-                if string.find(line, "DEBUG:") != -1:
+                if line.find("DEBUG:") != -1:
                     debug2.append(line)
            
             if len(debug1) != len(debug2):

@@ -119,7 +119,6 @@ class IngestGrayscale(Workflow):
         from PIL import Image
         import numpy
         import os
-        import string
        
         iterslices = self.BLKSIZE * self.config_data["options"]["numblocklayers"]
 
@@ -135,7 +134,7 @@ class IngestGrayscale(Workflow):
             tempgs = basename.split('//')
             bucketpath = tempgs[1].split('/')
             gbucketname = bucketpath[0]
-            gpath = string.join(bucketpath[1:], '/')
+            gpath = '/'.join(bucketpath[1:])
 
 
         server = None
