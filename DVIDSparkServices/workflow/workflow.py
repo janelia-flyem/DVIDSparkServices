@@ -516,7 +516,7 @@ class Workflow(object):
             log_file = open('{}/{}-{}.log'.format(init_options["log-dir"], script_name, socket.gethostname()), 'w')
 
             try:
-                p = subprocess.Popen( list(map(bytes, [init_options["script-path"]] + init_options["script-args"])),
+                p = subprocess.Popen( list(map(str, [init_options["script-path"]] + init_options["script-args"])),
                                       stdout=log_file,
                                       stderr=STDOUT )
             except OSError as ex:
