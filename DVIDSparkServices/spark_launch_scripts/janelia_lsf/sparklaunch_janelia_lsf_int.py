@@ -34,9 +34,9 @@ from collections import namedtuple
 from email.mime.text import MIMEText
 
 if sys.version_info.major == 2:
-    from StringIO import StringIO as BytesIO
+    from StringIO import StringIO
 else:
-    from io import BytesIO
+    from io import StringIO
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices.workflow
@@ -69,7 +69,7 @@ def main():
             sys.exit(1)
         MASTER_BJOB_ID = os.environ['MASTER_BJOB_ID']        
     
-    driver_output = BytesIO()
+    driver_output = StringIO()
     
     json_header = {'content-type': 'app/json'}
     start = time.time()
@@ -100,7 +100,8 @@ def main():
                                             '-c',
                                             configfile ],
                                          stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT )
+                                         stderr=subprocess.STDOUT,
+                                         encoding='utf-8' )
         
         # Tee each line of output to both stdout and our driver_output file
         # (so we can send it to the network callback) 
@@ -121,7 +122,7 @@ def main():
         # record time
         duration = timedelta(seconds=int(time.time() - start))
         msg = "\n" + "Total Time: " + str(duration)  + '\n'
-        driver_output.write(msg.encode())
+        driver_output.write(msg)
         print(msg)
         
         if workflow_proc is None:
