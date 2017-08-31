@@ -45,7 +45,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
 
     try:
         correct = False
-        results = subprocess.check_output(job_command, shell=True)
+        results = subprocess.check_output(job_command, shell=True).decode()
         with open(temp_data_dir+"/results.txt", 'w') as fout:
             fout.write(results)
         
@@ -53,7 +53,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
         print("BAD RETURN CODE:", ex.returncode)
         # write results out anyway
         with open(temp_data_dir+"/results.txt", 'w') as fout:
-            fout.write(ex.output)
+            fout.write(ex.output.decode())
     else:
         # compare results to results in output
         result_lines = results.splitlines()
@@ -124,13 +124,13 @@ def init_dvid_database(test_dir, reuse_last=False):
     create_repo_command = "curl -X POST 127.0.0.1:8000/api/repos".split()
     
     # create first UUID
-    repoinfo = subprocess.check_output(create_repo_command)
+    repoinfo = subprocess.check_output(create_repo_command).decode()
     sys.stdout.write('\n')
     data = json.loads(repoinfo)
     uuid1 = data["root"]
     
     # create second UUID
-    repoinfo = subprocess.check_output(create_repo_command)
+    repoinfo = subprocess.check_output(create_repo_command).decode()
     sys.stdout.write('\n')
     data = json.loads(repoinfo)
     uuid2 = data["root"]
