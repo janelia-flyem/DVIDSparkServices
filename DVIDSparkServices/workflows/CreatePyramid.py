@@ -278,7 +278,7 @@ class CreatePyramid(DVIDWorkflow):
                                     xbindex = xiter*maxxrun/2 + iterx // BLKSIZE
                                
                                 startblock = True
-                                blockbuffer += block.tostring() #numpy.getbuffer(block)
+                                blockbuffer += block.tobytes()
                                 xrun += 1
 
 

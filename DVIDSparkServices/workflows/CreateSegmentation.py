@@ -425,10 +425,9 @@ class CreateSegmentation(DVIDWorkflow):
 
 
             # dump checksum
-            import numpy
             import hashlib
             md5 = hashlib.md5()
-            md5.update( numpy.getbuffer(label_volume) )
+            md5.update( label_volume )
             print("DEBUG: ", md5.hexdigest())
 
     @classmethod

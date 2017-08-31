@@ -89,7 +89,7 @@ class CompressedNumpyArray(object):
         assert subarray.nbytes <= cls.MAX_LZ4_BUFFER_SIZE, \
             "FIXME: This class doesn't support arrays whose slices are each > 1 GB"
         
-        return lz4.dumps( np.getbuffer(subarray) )
+        return lz4.compress( subarray )
         
     def deserialize(self):
         """Extract the numpy array"""
@@ -97,11 +97,11 @@ class CompressedNumpyArray(object):
         
         # See serialization of 1D and 0D arrays, above.
         if numpy_array.ndim <= 1:
-            buf = lz4.loads(self.serialized_subarrays[0])
+            buf = lz4.uncompress(self.serialized_subarrays[0])
             numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
         else:
             for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
-                buf = lz4.loads(serialized_subarray)
+                buf = lz4.uncompress(serialized_subarray)
                 subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
          
         if self.layout == 'F':

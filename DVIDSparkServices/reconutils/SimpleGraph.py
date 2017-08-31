@@ -8,14 +8,12 @@ class SimpleGraph(object):
             self.external_prog = ""
 
     def vol2string(self, label_chunk):
-        import numpy
-        data = numpy.getbuffer(label_chunk)
         x,y,z = label_chunk.shape
 
         # pack little endian 64-bit coordinate numbers
-        coord_data = '<QQQ'
+        coord_data = b'<QQQ'
         coord_bin = struct.pack(coord_data, x, y, z)
-        return str(coord_bin) + str(data)
+        return bytes(coord_bin) + label_chunk.tobytes()
 
     def string2graph(self, graphstr):
         offset = 0

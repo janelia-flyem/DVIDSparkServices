@@ -278,10 +278,10 @@ class IngestGrayscale(Workflow):
                         pass
 
                     # extract blocks from buffer and write to disk
-                    fout = open(filename, 'w')
+                    fout = open(filename, 'wb')
                     for iterx in range(0, xsize, blocksize):
                         block = blocks[:,:,iterx:iterx+blocksize].copy()
-                        fout.write(numpy.getbuffer(block))
+                        fout.write(block)
                     fout.close()
 
                 yblockssplit.foreach(write2disk) 
@@ -331,7 +331,7 @@ class IngestGrayscale(Workflow):
                                 xbindex = iterx // blocksize
                             
                             startblock = True
-                            blockbuffer += block.tostring() #numpy.getbuffer(block)
+                            blockbuffer += block.tobytes()
                             xrun += 1
 
                             if blocklimit > 0 and xrun >= blocklimit:
