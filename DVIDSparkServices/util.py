@@ -26,7 +26,7 @@ def Timer():
     start = time.time()
     yield result
     result.seconds = time.time() - start
-    result.timedelta = timedelta(result.seconds)
+    result.timedelta = timedelta(seconds=result.seconds)
 
 class _TimerResult(object):
     seconds = -1.0
