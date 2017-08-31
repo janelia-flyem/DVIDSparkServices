@@ -3,6 +3,7 @@ from __future__ import division
 import copy
 import json
 import logging
+import socket
 from functools import reduce
 
 import numpy as np
@@ -419,7 +420,7 @@ class CopySegmentation(Workflow):
         # default delimiter
         delimiter = 0
     
-        @self.collect_log(lambda part_data: part_data[0].get_offset())
+        @self.collect_log(lambda i: socket.gethostname() + '-write-blocks-' + str(level))
         def write_blocks(part_vol):
             logger = logging.getLogger(__name__)
             part, data = part_vol
