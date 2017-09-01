@@ -707,7 +707,6 @@ class Evaluate(object):
 
         gt_synapses = {}
         seg_synapses = {}
-        comparison_type_metrics["connection-matrix"] = {}
         if len(whole_volume_stats.seg_syn_connections) != 0:
             # grab non sparse synapse info if available
             # !! Assume first synapse file is the one used for the calculating the graph
@@ -738,93 +737,7 @@ class Evaluate(object):
                 comparison_type_metrics["connection-matrix2"]["table"] = tablestatsbm
                 # --- end compute new connectivity table ---
                 
-                
-                important_gtbodies = set() 
-                important_segbodies = {}
-                for gt, overlapset in gt_overlap.items():
-                    total = 0
-                    max_id = 0
-                    max_val = 0
-                    for seg, overlap in overlapset:
-                        total += overlap
-                        if overlap > max_val:
-                            max_val = overlap
-                            max_id = seg
-                    if total < importance_threshold:
-                        break
-                    # find size of seg body
-                    total2 = 0
-                    for seg2, overlap in seg_overlap[max_id]:
-                        total2 += overlap 
-                    
-                    # match body if over half of the seg is in over half of the GT
-                    if max_val > total // 2 and max_val > total2 // 2:
-                        important_gtbodies.add(gt)
-                        important_segbodies[max_id] = gt
-                
-                for pre, overlapset in tgt_synapses.items():
-                    if pre not in important_gtbodies:
-                        continue
-                    for (post, overlap) in overlapset:
-                        if post in important_gtbodies:
-                            if pre not in gt_synapses:
-                                gt_synapses[pre] = set()
-                            gt_synapses[pre].add((post, overlap))
-                
-                for pre, overlapset in tseg_synapses.items():
-                    if pre not in important_segbodies:
-                        continue
-                    for post, overlap in overlapset:
-                        if post in important_segbodies:
-                            if pre not in seg_synapses:
-                                seg_synapses[pre] = set()
-                            seg_synapses[pre].add((post, overlap))
-
-                # look for synapse points and compute graph measure (different cut-offs?)
-                # provide graph for matching bodies; provide stats at different thresholds
-                if len(gt_synapses) != 0:
-                    gt_connection_matrix = []
-                    gtpathway = {}
-                    segpathway = {}
-                    for gtbody, overlapset in gt_synapses.items():
-                        for (partner, overlap) in overlapset:
-                            gt_connection_matrix.append([gtbody, partner, overlap])
-                            gtpathway[(gtbody, partner)] = overlap
-                    seg_connection_matrix = []
-                    for segbody, overlapset in seg_synapses.items():
-                        for (partner, overlap) in overlapset:
-                            # add mapping to gt in matrix
-                            seg_connection_matrix.append([important_segbodies[segbody],
-                                segbody, important_segbodies[partner], partner, overlap])
-                            segpathway[(important_segbodies[segbody],
-                                important_segbodies[partner])] = overlap
-
-                    # load stats        
-                    comparison_type_metrics["connection-matrix"]["gt"] = gt_connection_matrix
-                    comparison_type_metrics["connection-matrix"]["seg"] = seg_connection_matrix
-                    # dump a few metrics to add to the master table
-                    # ignore connections <= threshold
-                    for threshold in [0, 5, 10]:
-                        recalled_gt = 0
-                        for connection, weight in gtpathway.items():
-                            if weight <= threshold:
-                                continue
-                            if connection in segpathway and segpathway[connection] > threshold:
-                                recalled_gt += 1
-                        false_conn = 0
-                        for connection, weight in segpathway.items():
-                            if weight <= threshold:
-                                continue
-                            if connection not in gtpathway or gtpathway[connection] < threshold:
-                                false_conn += 1
-                        if "thresholds" not in comparison_type_metrics["connection-matrix"]:
-                            comparison_type_metrics["connection-matrix"]["thresholds"] = []
-                        comparison_type_metrics["connection-matrix"]["thresholds"].append([false_conn, recalled_gt, threshold])
-                else:
-                    comparison_type_metrics["connection-matrix"]["gt"] = []
-                    comparison_type_metrics["connection-matrix"]["seg"] = []
-                    comparison_type_metrics["connection-matrix"]["thresholds"] = []
-
+               
         metric_results["types"] = comparison_type_metrics
         return metric_results
 
