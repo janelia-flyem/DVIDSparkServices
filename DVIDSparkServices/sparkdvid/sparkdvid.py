@@ -407,7 +407,7 @@ class sparkdvid(object):
                 else:
                     return node_service.get_gray3D( instance_name, partition.volsize, partition.offset, throttle, compress=False )
             return (partition, get_voxels())
-        return self.sc.parallelize(partitions, len(partitions)).map(mapper)
+        return self.sc.parallelize(partitions).map(mapper)
         
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):
         """Creates RDD of two subvolumes (same ROI but different datasets)
