@@ -12,7 +12,7 @@ import numpy
 # contains helper functions
 from .segstats import *
 from .morpho import *
-from metrics.connectivity import *
+from .metrics.connectivity import *
 
 class Evaluate(object):
     """Class to handle various aspects of segmentation evaluation workflow.
