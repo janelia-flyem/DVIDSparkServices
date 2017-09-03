@@ -3,6 +3,7 @@
 from __future__ import print_function, absolute_import
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.util import NumpyConvertingEncoder
 
 class EvaluateSeg(DVIDWorkflow):
     # schema for evaluating segmentation
@@ -255,7 +256,7 @@ class EvaluateSeg(DVIDWorkflow):
             debug = self.config_data["debug"]
 
         if debug:
-            print("DEBUG:", json.dumps(stats))
+            print("DEBUG:", json.dumps(stats, cls=NumpyConvertingEncoder))
 
         # TODO: !! maybe generate a summary view from stats, write that back
         # with simplify output, dump the more complicated file to keyvalue as well
@@ -277,7 +278,7 @@ class EvaluateSeg(DVIDWorkflow):
         fileloc = str(location + "--" + username + "--" + str(current_time))
 
         node_service.create_keyvalue(self.writelocation)
-        node_service.put(self.writelocation, fileloc, json.dumps(stats).encode('utf-8'))
+        node_service.put(self.writelocation, fileloc, json.dumps(stats, cls=NumpyConvertingEncoder).encode('utf-8'))
 
 
     @staticmethod

@@ -17,6 +17,7 @@ from functools import partial
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.util import NumpyConvertingEncoder
 
 class ComputeEdgeProbs(DVIDWorkflow):
     # schema for creating segmentation
@@ -330,10 +331,14 @@ class ComputeEdgeProbs(DVIDWorkflow):
             
             if "Id2" in element1:
                 # are edges
-                return FocusedProofreading.combine_edge_features(json.dumps(element1), json.dumps(element2), num_channels)
+                return FocusedProofreading.combine_edge_features( json.dumps(element1, cls=NumpyConvertingEncoder),
+                                                                  json.dumps(element2, cls=NumpyConvertingEncoder),
+                                                                  num_channels )
             else:
                 # are vertices
-                return FocusedProofreading.combine_vertex_features(json.dumps(element1), json.dumps(element2), num_channels)
+                return FocusedProofreading.combine_vertex_features( json.dumps(element1, cls=NumpyConvertingEncoder),
+                                                                    json.dumps(element2, cls=NumpyConvertingEncoder),
+                                                                    num_channels )
 
         features_combined = features.reduceByKey(combine_edge_features)
      
@@ -387,7 +392,9 @@ class ComputeEdgeProbs(DVIDWorkflow):
             res_list = []
             for edge_node_edge_node in edge_node_features:
                 edge_key, ((edge, node1), (edge_dummy, node2)) = edge_node_edge_node
-                weight = classifier.compute_prob(json.dumps(edge), json.dumps(node1), json.dumps(node2))
+                weight = classifier.compute_prob( json.dumps(edge, cls=NumpyConvertingEncoder),
+                                                  json.dumps(node1, cls=NumpyConvertingEncoder),
+                                                  json.dumps(node2, cls=NumpyConvertingEncoder) )
                 # node1, node2
                 res_list.append((int(node1["Id"]),int(node2["Id"]),int(node1["Weight"]),int(node2["Weight"]),int(edge["Weight"]),weight,edge["Loc1"], edge["Loc2"]))
 
@@ -422,7 +429,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
             with open(graph_filepath, 'w') as f:
                 self.workflow_entry_exit_printer.warn("Writing graph json to file:\n{}".format(graph_filepath))
                 import json
-                json.dump(graph, f, indent=4, separators=(',', ': '))
+                json.dump(graph, f, indent=4, separators=(',', ': '), cls=NumpyConvertingEncoder)
             self.workflow_entry_exit_printer.write_data("Wrote graph to disk") # write to logger after spark job
 
         UPLOAD_TO_DVID = True
@@ -439,7 +446,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
 
         if self.config_data["options"]["debug"]:
             import json
-            print("DEBUG:", json.dumps(graph))
+            print("DEBUG:", json.dumps(graph, cls=NumpyConvertingEncoder))
      
         # write dvid to specified file (if provided)
         if "output-file" in self.config_data["options"] and self.config_data["options"]["output-file"] != "":
@@ -452,7 +459,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
             npgraph = {}
             npgraph["edge_list"] = edgelist
             fout = open(filename, 'w')
-            fout.write(json.dumps(npgraph))
+            fout.write(json.dumps(npgraph, cls=NumpyConvertingEncoder))
 
     @staticmethod
     def dumpschema():

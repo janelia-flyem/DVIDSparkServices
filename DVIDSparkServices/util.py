@@ -11,6 +11,7 @@ import socket
 import logging
 from itertools import starmap
 from datetime import timedelta
+import json
 
 import psutil
 import numpy as np
@@ -19,6 +20,23 @@ from skimage.util import view_as_blocks
 
 logger = logging.getLogger(__name__)
 
+class NumpyConvertingEncoder(json.JSONEncoder):
+    """
+    Encoder that converts numpy arrays and scalars
+    into their pure-python counterparts.
+    
+    (No attempt is made to preserve bit-width information.)
+    
+    Usage:
+    
+        >>> d = {"a": np.arange(3, dtype=np.uint32)}
+        >>> json.dumps(d, cls=NumpyConvertingEncoder)
+        '{"a": [0, 1, 2]}'
+    """
+    def default(self, o):
+        if isinstance(o, (np.ndarray, np.number)):
+            return o.tolist()
+        return super().default(o)
 
 @contextlib.contextmanager
 def Timer():
