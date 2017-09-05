@@ -9,8 +9,15 @@ import sys
 import threading
 import traceback
 import logging
-
+import signal
 from io import StringIO
+
+# Ensure SystemExit is raised if terminated via SIGTERM (e.g. by bkill).
+signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))
+
+# Ensure SystemExit is raised if terminated via SIGUSR2.
+# (The LSF cluster scheduler uses SIGUSR2 if the job's -W time limit has been exceeded.)
+signal.signal(signal.SIGUSR2, lambda signum, stack_frame: sys.exit(0))
     
 formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
 handler = logging.StreamHandler(sys.stdout)
@@ -58,6 +65,7 @@ def _install_thread_excepthook():
 
 
 initialize_excepthook()
+
 
 # Activate compressed numpy pickling in all workflows
 from .sparkdvid.CompressedNumpyArray import activate_compressed_numpy_pickling
