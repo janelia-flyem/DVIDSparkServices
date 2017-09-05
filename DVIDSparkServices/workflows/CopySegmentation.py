@@ -299,18 +299,22 @@ class CopySegmentation(Workflow):
                 return partnew, volume
             downsampled_array = downsampled_array.map(repartition_down)
             
-            # repartition downsampled data (unpersist previous level)
+            # repartition downsampled data
             schema = partitionSchema(partition_dims, padding=output_config["block-size"])
-            seg_chunks_partitioned = schema.partition_data(downsampled_array)
+            downsampled_chunks_partitioned = schema.partition_data(downsampled_array)
 
             # persist for next level
-            seg_chunks_partitioned.persist()
+            downsampled_chunks_partitioned.persist()
 
             # FIXME: Instead of interleaving compute and write operations,
             #        let's force the entire compute first, then write, for easier benchmarking of those two steps.
             with Timer() as timer:
-                seg_chunks_partitioned.count()
+                downsampled_chunks_partitioned.count()
             logger.info(f"Computing scale {level} took {timer.timedelta}")
+            
+            # Unpersist previous level
+            seg_chunks_partitioned.unpersist()
+            seg_chunks_partitioned = downsampled_chunks_partitioned
             
             #  write data new level
             with Timer() as timer:
