@@ -271,6 +271,10 @@ class CopySegmentation(Workflow):
             self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
         logger.info(f"Writing entire volume at scale 0 took {timer.timedelta}")
 
+        # Forcibly update DVID's extents metadata
+        # TODO: Soon DVID will do this for us, and we can remove this step...
+        self._set_output_extents(bounding_box)
+
         # Write body sizes to JSON
         self._write_body_sizes( seg_chunks_partitioned )
         
@@ -427,6 +431,34 @@ class CopySegmentation(Workflow):
                             .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
         return existing_depth
 
+    def _set_output_extents(self, bounding_box):
+        # For now, the only way to set extents is by fetching the min and max
+        # blocks and re-writing them with the non-block get_labels method (the /raw endpoint).
+        output_config = self.config_data["data-info"]["output"]
+        node_service = retrieve_node_service( output_config["server"],
+                                              output_config["uuid"], 
+                                              self.resource_server,
+                                              self.resource_port,
+                                              self.APPNAME )
+
+        min_block_start = bounding_box[0]
+        max_block_start = bounding_box[1] - (64,64,64)
+
+        min_block = node_service.get_labels3D( output_config["segmentation-name"],
+                                               (64,64,64),
+                                               min_block_start )
+
+        max_block = node_service.get_labels3D( output_config["segmentation-name"],
+                                               (64,64,64),
+                                               max_block_start )
+
+        node_service.put_labels3D( output_config["segmentation-name"],
+                                   min_block,
+                                   min_block_start )
+
+        node_service.put_labels3D( output_config["segmentation-name"],
+                                   max_block,
+                                   max_block_start )
 
     def _write_blocks(self, seg_chunks_partitioned, dataname, level):
         """Writes partition to specified dvid.
