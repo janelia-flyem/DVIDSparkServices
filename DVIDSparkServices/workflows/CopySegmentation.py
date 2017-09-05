@@ -10,6 +10,9 @@ import numpy as np
 import h5py
 import pandas as pd
 
+
+from pyspark import StorageLevel
+
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -258,7 +261,7 @@ class CopySegmentation(Workflow):
         options["pyramid-depth"] = self._read_pyramid_depth()
 
         # data must exist after writing to dvid for downsampling
-        seg_chunks_partitioned.persist()
+        seg_chunks_partitioned.persist(StorageLevel.MEMORY_AND_DISK)
 
         # FIXME: Instead of interleaving read and write operations,
         #        let's force the entire read first, then write, for easier benchmarking of those two steps.
@@ -304,7 +307,7 @@ class CopySegmentation(Workflow):
             downsampled_chunks_partitioned = schema.partition_data(downsampled_array)
 
             # persist for next level
-            downsampled_chunks_partitioned.persist()
+            downsampled_chunks_partitioned.persist(StorageLevel.MEMORY_AND_DISK)
 
             # FIXME: Instead of interleaving compute and write operations,
             #        let's force the entire compute first, then write, for easier benchmarking of those two steps.
