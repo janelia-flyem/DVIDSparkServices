@@ -19,6 +19,7 @@ is backed by a clustered DB.
 
 """
 from __future__ import division
+import time
 
 import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
@@ -26,7 +27,7 @@ from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 import logging
 logger = logging.getLogger(__name__)
 
-from libdvid import SubstackZYX
+from libdvid import SubstackZYX, DVIDException
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
@@ -406,7 +407,18 @@ class sparkdvid(object):
                     return node_service.get_labels3D( instance_name, partition.volsize, partition.offset, throttle, compress=True )
                 else:
                     return node_service.get_gray3D( instance_name, partition.volsize, partition.offset, throttle, compress=False )
-            return (partition, get_voxels())
+
+            try:
+                return (partition, get_voxels())
+            except DVIDException as ex:
+                if '503' in ex.message or '504' in ex.message:
+                    # If our volume is on the cloud and VMs are still warming up,
+                    # Just wait 5 more minutes and try again.
+                    time.sleep(5*60)
+                    return (partition, get_voxels())
+                else:
+                    raise
+
         return self.sc.parallelize(partitions).map(mapper)
         
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):
