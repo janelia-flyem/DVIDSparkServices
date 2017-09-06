@@ -12,6 +12,10 @@ import logging
 import signal
 from io import StringIO
 
+# Segfaults will trigger a traceback dump
+import faulthandler
+faulthandler.enable()
+
 # Ensure SystemExit is raised if terminated via SIGTERM (e.g. by bkill).
 signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))
 
