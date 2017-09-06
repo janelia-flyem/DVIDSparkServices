@@ -6,15 +6,61 @@ if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_
     tempfile.tempdir = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
 
 import sys
+from os import makedirs
 import threading
 import traceback
 import logging
 import signal
 from io import StringIO
+import socket
+from pathlib import Path
+import glob
+import faulthandler
+from subprocess import Popen, PIPE
 
 # Segfaults will trigger a traceback dump
-import faulthandler
-faulthandler.enable()
+FAULTHANDLER_TEE, FAULTHANDLER_OUTPUT_DIR = None, None
+def setup_faulthandler():
+    """
+    Enable the faulthandler module so that it dumps tracebacks.
+    We use the unix 'tee' command send it to both stderr AND a file on disk.
+    """
+    global FAULTHANDLER_TEE
+    global FAULTHANDLER_OUTPUT_DIR
+
+    output_dir = os.environ.get("DVIDSPARKSERVICES_FAULTHANDLER_OUTPUT_DIR", "")
+    if not output_dir:
+        output_dir = "/tmp"
+
+    makedirs(output_dir, exist_ok=True)
+    FAULTHANDLER_OUTPUT_DIR = Path(output_dir) 
+    tee_file_output_path = FAULTHANDLER_OUTPUT_DIR / ('_FAULTHANDLER_OUTPUT_' + socket.gethostname() + '.log')
+
+    tee_proc = Popen(f'tee -a {tee_file_output_path}', shell=True, stdin=PIPE)
+    faulthandler.enable(tee_proc.stdin)
+
+# Always enable faulthandler (so that spark tasks use it automatically)
+setup_faulthandler()
+
+# Cleanup function is intended for Workflow
+def cleanup_all_faulthandler_files():
+    """
+    Disable the faulthandler module, and delete the on-disk log file if it's empty.
+    """
+    # Disable it in our own process so it no longer writes to the file for the driver
+    # (We assume that all spark workers have already exited, too)
+    faulthandler.disable()
+    
+    # May as well re-enable it for stderr output, at least.
+    faulthandler.enable()
+
+    if FAULTHANDLER_TEE:
+        FAULTHANDLER_TEE.terminate()
+    
+    # Remove the files if they're empty.
+    for path in glob.glob(str( FAULTHANDLER_OUTPUT_DIR / '_FAULTHANDLER_OUTPUT_*' )):
+        if os.stat(path).st_size == 0:
+            os.unlink(path)
 
 # Ensure SystemExit is raised if terminated via SIGTERM (e.g. by bkill).
 signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))

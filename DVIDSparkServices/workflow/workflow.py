@@ -16,6 +16,7 @@ import uuid
 import socket
 
 from quilted.filelock import FileLock
+from DVIDSparkServices import cleanup_all_faulthandler_files
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
@@ -24,8 +25,6 @@ import logging
 from logcollector.client_utils import HTTPHandlerWithExtraData, make_log_collecting_decorator, noop_decorator
 
 logger = logging.getLogger(__name__)
-
-    
 
 try:
     #driver_ip_addr = '127.0.0.1'
@@ -283,9 +282,7 @@ class Workflow(object):
 
         log_dir = self.relpath_to_abspath(log_dir)
         self.config_data["options"]["log-collector-directory"] = log_dir
-
-        if self.config_data["options"]["log-collector-port"]:
-            mkdir_p(log_dir)
+        mkdir_p(log_dir)
 
 
     def collect_log(self, task_key_factory=lambda *args, **kwargs: args[0]):
@@ -449,7 +446,10 @@ class Workflow(object):
             self._kill_initialization_procs(worker_init_pids, driver_init_pid)
             self._kill_resource_server(resource_server_proc)
             self._kill_logserver(handler, log_server_proc)
-            
+
+        # Only the workflow calls cleanup_all_faulthandler_files, once all spark workers have exited
+        cleanup_all_faulthandler_files()
+
     def run_on_each_worker(self, func):
         """
         Run the given function once per worker node.
