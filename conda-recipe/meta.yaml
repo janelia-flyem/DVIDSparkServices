@@ -20,11 +20,11 @@ build:
 
 requirements:
   build:
-    - python >=2.7
+    - python >=3.6
     - python {{PY_VER}}*
     - setuptools
   run:
-    - python >=2.7
+    - python >=3.6
     - python {{PY_VER}}*
     - jsonschema
     - numpy
