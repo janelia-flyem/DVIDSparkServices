@@ -439,7 +439,8 @@ class Workflow(object):
         worker_init_pids, driver_init_pid = self._run_worker_initializations()
         
         try:
-            self.execute()
+            with self.workflow_entry_exit_printer:
+                self.execute()
         finally:
             sys.stderr.flush()
             
