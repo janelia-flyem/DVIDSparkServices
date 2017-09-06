@@ -70,15 +70,21 @@ def get_job_hostname(job_id):
     If it is running on more than one host, the first hostname listed by bjobs is returned.
     (For 'sparkbatch' jobs, the first host is the master.)
     """
-    bjobs_output = subprocess.check_output('bjobs -X -noheader -o EXEC_HOST {}'.format(job_id), shell=True).decode()
+    bjobs_output = subprocess.check_output(f'bjobs -X -noheader -o EXEC_HOST {job_id}', shell=True).decode()
     hostname = bjobs_output.split(':')[0].split('*')[-1].strip()
     return hostname
 
-def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
-    num_nodes = num_spark_workers + 1 # Add one for master
-    num_slots = num_nodes * 16
-    max_runtime_minutes = int(max_hours * 60)
-    
+def get_job_submit_time(job_id):
+    """
+    Return the job's submit_time as a datetime object.
+    """
+    bjobs_output = subprocess.check_output(f'bjobs -X -noheader -o SUBMIT_TIME {job_id}', shell=True).strip().decode()
+    # Example:
+    # Sep  6 13:10:09 2017
+    submit_time = datetime.strptime(f"{bjobs_output} {time.localtime().tm_zone}", "%b %d %H:%M:%S %Y %Z")
+    return submit_time
+
+def setup_environment(num_spark_workers, config_file, job_log_dir):
     # Add directories to PATH
     PATH_DIRS = SPARK_HOME + "/bin:" + SPARK_HOME + "/sbin"
 
@@ -101,6 +107,50 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
     # Some DVIDSparkServices functions need this information,
     # and it isn't readily available via any PySpark API.    
     os.environ["NUM_SPARK_WORKERS"] = str(num_spark_workers)
+
+    # DVIDSparkServices will drop faulthandler traceback logs here.
+    os.environ["DVIDSPARKSERVICES_FAULTHANDLER_OUTPUT_DIR"] = abspath(job_log_dir)
+
+
+def execute_bsub_command(bsub_cmd, nickname, wait_for_start=True):
+    print(bsub_cmd + "\n")
+    bsub_output = subprocess.check_output(bsub_cmd, shell=True).decode()
+    print(bsub_output)
+    
+    job_id, queue_name = parse_bsub_output(bsub_output)
+
+    submit_time = get_job_submit_time(job_id)
+    submit_timestamp = int(submit_time.timestamp())
+    rtm_url = ( f"http://lsf-rtm/cacti/plugins/grid/grid_bjobs.php"
+                f"?action=viewjob"
+                f"&tab=hostgraph"
+                f"&clusterid=1"
+                f"&indexid=0"
+                f"&jobid={job_id}"
+                f"&submit_time={submit_timestamp}" )
+
+    print ("Host graphs:")
+    print(rtm_url + "\n")
+
+    if not wait_for_start:
+        return job_id, ''
+
+    print(f"Waiting for {nickname} to start...")
+    wait_times = [1.0, 5.0, 10.0]
+    hostname = get_job_hostname(job_id)
+    while hostname == '-':
+        time.sleep(wait_times[0])
+        if len(wait_times) > 1:
+            wait_times = wait_times[1:]
+        hostname = get_job_hostname(job_id)
+
+    return job_id, hostname, queue_name
+
+
+def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
+    num_nodes = num_spark_workers + 1 # Add one for master
+    num_slots = num_nodes * 16
+    max_runtime_minutes = int(max_hours * 60)
     
     cluster_launch_bsub_cmd = \
         ( "bsub"
@@ -113,24 +163,10 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
         ).format(**locals())
      
     print("Launching spark cluster:")
-    print(cluster_launch_bsub_cmd + "\n")
-    bsub_output = subprocess.check_output(cluster_launch_bsub_cmd, shell=True).decode()
-    print(bsub_output)
-    
-    master_job_id, queue_name = parse_bsub_output(bsub_output)
-    assert queue_name == 'spark', "Unexpected queue name for master job: {}".format(queue_name)
+    master_job_id, master_hostname, queue_name = execute_bsub_command(cluster_launch_bsub_cmd, 'master')
+    assert queue_name == 'spark', f"Unexpected queue name for master job: {queue_name}"
+    print(f'...master ({master_job_id}) is running on http://{master_hostname}:8080\n')
 
-    print("Waiting for master to start...")
-    wait_times = [1.0, 5.0, 10.0]
-    master_hostname = get_job_hostname(master_job_id)
-    while master_hostname == '-':
-        time.sleep(wait_times[0])
-        if len(wait_times) > 1:
-            wait_times = wait_times[1:]
-        master_hostname = get_job_hostname(master_job_id)
-
-    print('...master is running on http://{}:8080\n'.format(master_hostname))
-    
     return master_job_id, master_hostname
 
 def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log_dir, max_hours, job_name, workflow_name, config_file):
@@ -154,9 +190,10 @@ def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log
         ).format( **locals() )
     
     print("Launching spark driver:")
-    print(driver_submit_cmd + "\n")
-    bsub_output = subprocess.check_output(driver_submit_cmd, shell=True).decode()
-    print(bsub_output)
+    job_id, hostname, queue_name = execute_bsub_command(driver_submit_cmd, 'driver')
+    print(f'...driver ({job_id}) is running in queue "{queue_name}" on http://{hostname}:4040\n')
+
+    return job_id, hostname
 
 
 def main():
@@ -173,6 +210,8 @@ def main():
     if not args.job_name:
         config_name = splitext(basename(args.config_file))[0]
         args.job_name = config_name + '-{:%Y%m%d.%H%M%S}'.format(datetime.now())
+
+    setup_environment(args.num_spark_workers, args.config_file, args.job_log_dir)
     
     master_job_id, master_hostname = launch_spark_cluster(args.job_name, args.num_spark_workers, args.max_hours, args.job_log_dir)
 
