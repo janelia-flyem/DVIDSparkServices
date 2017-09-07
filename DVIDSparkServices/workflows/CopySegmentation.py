@@ -19,7 +19,7 @@ from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from libdvid.util.roi_utils import copy_roi, RoiInfo
-from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
+from DVIDSparkServices.reconutils.downsample import downsample_labels_3d
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes, nonconsecutive_bincount
 #from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
 
@@ -286,7 +286,7 @@ class CopySegmentation(Workflow):
             # downsample seg partition
             def downsample(part_vol):
                 part, vol = part_vol
-                vol = downsample_3Dlabels(vol, 1)[0]
+                vol = downsample_labels_3d(vol, (2,2,2))
                 return (part, vol)
             downsampled_array = seg_chunks_partitioned.map(downsample)
 
