@@ -16,7 +16,7 @@ import uuid
 import socket
 
 from quilted.filelock import FileLock
-from DVIDSparkServices import cleanup_all_faulthandler_files
+from DVIDSparkServices import cleanup_faulthandler
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
@@ -448,8 +448,9 @@ class Workflow(object):
             self._kill_resource_server(resource_server_proc)
             self._kill_logserver(handler, log_server_proc)
 
-        # Only the workflow calls cleanup_all_faulthandler_files, once all spark workers have exited
-        cleanup_all_faulthandler_files()
+            # Only the workflow calls cleanup_faulthandler, once all spark workers have exited
+            # (All spark workers share the same output file for faulthandler.)
+            cleanup_faulthandler()
 
     def run_on_each_worker(self, func):
         """

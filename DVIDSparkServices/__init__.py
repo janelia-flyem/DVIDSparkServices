@@ -19,48 +19,60 @@ import faulthandler
 from subprocess import Popen, PIPE
 
 # Segfaults will trigger a traceback dump
-FAULTHANDLER_TEE, FAULTHANDLER_OUTPUT_DIR = None, None
+FAULTHANDLER_TEE, FAULTHANDLER_OUTPUT_PATH = None, None
 def setup_faulthandler():
     """
     Enable the faulthandler module so that it dumps tracebacks.
     We use the unix 'tee' command send it to both stderr AND a file on disk.
     """
     global FAULTHANDLER_TEE
-    global FAULTHANDLER_OUTPUT_DIR
+    global FAULTHANDLER_OUTPUT_PATH
 
     output_dir = os.environ.get("DVIDSPARKSERVICES_FAULTHANDLER_OUTPUT_DIR", "")
     if not output_dir:
         output_dir = "/tmp"
 
     makedirs(output_dir, exist_ok=True)
-    FAULTHANDLER_OUTPUT_DIR = Path(output_dir) 
-    tee_file_output_path = FAULTHANDLER_OUTPUT_DIR / ('_FAULTHANDLER_OUTPUT_' + socket.gethostname() + '.log')
 
-    tee_proc = Popen(f'tee -a {tee_file_output_path}', shell=True, stdin=PIPE)
-    faulthandler.enable(tee_proc.stdin)
+    # All worker processes will send faulthandler output to the same place,
+    # but in practice the output shouldn't be too jumbled -- they are unlikely
+    # to segfault at exactly the same moment.
+    FAULTHANDLER_OUTPUT_PATH = output_dir + '/_FAULTHANDLER_OUTPUT_.log'
 
-# Always enable faulthandler (so that spark tasks use it automatically)
+    FAULTHANDLER_TEE = Popen(f'tee -a {FAULTHANDLER_OUTPUT_PATH}', shell=True, stdin=PIPE)
+    faulthandler.enable(FAULTHANDLER_TEE.stdin)
+
+# We enable faulthandler here, as soon as DVIDSparkServices is imported,
+# so that all spark tasks use it automatically.
 setup_faulthandler()
 
 # Cleanup function is intended for Workflow
-def cleanup_all_faulthandler_files():
+def cleanup_faulthandler():
     """
     Disable the faulthandler module, and delete the on-disk log file if it's empty.
+    Only call this from the driver, just before it exits.
     """
-    # Disable it in our own process so it no longer writes to the file for the driver
-    # (We assume that all spark workers have already exited, too)
+    # Disable before closing the file handle.
     faulthandler.disable()
     
     # May as well re-enable it for stderr output, at least.
     faulthandler.enable()
 
+    # Close the file handle
     if FAULTHANDLER_TEE:
-        FAULTHANDLER_TEE.terminate()
+        FAULTHANDLER_TEE.stdin.close()
+        FAULTHANDLER_TEE.wait()
     
-    # Remove the files if they're empty.
-    for path in glob.glob(str( FAULTHANDLER_OUTPUT_DIR / '_FAULTHANDLER_OUTPUT_*' )):
-        if os.stat(path).st_size == 0:
-            os.unlink(path)
+    # Remove the file if it's empty.
+    if os.path.exists(FAULTHANDLER_OUTPUT_PATH):
+        if os.stat(FAULTHANDLER_OUTPUT_PATH).st_size == 0:
+            os.unlink(FAULTHANDLER_OUTPUT_PATH)
+        else:
+            sys.stderr.write("*****************************************\n")
+            sys.stderr.write("SEGFAULT DETECTED IN ONE OR MORE WORKERS:\n")
+            with open(FAULTHANDLER_OUTPUT_PATH, 'r') as f:
+                sys.stderr.write(f.read())
+            sys.stderr.write("*****************************************\n")
 
 # Ensure SystemExit is raised if terminated via SIGTERM (e.g. by bkill).
 signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))
