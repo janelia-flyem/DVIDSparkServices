@@ -111,8 +111,8 @@ class partitionSchema(object):
             Each specified partition dimension should be a multiple of padding (if specified).
         """
 
-        self.partdims = partdims
-        self.volume_size = volume_size
+        self.partdims = PartitionDims(*partdims)
+        self.volume_size = VolumeSize(*volume_size)
         self.blank_delimiter = blank_delimiter
         self.enablemask = enablemask
         self.padding = padding

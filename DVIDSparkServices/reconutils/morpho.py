@@ -403,7 +403,6 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
     
     downsample_factor:
         How much to downsample the result:
-            0 - "auto", i.e. pick a factor based on how large the final bounding box will be
             1 - no downsampling (if possible, considering max_combined_mask_size)
             2+ - Downsample the result by at least 2x,3x, etc.
 

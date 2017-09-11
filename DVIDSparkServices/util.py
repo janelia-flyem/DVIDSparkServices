@@ -431,7 +431,9 @@ except ImportError:
 def blockwise_boxes( bounding_box, block_shape ):
     """
     Generator.
-    Divide the given global bounding box into blocks and iterate over the block boxes.
+
+    Divides the given global bounding box into blocks and iterate over the block boxes.
+    The generated block boxes are aligned to a grid in global coordinates (starting at (0,0,...)).
     Block boxes on the edge of the global bounding box will be clipped so as not to
     extend outside the global bounding box.
     """
