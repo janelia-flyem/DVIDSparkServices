@@ -20,7 +20,7 @@
         "corespertask": 1,
 
         "chunk-size": 128,
-        "blockwritelimit": 100,
+        "fetch-block-shape": [6400, 64, 64],
         "offset": [0,0,0],
         "pyramid-depth": 0,
 
