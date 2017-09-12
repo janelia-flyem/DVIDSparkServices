@@ -127,17 +127,24 @@ def boxlist_to_json( bounds_list, indent=0 ):
     # The 'json' module doesn't have nice pretty-printing options for our purposes,
     # so we'll do this ourselves.
     from io import StringIO
-    from os import SEEK_CUR
 
     buf = StringIO()
     buf.write('    [\n')
+    
+    bounds_list, last_item = bounds_list[:-1], bounds_list[-1:]
+    
     for bounds_zyx in bounds_list:
         start_str = '[{}, {}, {}]'.format(*bounds_zyx[0])
         stop_str  = '[{}, {}, {}]'.format(*bounds_zyx[1])
         buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ],\n')
 
-    # Remove last comma, close list
-    buf.seek(-2, SEEK_CUR)
+    # Write last entry
+    if last_item:
+        last_item = last_item[0]
+        start_str = '[{}, {}, {}]'.format(*last_item[0])
+        stop_str  = '[{}, {}, {}]'.format(*last_item[1])
+        buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ]')
+
     buf.write('\n')
     buf.write(' '*indent + ']')
 
