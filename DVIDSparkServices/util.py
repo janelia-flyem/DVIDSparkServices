@@ -20,6 +20,19 @@ from skimage.util import view_as_blocks
 
 logger = logging.getLogger(__name__)
 
+def cpus_per_worker():
+    return 16
+
+def num_worker_nodes():
+    if "NUM_SPARK_WORKERS" not in os.environ:
+        # See sparklaunch_janelia_lsf
+        raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
+
+    num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
+    num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
+    return num_workers
+    
+
 class NumpyConvertingEncoder(json.JSONEncoder):
     """
     Encoder that converts numpy arrays and scalars

@@ -17,7 +17,7 @@ import socket
 
 from quilted.filelock import FileLock
 from DVIDSparkServices import cleanup_faulthandler
-from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running
+from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
@@ -200,15 +200,6 @@ class Workflow(object):
         self._execution_uuid = str(uuid.uuid1())
         self._worker_task_id = 0
 
-    def num_worker_nodes(self):
-        if "NUM_SPARK_WORKERS" not in os.environ:
-            # See sparklaunch_janelia_lsf
-            raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
-
-        num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
-        num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
-        return num_workers
-        
 
     def _init_spark(self, appname):
         """Internal function to setup spark context
@@ -471,7 +462,7 @@ class Workflow(object):
             result = func()
             return (socket.gethostname(), result)
 
-        num_workers = self.num_worker_nodes()
+        num_workers = num_worker_nodes()
         
         # It would be nice if we only had to schedule N tasks for N workers,
         # but we couldn't ensure that tasks are hashed 1-to-1 onto workers.
