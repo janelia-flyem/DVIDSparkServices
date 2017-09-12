@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 
 from libdvid import SubstackZYX, DVIDException
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap
+from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
-    
+
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
     """Create a DVID node service object"""
@@ -241,6 +241,31 @@ class sparkdvid(object):
 
         # Shouldn't get here
         raise RuntimeError('Unknown partition_method: {}'.format( partition_method ))
+
+    def parallelize_bounding_box( self,
+                                  instance_name,
+                                  bounding_box_zyx,
+                                  block_shape_zyx,
+                                  target_partition_size_voxels ):
+        """
+        Create an RDD for the given data instance (of either grayscale, labelblk, or labelarray),
+        within the given bounding_box (start_zyx, stop_zyx) and split into blocks of the given shape.
+        The RDD parallelism will be set to include approximately target_partition_size_voxels in total.
+        """
+        partitions = [volumePartition(box[0], box[0], (0,0,0), box[1]-box[0]) for box in blockwise_boxes( bounding_box_zyx, block_shape_zyx )]
+        
+        # Choose an RDD parallelism (partitioning) that results in no more than 2GB per partition.
+        # (Sadly, the word 'partition' is overloaded in this code base...)
+        block_size_voxels = np.prod(block_shape_zyx)
+
+        rdd_partition_length = target_partition_size_voxels // block_size_voxels
+        num_rdd_partitions = int( np.ceil( len(partitions) / rdd_partition_length ) )
+        num_rdd_partitions = max(num_rdd_partitions, cpus_per_worker() * num_worker_nodes())
+
+        # RDD: (volumePartition, data)
+        seg_chunks_partitioned = self.map_voxels( partitions, instance_name, num_rdd_partitions )
+        return seg_chunks_partitioned
+
         
     def checkpointRDD(self, rdd, checkpoint_loc, enable_rollback):
         """Defines functionality for checkpointing an RDD.
@@ -373,7 +398,7 @@ class sparkdvid(object):
             return get_labels()
         return distrois.mapValues(mapper)
 
-    def map_voxels(self, partitions, instance_name):
+    def map_voxels(self, partitions, instance_name, num_rdd_partitions=None):
         """
         Given a list of volumePartition objects, return an RDD of (partition, volume_data).
         """
@@ -419,7 +444,10 @@ class sparkdvid(object):
                 else:
                     raise
 
-        return self.sc.parallelize(partitions, len(partitions)).map(mapper)
+        if num_rdd_partitions is None:
+            num_rdd_partitions = len(partitions)
+
+        return self.sc.parallelize(partitions, num_rdd_partitions).map(mapper)
 
         
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):

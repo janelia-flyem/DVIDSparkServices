@@ -292,21 +292,18 @@ class CopySegmentation(Workflow):
         
         bounding_box_xyz = np.array([bb_config["start"], bb_config["stop"]])
         bounding_box_zyx = bounding_box_xyz[:,::-1]
-        partitions = [volumePartition(box[0], box[0], (0,0,0), box[1]-box[0]) for box in blockwise_boxes( bounding_box_zyx, partition_shape_zyx )]
-        
-        # RDD: (volumePartition, data)
-        seg_chunks_partitioned = self.sparkdvid_input_context.map_voxels( partitions, input_config['segmentation-name'] )
-        
-        # Choose an RDD parallelism (partitioning) that results in no more than 2GB per partition.
-        # (Sadly, the word 'partition' is overloaded in this code base...)
-        TARGET_PARTITION_SIZE_BYTES = 2 * (2**30)
-        block_size_bytes = np.uint64().nbytes * np.prod(partition_shape_zyx)
-        rdd_partition_length = TARGET_PARTITION_SIZE_BYTES // block_size_bytes
-        num_rdd_partitions = int( np.ceil( len(partitions) / rdd_partition_length ) )
-        num_rdd_partitions = max(num_rdd_partitions, 16*self.num_worker_nodes())
 
-        seg_chunks_partitioned = seg_chunks_partitioned.repartition(num_rdd_partitions)
+        # Aim for 2 GB RDD partitions
+        GB = 2**30
+        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+        seg_chunks_partitioned = \
+            self.sparkdvid_input_context.parallelize_bounding_box( input_config['segmentation-name'],
+                                                                   bounding_box_zyx,
+                                                                   partition_shape_zyx,
+                                                                   target_partition_size_voxels )
+
         return seg_chunks_partitioned, bounding_box_zyx, partition_shape_zyx
+
 
     def _create_output_instance_if_necessary(self, bounding_box):
         """
