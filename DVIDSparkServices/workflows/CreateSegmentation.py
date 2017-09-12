@@ -8,14 +8,9 @@ the results together.
 """
 from __future__ import print_function, absolute_import
 from __future__ import division
-import os
-import sys
-import uuid
+import copy
 import json
-import subprocess
-import textwrap
 import numpy as np
-import DVIDSparkServices
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -24,15 +19,12 @@ from quilted.h5blockstore import H5BlockStore
 
 class CreateSegmentation(DVIDWorkflow):
     # schema for creating segmentation
-    Schema = textwrap.dedent("""\
+    DvidInfoSchema = \
     {
-      "$schema": "http://json-schema.org/schema#",
-      "title": "Service to create image segmentation from grayscale data",
-      "type": "object",
-      "properties": {
-        "dvid-info" : {
-          "type": "object",
-          "properties": {
+        "type": "object",
+        "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name"],
+        "additionalProperties": True,
+        "properties": {
             "dvid-server": {
               "description": "location of DVID server",
               "type": "string",
@@ -74,107 +66,117 @@ class CreateSegmentation(DVIDWorkflow):
               "type": "string",
               "minLength": 1
             }
-          },
-          "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name"],
-          "additionalProperties": true
-        },
-        "options" : {
-          "type": "object",
-          "properties": {
-            "segmentor": {
-              "description": "Custom configuration for segmentor subclass.",
-              "type": "object",
-              "properties" : {
+        }
+     }
+
+    OptionsSchema = copy.copy(DVIDWorkflow.OptionsSchema)
+    OptionsSchema["required"] += ["stitch-algorithm"]
+    OptionsSchema["properties"].update(
+    {
+        "segmentor": {
+            "description": "Custom configuration for segmentor subclass.",
+            "type": "object",
+            "properties" : {
                 "class": {
-                  "description": "segmentation plugin to run",
-                  "type": "string",
-                  "default": "DVIDSparkServices.reconutils.Segmentor.Segmentor"
+                    "description": "segmentation plugin to run",
+                    "type": "string",
+                    "default": "DVIDSparkServices.reconutils.Segmentor.Segmentor"
                 },
                 "configuration" : {
-                  "description": "custom configuration for subclass. Schema should be supplied in subclass source.",
-                  "type" : "object",
-                  "default" : {},
-                  "additionalProperties": true
+                    "description": "custom configuration for subclass. Schema should be supplied in subclass source.",
+                    "type" : "object",
+                    "default" : {},
+                    "additionalProperties": True
                 }
-              },
-              "additionalProperties": true,
-              "default": {}
             },
-            "stitch-algorithm": {
-              "description": "determines aggressiveness of segmentation stitching",
-              "type": "string",
-              "enum": ["none", "conservative", "medium", "aggressive"],
-              "default": "medium"
-            },
-            "stitch-constraints": {
-              "description": "enable stitch self-touching constraints",
-              "type": "boolean",
-              "default": false
-            },
-            "chunk-size": {
-              "description": "Size of blocks to process independently (and then stitched together).",
-              "type": "integer",
-              "default": 512
-            },
-            "label-offset": {
-              "description": "Offset for first body id",
-              "type": "number",
-              "default": 0
-            },
-            "iteration-size": {
-              "description": "Number of tasks per iteration (0 -- max size)",
-              "type": "integer",
-              "default": 0
-            },
-            "checkpoint-dir": {
-              "description": "Specify checkpoint directory",
-              "type": "string",
-              "default": ""
-            },
-            "checkpoint": {
-              "description": "Reuse previous results",
-              "type": "string",
-              "enum": ["none", "voxel", "segmentation"],
-              "default": "none"
-            },
-            "mutateseg": {
-              "description": "Yes to overwrite (mutate) previous segmentation in place; auto will check to see if output label destination already exists",
-              "type": "string",
-              "enum": ["auto", "no", "yes"],
-              "default": "auto"
-            },
-            "corespertask": {
-              "description": "Number of cores for each task (use higher number for memory intensive tasks)",
-              "type": "integer",
-              "default": 1
-            },
-            "parallelwrites": {
-              "description": "Number volumes that can be simultaneously written to DVID (0 == all)",
-              "type": "integer",
-              "default": 125
-            },
-            "debug": {
-              "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
-              "type": "boolean",
-              "default": false
-            },
-            "log-collector-port": {
-              "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
-              "type": "integer",
-              "default": 3000
-            },
-            "log-collector-directory": {
-              "description": "",
-              "type": "string",
-              "default": ""
-            }
-          },
-          "required": ["stitch-algorithm"],
-          "additionalProperties": true
+            "additionalProperties": True,
+            "default": {}
+        },
+        "stitch-algorithm": {
+            "description": "determines aggressiveness of segmentation stitching",
+            "type": "string",
+            "enum": ["none", "conservative", "medium", "aggressive"],
+            "default": "medium"
+        },
+        "stitch-constraints": {
+            "description": "enable stitch self-touching constraints",
+            "type": "boolean",
+            "default": False
+        },
+        "chunk-size": {
+            "description": "Size of blocks to process independently (and then stitched together).",
+            "type": "integer",
+            "default": 512
+        },
+        "label-offset": {
+            "description": "Offset for first body id",
+            "type": "number",
+            "default": 0
+        },
+        "iteration-size": {
+            "description": "Number of tasks per iteration (0 -- max size)",
+            "type": "integer",
+            "default": 0
+        },
+        "checkpoint-dir": {
+            "description": "Specify checkpoint directory",
+            "type": "string",
+            "default": ""
+        },
+        "checkpoint": {
+            "description": "Reuse previous results",
+            "type": "string",
+            "enum": ["none", "voxel", "segmentation"],
+            "default": "none"
+        },
+        "mutateseg": {
+            "description": "Yes to overwrite (mutate) previous segmentation in place; auto will check to see if output label destination already exists",
+            "type": "string",
+            "enum": ["auto", "no", "yes"],
+            "default": "auto"
+        },
+        "corespertask": {
+            "description": "Number of cores for each task (use higher number for memory intensive tasks)",
+            "type": "integer",
+            "default": 1
+        },
+        "parallelwrites": {
+            "description": "Number volumes that can be simultaneously written to DVID (0 == all)",
+            "type": "integer",
+            "default": 125
+        },
+        "debug": {
+            "description": "Enable certain debugging functionality.    Mandatory for integration tests.",
+            "type": "boolean",
+            "default": False
+        },
+        "log-collector-port": {
+            "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
+            "type": "integer",
+            "default": 3000
+        },
+        "log-collector-directory": {
+            "description": "",
+            "type": "string",
+            "default": ""
         }
-      }
-    }
-    """)
+    })
+
+
+    Schema = \
+    {
+      "$schema": "http://json-schema.org/schema#",
+      "title": "Service to create image segmentation from grayscale data",
+      "type": "object",
+      "properties": {
+          "dvid-info": DvidInfoSchema,
+          "options": OptionsSchema,
+          }
+     }
+
+    @staticmethod
+    def dumpschema():
+        return json.dumps(CreateSegmentation.Schema)
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -184,7 +186,7 @@ class CreateSegmentation(DVIDWorkflow):
 
     def __init__(self, config_filename):
         # ?! set number of cpus per task to 2 (make dynamic?)
-        super(CreateSegmentation, self).__init__(config_filename, self.Schema, "Create segmentation")
+        super(CreateSegmentation, self).__init__(config_filename, CreateSegmentation.dumpschema(), "Create segmentation")
 
     # (stitch): => flatmap to boundary, id, cropped labels => reduce to common boundaries maps
     # => flatmap substack and boundary mappings => take ROI max id collect, join offsets with boundary
@@ -369,7 +371,7 @@ class CreateSegmentation(DVIDWorkflow):
         
             # (subvol, (seg, max_id))
             seg_chunks = cached_seg_chunks_kv.union(computed_seg_chunks_kv)
-            seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
+            seg_chunks.persist(StorageLevel.MEMORY_AND_DISK)
 
             seg_chunks_list.append(seg_chunks)
 
@@ -384,7 +386,7 @@ class CreateSegmentation(DVIDWorkflow):
         # persist through stitch
         # any forced persistence will result in costly
         # pickling, lz4 compressed numpy array should help
-        seg_chunks.persist(StorageLevel.MEMORY_AND_DISK_SER)
+        seg_chunks.persist(StorageLevel.MEMORY_AND_DISK)
 
         # stitch the segmentation chunks
         # (preserves initial partitioning)
@@ -454,6 +456,3 @@ class CreateSegmentation(DVIDWorkflow):
         subvols_without_cache = list(set(subvol_list) - set(subvols_with_cache))
         return subvols_with_cache, subvols_without_cache
         
-    @staticmethod
-    def dumpschema():
-        return CreateSegmentation.Schema
