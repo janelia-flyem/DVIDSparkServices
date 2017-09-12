@@ -682,7 +682,7 @@ def stitch(sc, label_chunks):
                 body2body1[body2].add(tbody)
                 body1body2[tbody] = body2
 
-    body2body = zip(body1body2.keys(), body1body2.values())
+    body2body = list(zip(body1body2.keys(), body1body2.values()))
    
     # potentially costly broadcast
     # (possible to split into substack to make more efficient but compression should help)
