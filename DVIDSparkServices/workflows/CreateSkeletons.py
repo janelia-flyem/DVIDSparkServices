@@ -16,56 +16,52 @@ from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assembl
 class CreateSkeletons(DVIDWorkflow):
     DvidInfoSchema = \
     {
-        "dvid-info": {
-            "type": "object",
-            "default": {},
-            "additionalProperties": False,
-            "required": ["dvid-server", "uuid", "segmentation-name", "skeletons-destination"],
-            "properties": {
-                "dvid-server": {
-                    "description": "location of DVID server to READ segmentation.",
-                    "type": "string",
-                },
-                "uuid": {
-                    "description": "version node for READING segmentation",
-                    "type": "string"
-                },
-                "segmentation-name": {
-                    "description": "The labels instance to READ from.",
-                    "type": "string",
-                    "minLength": 1
-                },
-                "skeletons-destination": {
-                    "description": "name of key-value instance to store the skeletons",
-                    "type": "string",
-                    "minLength": 1
-                }
+        "type": "object",
+        "default": {},
+        "additionalProperties": False,
+        "required": ["dvid-server", "uuid", "segmentation-name", "skeletons-destination"],
+        "properties": {
+            "dvid-server": {
+                "description": "location of DVID server to READ segmentation.",
+                "type": "string",
             },
-    
-            #
-            # BOUNDING BOX (alternative to ROI)
-            #
-            "bounding-box": {
-                "type": "object",
-                "default": {"start": [0,0,0], "stop": [0,0,0]},
-                "required": ["start", "stop"],
-                "start": {
-                    "description": "The bounding box lower coordinate in XYZ order",
-                    "type": "array",
-                    "items": { "type": "integer" },
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "default": [0,0,0]
-                },
-                "stop": {
-                    "description": "The bounding box upper coordinate in XYZ order.  (numpy-conventions, i.e. maxcoord+1)",
-                    "type": "array",
-                    "items": { "type": "integer" },
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "default": [0,0,0]
-                },
+            "uuid": {
+                "description": "version node for READING segmentation",
+                "type": "string"
+            },
+            "segmentation-name": {
+                "description": "The labels instance to READ from.",
+                "type": "string",
+                "minLength": 1
+            },
+            "skeletons-destination": {
+                "description": "name of key-value instance to store the skeletons",
+                "type": "string",
+                "minLength": 1
             }
+        }
+    }
+
+    BoundingBoxSchema = \
+    {
+        "type": "object",
+        "default": {"start": [0,0,0], "stop": [0,0,0]},
+        "required": ["start", "stop"],
+        "start": {
+            "description": "The bounding box lower coordinate in XYZ order",
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 3,
+            "maxItems": 3,
+            "default": [0,0,0]
+        },
+        "stop": {
+            "description": "The bounding box upper coordinate in XYZ order.  (numpy-conventions, i.e. maxcoord+1)",
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 3,
+            "maxItems": 3,
+            "default": [0,0,0]
         }
     }
     
@@ -78,7 +74,7 @@ class CreateSkeletons(DVIDWorkflow):
             "items": { "type": "integer" },
             "minItems": 3,
             "maxItems": 3,
-            "default": [0,0,0]
+            "default": [6400, 64, 64]
         },
         "minimum-segment-size": {
             "description": "Segments smaller than this voxel count will not be skeletonized",
@@ -108,8 +104,10 @@ class CreateSkeletons(DVIDWorkflow):
       "$schema": "http://json-schema.org/schema#",
       "title": "Service to create skeletons from segmentation",
       "type": "object",
+      "required": ["dvid-info", "bounding-box"],
       "properties": {
         "dvid-info": DvidInfoSchema,
+        "bounding-box": BoundingBoxSchema,
         "skeleton-config": SkeletonConfigSchema,
         "options" : SkeletonWorkflowOptionsSchema
       }
