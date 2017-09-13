@@ -4,7 +4,7 @@ import copy
 import json
 import logging
 import socket
-from functools import reduce
+from functools import reduce, partial
 
 import numpy as np
 import h5py
@@ -17,8 +17,8 @@ from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
-from DVIDSparkServices.reconutils.downsample import downsample_labels_3d
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes, nonconsecutive_bincount
+from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount
 
 logger = logging.getLogger(__name__)
 
@@ -223,12 +223,9 @@ class CopySegmentation(Workflow):
         
         # write pyramid levels for >=1 
         for level in range(1, options["pyramid-depth"] + 1):
-            # downsample seg partition
-            def downsample(part_vol):
-                part, vol = part_vol
-                vol = downsample_labels_3d(vol, (2,2,2))
-                return (part, vol)
-            downsampled_array = seg_chunks_partitioned.map(downsample)
+            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
+            downsample_by_2 = partial(downsample_labels_3d_suppress_zero, block_shape=(2,2,2))
+            downsampled_array = seg_chunks_partitioned.mapValues(downsample_by_2)
 
             # prepare for repartition
             # (!!assume vol and offset will always be power of two because of padding)
