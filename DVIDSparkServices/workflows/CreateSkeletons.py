@@ -35,7 +35,8 @@ class CreateSkeletons(DVIDWorkflow):
                 "minLength": 1
             },
             "skeletons-destination": {
-                "description": "name of key-value instance to store the skeletons",
+                "description": "Name of key-value instance to store the skeletons. "
+                               "By convention, this should usually be {segmentation-name}_skeletons",
                 "type": "string",
                 "minLength": 1
             }
