@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 from skimage.util import view_as_blocks
 
+from numba import jit
+
 logger = logging.getLogger(__name__)
 
 def cpus_per_worker():
@@ -383,7 +385,7 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
         
         assume_sorted:
             If True, the provided coordinates are assumed to be pre-sorted in Z-Y-X order.
-            Otherwise, they are sorted before the RLEs are computed.
+            Otherwise, this function sorts them before the RLEs are computed.
     
     Timing notes:
         The FIB-25 'seven_column_roi' consists of 927971 block indices.
@@ -404,8 +406,8 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
 
     return _runlength_encode(coord_list_zyx)
 
-# See conditional jit activation, below
-#@numba.jit(nopython=True)
+
+@jit(nopython=True)
 def _runlength_encode(coord_list_zyx):
     """
     Helper function for runlength_encode(), above.
@@ -439,13 +441,6 @@ def _runlength_encode(coord_list_zyx):
     # Return as 2D array
     runs = np.array(runs).reshape((-1,4))
     return runs[1:, :] # omit dummy row (see above)
-
-# Enable JIT if numba is available
-try:
-    import numba
-    _runlength_encode = numba.jit(nopython=True)(_runlength_encode)
-except ImportError:
-    pass
 
 
 def blockwise_boxes( bounding_box, block_shape ):
