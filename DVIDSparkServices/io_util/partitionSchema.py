@@ -111,21 +111,14 @@ class partitionSchema(object):
             Each specified partition dimension should be a multiple of padding (if specified).
         """
 
+        assert (padding == 0) or (np.array(partdims) % padding == 0).all(), \
+            f"PartitionDims ({partdims}) must be a multiple of the padding ({padding})"
+
         self.partdims = PartitionDims(*partdims)
         self.volume_size = VolumeSize(*volume_size)
         self.blank_delimiter = blank_delimiter
         self.enablemask = enablemask
         self.padding = padding
-        
-        if self.partdims.xsize > 0 and padding > 0:
-            if (self.partdims.xsize % padding) != 0:
-                raise ValueError("x dimension is not a multiple of padding")
-        if self.partdims.ysize > 0 and padding > 0:
-            if (self.partdims.ysize % padding) != 0:
-                raise ValueError("y dimension is not a multiple of padding")
-        if self.partdims.zsize > 0 and padding > 0:
-            if (self.partdims.zsize % padding) != 0:
-                raise ValueError("z dimension is not a multiple of padding")
 
     def get_partdims(self):
         return self.partdims
