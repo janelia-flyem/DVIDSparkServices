@@ -221,23 +221,25 @@ class CopySegmentation(Workflow):
         # Write body sizes to JSON
         self._write_body_sizes( seg_chunks_partitioned )
         
+        def downsample(part_volume):
+            part, volume = part_volume
+
+            part_box = ( part.offset,
+                         part.offset + np.array(part.volsize) )
+
+            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
+            downsampled_volume, downsampled_box = downsample_labels_3d_suppress_zero(volume, (2,2,2), part_box)
+            downsampled_reloffset = np.array(part.get_reloffset()) // 2
+            
+            downsampled_part = volumePartition(tuple(downsampled_box[0]),
+                                      offset=downsampled_box[0],
+                                      reloffset=downsampled_reloffset,
+                                      volsize=downsampled_volume.shape )
+            return downsampled_part, downsampled_volume
+
         # write pyramid levels for >=1 
         for level in range(1, options["pyramid-depth"] + 1):
-            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
-            downsample_by_2 = partial(downsample_labels_3d_suppress_zero, block_shape=(2,2,2))
-            downsampled_array = seg_chunks_partitioned.mapValues(downsample_by_2)
-
-            # prepare for repartition
-            # (!!assume vol and offset will always be power of two because of padding)
-            def repartition_down(part_volume):
-                part, volume = part_volume
-                downsampled_offset = np.array(part.get_offset()) // 2
-                downsampled_reloffset = np.array(part.get_reloffset()) // 2
-                offsetnew = VolumeOffset(*downsampled_offset)
-                reloffsetnew = VolumeOffset(*downsampled_reloffset)
-                partnew = volumePartition((offsetnew.z, offsetnew.y, offsetnew.x), offsetnew, reloffset=reloffsetnew)
-                return partnew, volume
-            downsampled_array = downsampled_array.map(repartition_down)
+            downsampled_array = seg_chunks_partitioned.map(downsample)
             
             # repartition downsampled data
             schema = partitionSchema(partition_shape_zyx, padding=output_config["block-size"])

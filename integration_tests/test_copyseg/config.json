@@ -22,7 +22,7 @@
         "chunk-size": 128,
         "fetch-block-shape": [6400, 64, 64],
         "offset": [0,0,0],
-        "pyramid-depth": 0,
+        "pyramid-depth": 2,
 
         "body-size-minimum": 10,
         
