@@ -45,13 +45,9 @@ class EvaluateSeg(DVIDWorkflow):
         "stats-location": {
           "description": "Location of final results (JSON file) stored on DVID.  If there are already results present at that name, a unique number will be appended to the file name",
           "type": "string"
-        },
-        "user-name": {
-          "description": "Name of person submitting the job",
-          "type": "string"
         }
       },
-      "required" : ["dvid-server", "uuid", "label-name", "roi", "point-lists", "user-name", "stats-location"]
+      "required" : ["dvid-server", "uuid", "label-name", "roi", "point-lists", "stats-location"]
     },
     "dvid-info-comp": {
       "description": "Contains DVID information for comparison/test volume",
@@ -78,6 +74,29 @@ class EvaluateSeg(DVIDWorkflow):
     "options": {
       "type": "object",
       "properties": {
+        "plugins": {
+          "description": "Custom configuration for each metric plugin.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties" : {
+              "name": {
+                "description": "metric plugin name",
+                "type": "string",
+                "default": ""
+              },
+              "parameters : {
+                "description": "custom parameters for metric.",
+                "type" : "object",
+                "default" : {},
+                "additionalProperties": true
+              }
+            }
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "default": [{"name": "rand"}, {"name": "vi"}, {"name": "count"}, {"name": "connectivity"}]
+        },
         "body-threshold": {
           "description": "Filter GT bodies below this threshold for aggregate stats",
           "type": "integer",
@@ -87,6 +106,11 @@ class EvaluateSeg(DVIDWorkflow):
           "description": "Filter GT bodies below this point threshold for aggregate stats",
           "type": "integer",
           "default": 10
+        },
+        "num-displaybodies": {
+          "description": "Maximum bodies to report for metric body stats",
+          "type": "integer",
+          "default": 100
         },
         "chunk-size": {
           "description": "size of subvolumes to be processed",
@@ -105,9 +129,18 @@ class EvaluateSeg(DVIDWorkflow):
           "minItems": 0,
           "uniqueItems": true,
           "default": []
+        },
+        "disable-subvolumes": {
+          "description": "disables subvolume stats.  This could be useful if working with smaller volumes where such information is unnecessary.  It could also save memory / computation.",
+          "type": "boolean",
+          "default": false 
+        }
+        "user-name": {
+          "description": "Name of person submitting the job",
+          "type": "string"
         }
       },
-      "required" : ["body-threshold", "point-threshold", "chunk-size", "boundary-size"]
+      "required" : ["body-threshold", "point-threshold", "chunk-size", "boundary-size", "user-name"]
     }
   }
 }
@@ -130,7 +163,7 @@ class EvaluateSeg(DVIDWorkflow):
    
     def execute(self):
         # imports here so that schema can be retrieved without installation
-        from DVIDSparkServices.reconutils import Evaluate
+        from DVIDSparkServices.reconutils.metrics import Evaluate
         from pyspark import SparkContext
         from pyspark import StorageLevel
         import time
@@ -269,7 +302,7 @@ class EvaluateSeg(DVIDWorkflow):
         stats["config-file"] = self.config_data
         current_time = int(time.time())
 
-        username = str(self.config_data["dvid-info"]["user-name"])
+        username = str(self.config_data["options"]["user-name"])
         username = "__".join(username.split('.'))
         
         location = str(self.config_data["dvid-info"]["stats-location"])
