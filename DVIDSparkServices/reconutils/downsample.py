@@ -211,22 +211,18 @@ def make_blockwise_reducer_3d(reducer_func, nopython=True):
 
 
 @jit(nopython=True, cache=True)
-def flat_mode_except_excluded(data, exclude_label=0):
+def flat_mode_except_zero(data):
     """
     Given an array, flatten it and return the mode, without including
-    the given 'exclude_label', if possible.
+    zeros, if possible.
     
-    If (data == exclude_label).all(), then exclude_label is returned.
-    
-    Note: We could have used scipy.stats.mode() here,
-          but that implementation is insanely slow for large arrays,
-          especially if there are many label values in the array.
+    If (data == 0).all(), then 0 is returned.
     """
     data = data.copy().reshape(-1)
-    data = data[data != exclude_label]
+    data = data[data != 0]
     if data.size == 0:
-        return exclude_label
-    return _flat_mode(data, True)
+        return 0
+    return _flat_mode(data)
 
 
 @jit(nopython=True, cache=True)
@@ -239,7 +235,7 @@ def flat_mode(data):
 
 
 @jit(nopython=True, cache=True)
-def _flat_mode(data, already_flat=False):
+def _flat_mode(data):
     """
     Given an contiguous flat array, return the mode.
     
@@ -274,7 +270,7 @@ downsample_labels_3d = make_blockwise_reducer_3d(flat_mode)
 downsample_binary_3d = make_blockwise_reducer_3d(flat_binary_mode)
 
 # These variants will not return zero as the block mode UNLESS it's the only value in the block.
-downsample_labels_3d_suppress_zero = make_blockwise_reducer_3d(flat_mode_except_excluded)
+downsample_labels_3d_suppress_zero = make_blockwise_reducer_3d(flat_mode_except_zero)
 downsample_binary_3d_suppress_zero = make_blockwise_reducer_3d(np.any)
 
 if __name__ == "__main__":
