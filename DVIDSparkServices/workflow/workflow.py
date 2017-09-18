@@ -16,7 +16,8 @@ import uuid
 import socket
 
 from quilted.filelock import FileLock
-from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running
+from DVIDSparkServices import cleanup_faulthandler
+from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
@@ -24,8 +25,6 @@ import logging
 from logcollector.client_utils import HTTPHandlerWithExtraData, make_log_collecting_decorator, noop_decorator
 
 logger = logging.getLogger(__name__)
-
-    
 
 try:
     #driver_ip_addr = '127.0.0.1'
@@ -201,15 +200,6 @@ class Workflow(object):
         self._execution_uuid = str(uuid.uuid1())
         self._worker_task_id = 0
 
-    def num_worker_nodes(self):
-        if "NUM_SPARK_WORKERS" not in os.environ:
-            # See sparklaunch_janelia_lsf
-            raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
-
-        num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
-        num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
-        return num_workers
-        
 
     def _init_spark(self, appname):
         """Internal function to setup spark context
@@ -283,9 +273,7 @@ class Workflow(object):
 
         log_dir = self.relpath_to_abspath(log_dir)
         self.config_data["options"]["log-collector-directory"] = log_dir
-
-        if self.config_data["options"]["log-collector-port"]:
-            mkdir_p(log_dir)
+        mkdir_p(log_dir)
 
 
     def collect_log(self, task_key_factory=lambda *args, **kwargs: args[0]):
@@ -442,14 +430,19 @@ class Workflow(object):
         worker_init_pids, driver_init_pid = self._run_worker_initializations()
         
         try:
-            self.execute()
+            with self.workflow_entry_exit_printer:
+                self.execute()
         finally:
             sys.stderr.flush()
             
             self._kill_initialization_procs(worker_init_pids, driver_init_pid)
             self._kill_resource_server(resource_server_proc)
             self._kill_logserver(handler, log_server_proc)
-            
+
+            # Only the workflow calls cleanup_faulthandler, once all spark workers have exited
+            # (All spark workers share the same output file for faulthandler.)
+            cleanup_faulthandler()
+
     def run_on_each_worker(self, func):
         """
         Run the given function once per worker node.
@@ -469,7 +462,7 @@ class Workflow(object):
             result = func()
             return (socket.gethostname(), result)
 
-        num_workers = self.num_worker_nodes()
+        num_workers = num_worker_nodes()
         
         # It would be nice if we only had to schedule N tasks for N workers,
         # but we couldn't ensure that tasks are hashed 1-to-1 onto workers.

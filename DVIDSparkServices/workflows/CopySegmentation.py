@@ -4,21 +4,21 @@ import copy
 import json
 import logging
 import socket
-from functools import reduce
+from functools import reduce, partial
 
 import numpy as np
 import h5py
 import pandas as pd
 
-from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
+from pyspark import StorageLevel
+
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
-from libdvid.util.roi_utils import copy_roi, RoiInfo
-from DVIDSparkServices.reconutils.downsample import downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, blockwise_boxes, nonconsecutive_bincount
-#from DVIDSparkServices.dvid.local_server import ensure_dicedstore_is_running
+from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class CopySegmentation(Workflow):
     {
         "type": "object",
         "default": {},
-        "required": ["input", "output"],
+        "required": ["input", "output", "bounding-box"],
         "additionalProperties": False,
         "properties": {
             #
@@ -41,20 +41,15 @@ class CopySegmentation(Workflow):
                 "required": ["server", "uuid", "segmentation-name"],
                 "properties": {
                     "server": {
-                        # Note: "node-local" is not supported yet.  Start the DVID server yourself and use 127.0.0.1 
                         "description": "location of DVID server to READ.  Either IP:PORT or the special word 'node-local'.",
                         "type": "string",
-                    },
-                    "database-location": {
-                        "description": "If 'server' is 'node-local', then this is the location of the database they'll use.",
-                        "type": "string"
                     },
                     "uuid": {
                         "description": "version node for READING segmentation",
                         "type": "string"
                     },
                     "segmentation-name": {
-                        "description": "The labels instance to READ from. Instance may be either googlevoxels or labelblk.",
+                        "description": "The labels instance to READ from. Instance may be either googlevoxels, labelblk, or labelarray.",
                         "type": "string",
                         "minLength": 1
                     }
@@ -79,7 +74,7 @@ class CopySegmentation(Workflow):
                         "type": "string"
                     },
                     "segmentation-name": {
-                        "description": "The labels instance to WRITE to.  If necessary, will be created (as labelblk).",
+                        "description": "The labels instance to WRITE to.  If necessary, will be created (as labelarray).",
                         "type": "string",
                         "minLength": 1
                     },
@@ -114,36 +109,6 @@ class CopySegmentation(Workflow):
                     "maxItems": 3,
                     "default": [0,0,0] # Default is start == stop, so we can easily detect whether the bounding box was provided in the config.
                 },
-            },
-
-            #
-            # ROI (alternative to BOUNDING BOX)
-            #
-            "roi": {
-                "type": "object",
-                "default": {},
-                "additionalProperties": False,
-                "properties": {
-                    "name": {
-                        "description": "region of interest to copy",
-                        "type": "string",
-                        "default": ""
-                    },
-                    "partition-method": {
-                        "description": "Strategy to divide the ROI into substacks for processing.",
-                        "type": "string",
-                        "minLength": 1,
-                        "enum": ["ask-dvid", "grid-aligned", "grid-aligned-32", "grid-aligned-64", "grid-aligned-128", "grid-aligned-256", "grid-aligned-512"],
-                        "default": "ask-dvid"
-                    },
-                    "partition-filter": {
-                        "description": "Optionally remove substacks from the compute set based on some criteria",
-                        "type": "string",
-                        "minLength": 1,
-                        "enum": ["all", "interior-only"],
-                        "default": "all"
-                    }
-                }
             }
         }
     }
@@ -168,22 +133,19 @@ class CopySegmentation(Workflow):
             "type": "boolean",
             "default": False
         },
-     
-        "chunk-size": {
-            "description": "Size of block to download in each thread",
-            "type": "integer",
-            "default": 512
-        },
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
             "default": -1 # automatic by default
         },
-        "blockwritelimit": {
-           "description": "Maximum number of blocks written per task request (0=no limit)",
-           "type": "integer",
-           "default": 100
-        }
+       "fetch-block-shape": {
+            "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 3,
+            "maxItems": 3,
+            "default": [6400,64,64]
+        },
     })
 
     Schema = \
@@ -211,7 +173,6 @@ class CopySegmentation(Workflow):
 
         input_config = self.config_data["data-info"]["input"]
         output_config = self.config_data["data-info"]["output"]
-        roi_config = self.config_data["data-info"]["roi"]
 
         for cfg in (input_config, output_config):
             # Prepend 'http://' if necessary.
@@ -223,8 +184,6 @@ class CopySegmentation(Workflow):
             cfg["uuid"] = str(cfg["uuid"])
             cfg["segmentation-name"] = str(cfg["segmentation-name"])
 
-        roi_config["name"] = str(roi_config["name"])
-
         # create spark dvid contexts
         self.sparkdvid_input_context = sparkdvid.sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
         self.sparkdvid_output_context = sparkdvid.sparkdvid(self.sc, output_config["server"], output_config["uuid"], self)
@@ -232,33 +191,17 @@ class CopySegmentation(Workflow):
 
     def execute(self):
         output_config = self.config_data["data-info"]["output"]
-        bb_config = self.config_data["data-info"]["bounding-box"]
         options = self.config_data["options"]
 
-        # repartition to be z=blksize, y=blksize, x=runlength (x=0 is unlimited)
-        partition_size = options["blockwritelimit"] * output_config["block-size"]
-        partition_dims = PartitionDims(output_config["block-size"], output_config["block-size"], partition_size)
-
-        if self.config_data["data-info"]["roi"]["name"]:
-            assert bb_config["start"] == bb_config["stop"], \
-                "Can't provide both ROI and bounding box.  Use one or the other."
-                
-            # RDD: (volumePartition, data)
-            seg_chunks_partitioned, bounding_box = self._partition_with_roi(partition_dims)
-        else:
-            assert bb_config["start"] != bb_config["stop"], \
-                "No ROI or bounding box provided."
-            
-            # RDD: (volumePartition, data)
-            seg_chunks_partitioned, bounding_box = self._partition_with_bounding_box(partition_dims)
-
-        self._create_output_instance_if_necessary(bounding_box) 
+        # RDD: (volumePartition, data)
+        seg_chunks_partitioned, bounding_box, partition_shape_zyx = self._partition_input()
+        self._create_output_instance_if_necessary(bounding_box)
 
         # Overwrite pyramid depth in our config (in case the user specified -1 == 'automatic')
         options["pyramid-depth"] = self._read_pyramid_depth()
 
         # data must exist after writing to dvid for downsampling
-        seg_chunks_partitioned.persist()
+        seg_chunks_partitioned.persist(StorageLevel.MEMORY_AND_DISK)
 
         # FIXME: Instead of interleaving read and write operations,
         #        let's force the entire read first, then write, for easier benchmarking of those two steps.
@@ -271,17 +214,18 @@ class CopySegmentation(Workflow):
             self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
         logger.info(f"Writing entire volume at scale 0 took {timer.timedelta}")
 
+        # Forcibly update DVID's extents metadata
+        # TODO: Soon DVID will do this for us, and we can remove this step...
+        self._set_output_extents(bounding_box)
+
         # Write body sizes to JSON
         self._write_body_sizes( seg_chunks_partitioned )
         
         # write pyramid levels for >=1 
         for level in range(1, options["pyramid-depth"] + 1):
-            # downsample seg partition
-            def downsample(part_vol):
-                part, vol = part_vol
-                vol = downsample_3Dlabels(vol, 1)[0]
-                return (part, vol)
-            downsampled_array = seg_chunks_partitioned.map(downsample)
+            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
+            downsample_by_2 = partial(downsample_labels_3d_suppress_zero, block_shape=(2,2,2))
+            downsampled_array = seg_chunks_partitioned.mapValues(downsample_by_2)
 
             # prepare for repartition
             # (!!assume vol and offset will always be power of two because of padding)
@@ -295,89 +239,68 @@ class CopySegmentation(Workflow):
                 return partnew, volume
             downsampled_array = downsampled_array.map(repartition_down)
             
-            # repartition downsampled data (unpersist previous level)
-            schema = partitionSchema(partition_dims, padding=output_config["block-size"])
-            seg_chunks_partitioned = schema.partition_data(downsampled_array)
+            # repartition downsampled data
+            schema = partitionSchema(partition_shape_zyx, padding=output_config["block-size"])
+            downsampled_chunks_partitioned = schema.partition_data(downsampled_array)
 
             # persist for next level
-            seg_chunks_partitioned.persist()
+            downsampled_chunks_partitioned.persist(StorageLevel.MEMORY_AND_DISK)
 
             # FIXME: Instead of interleaving compute and write operations,
             #        let's force the entire compute first, then write, for easier benchmarking of those two steps.
             with Timer() as timer:
-                seg_chunks_partitioned.count()
+                downsampled_chunks_partitioned.count()
             logger.info(f"Computing scale {level} took {timer.timedelta}")
+            
+            # Unpersist previous level
+            seg_chunks_partitioned.unpersist()
+            seg_chunks_partitioned = downsampled_chunks_partitioned
             
             #  write data new level
             with Timer() as timer:
                 self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], level)
             logger.info(f"Writing scale {level} took {timer.timedelta}")
 
-    def _partition_with_roi(self, partition_dims):
+
+    def _partition_input(self):
+        """
+        Map the input segmentation
+        volume from DVID into an RDD of (volumePartition, data),
+        using the config's bounding-box setting for the full volume region,
+        using the 'fetch-block-shape' as the partition size.
+
+        Returns: (RDD, bounding_box_zyx, partition_shape_zyx)
+            where:
+                - RDD is (volumePartition, data)
+                - bounding box is tuple (start_zyx, stop_zyx)
+                - partition_shape_zyx is a tuple
+            
+        """
         input_config = self.config_data["data-info"]["input"]
         output_config = self.config_data["data-info"]["output"]
-        roi_config = self.config_data["data-info"]["roi"]
+        bb_config = self.config_data["data-info"]["bounding-box"]
         options = self.config_data["options"]
 
-        # Copy the ROI from source to destination
-        src_info = RoiInfo(input_config["server"], input_config["uuid"], roi_config["name"])
-        dest_info = RoiInfo(output_config["server"], output_config["uuid"], roi_config["name"])
-        copy_roi(src_info, dest_info)
-
-        # (sv_id, sv)
-        distsubvolumes = self.sparkdvid_input_context.parallelize_roi( roi_config["name"],
-                                                                       options["chunk-size"],
-                                                                       0,
-                                                                       False, # Change to TRUE if stitching needed.
-                                                                       roi_config["partition-method"],
-                                                                       roi_config["partition-filter"] )
-
-
-        subvolumes = [sv for (_sid, sv) in distsubvolumes.collect()]
-        sv_starts = [sv.box[:3] for sv in subvolumes]
-        sv_stops  = [sv.box[3:] for sv in subvolumes]
-        bounding_box = (np.amin(sv_starts, axis=0), np.amax(sv_stops)) 
+        # repartition to be z=blksize, y=blksize, x=runlength (x=0 is unlimited)
+        partition_shape_zyx = options["fetch-block-shape"][::-1]
         
-        # do not recompute ROI for each iteration
-        distsubvolumes.persist()
+        assert not any(np.array(partition_shape_zyx) % output_config["block-size"]), \
+            "fetch-block-shape should be a multiple of the block size in all dimensions."
         
-        # (sv_id, data)
-        seg_chunks = self.sparkdvid_input_context.map_labels64( distsubvolumes,
-                                                                input_config['segmentation-name'],
-                                                                0,
-                                                                roi_config["name"] )
-
-
-        schema = partitionSchema(partition_dims, padding=output_config["block-size"])
-        
-        # format segmentation chunks to be used with the partitionschema
-        def combine_values( item ):
-            (sv_id1, sv), (sv_id2, data) = item
-            assert sv_id1 == sv_id2
-            sv_start = sv.box[:3]
-            sv_stop  = sv.box[3:]
-            partition = volumePartition(sv_start, sv_start, (0,0,0), np.array(sv_stop)-sv_start)
-            return (partition, data)
-        seg_chunks = distsubvolumes.zip(seg_chunks).map(combine_values)
-
-        # RDD shuffling operation to get data into the correct partitions
-        seg_chunks_partitioned = schema.partition_data(seg_chunks)
-
-        # RDD: (volumePartition, data)
-        return seg_chunks_partitioned, bounding_box
-
-    def _partition_with_bounding_box(self, partition_dims):
-        input_config = self.config_data["data-info"]["input"]
-        bb_config = self.config_data["data-info"]["bounding-box"]
-
         bounding_box_xyz = np.array([bb_config["start"], bb_config["stop"]])
         bounding_box_zyx = bounding_box_xyz[:,::-1]
-        partitions = [volumePartition(box[0], box[0], (0,0,0), box[1]-box[0]) for box in blockwise_boxes( bounding_box_zyx, partition_dims )]
-        
-        # RDD: (volumePartition, data)
-        seg_chunks_partitioned = self.sparkdvid_input_context.map_voxels( partitions, input_config['segmentation-name'] )
-        return seg_chunks_partitioned, bounding_box_zyx
-        
+
+        # Aim for 2 GB RDD partitions
+        GB = 2**30
+        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+        seg_chunks_partitioned = \
+            self.sparkdvid_input_context.parallelize_bounding_box( input_config['segmentation-name'],
+                                                                   bounding_box_zyx,
+                                                                   partition_shape_zyx,
+                                                                   target_partition_size_voxels )
+
+        return seg_chunks_partitioned, bounding_box_zyx, partition_shape_zyx
+
 
     def _create_output_instance_if_necessary(self, bounding_box):
         """
@@ -427,6 +350,34 @@ class CopySegmentation(Workflow):
                             .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
         return existing_depth
 
+    def _set_output_extents(self, bounding_box):
+        # For now, the only way to set extents is by fetching the min and max
+        # blocks and re-writing them with the non-block get_labels method (the /raw endpoint).
+        output_config = self.config_data["data-info"]["output"]
+        node_service = retrieve_node_service( output_config["server"],
+                                              output_config["uuid"], 
+                                              self.resource_server,
+                                              self.resource_port,
+                                              self.APPNAME )
+
+        min_block_start = bounding_box[0]
+        max_block_start = bounding_box[1] - (64,64,64)
+
+        min_block = node_service.get_labels3D( output_config["segmentation-name"],
+                                               (64,64,64),
+                                               min_block_start )
+
+        max_block = node_service.get_labels3D( output_config["segmentation-name"],
+                                               (64,64,64),
+                                               max_block_start )
+
+        node_service.put_labels3D( output_config["segmentation-name"],
+                                   min_block,
+                                   min_block_start )
+
+        node_service.put_labels3D( output_config["segmentation-name"],
+                                   max_block,
+                                   max_block_start )
 
     def _write_blocks(self, seg_chunks_partitioned, dataname, level):
         """Writes partition to specified dvid.

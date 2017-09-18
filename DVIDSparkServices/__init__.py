@@ -6,11 +6,80 @@ if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_
     tempfile.tempdir = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
 
 import sys
+from os import makedirs
 import threading
 import traceback
 import logging
-
+import signal
 from io import StringIO
+import socket
+from pathlib import Path
+import glob
+import faulthandler
+from subprocess import Popen, PIPE
+
+# Segfaults will trigger a traceback dump
+FAULTHANDLER_TEE, FAULTHANDLER_OUTPUT_PATH = None, None
+def setup_faulthandler():
+    """
+    Enable the faulthandler module so that it dumps tracebacks.
+    We use the unix 'tee' command send it to both stderr AND a file on disk.
+    """
+    global FAULTHANDLER_TEE
+    global FAULTHANDLER_OUTPUT_PATH
+
+    output_dir = os.environ.get("DVIDSPARKSERVICES_FAULTHANDLER_OUTPUT_DIR", "")
+    if not output_dir:
+        output_dir = "/tmp"
+
+    makedirs(output_dir, exist_ok=True)
+
+    # All worker processes will send faulthandler output to the same place,
+    # but in practice the output shouldn't be too jumbled -- they are unlikely
+    # to segfault at exactly the same moment.
+    FAULTHANDLER_OUTPUT_PATH = output_dir + '/_FAULTHANDLER_OUTPUT_.log'
+
+    FAULTHANDLER_TEE = Popen(f'tee -a {FAULTHANDLER_OUTPUT_PATH}', shell=True, stdin=PIPE)
+    faulthandler.enable(FAULTHANDLER_TEE.stdin)
+
+# We enable faulthandler here, as soon as DVIDSparkServices is imported,
+# so that all spark tasks use it automatically.
+setup_faulthandler()
+
+# Cleanup function is intended for Workflow
+def cleanup_faulthandler():
+    """
+    Disable the faulthandler module, and delete the on-disk log file if it's empty.
+    Only call this from the driver, just before it exits.
+    """
+    # Disable before closing the file handle.
+    faulthandler.disable()
+    
+    # May as well re-enable it for stderr output, at least.
+    faulthandler.enable()
+
+    # Close the file handle
+    if FAULTHANDLER_TEE:
+        FAULTHANDLER_TEE.stdin.close()
+        FAULTHANDLER_TEE.wait()
+    
+    # Remove the file if it's empty.
+    if os.path.exists(FAULTHANDLER_OUTPUT_PATH):
+        if os.stat(FAULTHANDLER_OUTPUT_PATH).st_size == 0:
+            os.unlink(FAULTHANDLER_OUTPUT_PATH)
+        else:
+            sys.stderr.write("*****************************************\n")
+            sys.stderr.write("SEGFAULT DETECTED IN ONE OR MORE WORKERS:\n")
+            with open(FAULTHANDLER_OUTPUT_PATH, 'r') as f:
+                sys.stderr.write(f.read())
+            sys.stderr.write("*****************************************\n")
+
+# Ensure SystemExit is raised if terminated via SIGTERM (e.g. by bkill).
+signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))
+
+# Ensure SystemExit is raised if terminated via SIGUSR2.
+# (The LSF cluster scheduler uses SIGUSR2 if the job's -W time limit has been exceeded.)
+signal.signal(signal.SIGUSR2, lambda signum, stack_frame: sys.exit(0))
     
 formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
 handler = logging.StreamHandler(sys.stdout)
@@ -58,6 +127,7 @@ def _install_thread_excepthook():
 
 
 initialize_excepthook()
+
 
 # Activate compressed numpy pickling in all workflows
 from .sparkdvid.CompressedNumpyArray import activate_compressed_numpy_pickling

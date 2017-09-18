@@ -2,9 +2,12 @@
     "dvid-info": {
         "dvid-server": "127.0.0.1:8000",
         "uuid": "UUID1",
-        "roi": "temproi256",
-        "segmentation": "seglabels",
+        "segmentation-name": "seglabels",
         "skeletons-destination": "seglabels_vol_skeletons"
+    },
+    "bounding-box": {
+        "start": [0,0,0],
+        "stop": [256, 256, 256]
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],
@@ -15,7 +18,7 @@
         "maximalDistance": 64
     },
     "options": {
-        "chunk-size": 128,
+        "fetch-block-shape": [6400,64,64],
         "downsample-factor": 32,
         "max-skeletonization-volume": 1e9,
         

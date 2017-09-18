@@ -133,8 +133,8 @@ class Subvolume(object):
 
 
     def __str__(self):
-        return "z{z1}-y{y1}-x{x1}--z{z2}-y{y2}-x{x2}"\
-               .format(**self.box.__dict__)
+        z1, y1, x1, z2, y2, x2 = self.box
+        return f"z{z1}-y{y1}-x{x1}--z{z2}-y{y2}-x{x2}"
 
     # assume line[0] < line[1] and add border in calculation 
     def intersects(self, line1, line2):

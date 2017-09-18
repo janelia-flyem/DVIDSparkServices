@@ -7,11 +7,15 @@ import time
 import datetime
 
 class WorkflowLogger:
+
     def __init__(self, appname):
         self.appname = appname
-        self.write_data("Started")
 
-    def __del__(self):
+    def __enter__(self):
+        self.write_data("Started")
+        return self
+
+    def __exit__(self, *args):
         self.write_data("Finished")
 
     # maybe support writing back to http callback

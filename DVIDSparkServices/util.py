@@ -18,7 +18,22 @@ import numpy as np
 import pandas as pd
 from skimage.util import view_as_blocks
 
+from numba import jit
+
 logger = logging.getLogger(__name__)
+
+def cpus_per_worker():
+    return 16
+
+def num_worker_nodes():
+    if "NUM_SPARK_WORKERS" not in os.environ:
+        # See sparklaunch_janelia_lsf
+        raise RuntimeError("Error: Your driver launch script must define NUM_SPARK_WORKERS in the environment.")
+
+    num_nodes = int(os.environ["NUM_SPARK_WORKERS"])
+    num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
+    return num_workers
+    
 
 class NumpyConvertingEncoder(json.JSONEncoder):
     """
@@ -127,17 +142,24 @@ def boxlist_to_json( bounds_list, indent=0 ):
     # The 'json' module doesn't have nice pretty-printing options for our purposes,
     # so we'll do this ourselves.
     from io import StringIO
-    from os import SEEK_CUR
 
     buf = StringIO()
     buf.write('    [\n')
+    
+    bounds_list, last_item = bounds_list[:-1], bounds_list[-1:]
+    
     for bounds_zyx in bounds_list:
         start_str = '[{}, {}, {}]'.format(*bounds_zyx[0])
         stop_str  = '[{}, {}, {}]'.format(*bounds_zyx[1])
         buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ],\n')
 
-    # Remove last comma, close list
-    buf.seek(-2, SEEK_CUR)
+    # Write last entry
+    if last_item:
+        last_item = last_item[0]
+        start_str = '[{}, {}, {}]'.format(*last_item[0])
+        stop_str  = '[{}, {}, {}]'.format(*last_item[1])
+        buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ]')
+
     buf.write('\n')
     buf.write(' '*indent + ']')
 
@@ -363,7 +385,7 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
         
         assume_sorted:
             If True, the provided coordinates are assumed to be pre-sorted in Z-Y-X order.
-            Otherwise, they are sorted before the RLEs are computed.
+            Otherwise, this function sorts them before the RLEs are computed.
     
     Timing notes:
         The FIB-25 'seven_column_roi' consists of 927971 block indices.
@@ -384,8 +406,8 @@ def runlength_encode(coord_list_zyx, assume_sorted=False):
 
     return _runlength_encode(coord_list_zyx)
 
-# See conditional jit activation, below
-#@numba.jit(nopython=True)
+
+@jit(nopython=True)
 def _runlength_encode(coord_list_zyx):
     """
     Helper function for runlength_encode(), above.
@@ -420,18 +442,13 @@ def _runlength_encode(coord_list_zyx):
     runs = np.array(runs).reshape((-1,4))
     return runs[1:, :] # omit dummy row (see above)
 
-# Enable JIT if numba is available
-try:
-    import numba
-    _runlength_encode = numba.jit(nopython=True)(_runlength_encode)
-except ImportError:
-    pass
-
 
 def blockwise_boxes( bounding_box, block_shape ):
     """
     Generator.
-    Divide the given global bounding box into blocks and iterate over the block boxes.
+
+    Divides the given global bounding box into blocks and iterate over the block boxes.
+    The generated block boxes are aligned to a grid in global coordinates (starting at (0,0,...)).
     Block boxes on the edge of the global bounding box will be clipped so as not to
     extend outside the global bounding box.
     """
