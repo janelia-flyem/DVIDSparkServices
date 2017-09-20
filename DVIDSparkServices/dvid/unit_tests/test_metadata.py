@@ -106,5 +106,5 @@ class Testmetadata(unittest.TestCase):
         self.assertFalse(kv.is_array())
         self.assertFalse(kv.is_labels())
 
-if __name__ == "main":
+if __name__ == "__main__":
     unittest.main()

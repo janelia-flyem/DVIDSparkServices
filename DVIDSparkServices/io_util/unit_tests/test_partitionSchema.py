@@ -1,7 +1,7 @@
 import unittest
 import numpy as np
 
-from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, VolumeSize, PartitionDims, partitionSchema
+from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 
 class TestVolumePartition(unittest.TestCase):
     def test_partitionhash(self):
@@ -173,5 +173,5 @@ class TestPartitionSchema(unittest.TestCase):
         self.assertEqual(True, False)
     
 
-if __name__ == "main":
+if __name__ == "__main__":
     unittest.main()

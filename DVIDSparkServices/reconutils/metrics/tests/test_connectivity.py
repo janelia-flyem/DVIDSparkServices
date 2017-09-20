@@ -123,5 +123,5 @@ class Testconnectivity(unittest.TestCase):
         self.assertTrue(sumstats[2]["val"] == 0)
         
  
-if __name__ == "main":
+if __name__ == "__main__":
     unittest.main()
