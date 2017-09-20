@@ -163,14 +163,12 @@ class TestPartitionSchema(unittest.TestCase):
         self.assertEqual(match, True)
 
     def test_badpadding(self):
-        """Check that incorrect padding specfication results in error.
+        """Check that incorrect padding specification results in error.
         """
-        try:
-            schema = partitionSchema(PartitionDims(2,0,0), blank_delimiter=1111, padding=3, enablemask=True)
-        except ValueError as e:
-            self.assertEqual(True, True)
-            return
-        self.assertEqual(True, False)
+        def doit():
+            partitionSchema(PartitionDims(2,0,0), blank_delimiter=1111, padding=3, enablemask=True)
+        
+        self.assertRaises(AssertionError, doit)
     
 
 if __name__ == "__main__":
