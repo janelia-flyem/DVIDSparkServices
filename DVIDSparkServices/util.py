@@ -9,7 +9,7 @@ import contextlib
 import inspect
 import socket
 import logging
-from itertools import starmap
+from itertools import starmap, product
 from datetime import timedelta
 import json
 
@@ -137,6 +137,31 @@ def bb_as_tuple(box):
     if isinstance(box, np.ndarray):
         box = box.tolist()
     return (tuple(box[0]), tuple(box[1]))
+
+
+def ndrange(start, stop=None):
+    """
+    Generator.
+
+    Like np.ndindex, but accepts both start and stop
+    instead of assuming that start is always (0,0,0).
+    
+    Example:
+    
+    >>> for index in ndrange((0,10,20), (1,12,23)):
+    ...     print(index)
+    (0, 10, 20)
+    (0, 10, 21)
+    (0, 10, 22)
+    (0, 11, 20)
+    (0, 11, 21)
+    (0, 11, 22)
+    """
+    if stop is None:
+        stop = start
+        start = (0,)*len(stop)
+    for index in product(*starmap(range, zip(start, stop))):
+        yield index
 
 def boxlist_to_json( bounds_list, indent=0 ):
     # The 'json' module doesn't have nice pretty-printing options for our purposes,
