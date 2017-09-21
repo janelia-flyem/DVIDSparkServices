@@ -6,16 +6,17 @@ in data volumes and a schema to create new partitions.
 from __future__ import division
 
 import numpy as np
-import collections
+from collections import namedtuple, defaultdict
+from itertools import chain
 
 # x,y,z offset of data (z,y,x order)
-VolumeOffset = collections.namedtuple('VolumeOffset', 'z y x')
+VolumeOffset = namedtuple('VolumeOffset', 'z y x')
 
 # x,y,z size of data (z,y,x order)
-VolumeSize = collections.namedtuple('VolumeSize', 'z y x')
+VolumeSize = namedtuple('VolumeSize', 'z y x')
 
 # the size of the partition dimensions (z,y,x  order)
-PartitionDims = collections.namedtuple('PartitionDims', 'zsize ysize xsize')
+PartitionDims = namedtuple('PartitionDims', 'zsize ysize xsize')
 
 class volumePartition(object):
     """Defines a volume partition and index used to group partitions.
@@ -186,9 +187,6 @@ class partitionSchema(object):
             if volume is None:
                 return []
 
-            # extract volume size
-            if len(volume.shape) == 2:
-                volume = np.expand_dims(volume, axis=0)
             zsize, ysize, xsize = volume.shape
 
             # determine new partition address
@@ -253,17 +251,13 @@ class partitionSchema(object):
                         subvol = volume[z1local:z2local, y1local:y2local, x1local:x2local]
                         subvol_partition = volumePartition((z,y,x), VolumeOffset(z*partdims.zsize, y*partdims.ysize, x*partdims.xsize))
                         subvol_offset = VolumeOffset(relpartz, relparty, relpartx)
-                        partitions.append( (subvol_partition, [(subvol_offset, subvol)]) )
+                        partitions.append( (subvol_partition, (subvol_offset, subvol)) )
 
             return partitions 
 
         if not usespark:
             # remap each partition in list
-            remapped_partitions = []
-            for partition in data:
-                temp_partitions = assignPartitions(partition)
-                remapped_partitions.extend(temp_partitions)
-            return remapped_partitions
+            return chain(*map(assignPartitions, data))
         else:
             # RDD -> RDD (will likely involve data shuffling)
             dataflat = data.flatMap(assignPartitions)
@@ -272,21 +266,13 @@ class partitionSchema(object):
     def _groupPartitions(self, dataflat, usespark):
         """Groups subpartitions into same partition.
         """
+        if usespark:
+            return dataflat.groupByKey()
 
-        if not usespark:
-            partitions = {}
-            for subpart in dataflat:
-                key, val = subpart
-                if key not in partitions:
-                    partitions[key] = []
-                partitions[key].append(val[0])
-            return partitions
-        else:
-            def reducedata(x, y):
-                x.extend(y)
-                return x
-            
-            return dataflat.reduceByKey(reducedata) 
+        partitions = defaultdict(lambda: [])
+        for k,v in dataflat:
+            partitions[k].append(v)
+        return partitions.items()
 
     def _padAndSplice(self, datagroup, usespark):
         delimiter = self.blank_delimiter
@@ -309,6 +295,7 @@ class partitionSchema(object):
             for (subpart, volume) in partitions:
                 # volume always 3D now
                 zsize, ysize, xsize = volume.shape
+                dtype = volume.dtype
    
                 # find bounds
                 if subpart.x < glbx:
@@ -339,7 +326,7 @@ class partitionSchema(object):
                     glbz2 += (padding - (glbz2 % padding))
 
             # create buffer
-            newvol = np.zeros(((glbz2-glbz), (glby2-glby), (glbx2-glbx)), dtype=partitions[0][1].dtype)
+            newvol = np.zeros(((glbz2-glbz), (glby2-glby), (glbx2-glbx)), dtype=dtype)
             mask = np.zeros(((glbz2-glbz), (glby2-glby), (glbx2-glbx)), dtype=np.uint8)
             
             newvol[:,:,:] = delimiter
