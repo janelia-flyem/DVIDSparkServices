@@ -4,21 +4,22 @@
             "server": "127.0.0.1:8000",
             "uuid": "UUID1",
             "segmentation-name": "labels",
-            "bounding-box": [[100, 150, 200], [356, 406, 456]]
+            "bounding-box": [[100, 150, 200], [356, 406, 456]],
+            "message-block-shape": [6400, 64, 64]
         },
         "output": {
             "server": "127.0.0.1:8000",
             "uuid": "UUID2",
             "segmentation-name": "labels-copy",
-            "block-size": 64,
-            "bounding-box": [[0, 0, 0], [256, 256, 256]]
+            "bounding-box": [[0, 0, 0], [256, 256, 256]],
+            "message-block-shape": [6400, 64, 64],
+            "block-width": 64
         }
     },
     "options": {
         "corespertask": 1,
 
         "chunk-size": 128,
-        "fetch-block-shape": [6400, 64, 64],
         "offset": [0,0,0],
         "pyramid-depth": 2,
 

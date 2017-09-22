@@ -194,7 +194,7 @@ class TestBrickFunctions(unittest.TestCase):
         brick = Brick( logical_box, physical_box, extract_subvol(source_volume, physical_box) )
         
         padding_grid = Grid( (5,5), offset=(1,0) )
-        padded_brick = pad_brick_data_from_volume_source( brick, padding_grid, partial(extract_subvol, source_volume) )
+        padded_brick = pad_brick_data_from_volume_source( padding_grid, partial(extract_subvol, source_volume), brick )
         
         assert (padded_brick.logical_box == brick.logical_box).all()
         assert (padded_brick.physical_box == [(1,5), (11, 15)]).all()
@@ -208,7 +208,7 @@ class TestBrickFunctions(unittest.TestCase):
         brick = Brick( logical_box, physical_box, extract_subvol(source_volume, physical_box) )
         
         padding_grid = Grid( (5,5), offset=(1,0) )
-        padded_brick = pad_brick_data_from_volume_source( brick, padding_grid, partial(extract_subvol, source_volume) )
+        padded_brick = pad_brick_data_from_volume_source( padding_grid, partial(extract_subvol, source_volume), brick )
 
         assert padded_brick is brick, "Expected to get the same brick back."
 

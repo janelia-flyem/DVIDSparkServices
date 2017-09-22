@@ -29,8 +29,9 @@ logger = logging.getLogger(__name__)
 
 from libdvid import SubstackZYX, DVIDException
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker
+from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
+from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
 
 
@@ -245,26 +246,29 @@ class sparkdvid(object):
     def parallelize_bounding_box( self,
                                   instance_name,
                                   bounding_box_zyx,
-                                  block_shape_zyx,
+                                  grid,
                                   target_partition_size_voxels ):
         """
         Create an RDD for the given data instance (of either grayscale, labelblk, or labelarray),
         within the given bounding_box (start_zyx, stop_zyx) and split into blocks of the given shape.
         The RDD parallelism will be set to include approximately target_partition_size_voxels in total.
         """
-        partitions = [volumePartition(box[0], box[0], (0,0,0), box[1]-box[0]) for box in blockwise_boxes( bounding_box_zyx, block_shape_zyx )]
-        
         # Choose an RDD parallelism (partitioning) that results in no more than 2GB per partition.
-        # (Sadly, the word 'partition' is overloaded in this code base...)
-        block_size_voxels = np.prod(block_shape_zyx)
-
+        block_size_voxels = np.prod(grid.block_shape)
         rdd_partition_length = target_partition_size_voxels // block_size_voxels
-        num_rdd_partitions = int( np.ceil( len(partitions) / rdd_partition_length ) )
-        num_rdd_partitions = max(num_rdd_partitions, cpus_per_worker() * num_worker_nodes())
 
-        # RDD: (volumePartition, data)
-        seg_chunks_partitioned = self.map_voxels( partitions, instance_name, num_rdd_partitions )
-        return seg_chunks_partitioned
+        bricks = generate_bricks_from_volume_source( bounding_box_zyx,
+                                                     grid,
+                                                     self.get_volume_accessor(instance_name),
+                                                     self.sc,
+                                                     rdd_partition_length )
+        
+        # If we're working with a tiny volume (e.g. testing),
+        # make sure we at least parallelize across all cores.
+        if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
+            bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+
+        return bricks
 
         
     def checkpointRDD(self, rdd, checkpoint_loc, enable_rollback):
@@ -398,7 +402,7 @@ class sparkdvid(object):
             return get_labels()
         return distrois.mapValues(mapper)
 
-    def map_voxels(self, partitions, instance_name, num_rdd_partitions=None):
+    def map_voxels(self, partitions, instance_name, scale=0, num_rdd_partitions=None):
         """
         Given a list of volumePartition objects, return an RDD of (partition, volume_data).
         """
@@ -407,7 +411,6 @@ class sparkdvid(object):
         instance_name = str(instance_name)
         resource_server = self.workflow.resource_server
         resource_port = self.workflow.resource_port
-        throttle = (resource_server == "")
         data_instance = DataInstance(server, uuid, instance_name)
         datatype = data_instance.datatype
         is_labels = data_instance.is_labels()
@@ -417,39 +420,81 @@ class sparkdvid(object):
             assert np.prod(partition.volsize) > 0, \
                 "volumePartition must have nonzero size.  You gave: {}".format( volumePartition )
             
+            # Two-levels of auto-retry:
+            # 1. Auto-retry up to three time for any reason.
+            # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
+            @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
+                        predicate=lambda ex: '503' in ex.message or '504' in ex.message)
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_voxels():
-                # extract labels 64
-                # retrieve data from box start position considering border
-                # Note: libdvid uses zyx order for python functions
-                node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
-                
-                if datatype == 'labelarray' and (np.array(partition.offset) % 64 == 0).all() and (np.array(partition.volsize) % 64 == 0).all():
-                    # Labelarray data can be fetched very efficiently if the request is block-aligned
-                    return node_service.get_labelarray_blocks3D( instance_name, partition.volsize, partition.offset, throttle )
-                elif is_labels:
-                    # labelblk (or non-aligned labelarray) must be fetched the old-fashioned way
-                    return node_service.get_labels3D( instance_name, partition.volsize, partition.offset, throttle, compress=True )
-                else:
-                    return node_service.get_gray3D( instance_name, partition.volsize, partition.offset, throttle, compress=False )
-
-            try:
-                return (partition, get_voxels())
-            except DVIDException as ex:
-                if '503' in ex.message or '504' in ex.message:
-                    # If our volume is on the cloud and VMs are still warming up,
-                    # Just wait 5 more minutes and try again.
-                    time.sleep(5*60)
-                    return (partition, get_voxels())
-                else:
-                    raise
+                return sparkdvid.get_voxels( server, uuid, instance_name, scale,
+                                             datatype, is_labels,
+                                             partition.volsize, partition.offset,
+                                             resource_server, resource_port )
 
         if num_rdd_partitions is None:
             num_rdd_partitions = len(partitions)
 
         return self.sc.parallelize(partitions, num_rdd_partitions).map(mapper)
 
+    @classmethod
+    def get_voxels( cls, server, uuid, instance_name, scale,
+                    instance_type, is_labels,
+                    volume_shape, offset,
+                    resource_server, resource_port):
+        # extract labels 64
+        # retrieve data from box start position considering border
+        # Note: libdvid uses zyx order for python functions
+        node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+        throttle = (resource_server == "")
         
+        if instance_type == 'labelarray':
+            # Labelarray data can be fetched very efficiently if the request is block-aligned
+            # So, block-align the request no matter what.
+            aligned_start = np.array(offset) // 64 * 64
+            aligned_stop = (np.array(offset) + volume_shape + 64-1) // 64 * 64
+            aligned_shape = aligned_stop - aligned_start
+            aligned_volume = node_service.get_labelarray_blocks3D( instance_name, aligned_shape, aligned_start, throttle, scale )
+            requested_box_within_aligned = ( offset - aligned_start,
+                                             offset - aligned_start + volume_shape )
+            return extract_subvol(aligned_volume, requested_box_within_aligned )
+                
+        elif is_labels:
+            assert scale == 0, "FIXME: get_labels3D() doesn't support scale yet!"
+            # labelblk (or non-aligned labelarray) must be fetched the old-fashioned way
+            return node_service.get_labels3D( instance_name, volume_shape, offset, throttle, compress=True )
+        else:
+            assert scale == 0, "FIXME: get_gray3D() doesn't support scale yet!"
+            return node_service.get_gray3D( instance_name, volume_shape, offset, throttle, compress=False )
+
+    def get_volume_accessor(self, instance_name, scale=0):
+        """
+        Returns a volume_accessor_func in the form expected by brick.py
+        """
+        server = self.dvid_server
+        uuid = self.uuid
+        instance_name = str(instance_name)
+        resource_server = self.workflow.resource_server
+        resource_port = self.workflow.resource_port
+        data_instance = DataInstance(server, uuid, instance_name)
+        datatype = data_instance.datatype
+        is_labels = data_instance.is_labels()
+
+        # Two-levels of auto-retry:
+        # 1. Auto-retry up to three time for any reason.
+        # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
+        @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
+                    predicate=lambda ex: '503' in ex.message or '504' in ex.message)
+        @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+        def get_voxels(box):
+            shape = np.asarray(box[1]) - box[0]
+            return sparkdvid.get_voxels( server, uuid, instance_name, scale,
+                                         datatype, is_labels,
+                                         shape, box[0],
+                                         resource_server, resource_port )
+
+        return get_voxels
+
     def map_labels64_pair(self, distrois, label_name, dvidserver2, uuid2, label_name2, roiname=""):
         """Creates RDD of two subvolumes (same ROI but different datasets)
 

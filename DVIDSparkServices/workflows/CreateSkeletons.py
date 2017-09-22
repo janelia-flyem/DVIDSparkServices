@@ -7,6 +7,7 @@ from functools import partial
 import numpy as np
 
 from DVIDSparkServices.util import MemoryWatcher
+from DVIDSparkServices.io_util.brick import Grid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -123,10 +124,10 @@ class CreateSkeletons(DVIDWorkflow):
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
 
     def execute(self):
-        seg_chunks_partitioned, _bounding_box_zyx, _partition_shape_zyx = self._partition_input()
+        bricks, _bounding_box_zyx, _input_grid = self._partition_input()
         
         # (vol_part, seg) -> (body_id, (box, mask))
-        body_ids_and_masks = seg_chunks_partitioned.flatMap( partial(body_masks, self.config_data) )
+        body_ids_and_masks = bricks.flatMap( partial(body_masks, self.config_data) )
 
         # (body_id, (box, mask))
         #   --> (body_id, [(box, mask), (box, mask), (box, mask), ...])
@@ -141,7 +142,7 @@ class CreateSkeletons(DVIDWorkflow):
     def _partition_input(self):
         """
         Map the input segmentation
-        volume from DVID into an RDD of (volumePartition, data),
+        volume from DVID into an RDD of Bricks,
         using the config's bounding-box setting for the full volume region,
         using the 'fetch-block-shape' as the partition size.
 
@@ -156,23 +157,23 @@ class CreateSkeletons(DVIDWorkflow):
         bb_config = self.config_data["bounding-box"]
         options = self.config_data["options"]
 
-        # repartition to be z=blksize, y=blksize, x=runlength (x=0 is unlimited)
-        partition_shape_zyx = options["fetch-block-shape"][::-1]
+        # repartition to be z=blksize, y=blksize, x=runlength
+        brick_shape_zyx = options["fetch-block-shape"][::-1]
+        input_grid = Grid(brick_shape_zyx, (0,0,0))
 
         bounding_box_xyz = np.array([bb_config["start"], bb_config["stop"]])
         bounding_box_zyx = bounding_box_xyz[:,::-1]
 
         # Aim for 2 GB RDD partitions
         target_partition_size_voxels = (2 * 2**30 // np.uint64().nbytes)
-        seg_chunks_partitioned = \
-            self.sparkdvid_context.parallelize_bounding_box( dvid_info['segmentation-name'],
-                                                             bounding_box_zyx,
-                                                             partition_shape_zyx,
-                                                             target_partition_size_voxels )
+        bricks = self.sparkdvid_context.parallelize_bounding_box( dvid_info['segmentation-name'],
+                                                                  bounding_box_zyx,
+                                                                  input_grid,
+                                                                  target_partition_size_voxels )
 
-        return seg_chunks_partitioned, bounding_box_zyx, partition_shape_zyx
+        return bricks, bounding_box_zyx, input_grid
 
-def body_masks(config, vp_and_seg):
+def body_masks(config, brick):
     """
     Produce a binary label mask for each object (except label 0).
     Return a list of those masks, along with their bounding boxes (expressed in global coordinates).
@@ -183,12 +184,8 @@ def body_masks(config, vp_and_seg):
         List of tuples: [(label_id, (mask_bounding_box, mask)), 
                          (label_id, (mask_bounding_box, mask)), ...]
     """
-    vol_part, segmentation = vp_and_seg
-    block_start = np.array(vol_part.offset)
-    block_stop = block_start + vol_part.volsize
-
-    return object_masks_for_labels( segmentation,
-                                    (block_start, block_stop),
+    return object_masks_for_labels( brick.volume,
+                                    brick.physical_box,
                                     config["options"]["minimum-segment-size"],
                                     always_keep_border_objects=True,
                                     compress_masks=True )

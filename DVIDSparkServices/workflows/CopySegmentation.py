@@ -12,6 +12,7 @@ import pandas as pd
 
 from pyspark import StorageLevel
 
+from DVIDSparkServices.io_util.brick import Grid, Brick, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -65,7 +66,15 @@ class CopySegmentation(Workflow):
                         "type": "string",
                         "minLength": 1
                     },
-                    "bounding-box": BoundingBoxSchema
+                    "bounding-box": BoundingBoxSchema,
+                    "message-block-shape": {
+                        "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "default": [6400,64,64]
+                    }
                 }
             },
     
@@ -89,7 +98,23 @@ class CopySegmentation(Workflow):
                         "minLength": 1
                     },
                     "bounding-box": BoundingBoxSchema,
-                    "block-size": {
+                    "write-shape": {
+                        "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "default": [6400,64,64]
+                    },
+                    "message-block-shape": {
+                        "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "default": [6400,64,64]
+                    },
+                    "block-width": {
                         "description": "The DVID blocksize for new segmentation instances. Ignored if the output segmentation instance already exists.",
                         "type": "integer",
                         "default": 64
@@ -123,15 +148,7 @@ class CopySegmentation(Workflow):
             "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
             "default": -1 # automatic by default
-        },
-       "fetch-block-shape": {
-            "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
-            "type": "array",
-            "items": { "type": "integer" },
-            "minItems": 3,
-            "maxItems": 3,
-            "default": [6400,64,64]
-        },
+        }
     })
 
     Schema = \
@@ -182,78 +199,101 @@ class CopySegmentation(Workflow):
 
         input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
         output_bb_zyx = np.array(output_config["bounding-box"])[:,::-1]
+
         assert ((input_bb_zyx[1] - input_bb_zyx[0]) == (output_bb_zyx[1] - output_bb_zyx[0])).all(), \
             "Input bounding box and output bounding box do not have the same dimensions"
-        translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
+        assert not any(np.array(output_config["message-block-shape"]) % output_config["block-width"]), \
+            "Output message-block-shape should be a multiple of the block size in all dimensions."
 
-        assert not any(np.array(options["fetch-block-shape"]) % output_config["block-size"]), \
-            "fetch-block-shape should be a multiple of the block size in all dimensions."
 
-        # RDD: (volumePartition, data)
-        seg_chunks_partitioned, bounding_box, partition_shape_zyx = self._partition_input()
+        input_bricks, bounding_box, _input_grid = self._partition_input()
         self._create_output_instance_if_necessary(bounding_box)
 
         # Overwrite pyramid depth in our config (in case the user specified -1 == 'automatic')
         options["pyramid-depth"] = self._read_pyramid_depth()
 
-        # data must exist after writing to dvid for downsampling
-        seg_chunks_partitioned.persist(StorageLevel.MEMORY_AND_DISK)
+        def translate_brick(offset, brick):
+            return Brick( brick.logical_box + offset,
+                          brick.physical_box + offset,
+                          brick.volume )
 
-        # FIXME: Instead of interleaving read and write operations,
-        #        let's force the entire read first, then write, for easier benchmarking of those two steps.
+        # Translate coordinates (which will leave them in a new, offset grid)
+        translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
+        output_bricks = input_bricks.map( partial(translate_brick, translation_offset_zyx) )
+
+        # FIXME: Do we need a persist here, before the following shuffle?
+        #output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
+        
+        # Re-align bricks to the output grid (shuffles data)
+        output_grid = Grid(output_config["message-block-shape"], (0,0,0))
+        output_bricks = remap_bricks_to_new_grid(output_grid, output_bricks).values()
+
+        # Now pad the bricks with previously existing data from dvid (if any)
+        output_block_grid = Grid(output_config["block-width"], (0,0,0))
+        output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale=0)
+
+        output_bricks = output_bricks.map( partial(pad_brick_data_from_volume_source, output_block_grid, output_accessor) )
+
+        # data must exist after writing to dvid for downsampling
+        output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
+
+        # FIXME: For now, instead of interleaving read and write operations,
+        #        we force the entire read first, then write, for easier benchmarking of those two steps.
         with Timer() as timer:
-            seg_chunks_partitioned.count()
+            output_bricks.count()
         logger.info(f"Reading entire volume took {timer.timedelta}")
 
-        # write level 0
+        # write scale 0
         with Timer() as timer:
-            self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], 0)
+            self._write_bricks(output_bricks, output_config["segmentation-name"], 0)
         logger.info(f"Writing entire volume at scale 0 took {timer.timedelta}")
 
         # Write body sizes to JSON
-        self._write_body_sizes( seg_chunks_partitioned )
+        self._write_body_sizes( output_bricks )
         
-        def downsample(part_volume):
-            part, volume = part_volume
-
-            part_box = ( part.offset,
-                         part.offset + np.array(part.volsize) )
+        def downsample(brick):
+            assert (brick.physical_box % 2 == 0).all()
+            assert (brick.logical_box % 2 == 0).all()
 
             # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
-            downsampled_volume, downsampled_box = downsample_labels_3d_suppress_zero(volume, (2,2,2), part_box)
-            downsampled_reloffset = np.array(part.get_reloffset()) // 2
-            
-            downsampled_part = volumePartition(tuple(downsampled_box[0]),
-                                      offset=downsampled_box[0],
-                                      reloffset=downsampled_reloffset,
-                                      volsize=downsampled_volume.shape )
-            return downsampled_part, downsampled_volume
+            downsampled_volume, _ = \
+                downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
 
-        # write pyramid levels for >=1 
-        for level in range(1, options["pyramid-depth"] + 1):
-            downsampled_array = seg_chunks_partitioned.map(downsample)
+            downsampled_logical_box = brick.logical_box // 2
+            downsampled_physical_box = brick.physical_box // 2
             
-            # repartition downsampled data
-            schema = partitionSchema(partition_shape_zyx, padding=output_config["block-size"])
-            downsampled_chunks_partitioned = schema.partition_data(downsampled_array)
+            return Brick(downsampled_logical_box, downsampled_physical_box, downsampled_volume)
 
-            # persist for next level
-            downsampled_chunks_partitioned.persist(StorageLevel.MEMORY_AND_DISK)
+        # write pyramid scales for >=1 
+        for scale in range(1, options["pyramid-depth"] + 1):
+            # Downsampling effectively divides grid by half (i.e. 32x32x32)
+            downsampled_bricks = output_bricks.map(downsample)
+
+            # Remap back up to full block (i.e. 64x64x64)
+            output_grid = Grid( 3*(output_config["block-width"],), (0,0,0) )
+            downsampled_bricks = remap_bricks_to_new_grid( output_grid, downsampled_bricks ).values()
+
+            # Pad from previously-existing pyramid data.
+            output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
+            downsampled_bricks = downsampled_bricks.map( partial(pad_brick_data_from_volume_source, output_block_grid, output_accessor) )
+                        
+            # persist for next scale
+            downsampled_bricks.persist(StorageLevel.MEMORY_AND_DISK)
 
             # FIXME: Instead of interleaving compute and write operations,
             #        let's force the entire compute first, then write, for easier benchmarking of those two steps.
             with Timer() as timer:
-                downsampled_chunks_partitioned.count()
-            logger.info(f"Computing scale {level} took {timer.timedelta}")
+                downsampled_bricks.count()
+            logger.info(f"Computing scale {scale} took {timer.timedelta}")
             
-            # Unpersist previous level
-            seg_chunks_partitioned.unpersist()
-            seg_chunks_partitioned = downsampled_chunks_partitioned
+            # Unpersist previous scale
+            output_bricks.unpersist()
+            output_bricks = downsampled_bricks
             
-            #  write data new level
+            #  write data new scale
             with Timer() as timer:
-                self._write_blocks(seg_chunks_partitioned, output_config["segmentation-name"], level)
-            logger.info(f"Writing scale {level} took {timer.timedelta}")
+                self._write_bricks(output_bricks, output_config["segmentation-name"], scale)
+            logger.info(f"Writing scale {scale} took {timer.timedelta}")
 
 
     def _partition_input(self):
@@ -261,7 +301,7 @@ class CopySegmentation(Workflow):
         Map the input segmentation
         volume from DVID into an RDD of (volumePartition, data),
         using the config's bounding-box setting for the full volume region,
-        using the 'fetch-block-shape' as the partition size.
+        using the input 'message-block-shape' as the partition size.
 
         Returns: (RDD, bounding_box_zyx, partition_shape_zyx)
             where:
@@ -275,24 +315,21 @@ class CopySegmentation(Workflow):
         options = self.config_data["options"]
         input_bb = self.config_data["data-info"]["input"]["bounding-box"]
 
-        # repartition to be z=blksize, y=blksize, x=runlength (x=0 is unlimited)
-        partition_shape_zyx = options["fetch-block-shape"][::-1]
-        
-        assert not any(np.array(partition_shape_zyx) % output_config["block-size"]), \
-            "fetch-block-shape should be a multiple of the block size in all dimensions."
+        # repartition to be z=blksize, y=blksize, x=runlength
+        brick_shape_zyx = input_config["message-block-shape"][::-1]
+        input_grid = Grid(brick_shape_zyx, (0,0,0))
         
         input_bb_zyx = np.array(input_bb)[:,::-1]
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-        seg_chunks_partitioned = \
-            self.sparkdvid_input_context.parallelize_bounding_box( input_config['segmentation-name'],
-                                                                   input_bb_zyx,
-                                                                   partition_shape_zyx,
-                                                                   target_partition_size_voxels )
+        bricks = self.sparkdvid_input_context.parallelize_bounding_box( input_config['segmentation-name'],
+                                                                        input_bb_zyx,
+                                                                        input_grid,
+                                                                        target_partition_size_voxels )
 
-        return seg_chunks_partitioned, input_bb_zyx, partition_shape_zyx
+        return bricks, input_bb_zyx, input_grid
 
 
     def _create_output_instance_if_necessary(self, bounding_box):
@@ -314,12 +351,13 @@ class CopySegmentation(Workflow):
             # if no pyramid depth is specified, determine the max
             depth = choose_pyramid_depth(bounding_box, 512)
 
-        # create new label array with correct number of pyramid levels
+        # create new label array with correct number of pyramid scales
         create_labelarray( output_config["server"],
                            output_config["uuid"],
                            output_config["segmentation-name"],
                            depth,
-                           3*(output_config["block-size"],) )
+                           3*(output_config["block-width"],) )
+
 
     def _read_pyramid_depth(self):
         """
@@ -343,7 +381,8 @@ class CopySegmentation(Workflow):
                             .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
         return existing_depth
 
-    def _write_blocks(self, seg_chunks_partitioned, dataname, level):
+
+    def _write_bricks(self, bricks, dataname, scale):
         """Writes partition to specified dvid.
         """
         output_config = self.config_data["data-info"]["output"]
@@ -351,7 +390,7 @@ class CopySegmentation(Workflow):
 
         server = output_config["server"]
         uuid = output_config["uuid"]
-        blksize = output_config["block-size"]
+        block_width = output_config["block-width"]
         
         resource_server = self.resource_server 
         resource_port = self.resource_port 
@@ -359,24 +398,20 @@ class CopySegmentation(Workflow):
         # default delimiter
         delimiter = 0
     
-        @self.collect_log(lambda i: socket.gethostname() + '-write-blocks-' + str(level))
-        def write_blocks(part_vol):
+        @self.collect_log(lambda i: socket.gethostname() + '-write-blocks-' + str(scale))
+        def write_brick(brick):
             logger = logging.getLogger(__name__)
-            part, data = part_vol
-            offset = part.get_offset()
-            reloffset = part.get_reloffset()
-            _, _, x_size = data.shape
-            if x_size % blksize != 0:
-                # check if padded
-                raise ValueError("Data is not block aligned")
-
-            shiftedoffset = (offset.z+reloffset.z, offset.y+reloffset.y, offset.x+reloffset.x)
+            
+            assert (brick.physical_box % block_width == 0).all(), \
+                f"This function assumes each brick's physical data is already block-aligned: {brick}"
+            
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
 
+            x_size = brick.volume.shape[2]
             # Find all non-zero blocks (and record by block index)
             block_coords = []
-            for block_index, block_x in enumerate(range(0, x_size, blksize)):
-                if not (data[:, :, block_x:block_x+blksize] == delimiter).all():
+            for block_index, block_x in enumerate(range(0, x_size, block_width)):
+                if not (brick.volume[:, :, block_x:block_x+block_width] == delimiter).all():
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
             # Find *runs* of non-zero blocks
@@ -386,27 +421,27 @@ class CopySegmentation(Workflow):
             block_runs[:,-1] += 1
             
             # Discard Z,Y indexes and convert from indexes to pixels
-            ranges = blksize * block_runs[:, 2:4]
+            ranges = block_width * block_runs[:, 2:4]
             
             # iterate through contiguous blocks and write to DVID
             for (data_x_start, data_x_end) in ranges:
-                datacrop = data[:,:,data_x_start:data_x_end].copy()
-                data_offset_zyx = (shiftedoffset[0], shiftedoffset[1], shiftedoffset[2] + data_x_start)
+                datacrop = brick.volume[:,:,data_x_start:data_x_end].copy()
+                data_offset_zyx = brick.physical_box[0] + (0,0,data_x_start)
 
                 throttle = (resource_server == "" and not server.startswith("http://127.0.0.1"))
                 with Timer() as put_timer:
-                    node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle, level)
+                    node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle, scale)
 
-                # Note: This timing data doesn't measure ideal throughput, since throttle
+                # Note: This timing data doesn't reflect ideal throughput, since throttle
                 #       and/or the resource manager muddy the numbers a bit...
                 voxels_per_second = datacrop.size / put_timer.seconds
                 logger.info("Put block {} in {:.3f} seconds ({:.1f} Megavoxels/second)"
                             .format(data_offset_zyx, put_timer.seconds, voxels_per_second / 1e6))
 
-        seg_chunks_partitioned.foreach(write_blocks)
+        bricks.foreach(write_brick)
        
     
-    def _write_body_sizes( self, seg_chunks_partitioned ):
+    def _write_body_sizes( self, bricks ):
         logger = logging.getLogger(__name__)
         
         if not self.config_data["options"]["body-size-output-path"]:
@@ -424,18 +459,18 @@ class CopySegmentation(Workflow):
                 return np.concatenate( (pair_list_1, pair_list_2) )
     
             with Timer() as timer:
-                labels_and_sizes = ( seg_chunks_partitioned
-                                        .values()
-                                        .map( nonconsecutive_bincount )
-                                        .flatMap( transpose )
-                                        .reduceByKey( add )
-                                        .map( lambda pair: [pair] )
-                                        .treeReduce( reduce_to_array, depth=4 ) )
+                labels_and_sizes = ( bricks.map( lambda br: br.volume )
+                                           .map( nonconsecutive_bincount )
+                                           .flatMap( transpose )
+                                           .reduceByKey( add )
+                                           .map( lambda pair: [pair] )
+                                           .treeReduce( reduce_to_array, depth=4 ) )
     
                 body_labels, body_sizes = np.transpose( labels_and_sizes )
             logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
         
         else: # Reduce by merging pandas dataframes
+            
             @self.collect_log(lambda *args: 'merge_label_counts')
             def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
                 labels_A, counts_A = labels_and_counts_A
@@ -467,11 +502,11 @@ class CopySegmentation(Workflow):
                 logger.info("Computing body sizes...")
      
                 # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
-                body_labels, body_sizes = ( seg_chunks_partitioned
-                                                .values()
-                                                .map( nonconsecutive_bincount )
-                                                .treeReduce( merge_label_counts, depth=4 ) )
+                body_labels, body_sizes = ( bricks.map( lambda br: br.volume )
+                                                  .map( nonconsecutive_bincount )
+                                                  .treeReduce( merge_label_counts, depth=4 ) )
             logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
+
         min_size = self.config_data["options"]["body-size-minimum"]
         if min_size > 1:
             logger.info("Omitting body sizes below {} voxels...".format(min_size))

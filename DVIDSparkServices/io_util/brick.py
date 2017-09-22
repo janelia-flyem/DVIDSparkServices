@@ -42,6 +42,11 @@ class Brick:
     def __hash__(self):
         return hash(tuple(self.logical_box[0]))
 
+    def __str__(self):
+        if (self.logical_box == self.physical_box).all():
+            return f"logical & physical: {self.logical_box.tolist()}"
+        return f"logical: {self.logical_box.tolist()}, physical: {self.physical_box.tolist()}"
+
 
 def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None ):
     """
@@ -83,7 +88,7 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
 
 
 
-def pad_brick_data_from_volume_source( brick, padding_grid, volume_accessor_func ):
+def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick ):
     """
     Expand the given Brick's data until its physical_box is aligned with the given padding_grid.
     The data in the expanded region will be sourced from the given volume_accessor_func.

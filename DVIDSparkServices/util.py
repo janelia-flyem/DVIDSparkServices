@@ -138,9 +138,12 @@ def extract_subvol(array, box):
     return array[box_to_slicing(*box)]
 
 def overwrite_subvol(array, box, subarray):
-    assert (subarray.shape == box[1] - box[0]).all(), \
-        f"subarray is the wrong shape {subarray.shape} for the given box {box}"
-    array[box_to_slicing(*box)] = subarray
+    try:
+        array[box_to_slicing(*box)] = subarray
+    except:
+        assert (subarray.shape == box[1] - box[0]).all(), \
+            f"subarray is the wrong shape {subarray.shape} for the given box {box}"
+        raise
 
 def bb_as_tuple(box):
     if isinstance(box, np.ndarray):
