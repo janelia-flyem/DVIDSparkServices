@@ -24,21 +24,33 @@ logger = logging.getLogger(__name__)
 
 class CopySegmentation(Workflow):
     
+    BoundingBoxSchema = \
+    {
+        "description": "The bounding box [[x0,y0,z0],[x1,y1,z1]], "
+                       "where [x1,y1,z1] == maxcoord+1 (i.e. Python conventions)",
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 3,
+            "maxItems": 3
+        }
+    }
+
     DataInfoSchema = \
     {
         "type": "object",
         "default": {},
-        "required": ["input", "output", "bounding-box"],
+        "required": ["input", "output"],
         "additionalProperties": False,
         "properties": {
-            #
-            # INPUT
-            #
             "input": {
                 "type": "object",
                 "default": {},
                 "additionalProperties": False,
-                "required": ["server", "uuid", "segmentation-name"],
+                "required": ["server", "uuid", "segmentation-name", "bounding-box"],
                 "properties": {
                     "server": {
                         "description": "location of DVID server to READ.  Either IP:PORT or the special word 'node-local'.",
@@ -52,18 +64,16 @@ class CopySegmentation(Workflow):
                         "description": "The labels instance to READ from. Instance may be either googlevoxels, labelblk, or labelarray.",
                         "type": "string",
                         "minLength": 1
-                    }
+                    },
+                    "bounding-box": BoundingBoxSchema
                 }
             },
     
-            #
-            # OUTPUT
-            #
             "output": {
                 "type": "object",
                 "default": {},
                 "additionalProperties": False,
-                "required": ["server", "uuid", "segmentation-name"],
+                "required": ["server", "uuid", "segmentation-name", "bounding-box"],
                 "properties": {
                     "server": {
                         "description": "location of DVID server to WRITE",
@@ -78,37 +88,13 @@ class CopySegmentation(Workflow):
                         "type": "string",
                         "minLength": 1
                     },
+                    "bounding-box": BoundingBoxSchema,
                     "block-size": {
                         "description": "The DVID blocksize for new segmentation instances. Ignored if the output segmentation instance already exists.",
                         "type": "integer",
                         "default": 64
                     }
                 }
-            },
-
-            #
-            # BOUNDING BOX (alternative to ROI)
-            #
-            "bounding-box": {
-                "type": "object",
-                "default": {"start": [0,0,0], "stop": [0,0,0]},
-                "required": ["start", "stop"],
-                "start": {
-                    "description": "The bounding box lower coordinate in XYZ order",
-                    "type": "array",
-                    "items": { "type": "integer" },
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "default": [0,0,0]
-                },
-                "stop": {
-                    "description": "The bounding box upper coordinate in XYZ order.  (numpy-conventions, i.e. maxcoord+1)",
-                    "type": "array",
-                    "items": { "type": "integer" },
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "default": [0,0,0] # Default is start == stop, so we can easily detect whether the bounding box was provided in the config.
-                },
             }
         }
     }
@@ -190,8 +176,18 @@ class CopySegmentation(Workflow):
 
 
     def execute(self):
+        input_config = self.config_data["data-info"]["input"]
         output_config = self.config_data["data-info"]["output"]
         options = self.config_data["options"]
+
+        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
+        output_bb_zyx = np.array(output_config["bounding-box"])[:,::-1]
+        assert ((input_bb_zyx[1] - input_bb_zyx[0]) == (output_bb_zyx[1] - output_bb_zyx[0])).all(), \
+            "Input bounding box and output bounding box do not have the same dimensions"
+        translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
+
+        assert not any(np.array(options["fetch-block-shape"]) % output_config["block-size"]), \
+            "fetch-block-shape should be a multiple of the block size in all dimensions."
 
         # RDD: (volumePartition, data)
         seg_chunks_partitioned, bounding_box, partition_shape_zyx = self._partition_input()
@@ -276,8 +272,8 @@ class CopySegmentation(Workflow):
         """
         input_config = self.config_data["data-info"]["input"]
         output_config = self.config_data["data-info"]["output"]
-        bb_config = self.config_data["data-info"]["bounding-box"]
         options = self.config_data["options"]
+        input_bb = self.config_data["data-info"]["input"]["bounding-box"]
 
         # repartition to be z=blksize, y=blksize, x=runlength (x=0 is unlimited)
         partition_shape_zyx = options["fetch-block-shape"][::-1]
@@ -285,19 +281,18 @@ class CopySegmentation(Workflow):
         assert not any(np.array(partition_shape_zyx) % output_config["block-size"]), \
             "fetch-block-shape should be a multiple of the block size in all dimensions."
         
-        bounding_box_xyz = np.array([bb_config["start"], bb_config["stop"]])
-        bounding_box_zyx = bounding_box_xyz[:,::-1]
+        input_bb_zyx = np.array(input_bb)[:,::-1]
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
         seg_chunks_partitioned = \
             self.sparkdvid_input_context.parallelize_bounding_box( input_config['segmentation-name'],
-                                                                   bounding_box_zyx,
+                                                                   input_bb_zyx,
                                                                    partition_shape_zyx,
                                                                    target_partition_size_voxels )
 
-        return seg_chunks_partitioned, bounding_box_zyx, partition_shape_zyx
+        return seg_chunks_partitioned, input_bb_zyx, partition_shape_zyx
 
 
     def _create_output_instance_if_necessary(self, bounding_box):

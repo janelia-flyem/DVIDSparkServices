@@ -3,17 +3,15 @@
         "input": {
             "server": "127.0.0.1:8000",
             "uuid": "UUID1",
-            "segmentation-name": "labels"
-        },
-        "bounding-box": {
-            "start": [0, 0, 0],
-            "stop":  [256, 256, 256]
+            "segmentation-name": "labels",
+            "bounding-box": [[100, 150, 200], [356, 406, 456]]
         },
         "output": {
             "server": "127.0.0.1:8000",
             "uuid": "UUID2",
             "segmentation-name": "labels-copy",
-            "block-size": 64
+            "block-size": 64,
+            "bounding-box": [[0, 0, 0], [256, 256, 256]]
         }
     },
     "options": {
