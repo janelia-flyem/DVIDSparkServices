@@ -149,26 +149,25 @@ def init_dvid_database(test_dir, reuse_last=False):
     subprocess.check_call(create_instance2_command)
     
     # load binary label data into uuid1
-    load_data1_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels.bin' % (uuid1, test_dir)).split()
-    subprocess.check_call(load_data1_command)
+    load_data1_command = f'curl -X POST 127.0.0.1:8000/api/node/{uuid1}/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @{test_dir}/resources/labels.bin'
+    subprocess.check_call(load_data1_command, shell=True)
     
     # load binary label data into uuid2
-    load_data2_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @%s/resources/labels_comp.bin' % (uuid2, test_dir)).split()
-    subprocess.check_call(load_data2_command)
+    load_data2_command = f'curl -X POST 127.0.0.1:8000/api/node/{uuid2}/labels/raw/0_1_2/512_512_512/0_0_0 --data-binary @{test_dir}/resources/labels_comp.bin'
+    subprocess.check_call(load_data2_command, shell=True)
     
     # create ROI datatype
-    create_roi_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
-    create_roi_command.append("{\"typename\": \"roi\", \"dataname\" : \"temproi\"}")
-    subprocess.check_call(create_roi_command)
+    create_roi_command = f"""curl -X POST 127.0.0.1:8000/api/repo/{uuid1}/instance -d""" + """ '{"typename": "roi", "dataname" : "temproi"}' """
+    subprocess.check_call(create_roi_command, shell=True)
     
     # load ROI
-    load_roi_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/temproi/roi --data-binary @%s/resources/500roi.json' % (uuid1, test_dir)).split()
-    subprocess.check_call(load_roi_command)
+    load_roi_command = f'curl -X POST 127.0.0.1:8000/api/node/{uuid1}/temproi/roi --data-binary @{test_dir}/resources/500roi.json'
+    subprocess.check_call(load_roi_command, shell=True)
     
     # create synapse key value
-    create_synapse_command = ('curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d' % uuid1).split()
-    create_synapse_command.append("{\"typename\": \"keyvalue\", \"dataname\" : \"annotations\"}")
-    subprocess.check_call(create_synapse_command)
+    create_synapse_command = f'curl -X POST 127.0.0.1:8000/api/repo/{uuid1}/instance -d'
+    create_synapse_command+= """ '{"typename": "keyvalue", "dataname" : "annotations"}' """
+    subprocess.check_call(create_synapse_command, shell=True)
     
     # load synapses
     load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key/syn --data-binary @%s/resources/synapse_small.json' % (uuid1, test_dir)).split()
