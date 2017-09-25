@@ -212,6 +212,11 @@ class CopySegmentation(Workflow):
         # Overwrite pyramid depth in our config (in case the user specified -1 == 'automatic')
         options["pyramid-depth"] = self._read_pyramid_depth()
 
+        with Timer() as timer:
+            input_bricks.persist()
+            input_bricks.count()
+        logger.info(f"Reading entire volume took {timer.timedelta}")
+
         def translate_brick(offset, brick):
             return Brick( brick.logical_box + offset,
                           brick.physical_box + offset,
@@ -228,20 +233,26 @@ class CopySegmentation(Workflow):
         output_grid = Grid(output_config["message-block-shape"], (0,0,0))
         output_bricks = remap_bricks_to_new_grid(output_grid, output_bricks).values()
 
+        with Timer() as timer:
+            output_bricks.count()
+            output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
+            input_bricks.unpersist()
+        logger.info(f"Shuffling bricks into alignment took {timer.timedelta}")
+
         # Now pad the bricks with previously existing data from dvid (if any)
         output_block_grid = Grid(output_config["block-width"], (0,0,0))
         output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale=0)
 
         output_bricks = output_bricks.map( partial(pad_brick_data_from_volume_source, output_block_grid, output_accessor) )
-
-        # data must exist after writing to dvid for downsampling
         output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
+
+        with Timer() as timer:
+            output_bricks.count()
+        logger.info(f"Padding bricks with data from output took {timer.timedelta}")
+
 
         # FIXME: For now, instead of interleaving read and write operations,
         #        we force the entire read first, then write, for easier benchmarking of those two steps.
-        with Timer() as timer:
-            output_bricks.count()
-        logger.info(f"Reading entire volume took {timer.timedelta}")
 
         # write scale 0
         with Timer() as timer:
