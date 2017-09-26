@@ -13,7 +13,6 @@ import pandas as pd
 from pyspark import StorageLevel
 
 from DVIDSparkServices.io_util.brick import Grid, Brick, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
-from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, partitionSchema
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -209,102 +208,46 @@ class CopySegmentation(Workflow):
         input_bricks, bounding_box, _input_grid = self._partition_input()
         self._create_output_instance_if_necessary(bounding_box)
 
-        # Overwrite pyramid depth in our config (in case the user specified -1 == 'automatic')
+        # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
 
-        with Timer() as timer:
-            input_bricks.persist()
-            input_bricks.count()
-        logger.info(f"Reading entire volume took {timer.timedelta}")
+        persist_and_execute(input_bricks, f"Reading entire volume")
 
         def translate_brick(offset, brick):
             return Brick( brick.logical_box + offset,
                           brick.physical_box + offset,
                           brick.volume )
 
-        # Translate coordinates (which will leave them in a new, offset grid)
+        # Translate coordinates from input to output
+        # (which will leave the bricks in a new, offset grid)
         translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
         output_bricks = input_bricks.map( partial(translate_brick, translation_offset_zyx) )
+        del input_bricks
 
-        # FIXME: Do we need a persist here, before the following shuffle?
-        #output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
-        
-        # Re-align bricks to the output grid (shuffles data)
-        output_grid = Grid(output_config["message-block-shape"], (0,0,0))
-        output_bricks = remap_bricks_to_new_grid(output_grid, output_bricks).values()
+        # Re-align to output grid, pad internally to block-align.
+        aligned_bricks = self._consolidate_and_pad(output_bricks, 0)
+        del output_bricks
 
-        with Timer() as timer:
-            output_bricks.count()
-            output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
-            input_bricks.unpersist()
-        logger.info(f"Shuffling bricks into alignment took {timer.timedelta}")
+        # Write to DVID
+        self._write_bricks(aligned_bricks, output_config["segmentation-name"], 0)
 
-        # Now pad the bricks with previously existing data from dvid (if any)
-        output_block_grid = Grid(output_config["block-width"], (0,0,0))
-        output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale=0)
+        # Compute body sizes and write to HDf5
+        self._write_body_sizes( aligned_bricks )
 
-        output_bricks = output_bricks.map( partial(pad_brick_data_from_volume_source, output_block_grid, output_accessor) )
-        output_bricks.persist(StorageLevel.MEMORY_AND_DISK)
+        # Write scale 0 to DVID
+        self._write_bricks( aligned_bricks, output_config["segmentation-name"], 0 )
 
-        with Timer() as timer:
-            output_bricks.count()
-        logger.info(f"Padding bricks with data from output took {timer.timedelta}")
+        # Downsample and write the rest of the pyramid scales
+        for new_scale in range(1, 1+options["pyramid-depth"]):
+            # Compute downsampled (results in small bricks)
+            downsampled_bricks = self._downsample_bricks(aligned_bricks, new_scale)
 
+            # Consolidate to full-size bricks and pad internally to block-align
+            aligned_bricks = self._consolidate_and_pad(downsampled_bricks, new_scale)
 
-        # FIXME: For now, instead of interleaving read and write operations,
-        #        we force the entire read first, then write, for easier benchmarking of those two steps.
-
-        # write scale 0
-        with Timer() as timer:
-            self._write_bricks(output_bricks, output_config["segmentation-name"], 0)
-        logger.info(f"Writing entire volume at scale 0 took {timer.timedelta}")
-
-        # Write body sizes to JSON
-        self._write_body_sizes( output_bricks )
-        
-        def downsample(brick):
-            assert (brick.physical_box % 2 == 0).all()
-            assert (brick.logical_box % 2 == 0).all()
-
-            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
-            downsampled_volume, _ = \
-                downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
-
-            downsampled_logical_box = brick.logical_box // 2
-            downsampled_physical_box = brick.physical_box // 2
-            
-            return Brick(downsampled_logical_box, downsampled_physical_box, downsampled_volume)
-
-        # write pyramid scales for >=1 
-        for scale in range(1, options["pyramid-depth"] + 1):
-            # Downsampling effectively divides grid by half (i.e. 32x32x32)
-            downsampled_bricks = output_bricks.map(downsample)
-
-            # Remap back up to full block (i.e. 64x64x64)
-            output_grid = Grid( 3*(output_config["block-width"],), (0,0,0) )
-            downsampled_bricks = remap_bricks_to_new_grid( output_grid, downsampled_bricks ).values()
-
-            # Pad from previously-existing pyramid data.
-            output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
-            downsampled_bricks = downsampled_bricks.map( partial(pad_brick_data_from_volume_source, output_block_grid, output_accessor) )
-                        
-            # persist for next scale
-            downsampled_bricks.persist(StorageLevel.MEMORY_AND_DISK)
-
-            # FIXME: Instead of interleaving compute and write operations,
-            #        let's force the entire compute first, then write, for easier benchmarking of those two steps.
-            with Timer() as timer:
-                downsampled_bricks.count()
-            logger.info(f"Computing scale {scale} took {timer.timedelta}")
-            
-            # Unpersist previous scale
-            output_bricks.unpersist()
-            output_bricks = downsampled_bricks
-            
-            #  write data new scale
-            with Timer() as timer:
-                self._write_bricks(output_bricks, output_config["segmentation-name"], scale)
-            logger.info(f"Writing scale {scale} took {timer.timedelta}")
+            # Write to DVID
+            self._write_bricks(aligned_bricks, output_config["segmentation-name"], new_scale)
+            del downsampled_bricks
 
 
     def _partition_input(self):
@@ -322,8 +265,6 @@ class CopySegmentation(Workflow):
             
         """
         input_config = self.config_data["data-info"]["input"]
-        output_config = self.config_data["data-info"]["output"]
-        options = self.config_data["options"]
         input_bb = self.config_data["data-info"]["input"]["bounding-box"]
 
         # repartition to be z=blksize, y=blksize, x=runlength
@@ -392,9 +333,55 @@ class CopySegmentation(Workflow):
                             .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
         return existing_depth
 
+    def _downsample_bricks(self, bricks, new_scale):
+        """
+        Immediately downsample the given RDD of Bricks by a factor of 2 and persist the results.
+        Also, unpersist the input.
+        """
+        # Downsampling effectively divides grid by half (i.e. 32x32x32)
+        downsampled_bricks = bricks.map(downsample_brick)
+        persist_and_execute(downsampled_bricks, f"Downsampling to scale {new_scale}")
+        bricks.unpersist()
+        del bricks
+
+        # Bricks are now half-size
+        return downsampled_bricks
+
+    def _consolidate_and_pad(self, bricks, scale):
+        """
+        Consolidate (align), and pad the given RDD of Bricks.
+
+        scale: The pyramid scale of the data.
+        
+        Note: UNPERSISTS the input data and returns the new, downsampled data.
+        """
+        output_config = self.config_data["data-info"]["output"]
+
+        # Consolidate bricks to full size, aligned blocks (shuffles data)
+        output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
+        remapped_bricks = remap_bricks_to_new_grid( output_writing_grid, bricks ).values()
+        persist_and_execute(remapped_bricks, f"Shuffling scale-{scale} bricks into alignment")
+
+        # Discard original
+        bricks.unpersist()
+        del bricks
+
+        # Pad from previously-existing pyramid data.
+        output_padding_grid = Grid(output_config["block-width"], (0,0,0))
+        output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
+        padded_bricks = remapped_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
+        persist_and_execute(padded_bricks, f"Computing scale {scale}")
+
+        # Discard
+        remapped_bricks.unpersist()
+        del remapped_bricks
+
+        return padded_bricks
+
 
     def _write_bricks(self, bricks, dataname, scale):
-        """Writes partition to specified dvid.
+        """
+        Writes partition to specified dvid.
         """
         output_config = self.config_data["data-info"]["output"]
         appname = self.APPNAME
@@ -449,12 +436,20 @@ class CopySegmentation(Workflow):
                 logger.info("Put block {} in {:.3f} seconds ({:.1f} Megavoxels/second)"
                             .format(data_offset_zyx, put_timer.seconds, voxels_per_second / 1e6))
 
-        bricks.foreach(write_brick)
-       
+        with Timer() as timer:
+            bricks.foreach(write_brick)
+        logger.info(f"Writing scale {scale} took {timer.timedelta}")
+
     
     def _write_body_sizes( self, bricks ):
-        logger = logging.getLogger(__name__)
+        """
+        Calculate the size (in voxels) of all label bodies in the volume,
+        and write the results to an HDF5 file.
         
+        NOTE: For now, we implement two alternative methods of computing this result,
+              for the sake of performance comparisons between the two methods.
+              The method used is determined by the 'body-size-reduce-by-key' setting.
+        """
         if not self.config_data["options"]["body-size-output-path"]:
             logger.info("Skipping body size calculation.")
             return
@@ -540,3 +535,24 @@ class CopySegmentation(Workflow):
                 f.create_dataset('labels', data=body_labels, chunks=True)
                 f.create_dataset('sizes', data=body_sizes, chunks=True)
         logger.info("Writing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
+
+
+def downsample_brick(brick):
+    assert (brick.physical_box % 2 == 0).all()
+    assert (brick.logical_box % 2 == 0).all()
+
+    # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
+    downsampled_volume, _ = \
+        downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
+
+    downsampled_logical_box = brick.logical_box // 2
+    downsampled_physical_box = brick.physical_box // 2
+    
+    return Brick(downsampled_logical_box, downsampled_physical_box, downsampled_volume)
+
+
+def persist_and_execute(rdd, description):
+    with Timer() as timer:
+        rdd.persist(StorageLevel.MEMORY_AND_DISK)
+        rdd.count()
+    logger.info(f"{description} took {timer.timedelta}")
