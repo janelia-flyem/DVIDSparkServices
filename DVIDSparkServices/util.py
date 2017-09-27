@@ -133,34 +133,72 @@ def bb_to_slicing(start, stop):
     """
     return tuple( starmap( slice, zip(start, stop) ) )
 
+
+def extract_subvol(array, box):
+    return array[box_to_slicing(*box)]
+
+def overwrite_subvol(array, box, subarray):
+    try:
+        array[box_to_slicing(*box)] = subarray
+    except:
+        assert (subarray.shape == box[1] - box[0]).all(), \
+            f"subarray is the wrong shape {subarray.shape} for the given box {box}"
+        raise
+
 def bb_as_tuple(box):
     if isinstance(box, np.ndarray):
         box = box.tolist()
     return (tuple(box[0]), tuple(box[1]))
 
+# Aliases
+box_to_slicing = bb_to_slicing
+box_as_tuple = bb_as_tuple
 
-def ndrange(start, stop=None):
+def box_intersection(box_A, box_B):
+    """
+    Compute the intersection of the two given boxes.
+    If the two boxes do not intersect at all, then the returned box will have non-positive shape:
+
+    >>> intersection = box_intersection(box_A, box_B)
+    >>> assert (intersection[1] - intersection[0] > 0).all(), "Boxes do not intersect."
+    """
+    intersection = np.empty_like(box_A)
+    intersection[0] = np.maximum( box_A[0], box_B[0] )
+    intersection[1] = np.minimum( box_A[1], box_B[1] )
+    return intersection
+
+
+def ndrange(start, stop=None, step=None):
     """
     Generator.
 
-    Like np.ndindex, but accepts both start and stop
-    instead of assuming that start is always (0,0,0).
+    Like np.ndindex, but accepts start/stop/step instead of
+    assuming that start is always (0,0,0) and step is (1,1,1).
     
     Example:
     
-    >>> for index in ndrange((0,10,20), (1,12,23)):
+    >>> for index in ndrange((1,2,3), (10,20,30), step=(5,10,15)):
     ...     print(index)
-    (0, 10, 20)
-    (0, 10, 21)
-    (0, 10, 22)
-    (0, 11, 20)
-    (0, 11, 21)
-    (0, 11, 22)
+    (1, 2, 3)
+    (1, 2, 18)
+    (1, 12, 3)
+    (1, 12, 18)
+    (6, 2, 3)
+    (6, 2, 18)
+    (6, 12, 3)
+    (6, 12, 18)
     """
     if stop is None:
         stop = start
         start = (0,)*len(stop)
-    for index in product(*starmap(range, zip(start, stop))):
+
+    if step is None:
+        step = (1,)*len(stop)
+
+    assert len(start) == len(stop) == len(step), \
+        f"tuple lengths don't match: ndrange({start}, {stop}, {step})"
+
+    for index in product(*starmap(range, zip(start, stop, step))):
         yield index
 
 def boxlist_to_json( bounds_list, indent=0 ):
