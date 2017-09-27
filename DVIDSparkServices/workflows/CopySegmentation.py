@@ -337,7 +337,7 @@ class CopySegmentation(Workflow):
         """
         # Downsampling effectively divides grid by half (i.e. 32x32x32)
         downsampled_bricks = bricks.map(downsample_brick)
-        persist_and_execute(downsampled_bricks, f"Downsampling to scale {new_scale}")
+        persist_and_execute(downsampled_bricks, f"Scale {new_scale}: Downsampling")
         bricks.unpersist()
         del bricks
 
@@ -355,9 +355,11 @@ class CopySegmentation(Workflow):
         output_config = self.config_data["data-info"]["output"]
 
         # Consolidate bricks to full size, aligned blocks (shuffles data)
+        # FIXME: We should skip this if the grids happen to be aligned already.
+        #        This shuffle takes ~15 minutes per tab.
         output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
         remapped_bricks = remap_bricks_to_new_grid( output_writing_grid, bricks ).values()
-        persist_and_execute(remapped_bricks, f"Shuffling scale-{scale} bricks into alignment")
+        persist_and_execute(remapped_bricks, f"Scale {scale}: Shuffling bricks into alignment")
 
         # Discard original
         bricks.unpersist()
@@ -367,7 +369,7 @@ class CopySegmentation(Workflow):
         output_padding_grid = Grid(output_config["block-width"], (0,0,0))
         output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
         padded_bricks = remapped_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
-        persist_and_execute(padded_bricks, f"Computing scale {scale}")
+        persist_and_execute(padded_bricks, f"Scale {scale}: Padding")
 
         # Discard
         remapped_bricks.unpersist()
@@ -435,7 +437,7 @@ class CopySegmentation(Workflow):
 
         with Timer() as timer:
             bricks.foreach(write_brick)
-        logger.info(f"Writing scale {scale} took {timer.timedelta}")
+        logger.info(f"Scale {scale}: Writing to DVID took {timer.timedelta}")
 
     
     def _write_body_sizes( self, bricks ):
