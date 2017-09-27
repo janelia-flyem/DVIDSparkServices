@@ -228,9 +228,6 @@ class CopySegmentation(Workflow):
         aligned_bricks = self._consolidate_and_pad(output_bricks, 0)
         del output_bricks
 
-        # Write to DVID
-        self._write_bricks(aligned_bricks, output_config["segmentation-name"], 0)
-
         # Compute body sizes and write to HDf5
         self._write_body_sizes( aligned_bricks )
 
