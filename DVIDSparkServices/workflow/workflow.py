@@ -403,7 +403,7 @@ class Workflow(object):
         self.resource_server = driver_ip_addr
 
         logger.info("Starting resource manager on the driver ({})".format(driver_ip_addr))
-        resource_server_script = sys.prefix + '/bin/resource_manager.py'
+        resource_server_script = sys.prefix + '/bin/dvid_resource_manager'
         resource_server_process = subprocess.Popen("{python} {server_script} {port} {config_arg}"\
                                                    .format( python=sys.executable,
                                                             server_script=resource_server_script,
