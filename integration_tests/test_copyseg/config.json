@@ -1,21 +1,24 @@
 {
-    "data-info": {
-        "input": {
-            "server": "127.0.0.1:8000",
-            "uuid": "UUID1",
-            "segmentation-name": "labels",
-            "bounding-box": [[100, 150, 200], [356, 406, 456]],
-            "message-block-shape": [6400, 64, 64]
-        },
-        "output": {
-            "server": "127.0.0.1:8000",
-            "uuid": "UUID2",
-            "segmentation-name": "labels-copy",
-            "bounding-box": [[0, 0, 0], [256, 256, 256]],
-            "message-block-shape": [6400, 64, 64],
-            "block-width": 64
-        }
+    "input": {
+        "service-type": "dvid",
+        "server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "labels",
+        "bounding-box": [[100, 150, 200], [356, 406, 456]],
+        "message-block-shape": [6400, 64, 64],
+        "block-width": 64
     },
+
+    "output": {
+        "service-type": "dvid",
+        "server": "127.0.0.1:8000",
+        "uuid": "UUID2",
+        "segmentation-name": "labels-copy",
+        "bounding-box": [[0, 0, 0], [256, 256, 256]],
+        "message-block-shape": [6400, 64, 64],
+        "block-width": 64
+    },
+
     "options": {
         "corespertask": 1,
 
@@ -27,7 +30,8 @@
         
         "resource-server": "",
         "resource-port": 0,
-    	"resource-server-config": {
+
+    	   "resource-server-config": {
             "read_reqs": 128,
             "read_data": 4000000000,
             "write_reqs": 128,

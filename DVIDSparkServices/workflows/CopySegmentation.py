@@ -24,6 +24,29 @@ logger = logging.getLogger(__name__)
 
 class CopySegmentation(Workflow):
     
+    DvidSegmentationSourceSchema = \
+    {
+        "description": "Parameters to use DVID as a source of voxel data",
+        "type": "object",
+        "required": ["service-type", "server", "uuid", "segmentation-name"],
+        "properties": {
+            "service-type": { "type": "string", "enum": ["dvid"] },
+            "server": {
+                "description": "location of DVID server to READ.  Either IP:PORT or the special word 'node-local'.",
+                "type": "string",
+            },
+            "uuid": {
+                "description": "version node for READING segmentation",
+                "type": "string"
+            },
+            "segmentation-name": {
+                "description": "The labels instance to READ from. Instance may be either googlevoxels, labelblk, or labelarray.",
+                "type": "string",
+                "minLength": 1
+            },
+        }
+    }
+
     BoundingBoxSchema = \
     {
         "description": "The bounding box [[x0,y0,z0],[x1,y1,z1]], "
@@ -39,91 +62,33 @@ class CopySegmentation(Workflow):
         }
     }
 
-    DataInfoSchema = \
+    SegmentationVolumeSchema = \
     {
+        "description": "Describes a segmentation volume source, extents, and preferred access pattern",
         "type": "object",
-        "default": {},
-        "required": ["input", "output"],
-        "additionalProperties": False,
+        "required": ["bounding-box", "message-block-shape"],
+        "oneOf": [
+            DvidSegmentationSourceSchema
+        ],
         "properties": {
-            "input": {
-                "type": "object",
-                "default": {},
-                "additionalProperties": False,
-                "required": ["server", "uuid", "segmentation-name", "bounding-box"],
-                "properties": {
-                    "server": {
-                        "description": "location of DVID server to READ.  Either IP:PORT or the special word 'node-local'.",
-                        "type": "string",
-                    },
-                    "uuid": {
-                        "description": "version node for READING segmentation",
-                        "type": "string"
-                    },
-                    "segmentation-name": {
-                        "description": "The labels instance to READ from. Instance may be either googlevoxels, labelblk, or labelarray.",
-                        "type": "string",
-                        "minLength": 1
-                    },
-                    "bounding-box": BoundingBoxSchema,
-                    "message-block-shape": {
-                        "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
-                        "type": "array",
-                        "items": { "type": "integer" },
-                        "minItems": 3,
-                        "maxItems": 3,
-                        "default": [6400,64,64]
-                    }
-                }
+            "bounding-box": BoundingBoxSchema,
+            "message-block-shape": {
+                "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
+                "type": "array",
+                "items": { "type": "integer" },
+                "minItems": 3,
+                "maxItems": 3,
+                "default": [6400,64,64],
             },
-    
-            "output": {
-                "type": "object",
-                "default": {},
-                "additionalProperties": False,
-                "required": ["server", "uuid", "segmentation-name", "bounding-box"],
-                "properties": {
-                    "server": {
-                        "description": "location of DVID server to WRITE",
-                        "type": "string",
-                    },
-                    "uuid": {
-                        "description": "version node for WRITING segmentation",
-                        "type": "string"
-                    },
-                    "segmentation-name": {
-                        "description": "The labels instance to WRITE to.  If necessary, will be created (as labelarray).",
-                        "type": "string",
-                        "minLength": 1
-                    },
-                    "bounding-box": BoundingBoxSchema,
-                    "write-shape": {
-                        "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
-                        "type": "array",
-                        "items": { "type": "integer" },
-                        "minItems": 3,
-                        "maxItems": 3,
-                        "default": [6400,64,64]
-                    },
-                    "message-block-shape": {
-                        "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
-                        "type": "array",
-                        "items": { "type": "integer" },
-                        "minItems": 3,
-                        "maxItems": 3,
-                        "default": [6400,64,64]
-                    },
-                    "block-width": {
-                        "description": "The DVID blocksize for new segmentation instances. Ignored if the output segmentation instance already exists.",
-                        "type": "integer",
-                        "default": 64
-                    }
-                }
+            "block-width": {
+                "description": "The block size of the underlying volume storage.",
+                "type": "integer",
+                "default": 64
             }
         }
     }
 
-    OptionsSchema = copy.copy(Workflow.OptionsSchema)
+    OptionsSchema = copy.deepcopy(Workflow.OptionsSchema)
     OptionsSchema["properties"].update(
     {
         "body-size-output-path" : {
@@ -152,13 +117,16 @@ class CopySegmentation(Workflow):
 
     Schema = \
     {
-      "$schema": "http://json-schema.org/schema#",
-      "title": "Service to load raw and label data into DVID",
-      "type": "object",
-      "properties": {
-        "data-info": DataInfoSchema,
-        "options" : OptionsSchema
-      }
+        "$schema": "http://json-schema.org/schema#",
+        "title": "Service to load raw and label data into DVID",
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["input", "output"],
+        "properties": {
+            "input": SegmentationVolumeSchema,
+            "output": SegmentationVolumeSchema,
+            "options" : OptionsSchema
+        }
     }
 
     @staticmethod
@@ -172,28 +140,29 @@ class CopySegmentation(Workflow):
         super(CopySegmentation, self).__init__( config_filename,
                                                 CopySegmentation.dumpschema(),
                                                 "Copy Segmentation" )
+        self._sanitize_config()
 
-        input_config = self.config_data["data-info"]["input"]
-        output_config = self.config_data["data-info"]["output"]
-
-        for cfg in (input_config, output_config):
-            # Prepend 'http://' if necessary.
-            if not cfg['server'].startswith('http'):
-                cfg['server'] = 'http://' + cfg['server']
-
-        # Convert from unicode for easier C++ calls
-            cfg["server"] = str(cfg["server"])
-            cfg["uuid"] = str(cfg["uuid"])
-            cfg["segmentation-name"] = str(cfg["segmentation-name"])
+        input_config = self.config_data["input"]
+        output_config = self.config_data["output"]
 
         # create spark dvid contexts
         self.sparkdvid_input_context = sparkdvid.sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
         self.sparkdvid_output_context = sparkdvid.sparkdvid(self.sc, output_config["server"], output_config["uuid"], self)
 
 
+    def _sanitize_config(self):
+        """
+        Tidy up some config values.
+        """
+        for cfg in (self.config_data["input"], self.config_data["output"]):
+            # Prepend 'http://' to the server if necessary.
+            if "server" in cfg and not cfg["server"].startswith('http'):
+                cfg["server"] = 'http://' + cfg["server"]
+
+
     def execute(self):
-        input_config = self.config_data["data-info"]["input"]
-        output_config = self.config_data["data-info"]["output"]
+        input_config = self.config_data["input"]
+        output_config = self.config_data["output"]
         options = self.config_data["options"]
 
         input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
@@ -261,8 +230,8 @@ class CopySegmentation(Workflow):
                 - partition_shape_zyx is a tuple
             
         """
-        input_config = self.config_data["data-info"]["input"]
-        input_bb = self.config_data["data-info"]["input"]["bounding-box"]
+        input_config = self.config_data["input"]
+        input_bb = input_config["bounding-box"]
 
         # repartition to be z=blksize, y=blksize, x=runlength
         brick_shape_zyx = input_config["message-block-shape"][::-1]
@@ -273,7 +242,7 @@ class CopySegmentation(Workflow):
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-        bricks = self.sparkdvid_input_context.parallelize_bounding_box( input_config['segmentation-name'],
+        bricks = self.sparkdvid_input_context.parallelize_bounding_box( input_config["segmentation-name"],
                                                                         input_bb_zyx,
                                                                         input_grid,
                                                                         target_partition_size_voxels )
@@ -286,7 +255,7 @@ class CopySegmentation(Workflow):
         If it doesn't exist yet, create it first with the user's specified
         pyramid-depth, or with an automatically chosen depth.
         """
-        output_config = self.config_data["data-info"]["output"]
+        output_config = self.config_data["output"]
         options = self.config_data["options"]
 
         # Create new segmentation instance first if necessary
@@ -313,7 +282,7 @@ class CopySegmentation(Workflow):
         Read the MaxDownresLevel from it and verify that it matches our config for pyramid-depth.
         Return the MaxDownresLevel.
         """
-        output_config = self.config_data["data-info"]["output"]
+        output_config = self.config_data["output"]
         options = self.config_data["options"]
 
         node_service = retrieve_node_service( output_config["server"],
@@ -330,6 +299,7 @@ class CopySegmentation(Workflow):
                             .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
         return existing_depth
 
+
     def _downsample_bricks(self, bricks, new_scale):
         """
         Immediately downsample the given RDD of Bricks by a factor of 2 and persist the results.
@@ -344,6 +314,7 @@ class CopySegmentation(Workflow):
         # Bricks are now half-size
         return downsampled_bricks
 
+
     def _consolidate_and_pad(self, bricks, scale):
         """
         Consolidate (align), and pad the given RDD of Bricks.
@@ -352,7 +323,7 @@ class CopySegmentation(Workflow):
         
         Note: UNPERSISTS the input data and returns the new, downsampled data.
         """
-        output_config = self.config_data["data-info"]["output"]
+        output_config = self.config_data["output"]
 
         # Consolidate bricks to full size, aligned blocks (shuffles data)
         # FIXME: We should skip this if the grids happen to be aligned already.
@@ -382,7 +353,7 @@ class CopySegmentation(Workflow):
         """
         Writes partition to specified dvid.
         """
-        output_config = self.config_data["data-info"]["output"]
+        output_config = self.config_data["output"]
         appname = self.APPNAME
 
         server = output_config["server"]
