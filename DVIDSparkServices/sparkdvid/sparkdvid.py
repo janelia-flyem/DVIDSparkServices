@@ -253,7 +253,6 @@ class sparkdvid(object):
         within the given bounding_box (start_zyx, stop_zyx) and split into blocks of the given shape.
         The RDD parallelism will be set to include approximately target_partition_size_voxels in total.
         """
-        # Choose an RDD parallelism (partitioning) that results in no more than 2GB per partition.
         block_size_voxels = np.prod(grid.block_shape)
         rdd_partition_length = target_partition_size_voxels // block_size_voxels
 
