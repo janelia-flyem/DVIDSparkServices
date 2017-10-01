@@ -35,6 +35,31 @@ def num_worker_nodes():
     return num_workers
     
 
+def get_localhost_ip_address():
+    """
+    Return this machine's own IP address, as seen from the network
+    (e.g. 192.168.1.152, not 127.0.0.1)
+    """
+    try:
+        # Determine our own machine's IP address
+        # This method is a little hacky because it requires
+        # making a connection to some arbitrary external site,
+        # but it seems to be more reliable than the method below. 
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("google.com",80))
+        ip_addr = s.getsockname()[0]
+        s.close()
+        
+    except socket.gaierror:
+        # Warning: This method is simpler, but unreliable on some networks.
+        #          For example, on a home Verizon FiOS network it will error out in the best case,
+        #          or return the wrong IP in the worst case (if you haven't disabled their DNS
+        #          hijacking on your router)
+        ip_addr = socket.gethostbyname(socket.gethostname())
+    
+    return ip_addr
+    
+
 class NumpyConvertingEncoder(json.JSONEncoder):
     """
     Encoder that converts numpy arrays and scalars
