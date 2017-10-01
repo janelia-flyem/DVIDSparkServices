@@ -12,13 +12,17 @@ import pandas as pd
 
 from pyspark import StorageLevel
 
-from DVIDSparkServices.io_util.brick import Grid, Brick, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
+from dvid_resource_manager.client import ResourceManagerClient
+
+
+from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes
+from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +34,8 @@ class CopySegmentation(Workflow):
         "type": "object",
         "required": ["service-type", "server", "uuid", "segmentation-name"],
         "properties": {
-            "service-type": { "type": "string", "enum": ["dvid"] },
+            "service-type": { "type": "string",
+                              "enum": ["dvid"] },
             "server": {
                 "description": "location of DVID server to READ.  Either IP:PORT or the special word 'node-local'.",
                 "type": "string",
@@ -43,7 +48,35 @@ class CopySegmentation(Workflow):
                 "description": "The labels instance to READ from. Instance may be either googlevoxels, labelblk, or labelarray.",
                 "type": "string",
                 "minLength": 1
+            }
+        }
+    }
+    
+    BrainMapsSegmentationSourceSchema = \
+    {
+        "description": "Parameters to use Google BrainMaps as a source of voxel data",
+        "type": "object",
+        "required": ["service-type", "project", "dataset", "volume-id", "change-stack-id"],
+        "properties": {
+            "service-type": { "type": "string",
+                              "enum": ["brainmaps"] },
+            "project": {
+                "description": "Project ID",
+                "type": "string",
             },
+            "dataset": {
+                "description": "Dataset identifier",
+                "type": "string"
+            },
+            "volume-id": {
+                "description": "Volume ID",
+                "type": "string"
+            },
+            "change-stack-id": {
+                "description": "Change Stack ID, specifies a set of changes to apple on top of the volume, (e.g. a set of agglomeration steps).",
+                "type": "string",
+                "default": ""
+            }
         }
     }
 
@@ -68,7 +101,8 @@ class CopySegmentation(Workflow):
         "type": "object",
         "required": ["bounding-box", "message-block-shape"],
         "oneOf": [
-            DvidSegmentationSourceSchema
+            DvidSegmentationSourceSchema,
+            BrainMapsSegmentationSourceSchema
         ],
         "properties": {
             "bounding-box": BoundingBoxSchema,
@@ -142,12 +176,9 @@ class CopySegmentation(Workflow):
                                                 "Copy Segmentation" )
         self._sanitize_config()
 
-        input_config = self.config_data["input"]
-        output_config = self.config_data["output"]
-
-        # create spark dvid contexts
-        self.sparkdvid_input_context = sparkdvid.sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
-        self.sparkdvid_output_context = sparkdvid.sparkdvid(self.sc, output_config["server"], output_config["uuid"], self)
+        self.sparkdvid_output_context = sparkdvid.sparkdvid( self.sc,
+                                                             self.config_data["output"]["server"],
+                                                             self.config_data["output"]["uuid"], self )
 
 
     def _sanitize_config(self):
@@ -231,25 +262,58 @@ class CopySegmentation(Workflow):
             
         """
         input_config = self.config_data["input"]
-        input_bb = input_config["bounding-box"]
+        options = self.config_data["options"]
 
         # repartition to be z=blksize, y=blksize, x=runlength
         brick_shape_zyx = input_config["message-block-shape"][::-1]
         input_grid = Grid(brick_shape_zyx, (0,0,0))
         
-        input_bb_zyx = np.array(input_bb)[:,::-1]
+        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-        bricks = self.sparkdvid_input_context.parallelize_bounding_box( input_config["segmentation-name"],
-                                                                        input_bb_zyx,
-                                                                        input_grid,
-                                                                        target_partition_size_voxels )
+
+        if input_config["service-type"] == "dvid":
+            sparkdvid_input_context = sparkdvid.sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
+            bricks = sparkdvid_input_context.parallelize_bounding_box( input_config["segmentation-name"],
+                                                                       input_bb_zyx,
+                                                                       input_grid,
+                                                                       target_partition_size_voxels )
+        elif input_config["service-type"] == "brainmaps":
+            def get_brainmaps_subvol(box):
+                vol = BrainMapsVolume( input_config["project"],
+                                       input_config["dataset"],
+                                       input_config["volume-id"],
+                                       input_config["change-stack-id"] )
+    
+                if not options["resource-server"]:
+                    return vol.get_subvolume(box)
+
+                req_bytes = 8 * np.prod(box[1] - box[0])
+                client = ResourceManagerClient(options["resource-server"], options["resource-port"])
+                with client.access_context('brainmaps', True, 1, req_bytes):
+                    return vol.get_subvolume(box)
+                
+            block_size_voxels = np.prod(input_grid.block_shape)
+            rdd_partition_length = target_partition_size_voxels // block_size_voxels
+
+            bricks = generate_bricks_from_volume_source( input_bb_zyx,
+                                                         input_grid,
+                                                         get_brainmaps_subvol,
+                                                         self.sc,
+                                                         rdd_partition_length )
+
+            # If we're working with a tiny volume (e.g. testing),
+            # make sure we at least parallelize across all cores.
+            if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
+                bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+        else:
+            raise RuntimeError(f'Unknown service-type: {input_config["service-type"]}')
 
         return bricks, input_bb_zyx, input_grid
 
-
+    
     def _create_output_instance_if_necessary(self, bounding_box):
         """
         If it doesn't exist yet, create it first with the user's specified

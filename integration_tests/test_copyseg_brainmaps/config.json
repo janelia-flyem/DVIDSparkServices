@@ -1,0 +1,47 @@
+{
+    "input": {
+        "service-type": "brainmaps",
+        "project": "274750196357",
+        "dataset": "janelia-flyem-cx-flattened-tabs",
+        "volume-id": "sec26_seg_v2a",
+        "change-stack-id": "ffn_agglo_pass1_seg5663627_medt160",
+        "bounding-box": [[18954, 3865, 15305], [19466,  4377, 15817]],
+        "message-block-shape": [6400, 64, 64],
+        "block-width": 64
+    },
+
+    "output": {
+        "service-type": "dvid",
+        "server": "127.0.0.1:8000",
+        "uuid": "UUID2",
+        "segmentation-name": "labels-from-brainmaps",
+        "bounding-box": [[0, 0, 0], [512, 512, 512]],
+        "message-block-shape": [6400, 64, 64],
+        "block-width": 64
+    },
+
+    "options": {
+        "corespertask": 1,
+
+        "chunk-size": 128,
+        "offset": [0,0,0],
+        "pyramid-depth": 2,
+
+        "body-size-minimum": 10,
+        
+        "resource-server": "driver",
+        "resource-port": 4000,
+
+    	   "resource-server-config": {
+            "read_reqs": 128,
+            "read_data": 4000000000,
+            "write_reqs": 128,
+            "write_data": 4000000000
+        },
+
+        "log-collector-directory": "/tmp/test_copyseg_logs",
+        "log-collector-port": 3000,
+
+        "debug": false
+    }
+}
