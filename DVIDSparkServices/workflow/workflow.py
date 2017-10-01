@@ -17,7 +17,7 @@ import socket
 
 from quilted.filelock import FileLock
 from DVIDSparkServices import cleanup_faulthandler
-from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes
+from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
@@ -26,21 +26,9 @@ from logcollector.client_utils import HTTPHandlerWithExtraData, make_log_collect
 
 logger = logging.getLogger(__name__)
 
-try:
-    #driver_ip_addr = '127.0.0.1'
-    driver_ip_addr = socket.gethostbyname(socket.gethostname())
-except socket.gaierror:
-    # For some reason, that line above fails sometimes
-    # (depending on which network you're on)
-    # The method below is a little hacky because it requires
-    # making a connection to some arbitrary external site,
-    # but it seems to be more reliable. 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.connect(("google.com",80))
-    driver_ip_addr = s.getsockname()[0]
-    s.close()
+# driver_ip_addr = '127.0.0.1'
+driver_ip_addr = get_localhost_ip_address()
 
-#
 #  workflow exception
 class WorkflowError(Exception):
     pass
