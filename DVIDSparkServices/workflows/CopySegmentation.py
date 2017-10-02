@@ -15,7 +15,7 @@ from pyspark import StorageLevel
 from dvid_resource_manager.client import ResourceManagerClient
 
 
-from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
+from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_partition_source, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -282,37 +282,40 @@ class CopySegmentation(Workflow):
                                                                        input_grid,
                                                                        target_partition_size_voxels )
         elif input_config["service-type"] == "brainmaps":
-            
+
             # Two-levels of auto-retry:
             # 1. Auto-retry up to three time for any reason.
             # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
             @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
                         predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
-            def get_brainmaps_subvol(box):
+            def get_brainmaps_subvolumes(boxes):
                 vol = BrainMapsVolume( input_config["project"],
                                        input_config["dataset"],
                                        input_config["volume-id"],
                                        input_config["change-stack-id"],
                                        dtype=np.uint64,
                                        skip_checks=True )
-    
-                if not options["resource-server"]:
-                    return vol.get_subvolume(box)
 
-                req_bytes = 8 * np.prod(box[1] - box[0])
-                client = ResourceManagerClient(options["resource-server"], options["resource-port"])
-                with client.access_context('brainmaps', True, 1, req_bytes):
-                    return vol.get_subvolume(box)
+                if not options["resource-server"]:
+                    return map( vol.get_subvolume, boxes )
+
+                volumes = []
+                for box in boxes:
+                    req_bytes = 8 * np.prod(box[1] - box[0])
+                    client = ResourceManagerClient(options["resource-server"], options["resource-port"])
+                    with client.access_context('brainmaps', True, 1, req_bytes):
+                        volumes.append( vol.get_subvolume(box) )
+                return volumes
                 
             block_size_voxels = np.prod(input_grid.block_shape)
             rdd_partition_length = target_partition_size_voxels // block_size_voxels
 
-            bricks = generate_bricks_from_volume_source( input_bb_zyx,
-                                                         input_grid,
-                                                         get_brainmaps_subvol,
-                                                         self.sc,
-                                                         rdd_partition_length )
+            bricks = generate_bricks_from_partition_source( input_bb_zyx,
+                                                            input_grid,
+                                                            get_brainmaps_subvolumes,
+                                                            self.sc,
+                                                            rdd_partition_length )
 
             # If we're working with a tiny volume (e.g. testing),
             # make sure we at least parallelize across all cores.

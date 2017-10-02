@@ -1,6 +1,6 @@
 import warnings
 from collections import namedtuple, defaultdict
-from itertools import chain
+from itertools import chain, starmap
 from functools import partial
 
 import numpy as np
@@ -86,6 +86,49 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
     
     return _map( make_brick, logical_and_physical_boxes )
 
+
+def generate_bricks_from_partition_source( bounding_box, grid, volume_partition_accessor_func, sc=None, rdd_partition_length=None ):
+    """
+    Like the above generate_bricks_from_volume_source(),
+    but generates an entire 'partition' (list) of bricks at once,
+    instead of one at a time.
+    
+    Useful if there is some overhead to creating the volumes that
+    can be saved if they are created en masse.
+    
+    Args:
+        bounding_box:
+            (start, stop)
+
+        grid:
+            Grid (see above)
+
+        volume_partition_accessor_func:
+            Callable with signature: f(boxes) -> [ndarray, ndarray, ...]
+
+        sc:
+            SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
+
+        rdd_partition_length:
+            Optional. If provided, the RDD will have (approximately) this many bricks per partition.
+    """
+    logical_and_physical_boxes = ( (box, box_intersection(box, bounding_box))
+                                  for box in boxes_from_grid(bounding_box, grid) )
+
+    if sc:
+        num_rdd_partitions = None
+        if rdd_partition_length:
+            logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
+            num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
+
+        logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
+
+    def make_bricks( logical_and_physical_boxes ):
+        logical_boxes, physical_boxes = zip( *logical_and_physical_boxes )
+        volumes = volume_partition_accessor_func( physical_boxes )
+        return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
+    
+    return _map_partitions( make_bricks, logical_and_physical_boxes )
 
 
 def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick ):
@@ -341,6 +384,13 @@ def _flat_map(f, iterable):
         return iterable.flatMap(f)
     else:
         return chain(*map(f, iterable))
+
+def _map_partitions(f, iterable):
+    if isinstance(iterable, _RDD):
+        return iterable.mapPartitions(f, preservesPartitioning=True)
+    else:
+        # In the pure-python case, there's only one 'partition'.
+        return f(iterable)
 
 def _map_values(f, iterable):
     if isinstance(iterable, _RDD):

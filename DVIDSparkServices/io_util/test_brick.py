@@ -5,6 +5,7 @@ import numpy as np
 
 from DVIDSparkServices.util import extract_subvol, box_intersection
 from DVIDSparkServices.io_util.brick import ( Grid, Brick, boxes_from_grid, generate_bricks_from_volume_source,
+                                              generate_bricks_from_partition_source, 
                                               remap_bricks_to_new_grid, split_brick, assemble_brick_fragments,
                                               pad_brick_data_from_volume_source )
 
@@ -61,6 +62,38 @@ class TestBrickFunctions(unittest.TestCase):
 
         bricks = generate_bricks_from_volume_source( bounding_box, grid, partial(extract_subvol, volume) )
 
+        bricks = list(bricks)
+        assert len(bricks) == 9 * 14
+        
+        for brick in bricks:
+            assert isinstance( brick, Brick )
+            assert brick.logical_box.shape == (2,2)
+            assert brick.physical_box.shape == (2,2)
+
+            # logical_box must be exactly one block
+            assert ((brick.logical_box[1] - brick.logical_box[0]) == grid.block_shape).all()
+            
+            # Must be grid-aligned
+            assert ((brick.logical_box - grid.offset) % grid.block_shape == 0).all()
+            
+            # Must not exceed bounding box
+            assert (brick.physical_box == box_intersection( brick.logical_box, bounding_box )).all()
+            
+            # Volume shape must match
+            assert (brick.volume.shape == brick.physical_box[1] - brick.physical_box[0]).all()
+            
+            # Volume data must match
+            assert (brick.volume == extract_subvol( volume, brick.physical_box )).all()
+
+    def test_generate_brick_partitions(self):
+        grid = Grid( (10,20), (12,3) )
+        bounding_box = np.array([(15,30), (95,290)])
+        volume = np.random.randint(0,10, (100,300) )
+
+        def extract_volumes(boxes):
+            return ( extract_subvol(volume, box) for box in boxes )
+
+        bricks = generate_bricks_from_partition_source( bounding_box, grid, extract_volumes )
         bricks = list(bricks)
         assert len(bricks) == 9 * 14
         
