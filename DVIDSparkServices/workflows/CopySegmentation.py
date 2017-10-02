@@ -293,7 +293,9 @@ class CopySegmentation(Workflow):
                 vol = BrainMapsVolume( input_config["project"],
                                        input_config["dataset"],
                                        input_config["volume-id"],
-                                       input_config["change-stack-id"] )
+                                       input_config["change-stack-id"],
+                                       dtype=np.uint64,
+                                       skip_checks=True )
     
                 if not options["resource-server"]:
                     return vol.get_subvolume(box)
