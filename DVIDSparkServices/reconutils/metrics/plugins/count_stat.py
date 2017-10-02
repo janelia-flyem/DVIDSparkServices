@@ -45,7 +45,7 @@ class count_stat(StatType):
             # add rand summary stats
             if gotable.get_comparison_type() not in self.supported_types:
                 continue
-            self._write_count(summarystats, gotable, self.segstats.seg_overlaps[onum])
+            self._write_subcount(summarystats, gotable, self.segstats.seg_overlaps[onum], True)
 
         return summarystats
 
@@ -115,13 +115,13 @@ class count_stat(StatType):
                 numoverlaps = len(gtdist)
             
             for distiter in range(0, numoverlaps):
-                overlapmap = gotable[distgt[distiter][2]]
+                overlapmap = gotable.overlap_map[gtdist[distiter][2]]
                 matchlist = []
                 for (body2, overlap) in overlapmap:
                     matchlist.append([overlap, body2])
                 matchlist.sort()
                 matchlist.reverse()
-                top_overlapgt.append([disgt[distiter][2], matchlist[0:nummatches]])
+                top_overlapgt.append([gtdist[distiter][2], matchlist[0:nummatches]])
             
             debuginfo1 = {"typename": gotable.get_name(), "name": "gtoverlap"}
             debuginfo1["info"] = top_overlapgt
@@ -133,7 +133,7 @@ class count_stat(StatType):
                 numoverlaps = len(segdist)
 
             for distiter in range(0, numoverlaps):
-                overlapmap = sotable[segdist[distiter][2]]
+                overlapmap = sotable.overlap_map[segdist[distiter][2]]
                 matchlist = []
                 for (body2, overlap) in overlapmap:
                     if body2 in ignorebodies:
@@ -141,7 +141,7 @@ class count_stat(StatType):
                     matchlist.append([overlap, body2])
                 matchlist.sort()
                 matchlist.reverse()
-                top_overlapseg.append([disgt[distiter][2], matchlist[0:nummatches]])
+                top_overlapseg.append([gtdist[distiter][2], matchlist[0:nummatches]])
             
             debuginfo2 = {"typename": gotable.get_name(), "name": "segoverlap"}
             debuginfo2["info"] = top_overlapseg
@@ -151,7 +151,7 @@ class count_stat(StatType):
 
         return debuginfo
 
-    def _write_subcount(self, summarystats, gotable, sotable):
+    def _write_subcount(self, summarystats, gotable, sotable, disablefilter):
         """Find the number of bodies for the volume.
 
         Note: The stat is configured to not be displayed.
@@ -159,6 +159,9 @@ class count_stat(StatType):
         body_threshold = self.segstats.ptfilter
         if gotable.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
+        
+        if disablefilter:
+            body_threshold = 0
         
         gtbodies = 0
         segbodies = 0
@@ -176,6 +179,7 @@ class count_stat(StatType):
                 segbodies += 1 
 
         # a larger/smaller value is not obviously better or worse
+        name = gotable.get_name()
         sumstat = {"name": "num.gt.bodies", "typename": name, "val": gtbodies, "display": False}
         sumstat["description"] = "Number of GT bodies"
         summarystats.append(sumstat)
@@ -194,13 +198,13 @@ class count_stat(StatType):
         """
 
         body_threshold = self.segstats.ptfilter
-        if gotable.get_comparison_type() == "voxels":
+        if body_overlap.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
  
         count = 0
         cumdisttemp = []
         ignorebodies_temp = set()
-        for body, overlapset in body_overlap.items():
+        for body, overlapset in body_overlap.overlap_map.items():
             # could be 0
             localcount = self._get_body_volume(overlapset, ignorebodies) 
             if localcount == 0:
@@ -215,13 +219,13 @@ class count_stat(StatType):
             count += localcount
             cumdisttemp.append([localcount, count, body])
 
-        cumdist.sort()
-        cumdist.reverse()
-        return cumdist, count, ignorebodies_temp
+        cumdisttemp.sort()
+        cumdisttemp.reverse()
+        return cumdisttemp, count, ignorebodies_temp
 
 
 
-    def _calculate_bodystats(summarystats, bodystats, gotable, sotable):
+    def _calculate_bodystats(self, summarystats, bodystats, gotable, sotable):
         body_threshold = self.segstats.ptfilter
         if gotable.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
@@ -232,7 +236,7 @@ class count_stat(StatType):
         # candidate bodies must have >50% in the GT body to be considered
         # hungarian matching would probably be overkill
         important_segbodies = {}
-        for gt, overlapset in gotable.items():
+        for gt, overlapset in gotable.overlap_map.items():
             total = 0
             max_id = 0
             max_val = 0
@@ -243,8 +247,9 @@ class count_stat(StatType):
                     max_id = seg
             # find size of seg body
             total2 = 0
-            for seg2, overlap in sotable[max_id]:
-                total2 += overlap 
+            overlapset2 = sotable.overlap_map[max_id]
+            for seg2, overlap2 in overlapset2:
+                total2 += overlap2
             
             # match body if over half of the seg
             if max_val > (total2 // 2):
@@ -282,7 +287,7 @@ class count_stat(StatType):
         best_size = 0
         best_body_id = 0
 
-        for body, overlapset in sotable.items():
+        for body, overlapset in sotable.overlap_map.items():
             total = self._get_body_volume(overlapset, ignorebodies)
             
             # probably okay to skip these bodies since

@@ -12,6 +12,8 @@ class OverlapTable(object):
         """
         self.comparison_type = comparison_type
         self.overlap_map = {}
+        self.mapping1 = mapping1
+        self.mapping2 = mapping2
 
         for item in overlaps:
             body1, body2, overlap = item
@@ -19,27 +21,27 @@ class OverlapTable(object):
                 self.overlap_map[body1] = set()
             self.overlap_map[body1].add((body2, int(overlap)))
 
-    def has_remap():
+    def has_remap(self):
         """Indicates whether overlap has remap tables.
         
         A subvolume where CC is applied will have unique
         body ids for disjoint commponents.  Applying remap
         will undo the connected component computation.
         """
-        return mapping1 != None or mapping2 != None
+        return self.mapping1 is not None or self.mapping2 is not None
 
-    def get_name():
+    def get_name(self):
         """Unique name of overlap table.
         """
         return str(self.comparison_type)
 
-    def get_comparison_type():
+    def get_comparison_type(self):
         """Returns comparison type (string).
         """
         return self.comparison_type.get_type() 
 
 
-    def apply_remap():
+    def apply_remap(self):
         """Applies existing body to body mappings to the overlap tables.
 
         Returns:
@@ -51,10 +53,10 @@ class OverlapTable(object):
             return self
 
         newdata = self.copy()
-        newdata_partial_remap()
+        newdata._partial_remap()
         return newdata
 
-    def _partial_remap():
+    def _partial_remap(self):
         """Partial remap the overlap table.
 
         Use mapping1 to remap a subset of the table inputs
@@ -68,6 +70,9 @@ class OverlapTable(object):
             Internal structures are updated.
 
         """
+        
+        if not self.has_remap():
+            return
         
         del_keys = {}
         keep_ids = set()
@@ -107,6 +112,9 @@ class OverlapTable(object):
                 self._merge_row(self.overlap_map[newbody], temp_overlap[bodyold])
                 if bodyold not in keep_ids:
                     del self.overlap_map[bodyold]
+        
+        self.mapping1 = None
+        self.mapping2 = None
 
     def combine_tables(self, overlap2):
         if self.comparison_type != overlap2.comparison_type:
@@ -114,7 +122,7 @@ class OverlapTable(object):
 
         # if remap tables exist, perform the remap here
         self._partial_remap()
-        overlap._partial_remap()
+        overlap2._partial_remap()
 
         for body, overlapset in overlap2.overlap_map.items():
             if body not in self.overlap_map:

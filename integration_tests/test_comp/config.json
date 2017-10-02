@@ -5,7 +5,6 @@
         "label-name": "labels",
         "roi": "temproi",
         "point-lists": ["annotations/syn"],
-        "user-name": "plazas",
         "stats-location": "off1.seg"
     },
     "dvid-info-comp": {
@@ -17,6 +16,7 @@
         "body-threshold": 1000,
         "point-threshold": 0,
         "boundary-size": 2,
+        "user-name": "plazas",
         "chunk-size": 64,
         "spark-config": {},
         "worker-initialization": {

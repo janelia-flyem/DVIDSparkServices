@@ -35,7 +35,7 @@ class SubvolumeStats(object):
         
         assert len(self.subvolumes) == 1
 
-        for stat in enumerate(self.subvolume_stats):
+        for stat in self.subvolume_stats:
             stat.compute_subvolume_before_remapping()
 
     def write_subvolume_stats(self):
@@ -44,12 +44,12 @@ class SubvolumeStats(object):
 
         # should actually be a subvolume
         assert len(self.subvolumes) == 1
-        assert self.disable_subvolumes
+        assert not self.disable_subvolumes
 
 
         # not all stats will support subvolume stats
         subvolumestats = []
-        for stat in enumerate(self.subvolume_stats):
+        for stat in self.subvolume_stats:
             subvolumestats.extend(stat.write_subvolume_stats())
 
         return subvolumestats
@@ -58,7 +58,7 @@ class SubvolumeStats(object):
         """For each stat, returns summary stats as an array.
         """
         summarystats = []
-        for stat in enumerate(self.subvolume_stats):
+        for stat in self.subvolume_stats:
             summarystats.extend(stat.write_summary_stats())
 
         return summarystats
@@ -67,7 +67,7 @@ class SubvolumeStats(object):
         """For each stat, returns body stats as an array.
         """
         bodystats = []
-        for stat in enumerate(self.subvolume_stats):
+        for stat in self.subvolume_stats:
             bodystats.extend(stat.write_body_stats())
 
         return bodystats
@@ -76,7 +76,8 @@ class SubvolumeStats(object):
         """For each stat, returns various debug information.
         """
         debuginfo = []
-        for stat in enumerate(self.subvolume_stats):
+        for stat in self.subvolume_stats:
+            print(stat)
             debuginfo.extend(stat.write_bodydebug())
         return debuginfo
 
@@ -92,7 +93,7 @@ class SubvolumeStats(object):
 
         assert(len(self.subvolume_stats) == len(subvolume.subvolume_stats))
 
-        for iter1 in enumerate(self.subvolume_stats):
+        for iter1, val in enumerate(self.subvolume_stats):
             self.subvolume_stats[iter1].reduce_subvolume(subvolume.subvolume_stats[iter1])
         
         self.subvolumes.extend(subvolume.subvolumes)

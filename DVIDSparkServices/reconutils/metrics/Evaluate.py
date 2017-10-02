@@ -8,6 +8,7 @@ from __future__ import absolute_import
 from __future__ import division
 import libNeuroProofMetrics as npmetrics
 import numpy
+import math
 
 # contains helper functions
 from DVIDSparkServices.reconutils.morpho import *
@@ -15,6 +16,10 @@ from DVIDSparkServices.reconutils.morpho import *
 # metric specific modules
 from .segstats import *
 from .plugins.stat import *
+from .comptype import *
+from .overlap import *
+from .synoverlap import *
+
 
 class Evaluate(object):
     """Class to handle various aspects of segmentation evaluation workflow.
@@ -46,12 +51,13 @@ class Evaluate(object):
 
         # load all metric plugins
         self.metrics = []
-
+        self.config = config
+            
         import importlib
-        for metric in self.config["options"]["plugins"]:
-            modname = importlib.import_module('.plugins.'+metric["name"]+"_stat")
-            metric_class = getattr(modname, metric)
-            self.metrics.apppend((metric_class, metric["params"]))
+        for metric in config["options"]["plugins"]:
+            modname = importlib.import_module('DVIDSparkServices.reconutils.metrics.plugins.'+metric["name"]+"_stat")
+            metric_class = getattr(modname, metric["name"] + "_stat")
+            self.metrics.append((metric_class, metric["parameters"]))
 
 
     def _extract_subvolume_connections(self, index2body_seg, parent_list, adjacency_list):
@@ -131,9 +137,6 @@ class Evaluate(object):
         gt_overlap = OverlapTable(overlap_gt, comparison_type, labelgt_map, label2_map)
         seg_overlap = OverlapTable(overlap_seg, comparison_type, label2_map, labelgt_map)
 
-        for (metric, config) in self.metrics:
-            stats.add_stat(metric(**config))
-
         # add partial global results
         stats.add_gt_overlap(gt_overlap)
         stats.add_seg_overlap(seg_overlap)
@@ -174,6 +177,10 @@ class Evaluate(object):
 
             stats = SubvolumeStats(subvolume, self.body_threshold, self.point_threshold, self.num_displaybodies)
             stats.disable_subvolumes = self.config["options"]["disable-subvolumes"]
+
+            # load different metrics available
+            for (metric, config) in self.metrics:
+                stats.add_stat(metric(**config))
 
             # ?! disable if only one substack ?? -- maybe still good for viewer
 
@@ -236,7 +243,7 @@ class Evaluate(object):
             parent_list = set()
 
             subvolume_pts = {}
-            box = stats.subvolume.box
+            box = stats.subvolumes[0].box
             # grab points that overlap
             for index, point in enumerate(point_data["point-list"]):
                 if point[0] < box.x2 and point[0] >= box.x1 and point[1] < box.y2 and point[1] >= box.y1 and point[2] < box.z2 and point[2] >= box.z1:
@@ -258,8 +265,8 @@ class Evaluate(object):
 
             temp_overlap = {}
         
-            index2body_gt = {}
-            index2body_seg = {}
+            #index2body_gt = {}
+            #index2body_seg = {}
             index2body_gtseg = {}
 
             for index, point in subvolume_pts.items():
@@ -273,8 +280,8 @@ class Evaluate(object):
                 # !!ignore all 0 points (assume segbody is not 0 anywhere for now)
                 #if gtbody == 0 or segbody == 0:
                 if gtbody == 0:
-                    index2body_gt[index] = -1
-                    index2body_seg[index] = -1
+                    #index2body_gt[index] = -1
+                    #index2body_seg[index] = -1
                     index2body_gtseg[index] = -1
                     continue
 
@@ -286,8 +293,8 @@ class Evaluate(object):
                 if segbody in label2_map:
                     segbody_mapped = label2_map[segbody]
                 
-                index2body_gt[index] = gtbody_mapped
-                index2body_seg[index] = segbody_mapped
+                #index2body_gt[index] = gtbody_mapped
+                #index2body_seg[index] = segbody_mapped
                 index2body_gtseg[index] = (gtbody_mapped << 64) | segbody_mapped
 
                 # load overlaps
@@ -307,23 +314,23 @@ class Evaluate(object):
             # if synapse type load total pair matches (save boundary point deps) 
             if point_data["type"] == "synapse":
                 # grab partial connectivity graph for gt
-                gt_overlap_syn, leftover_gt = \
-                    self._extract_subvolume_connections(index2body_gt, parent_list, adjacency_list)
+                #gt_overlap_syn, leftover_gt = \
+                #    self._extract_subvolume_connections(index2body_gt, parent_list, adjacency_list)
             
                 # add custom synapse type
-                stats.add_gt_overlap(SynOverlapTable(gt_overlap_syn,
-                        ComparisonType("synapse-graph", str(point_list_name),
-                        point_data["sparse"]), leftover_gt))
+                #stats.add_gt_overlap(SynOverlapTable(gt_overlap_syn,
+                #        ComparisonType("synapse-graph", str(point_list_name),
+                #        point_data["sparse"]), leftover_gt))
 
                 # grab partial connectivity graph for seg
-                seg_overlap_syn, leftover_seg = \
-                    self._extract_subvolume_connections(index2body_seg,
-                            parent_list, adjacency_list)
+                #seg_overlap_syn, leftover_seg = \
+                #    self._extract_subvolume_connections(index2body_seg,
+                #            parent_list, adjacency_list)
                 
                 # add custom synapse type
-                stats.add_seg_overlap(SynOverlapTable(seg_overlap_syn,
-                        ComparisonType("synapse-graph", str(point_list_name),
-                        point_data["sparse"]), leftover_seg))
+                #stats.add_seg_overlap(SynOverlapTable(seg_overlap_syn,
+                #        ComparisonType("synapse-graph", str(point_list_name),
+                #        point_data["sparse"]), leftover_seg))
     
                 # add table showing intersection of gtseg
                 gtseg_overlap_syn, leftover_gtseg = \
@@ -334,6 +341,11 @@ class Evaluate(object):
                 stats.add_gt_overlap(SynOverlapTable(gtseg_overlap_syn,
                         ComparisonType("synapse-graph-gtseg", str(point_list_name),
                         point_data["sparse"]), leftover_gtseg))
+               
+                # add dummy placeholder (TODO: refactor segstats to avoid this)
+                stats.add_seg_overlap(SynOverlapTable([],
+                        ComparisonType("synapse-graph-gtseg", str(point_list_name),
+                        point_data["sparse"]), ({}, {})))
 
             # points no longer needed
             return (stats, labelgt_map, label2_map, labelgt, label2)
@@ -361,42 +373,43 @@ class Evaluate(object):
         allsubvolume_metrics = {}
         metric_results['subvolumes'] = allsubvolume_metrics
 
-
         # no longer need volumes
         allstats = lpairs_splits.map(lambda x: x[1][0]) 
        
-        # save stats to enable subvolumes to be printed
-        allstats.persist()
         
         # generate stat state if needed
-        def computestate(stat):
+        def compute_subvolume(stat):
             # stat will produce an array of stats for each substack
-            stat.computestate()
+            stat.compute_subvolume()
             return stat 
-        subvolstats_computed = allstats.map(compute_subvolume).collect()
+        subvolstats_computed = allstats.map(compute_subvolume)
+
+        # save stats to enable subvolumes to be printed
+        subvolstats_computed.persist()
       
         # only compute subvolume if enabled
         if not self.config["options"]["disable-subvolumes"]:
             # each subvolume will extract subvol relevant stats
             def extractstats(stat):
                 # stat will produce an array of stats for each substack
-                return (stat.subvolume.sv_index, stat.write_subvolume_stats())
+                return (stat.subvolumes[0].sv_index, stat.write_subvolume_stats())
             subvolstats = subvolstats_computed.map(extractstats).collect()
             # set allsubvolume_metrics
             for (sid, subvolstat) in subvolstats:
                 allsubvolume_metrics[sid] = subvolstat
 
-            # combine all the stats (max/min/average substack stacks maintained as well)
-            def combinestats(stat1, stat2):
-                stat1.merge_stats(stat2)
-                return stat1
-            whole_volume_stats = allstats.treeReduce(combinestats, int(math.log(len(subvolstats),2)))
-       `# compute summary, body stats, and debug information
+        # combine all the stats (max/min/average substack stacks maintained as well)
+        def combinestats(stat1, stat2):
+            stat1.merge_stats(stat2)
+            return stat1
+        whole_volume_stats = subvolstats_computed.treeReduce(combinestats, int(math.log(len(subvolstats),2)))
+        
+        # compute summary, body stats, and debug information
         # iterate stats and collect summary and body stats
-        metric_results["summarystats"].extend(allwhole_volume_stats.write_summary_stats())
-        metric_results["bodystats"].extend(allwhole_volume_stats.write_body_stats())
+        metric_results["summarystats"].extend(whole_volume_stats.write_summary_stats())
+        metric_results["bodystats"].extend(whole_volume_stats.write_body_stats())
         # iterate stats and collect debug info "bodydebug"
-        metric_results["bodydebug"].extend(allwhole_volume_stats.write_bodydebug())
+        metric_results["bodydebug"].extend(whole_volume_stats.write_bodydebug())
         
         return metric_results
 

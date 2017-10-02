@@ -79,13 +79,13 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "array",
           "items": {
             "type": "object",
-            "properties" : {
+            "properties": {
               "name": {
                 "description": "metric plugin name",
                 "type": "string",
                 "default": ""
               },
-              "parameters : {
+              "parameters": {
                 "description": "custom parameters for metric.",
                 "type" : "object",
                 "default" : {},
@@ -95,7 +95,7 @@ class EvaluateSeg(DVIDWorkflow):
           },
           "minItems": 0,
           "uniqueItems": true,
-          "default": [{"name": "rand"}, {"name": "vi"}, {"name": "count"}, {"name": "connectivity"}]
+          "default": [{"name": "rand"}, {"name": "vi"}, {"name": "count"}, {"name": "connectivity"}, {"name": "edit"}]
         },
         "body-threshold": {
           "description": "Filter GT bodies below this threshold for aggregate stats",
@@ -134,7 +134,7 @@ class EvaluateSeg(DVIDWorkflow):
           "description": "disables subvolume stats.  This could be useful if working with smaller volumes where such information is unnecessary.  It could also save memory / computation.",
           "type": "boolean",
           "default": false 
-        }
+        },
         "user-name": {
           "description": "Name of person submitting the job",
           "type": "string"

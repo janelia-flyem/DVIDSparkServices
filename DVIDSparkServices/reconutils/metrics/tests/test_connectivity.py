@@ -85,7 +85,7 @@ class Testconnectivity(unittest.TestCase):
         tablemap[((30 << 64) | 101)] = set([(((30 << 64) | 101), 1)])
 
         # extract stats for at least 1 and 5 connections
-        sumstats, bodystats, conntablestats = cs._compute_tablestats(matches, tablemap, "blah", [1, 5])  
+        sumstats, bodystats, conntablestats = cs._compute_tablestats(matches, tablemap, "synapse-graph:blah", [1, 5])  
 
         #self.assertTrue(sumstats == [55, 77, 3, [1, 5], [3, 1], [3, 2]])
         self.assertTrue(len(sumstats) == 3)
@@ -114,7 +114,7 @@ class Testconnectivity(unittest.TestCase):
         # create edge with removed node
         tablemap[((15 << 64) | 23)] = set([(((3 << 64) | 100), 4)])
        
-        sumstats, bodystats, conntablestats = cs._compute_tablestats(matches, tablemap, "blah", [1,5])
+        sumstats, bodystats, conntablestats = cs._compute_tablestats(matches, tablemap, "synapse-graph:blah", [1,5])
         self.assertTrue(len(bodystats[0]["bodies"]) == 1)
         #self.assertTrue(sumstats == [0, 4, 1, [1, 5], [0, 0], [1, 0]])
         self.assertTrue(len(sumstats) == 3)

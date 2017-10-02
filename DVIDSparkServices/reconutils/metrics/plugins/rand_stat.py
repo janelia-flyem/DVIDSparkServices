@@ -6,14 +6,14 @@ Note: does not implement stats per body.
 
 """
 class rand_stat(StatType):
-    def __init__(self, config):
+    def __init__(self):
         super(rand_stat, self).__init__()
 
         # subvolume state computed
         self.fmergebest = {}
         self.fmergeworst = {}
-        self.fmergebest = {}
-        self.fmergeworst = {}
+        self.fsplitbest = {}
+        self.fsplitworst = {}
         self.fmergefsplitave = {}
 
         self.supported_types = ["voxels", "synapse"]
@@ -38,10 +38,10 @@ class rand_stat(StatType):
             assert gotable.get_name() == self.segstats.seg_overlaps[onum].get_name()
 
             # restrict body sizes considered
-            fmerge, fsplit = self._calculate_rand(gotable, self.segstats.seg_overlaps[onum])
+            fmerge, fsplit = self._calculate_rand(gotable, self.segstats.seg_overlaps[onum], True)
 
             name = gotable.get_name()
-            sid = self.segstats.subvolume.sv_index
+            sid = self.segstats.subvolumes[0].sv_index
             self.fmergebest[name] = [fmerge, sid]
             self.fsplitbest[name] = [fsplit, sid]
             self.fmergeworst[name] = [fmerge, sid]
@@ -90,7 +90,7 @@ class rand_stat(StatType):
             if gotable.get_comparison_type() not in self.supported_types:
                 continue
             # add rand summary stats
-            self._write_rand(summarystats, gotable, self.segstats.seg_overlaps[onum])
+            self._write_rand(summarystats, gotable, self.segstats.seg_overlaps[onum], True)
 
         return summarystats
 
@@ -110,7 +110,7 @@ class rand_stat(StatType):
             # add rand summary stats
             self._write_rand(summarystats, gotable, self.segstats.seg_overlaps[onum])
 
-        if self.segstats.disable_subvolume:
+        if self.segstats.disable_subvolumes:
             return summarystats
 
         # generate subvolume stats
@@ -141,9 +141,9 @@ class rand_stat(StatType):
 
         return summarystats
 
-    def _write_rand(self, summarystats, gotable, sotable):
+    def _write_rand(self, summarystats, gotable, sotable, disablefilter=False):
         # restrict body sizes considered
-        fmerge, fsplit = self._calculate_rand(gotable, sotable)
+        fmerge, fsplit = self._calculate_rand(gotable, sotable, disablefilter)
         name = gotable.get_name()
 
         sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": 2*fmerge*fsplit/(fmerge+fsplit)}
@@ -161,12 +161,15 @@ class rand_stat(StatType):
         return
 
     # calculate Rand Index
-    def _calculate_rand(self, gtoverlap, segoverlap):
+    def _calculate_rand(self, gtoverlap, segoverlap, disablefilter=False):
         """Caculate rand index using overlap tables.
         """
         body_threshold = self.segstats.ptfilter
         if gtoverlap.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
+        
+        if disablefilter:
+            body_threshold = 0
 
         fsplit_total = 0
         overlap_total = 0

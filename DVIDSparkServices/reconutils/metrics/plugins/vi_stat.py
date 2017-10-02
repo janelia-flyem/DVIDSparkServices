@@ -1,16 +1,17 @@
 from .stat import *
+from math import log
 
 """Class provides stats based on Variation of Information.
 """
 class vi_stat(StatType):
-    def __init__(self, config):
+    def __init__(self):
         super(vi_stat, self).__init__()
 
         # subvolume state computed
         self.fmergebest = {}
         self.fmergeworst = {}
-        self.fmergebest = {}
-        self.fmergeworst = {}
+        self.fsplitbest = {}
+        self.fsplitworst = {}
         self.fmergefsplitave = {}
 
         self.supported_types = ["voxels", "synapse"]
@@ -36,10 +37,10 @@ class vi_stat(StatType):
             assert gotable.get_name() == self.segstats.seg_overlaps[onum].get_name()
 
             # restrict body sizes considered
-            fmerge, fsplit, dummy1, dummy2, dummy3 = self._calculate_vi(gotable, self.segstats.seg_overlaps[onum])
+            fmerge, fsplit, dummy1, dummy2, dummy3 = self._calculate_vi(gotable, self.segstats.seg_overlaps[onum], True)
 
             name = gotable.get_name()
-            sid = self.segstats.subvolume.sv_index
+            sid = self.segstats.subvolumes[0].sv_index
             self.fmergebest[name] = [fmerge, sid]
             self.fsplitbest[name] = [fsplit, sid]
             self.fmergeworst[name] = [fmerge, sid]
@@ -89,7 +90,7 @@ class vi_stat(StatType):
             if gotable.get_comparison_type() not in self.supported_types:
                 continue
 
-            self._write_vi(summarystats, gotable, self.segstats.seg_overlaps[onum])
+            self._write_vi(summarystats, gotable, self.segstats.seg_overlaps[onum], True)
 
         return summarystats
 
@@ -112,7 +113,7 @@ class vi_stat(StatType):
             # get body summary stats
             self._calculate_bodystats(summarystats, None, gotable, fmerge_bodies, fsplit_bodies, vi_bodies) 
 
-        if self.segstats.disable_subvolume:
+        if self.segstats.disable_subvolumes:
             return summarystats
 
         # generate subvolume stats
@@ -154,7 +155,7 @@ class vi_stat(StatType):
         for onum, gotable in enumerate(self.segstats.gt_overlaps):
             if gotable.get_comparison_type() not in self.supported_types:
                 continue
-            dummy1, dummy2, fmerge_bodies, fsplit_bodies, vi_bodies = self._calculate_vi(gotable, self.segstats.seg_overlaps[onum], filtersize)
+            dummy1, dummy2, fmerge_bodies, fsplit_bodies, vi_bodies = self._calculate_vi(gotable, self.segstats.seg_overlaps[onum])
  
             # load body stats for a given type
             self._calculate_bodystats(None, bodystats, gotable, fmerge_bodies, fsplit_bodies, vi_bodies) 
@@ -162,10 +163,10 @@ class vi_stat(StatType):
         return bodystats
 
  
-    def _write_vi(self, summarystats, gotable, sotable):
+    def _write_vi(self, summarystats, gotable, sotable, disablefilter=False):
         # restrict body sizes considered
         name = gotable.get_name()
-        fmerge, fsplit, fmerge_bodies, fsplit_bodies, vi_bodies = self._calculate_vi(gotable, sotable)
+        fmerge, fsplit, fmerge_bodies, fsplit_bodies, vi_bodies = self._calculate_vi(gotable, sotable, disablefilter)
          
         sumstat = {"name": "VI", "higher-better": False, "typename": name, "val": fmerge+fsplit}
         sumstat["description"] = "Total VI"
@@ -182,12 +183,15 @@ class vi_stat(StatType):
         return fmerge_bodies, fsplit_bodies, vi_bodies
 
 
-    def _calculate_vi(self, gtoverlap, segoverlap):
+    def _calculate_vi(self, gtoverlap, segoverlap, disablefilter=False):
         """Caculate variation of information metric using overlap tables.
         """
         body_threshold = self.segstats.ptfilter
         if gtoverlap.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
+        
+        if disablefilter:
+            body_threshold = 0
 
         fsplit_bodies = {}
         fmerge_bodies = {}
@@ -214,7 +218,7 @@ class vi_stat(StatType):
                 ignore_bodies.add(gtbody)
                 continue
 
-            vi_unnorm, total, dummy = body_vi(overlapset)
+            vi_unnorm, total, dummy = self._body_vi(overlapset)
             fsplit_bodies[gtbody] = vi_unnorm
             perbody[gtbody] = vi_unnorm
             glb_total += total
@@ -228,7 +232,7 @@ class vi_stat(StatType):
                 if gtbody not in ignore_bodies:
                     filtered_overlapset.add((gtbody, overlap))
 
-            vi_unnorm, total, gtcontribs = body_vi(filtered_overlapset)
+            vi_unnorm, total, gtcontribs = self._body_vi(filtered_overlapset)
             fmerge_bodies[segbody] = vi_unnorm
             fmerge_vi += vi_unnorm
 
@@ -290,7 +294,7 @@ class vi_stat(StatType):
         bodies1 = []
         bodies2 = []
 
-        for body, overlapset in gt_overlap.items():
+        for body, overlapset in gtoverlap.overlap_map.items():
             total = 0
             for body2, overlap in overlapset:
                 total += overlap
@@ -319,7 +323,8 @@ class vi_stat(StatType):
         bodystat3 = {"typename": gtoverlap.get_name(), "name": "Test Frag", "largest2smallest": True}
         bodies3 = []
         
-        for body, overlapset in seg_overlap.items():
+        #for body, overlapset in seg_overlap.overlap_map.items():
+        for body, fmerge in fmerge_bodies.items():
             # ignore body size filter since results are already properly
             # filted and the display cut-off only takes biggest errors
             fmerge = fmerge_bodies[body]
@@ -363,19 +368,19 @@ class vi_stat(StatType):
             bodystats.append(bodystat2)
             bodystats.append(bodystat2)
         
-            # body summary stats
-            if summarystats is not None:
+        # body summary stats
+        if summarystats is not None:
 
-                sumstat = {"name": "B-WRST-GT-VI", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_gt_val}
-                sumstat["description"] = "Worst body VI. GT body ID = %d" % worst_gt_body
-                summarystats.append(sumstat)
+            sumstat = {"name": "B-WRST-GT-VI", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_gt_val}
+            sumstat["description"] = "Worst body VI. GT body ID = %d" % worst_gt_body
+            summarystats.append(sumstat)
 
-                sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_fsplit}
-                sumstat["description"] = "Worst body fragmentation VI. GT body ID = %d" % worst_fsplit_body
-                summarystats.append(sumstat)
+            sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_fsplit}
+            sumstat["description"] = "Worst body fragmentation VI. GT body ID = %d" % worst_fsplit_body
+            summarystats.append(sumstat)
 
-                sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_fmerge}
-                sumstat["description"] = "Worst body fragmentation VI. Test body ID = %d" % worst_fmerge_body
-                summarystats.append(sumstat)
-     
+            sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_fmerge}
+            sumstat["description"] = "Worst body fragmentation VI. Test body ID = %d" % worst_fmerge_body
+            summarystats.append(sumstat)
+ 
 

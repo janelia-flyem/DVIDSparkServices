@@ -24,6 +24,7 @@ class edit_stat(StatType):
         super(edit_stat, self).__init__()
         self.volthres = volthres
         self.splitfactor = splitfactor
+        self.supported_types = ["voxels", "synapse"]
 
     def write_summary_stats(self):
         """Write stats for the volume.
@@ -35,8 +36,6 @@ class edit_stat(StatType):
             * Number of mergers to get to threshold
         """
         summarystats = []
-        
-        target = self.volthres
 
         # for each comparison type, find overlaps
         for onum, gotable in enumerate(self.segstats.gt_overlaps):
@@ -57,7 +56,7 @@ class edit_stat(StatType):
             # 1
             seg2bestgt = {}
             target = 0
-            for body, overlapset in seg_overlap.items():
+            for body, overlapset in sotable.overlap_map.items():
                 max_val = 0
                 max_id = 0
                 for body2, overlap in overlapset:
@@ -68,12 +67,14 @@ class edit_stat(StatType):
                         max_val = overlap
                         max_id = body2
                 seg2bestgt[body] = max_id
+        
+            target *= (self.volthres / 100.0)
 
             # 2, 3
             sorted_splits = []
             sorted_mergers = []
             current_accum = 0
-            for body, overlapset in gt_overlap.items():
+            for body, overlapset in gotable.overlap_map.items():
                 if body in ignore_bodies:
                     continue
                 temp_merge = []
@@ -122,7 +123,7 @@ class edit_stat(StatType):
                     midx += 1
 
             # a larger/smaller value is not obviously better or worse
-            sumstat = {"name": "edit.splits", "typename": gotabble.get_name(), "val": sidx, "higher-better": False}
+            sumstat = {"name": "edit.splits", "typename": gotable.get_name(), "val": sidx, "higher-better": False}
             sumstat["description"] = "Number of split operations (split:merge cost = %0.2f and correct threshold = %d)" % (self.splitfactor, self.volthres)
             summarystats.append(sumstat)
 

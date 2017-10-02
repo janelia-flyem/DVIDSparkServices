@@ -15,30 +15,32 @@ class connectivity_stat(StatType):
     def write_summary_stats(self):
         """Write stats for the volume.
         """
-        gotable, gtseg, typename = self._retrieve_overlap_tables()
+        gotable, gtseg = self._retrieve_overlap_tables()
 
-        bodymatches = self._compute_bodymatch(gotable)   
-        sumstatsbm, bodystatsbm, tablestatsbm = self._compute_tablestats(bodymatches, gtseg, gotable.get_name(), self.thresholds)
+        bodymatches = self._compute_bodymatch(gotable.overlap_map)
+        sumstatsbm, bodystatsbm, tablestatsbm = self._compute_tablestats(bodymatches, gtseg.overlap_map, gotable.get_name(), self.thresholds)
         
-        return bodystatsbm
+        return sumstatsbm
         
     def write_body_stats(self):
         """Write stats per body.
         """
         gotable, gtseg = self._retrieve_overlap_tables()
+        typename = gotable.get_name()
 
-        bodymatches = self._compute_bodymatch(gotable)   
-        sumstatsbm, bodystatsbm, tablestatsbm = self._compute_tablestats(bodymatches, gtseg, typename, self.thresholds)
+        bodymatches = self._compute_bodymatch(gotable.overlap_map)   
+        sumstatsbm, bodystatsbm, tablestatsbm = self._compute_tablestats(bodymatches, gtseg.overlap_map, typename, self.thresholds)
         
         return bodystatsbm
     
-    def write_debug_stats():
+    def write_bodydebug(self):
         """Write connectivity table in the debug info.
         """
         gotable, gtseg = self._retrieve_overlap_tables()
+        typename = gotable.get_name()
 
-        bodymatches = self._compute_bodymatch(gotable)   
-        sumstatsbm, bodystatsbm, tablestatsbm = self._compute_tablestats(bodymatches, gtseg, typename, self.thresholds)
+        bodymatches = self._compute_bodymatch(gotable.overlap_map)   
+        sumstatsbm, bodystatsbm, tablestatsbm = self._compute_tablestats(bodymatches, gtseg.overlap_map, typename, self.thresholds)
         
         return tablestatsbm 
 
@@ -48,7 +50,7 @@ class connectivity_stat(StatType):
 
         # grab overlap tables
         for onum, gotable in enumerate(self.segstats.gt_overlaps):
-            if gotable.get_comparison_type() == "synapse-graph":
+            if gotable.get_comparison_type() == "synapse":
                 # only one synapse-graph allowed
                 assert gotable_main is None
                 gotable_main = gotable
@@ -64,7 +66,7 @@ class connectivity_stat(StatType):
         return gotable_main, gtseg_table
 
 
-    def _compute_bodymatch(self, overlapmap):
+    def _compute_bodymatch(self, table):
         """Compute the strongest body matches ignoring bodies < threshold.
        
         Note: threshold is applied to both segmentations.  If a body id is matched
@@ -89,7 +91,7 @@ class connectivity_stat(StatType):
         overlapflat = {}
 
         # find important bodies
-        for b1, overlapset in overlapmap.items():
+        for b1, overlapset in table.items():
             total = 0
             for b2, overlap in overlapset:
                 total += overlap
@@ -181,6 +183,9 @@ class connectivity_stat(StatType):
 
         seg1conns = {}
         seg2conns_mapped = {}
+
+        # hack to remove '-graph' from synapse graph
+        #typename = "synapse:" + typename.split(":")[1]
 
         # ignore overlaps if no matching gt
         for (b1, b2, overlap, b1size, b2size) in match_overlap:
