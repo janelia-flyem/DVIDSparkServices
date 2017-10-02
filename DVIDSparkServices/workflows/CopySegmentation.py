@@ -283,6 +283,14 @@ class CopySegmentation(Workflow):
                                                                        target_partition_size_voxels )
         elif input_config["service-type"] == "brainmaps":
 
+            # Create the volume on the driver just to check for errors.
+            # (Below, we use skip_checks=True)
+            v = BrainMapsVolume( input_config["project"],
+                                 input_config["dataset"],
+                                 input_config["volume-id"],
+                                 input_config["change-stack-id"] )
+            assert v.dtype == np.uint64
+
             # Two-levels of auto-retry:
             # 1. Auto-retry up to three time for any reason.
             # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
