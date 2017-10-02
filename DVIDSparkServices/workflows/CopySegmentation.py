@@ -23,6 +23,7 @@ from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
+from DVIDSparkServices.auto_retry import auto_retry
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +282,13 @@ class CopySegmentation(Workflow):
                                                                        input_grid,
                                                                        target_partition_size_voxels )
         elif input_config["service-type"] == "brainmaps":
+            
+            # Two-levels of auto-retry:
+            # 1. Auto-retry up to three time for any reason.
+            # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
+            @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
+                        predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_brainmaps_subvol(box):
                 vol = BrainMapsVolume( input_config["project"],
                                        input_config["dataset"],
