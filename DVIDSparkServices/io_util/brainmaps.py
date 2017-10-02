@@ -119,23 +119,27 @@ class BrainMapsVolume:
         return box
 
     def get_subvolume(self, box, scale=0):
-        assert (box[0] >= self.bounding_box[0]).all() and (box[1] <= self.bounding_box[1]).all(), \
+        box = np.asarray(box)
+        assert (box[0] >= self.bounding_boxes[scale][0]).all() and (box[1] <= self.bounding_boxes[scale][1]).all(), \
             f"Requested box ({box}) extends outside of the volume extents ({self.bounding_box.tolist()})"
         
-        box = np.asarray(box)
-        corner = box[0]
-        shape = box[1] - box[0]
+        corner_zyx = box[0]
+        shape_zyx = box[1] - box[0]
+        
+        corner_xyz = corner_zyx[::-1]
+        shape_xyz = shape_zyx[::-1]
+        
         snappy_data = fetch_subvol_data( self.http,
                                          self.project,
                                          self.dataset,
                                          self.volume_id,
-                                         corner,
-                                         shape,
+                                         corner_xyz,
+                                         shape_xyz,
                                          scale,
                                          self.change_stack_id,
-                                         subvol_format='raw_snappy')
+                                         subvol_format='raw_snappy' )
 
         volume_buffer = snappy.decompress(snappy_data)
-        volume = np.frombuffer(volume_buffer, dtype=self.dtype).reshape(shape)
+        volume = np.frombuffer(volume_buffer, dtype=self.dtype).reshape(shape_zyx)
         return volume
 
