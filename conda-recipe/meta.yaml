@@ -37,6 +37,7 @@ requirements:
     - pillow
     - scipy
     - python-lz4
+    - python-snappy
     #- ilastik-versions-no-solvers  1.2  np111py27_14   # [osx]
     #- ilastik-versions-no-solvers  1.2  np111py27_12   # [linux]
     #- ilastik-meta
