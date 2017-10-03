@@ -51,20 +51,22 @@ class Brick:
 def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None ):
     """
     Generate an RDD or iterable of Bricks for the given bounding box and grid.
-    
+     
     Args:
         bounding_box:
             (start, stop)
-
+ 
         grid:
             Grid (see above)
-
+ 
         volume_accessor_func:
             Callable with signature: f(box) -> ndarray
-
+            Note: The callable will be unpickled only once per partition, so initialization
+                  costs after unpickling are only incurred once per partition.
+ 
         sc:
             SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
-
+ 
         rdd_partition_length:
             Optional. If provided, the RDD will have (approximately) this many bricks per partition.
     """
@@ -79,53 +81,11 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
 
         logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
 
-    def make_brick( logical_and_physical ):
-        logical_box, physical_box = logical_and_physical
-        volume = volume_accessor_func( physical_box )
-        return Brick( logical_box, physical_box, volume )
-    
-    return _map( make_brick, logical_and_physical_boxes )
-
-
-def generate_bricks_from_partition_source( bounding_box, grid, volume_partition_accessor_func, sc=None, rdd_partition_length=None ):
-    """
-    Like the above generate_bricks_from_volume_source(),
-    but generates an entire 'partition' (list) of bricks at once,
-    instead of one at a time.
-    
-    Useful if there is some overhead to creating the volumes that
-    can be saved if they are created en masse.
-    
-    Args:
-        bounding_box:
-            (start, stop)
-
-        grid:
-            Grid (see above)
-
-        volume_partition_accessor_func:
-            Callable with signature: f(boxes) -> [ndarray, ndarray, ...]
-
-        sc:
-            SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
-
-        rdd_partition_length:
-            Optional. If provided, the RDD will have (approximately) this many bricks per partition.
-    """
-    logical_and_physical_boxes = ( (box, box_intersection(box, bounding_box))
-                                  for box in boxes_from_grid(bounding_box, grid) )
-
-    if sc:
-        num_rdd_partitions = None
-        if rdd_partition_length:
-            logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
-            num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
-
-        logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
-
+    # Use map_partitions instead of map(), to be explicit about
+    # the fact that the function is re-used within each partition.
     def make_bricks( logical_and_physical_boxes ):
         logical_boxes, physical_boxes = zip( *logical_and_physical_boxes )
-        volumes = volume_partition_accessor_func( physical_boxes )
+        volumes = map( volume_accessor_func, physical_boxes )
         return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
     
     return _map_partitions( make_bricks, logical_and_physical_boxes )
