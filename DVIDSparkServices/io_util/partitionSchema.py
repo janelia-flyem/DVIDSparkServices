@@ -187,6 +187,9 @@ class partitionSchema(object):
             if volume is None:
                 return []
 
+            # extract volume size
+            if len(volume.shape) == 2:
+                volume = np.expand_dims(volume, axis=0)
             zsize, ysize, xsize = volume.shape
 
             # determine new partition address
