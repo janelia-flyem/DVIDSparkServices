@@ -13,6 +13,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
 from DVIDSparkServices.sparkdvid import sparkdvid
+from DVIDSparkServices.dvid.metadata import is_node_locked
 
 from .common_schemas import SegmentationVolumeSchema
 
@@ -88,6 +89,10 @@ class CreateSkeletons(Workflow):
                 self.config_data["dvid-info"]["uuid"], self)
 
     def execute(self):
+        d = self.config_data["dvid-info"]
+        if is_node_locked(d["server"], d["uuid"]):
+            raise RuntimeError(f"Can't write skeletons: The node you specified ({d['server']} / {d['uuid']}) is locked.")
+        
         bricks, _bounding_box_zyx, _input_grid = self._partition_input()
         
         # (vol_part, seg) -> (body_id, (box, mask))

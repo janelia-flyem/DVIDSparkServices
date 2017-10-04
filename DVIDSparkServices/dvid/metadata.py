@@ -60,6 +60,13 @@ def is_datainstance(dvid_server, uuid, name):
         return False
     return True
 
+def is_node_locked(dvid_server, uuid):
+    # Verify that the node is open for writing!
+    r = requests.get(f'{dvid_server}/api/node/{uuid}/commit')
+    r.raise_for_status()
+    return r.json()["Locked"]
+
+
 def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
                       compression=Compression.DEFAULT ):
     """
