@@ -521,7 +521,7 @@ class CopySegmentation(Workflow):
         
         else: # Reduce by merging pandas dataframes
             
-            @self.collect_log(lambda *_args: 'merge_label_counts')
+            #@self.collect_log(lambda *_args: 'merge_label_counts')
             def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
                 labels_A, counts_A = labels_and_counts_A
                 labels_B, counts_B = labels_and_counts_B
@@ -537,9 +537,9 @@ class CopySegmentation(Workflow):
                     series_B = pd.Series(index=labels_B, data=counts_B)
                     combined = series_A.add(series_B, fill_value=0)
                 
-                logger = logging.getLogger(__name__)
-                logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
-                            f" = {len(combined)} took {timer.seconds} seconds")
+                #logger = logging.getLogger(__name__)
+                #logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
+                #            f" = {len(combined)} took {timer.seconds} seconds")
     
                 return (combined.index, combined.values.astype(np.uint64))
 
