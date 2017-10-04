@@ -370,8 +370,8 @@ class CopySegmentation(Workflow):
 
         existing_depth = int(info["Extended"]["MaxDownresLevel"])
         if options["pyramid-depth"] not in (-1, existing_depth):
-            raise Exception("Can't set pyramid-depth to {}. Data instance '{}' already existed, with depth {}"
-                            .format(options["pyramid-depth"], output_config["segmentation-name"], existing_depth))
+            raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
+                            f"Data instance '{output_config['segmentation-name']}' already existed, with depth {existing_depth}")
         return existing_depth
 
 
@@ -477,9 +477,8 @@ class CopySegmentation(Workflow):
 
                 # Note: This timing data doesn't reflect ideal throughput, since throttle
                 #       and/or the resource manager muddy the numbers a bit...
-                voxels_per_second = datacrop.size / put_timer.seconds
-                logger.info("Put block {} in {:.3f} seconds ({:.1f} Megavoxels/second)"
-                            .format(data_offset_zyx, put_timer.seconds, voxels_per_second / 1e6))
+                megavoxels_per_second = datacrop.size / 1e6 / put_timer.seconds
+                logger.info(f"Put block {data_offset_zyx} in {put_timer.seconds:.3f} seconds ({megavoxels_per_second:.1f} Megavoxels/second)")
 
         with Timer() as timer:
             bricks.foreach(write_brick)
@@ -518,11 +517,11 @@ class CopySegmentation(Workflow):
                                            .treeReduce( reduce_to_array, depth=4 ) )
     
                 body_labels, body_sizes = np.transpose( labels_and_sizes )
-            logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
+            logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
         
         else: # Reduce by merging pandas dataframes
             
-            @self.collect_log(lambda *args: 'merge_label_counts')
+            @self.collect_log(lambda *_args: 'merge_label_counts')
             def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
                 labels_A, counts_A = labels_and_counts_A
                 labels_B, counts_B = labels_and_counts_B
@@ -539,47 +538,41 @@ class CopySegmentation(Workflow):
                     combined = series_A.add(series_B, fill_value=0)
                 
                 logger = logging.getLogger(__name__)
-                logger.info("Merging label count lists of sizes {} + {} = {} took {} seconds"
-                            .format(len(labels_A), len(labels_B), len(combined), timer.seconds))
+                logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
+                            f" = {len(combined)} took {timer.seconds} seconds")
     
                 return (combined.index, combined.values.astype(np.uint64))
 
-            def reduce_partition( partition_elements ):
-                # Almost like the builtin reduce() function, but wraps the result in a list,
-                # which is what RDD.mapPartitions() expects to see.
-                return [reduce(merge_label_counts, partition_elements, [(), ()])]
-    
+            logger.info("Computing body sizes...")
             with Timer() as timer:
-                logger.info("Computing body sizes...")
-     
                 # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
                 body_labels, body_sizes = ( bricks.map( lambda br: br.volume )
                                                   .map( nonconsecutive_bincount )
                                                   .treeReduce( merge_label_counts, depth=4 ) )
-            logger.info("Computing {} body sizes took {} seconds".format(len(body_labels), timer.seconds))
+            logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
 
         min_size = self.config_data["options"]["body-size-minimum"]
         if min_size > 1:
-            logger.info("Omitting body sizes below {} voxels...".format(min_size))
+            logger.info(f"Omitting body sizes below {min_size} voxels...")
             valid_rows = body_sizes >= min_size
             body_labels = body_labels[valid_rows]
             body_sizes = body_sizes[valid_rows]
         assert body_labels.shape == body_sizes.shape
 
         with Timer() as timer:
-            logger.info("Sorting {} bodies by size...".format(len(body_labels)))
+            logger.info(f"Sorting {len(body_labels)} bodies by size...")
             sort_indices = np.argsort(body_sizes)[::-1]
             body_sizes = body_sizes[sort_indices]
             body_labels = body_labels[sort_indices]
-        logger.info("Sorting {} bodies by size took {} seconds".format(len(body_labels), timer.seconds))
+        logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
         output_path = self.relpath_to_abspath(self.config_data["options"]["body-size-output-path"])
         with Timer() as timer:
-            logger.info("Writing {} body sizes to {}".format(len(body_labels), output_path))
+            logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
             with h5py.File(output_path, 'w') as f:
                 f.create_dataset('labels', data=body_labels, chunks=True)
                 f.create_dataset('sizes', data=body_sizes, chunks=True)
-        logger.info("Writing {} body sizes took {} seconds".format(len(body_sizes), timer.seconds))
+        logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
 
 
 def downsample_brick(brick):
