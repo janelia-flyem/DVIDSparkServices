@@ -15,8 +15,10 @@ import json
 
 import psutil
 import numpy as np
-import pandas as pd
 from skimage.util import view_as_blocks
+
+# Don't import pandas here; import it locally as needed
+#import pandas as pd
 
 from numba import jit
 
@@ -594,6 +596,10 @@ def nonconsecutive_bincount(label_vol):
     Returns two 1D arrays: unique_labels, counts
     Neither array is sorted.
     """
+    # Local import because it seems to have (very occasional) trouble importing
+    # in the global context during Spark RDD de-serialization
+    import pandas as pd
+    
     assert isinstance(label_vol, np.ndarray)
     assert np.issubdtype(label_vol.dtype, np.integer)
 
