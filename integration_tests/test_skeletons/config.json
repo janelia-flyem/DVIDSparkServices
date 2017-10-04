@@ -1,13 +1,13 @@
 {
     "dvid-info": {
-        "dvid-server": "127.0.0.1:8000",
+        "service-type": "dvid",
+        "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
-        "skeletons-destination": "labels_vol_skeletons"
-    },
-    "bounding-box": {
-        "start": [0,0,0],
-        "stop": [256, 256, 256]
+        "bounding-box": [[0,0,0], [256,256,256]],
+        "message-block-shape": [6400,64,64],
+
+        "skeletons-destination": "labels_vol_skeletons"        
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],
@@ -18,10 +18,8 @@
         "maximalDistance": 64
     },
     "options": {
-        "fetch-block-shape": [6400,64,64],
         "downsample-factor": 32,
         "max-skeletonization-volume": 1e9,
-        
         "log-collector-port": 3000,
         "log-collector-directory": ""
     }

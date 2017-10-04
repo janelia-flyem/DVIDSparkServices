@@ -4,7 +4,7 @@ import copy
 import json
 import logging
 import socket
-from functools import reduce, partial
+from functools import partial
 
 import numpy as np
 import h5py
@@ -13,7 +13,6 @@ import pandas as pd
 from pyspark import StorageLevel
 
 from dvid_resource_manager.client import ResourceManagerClient
-
 
 from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid import sparkdvid
@@ -25,100 +24,35 @@ from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
 from DVIDSparkServices.auto_retry import auto_retry
 
+from .common_schemas import SegmentationVolumeSchema
+
 logger = logging.getLogger(__name__)
 
 class CopySegmentation(Workflow):
     
-    DvidSegmentationSourceSchema = \
+    BodySizesOptionsSchema = \
     {
-        "description": "Parameters to use DVID as a source of voxel data",
         "type": "object",
-        "required": ["service-type", "server", "uuid", "segmentation-name"],
+        "additionalProperties": False,
+        "default": {},
         "properties": {
-            "service-type": { "type": "string",
-                              "enum": ["dvid"] },
-            "server": {
-                "description": "location of DVID server to READ.  Either IP:PORT or the special word 'node-local'.",
+            "output-path" : {
+                "description": "A file name to write the body size HDF5 output. "
+                               "Relative paths are interpreted as relative to this config file. "
+                               "An empty string forces body size calculation to be skipped.",
                 "type": "string",
+                "default": "./body-sizes.h5"
             },
-            "uuid": {
-                "description": "version node for READING segmentation",
-                "type": "string"
-            },
-            "segmentation-name": {
-                "description": "The labels instance to READ from. Instance may be either googlevoxels, labelblk, or labelarray.",
-                "type": "string",
-                "minLength": 1
-            }
-        }
-    }
-    
-    BrainMapsSegmentationSourceSchema = \
-    {
-        "description": "Parameters to use Google BrainMaps as a source of voxel data",
-        "type": "object",
-        "required": ["service-type", "project", "dataset", "volume-id", "change-stack-id"],
-        "properties": {
-            "service-type": { "type": "string",
-                              "enum": ["brainmaps"] },
-            "project": {
-                "description": "Project ID",
-                "type": "string",
-            },
-            "dataset": {
-                "description": "Dataset identifier",
-                "type": "string"
-            },
-            "volume-id": {
-                "description": "Volume ID",
-                "type": "string"
-            },
-            "change-stack-id": {
-                "description": "Change Stack ID, specifies a set of changes to apple on top of the volume, (e.g. a set of agglomeration steps).",
-                "type": "string",
-                "default": ""
-            }
-        }
-    }
-
-    BoundingBoxSchema = \
-    {
-        "description": "The bounding box [[x0,y0,z0],[x1,y1,z1]], "
-                       "where [x1,y1,z1] == maxcoord+1 (i.e. Python conventions)",
-        "type": "array",
-        "minItems": 2,
-        "maxItems": 2,
-        "items": {
-            "type": "array",
-            "items": { "type": "integer" },
-            "minItems": 3,
-            "maxItems": 3
-        }
-    }
-
-    SegmentationVolumeSchema = \
-    {
-        "description": "Describes a segmentation volume source, extents, and preferred access pattern",
-        "type": "object",
-        "required": ["bounding-box", "message-block-shape"],
-        "oneOf": [
-            DvidSegmentationSourceSchema,
-            BrainMapsSegmentationSourceSchema
-        ],
-        "properties": {
-            "bounding-box": BoundingBoxSchema,
-            "message-block-shape": {
-                "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
-                "type": "array",
-                "items": { "type": "integer" },
-                "minItems": 3,
-                "maxItems": 3,
-                "default": [6400,64,64],
-            },
-            "block-width": {
-                "description": "The block size of the underlying volume storage.",
+            "minimum-size" : {
+                "description": "Minimum size to include in the body size HDF5 output.  Smaller bodies are omitted.",
                 "type": "integer",
-                "default": 64
+                "default": 1000
+            },
+            "method" : {
+                "description": "(For performance experiments) Whether to perform the body size computation via reduceByKey.",
+                "type": "string",
+                "enum": ["reduce-by-key", "reduce-with-pandas"],
+                "default": "reduce-with-pandas"
             }
         }
     }
@@ -126,23 +60,7 @@ class CopySegmentation(Workflow):
     OptionsSchema = copy.deepcopy(Workflow.OptionsSchema)
     OptionsSchema["properties"].update(
     {
-        "body-size-output-path" : {
-            "description": "A file name to write the body size HDF5 output. "
-                           "Relative paths are interpreted as relative to this config file. "
-                           "An empty string forces body size calculation to be skipped.",
-            "type": "string",
-            "default": "./body-sizes.h5"
-        },
-        "body-size-minimum" : {
-            "description": "Minimum size to include in the body size HDF5 output.  Smaller bodies are omitted.",
-            "type": "integer",
-            "default": 0
-        },
-        "body-size-reduce-by-key" : {
-            "description": "(For performance experiments) Whether to perform the body size computation via reduceByKey.",
-            "type": "boolean",
-            "default": False
-        },
+        "body-sizes": BodySizesOptionsSchema,
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
@@ -492,13 +410,13 @@ class CopySegmentation(Workflow):
         
         NOTE: For now, we implement two alternative methods of computing this result,
               for the sake of performance comparisons between the two methods.
-              The method used is determined by the 'body-size-reduce-by-key' setting.
+              The method used is determined by the ['body-sizes]['method'] option.
         """
-        if not self.config_data["options"]["body-size-output-path"]:
+        if not self.config_data["options"]["body-sizes"]["output-path"]:
             logger.info("Skipping body size calculation.")
             return
 
-        if self.config_data["options"]["body-size-reduce-by-key"]:
+        if self.config_data["options"]["body-sizes"]["method"] == "reduce-by-key":
             # Reduce using reduceByKey and simply concatenating the results
             from operator import add
             def transpose(labels_and_sizes):
@@ -551,7 +469,7 @@ class CopySegmentation(Workflow):
                                                   .treeReduce( merge_label_counts, depth=4 ) )
             logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
 
-        min_size = self.config_data["options"]["body-size-minimum"]
+        min_size = self.config_data["options"]["body-sizes"]["minimum-size"]
         if min_size > 1:
             logger.info(f"Omitting body sizes below {min_size} voxels...")
             valid_rows = body_sizes >= min_size
@@ -566,7 +484,7 @@ class CopySegmentation(Workflow):
             body_labels = body_labels[sort_indices]
         logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
-        output_path = self.relpath_to_abspath(self.config_data["options"]["body-size-output-path"])
+        output_path = self.relpath_to_abspath(self.config_data["options"]["body-sizes"]["output-path"])
         with Timer() as timer:
             logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
             with h5py.File(output_path, 'w') as f:

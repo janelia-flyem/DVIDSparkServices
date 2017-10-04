@@ -9,75 +9,30 @@ import numpy as np
 from DVIDSparkServices.util import MemoryWatcher
 from DVIDSparkServices.io_util.brick import Grid
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
+from DVIDSparkServices.sparkdvid import sparkdvid
 
-class CreateSkeletons(DVIDWorkflow):
-    DvidInfoSchema = \
-    {
-        "type": "object",
-        "default": {},
-        "additionalProperties": False,
-        "required": ["dvid-server", "uuid", "segmentation-name", "skeletons-destination"],
-        "properties": {
-            "dvid-server": {
-                "description": "location of DVID server to READ segmentation.",
-                "type": "string",
-            },
-            "uuid": {
-                "description": "version node for READING segmentation",
-                "type": "string"
-            },
-            "segmentation-name": {
-                "description": "The labels instance to READ from.",
-                "type": "string",
-                "minLength": 1
-            },
-            "skeletons-destination": {
-                "description": "Name of key-value instance to store the skeletons. "
-                               "By convention, this should usually be {segmentation-name}_skeletons",
-                "type": "string",
-                "minLength": 1
-            }
-        }
-    }
+from .common_schemas import SegmentationVolumeSchema
 
-    BoundingBoxSchema = \
+class CreateSkeletons(Workflow):
+    DvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
+    DvidInfoSchema["properties"].update(
     {
-        "type": "object",
-        "default": {"start": [0,0,0], "stop": [0,0,0]},
-        "required": ["start", "stop"],
-        "start": {
-            "description": "The bounding box lower coordinate in XYZ order",
-            "type": "array",
-            "items": { "type": "integer" },
-            "minItems": 3,
-            "maxItems": 3,
-            "default": [0,0,0]
-        },
-        "stop": {
-            "description": "The bounding box upper coordinate in XYZ order.  (numpy-conventions, i.e. maxcoord+1)",
-            "type": "array",
-            "items": { "type": "integer" },
-            "minItems": 3,
-            "maxItems": 3,
-            "default": [0,0,0]
-        }
-    }
+        "skeletons-destination": {
+            "description": "Name of key-value instance to store the skeletons. "
+                           "By convention, this should usually be {segmentation-name}_skeletons, "
+                           "which will be used by default if you don't provide this setting.",
+            "type": "string",
+            "default": ""
     
+        }
+    })
+
     SkeletonWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
     SkeletonWorkflowOptionsSchema["properties"].update(
     {
-       "fetch-block-shape": {
-            "description": "The block shape for the initial tasks that fetch segmentation from DVID.",
-            "type": "array",
-            "items": { "type": "integer" },
-            "minItems": 3,
-            "maxItems": 3,
-            "default": [6400, 64, 64]
-        },
         "minimum-segment-size": {
             "description": "Segments smaller than this voxel count will not be skeletonized",
             "type": "number",
@@ -106,10 +61,9 @@ class CreateSkeletons(DVIDWorkflow):
       "$schema": "http://json-schema.org/schema#",
       "title": "Service to create skeletons from segmentation",
       "type": "object",
-      "required": ["dvid-info", "bounding-box"],
+      "required": ["dvid-info"],
       "properties": {
-        "dvid-info": DvidInfoSchema,
-        "bounding-box": BoundingBoxSchema,
+        "dvid-info": SegmentationVolumeSchema,
         "skeleton-config": SkeletonConfigSchema,
         "options" : SkeletonWorkflowOptionsSchema
       }
@@ -122,6 +76,16 @@ class CreateSkeletons(DVIDWorkflow):
     def __init__(self, config_filename):
         # ?! set number of cpus per task to 2 (make dynamic?)
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
+
+        # Prepend 'http://' if necessary.
+        dvid_info = self.config_data['dvid-info']
+        if not dvid_info['server'].startswith('http'):
+            dvid_info['server'] = 'http://' + dvid_info['server']
+
+        # create spark dvid context
+        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
+                self.config_data["dvid-info"]["server"],
+                self.config_data["dvid-info"]["uuid"], self)
 
     def execute(self):
         bricks, _bounding_box_zyx, _input_grid = self._partition_input()
@@ -144,7 +108,7 @@ class CreateSkeletons(DVIDWorkflow):
         Map the input segmentation
         volume from DVID into an RDD of Bricks,
         using the config's bounding-box setting for the full volume region,
-        using the 'fetch-block-shape' as the partition size.
+        using the 'message-block-shape' as the partition size.
 
         Returns: (RDD, bounding_box_zyx, partition_shape_zyx)
             where:
@@ -154,14 +118,14 @@ class CreateSkeletons(DVIDWorkflow):
             
         """
         dvid_info = self.config_data["dvid-info"]
-        bb_config = self.config_data["bounding-box"]
-        options = self.config_data["options"]
+        assert dvid_info["service-type"] == "dvid", \
+            "Only DVID sources are supported right now."
 
         # repartition to be z=blksize, y=blksize, x=runlength
-        brick_shape_zyx = options["fetch-block-shape"][::-1]
+        brick_shape_zyx = dvid_info["message-block-shape"][::-1]
         input_grid = Grid(brick_shape_zyx, (0,0,0))
 
-        bounding_box_xyz = np.array([bb_config["start"], bb_config["stop"]])
+        bounding_box_xyz = np.array(dvid_info["bounding-box"])
         bounding_box_zyx = bounding_box_xyz[:,::-1]
 
         # Aim for 2 GB RDD partitions
@@ -287,12 +251,14 @@ def post_swc_to_dvid(config, body_id_and_swc_contents ):
     if swc_contents is None:
         return
 
-    node_service = retrieve_node_service(config["dvid-info"]["dvid-server"],
+    node_service = retrieve_node_service(config["dvid-info"]["server"],
                                          config["dvid-info"]["uuid"],
                                          config["options"]["resource-server"],
                                          config["options"]["resource-port"])
 
     skeletons_kv_instance = config["dvid-info"]["skeletons-destination"]
+    if not skeletons_kv_instance:
+        skeletons_kv_instance = config["dvid-info"]["segmentation-name"] + '_skeletons'
     node_service.create_keyvalue(skeletons_kv_instance)
     node_service.put(skeletons_kv_instance, "{}_swc".format(body_id), swc_contents.encode('utf-8'))
 
