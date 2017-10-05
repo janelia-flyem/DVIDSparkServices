@@ -152,6 +152,7 @@ class CreateSkeletons(Workflow):
 
         return bricks, bounding_box_zyx, input_grid
 
+
 def body_masks(config, brick):
     """
     Produce a binary label mask for each object (except label 0).
@@ -222,6 +223,7 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     Then convert that combined mask into a skeleton (SWC string).
     """
     logger = logging.getLogger(__name__ + '.combine_and_skeletonize')
+
     with MemoryWatcher() as memory_watcher:
         body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
         (combined_box_start, _combined_box_stop), combined_mask, downsample_factor = combine_masks( config, body_id, boxes_and_compressed_masks )
@@ -229,7 +231,7 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
         if combined_mask is None:
             return (body_id, None)
 
-        memory_watcher.log_increase(logger, logging.INFO,
+        memory_watcher.log_increase(logger, logging.DEBUG,
                                     'After mask assembly (combined_mask.shape: {} downsample_factor: {})'
                                     .format(combined_mask.shape, downsample_factor))
         
@@ -237,10 +239,10 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
         tree.rescale(downsample_factor, downsample_factor, downsample_factor, True)
         tree.translate(*combined_box_start.astype(np.float64)[::-1]) # Pass x,y,z, not z,y,x
 
-        memory_watcher.log_increase(logger, logging.INFO, 'After skeletonization')
+        memory_watcher.log_increase(logger, logging.DEBUG, 'After skeletonization')
 
         del combined_mask
-        memory_watcher.log_increase(logger, logging.INFO, 'After mask deletion')
+        memory_watcher.log_increase(logger, logging.DEBUG, 'After mask deletion')
         
         # Also show which downsample factor was actually chosen
         config_copy = copy.deepcopy(config)
@@ -257,7 +259,7 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
         swc_contents += config_comment + tree.toString()
 
         del tree
-        memory_watcher.log_increase(logger, logging.INFO, 'After tree deletion')
+        memory_watcher.log_increase(logger, logging.DEBUG, 'After tree deletion')
 
         return (body_id, swc_contents)
 
@@ -276,4 +278,3 @@ def post_swc_to_dvid(config, body_id_and_swc_contents ):
         skeletons_kv_instance = config["dvid-info"]["segmentation-name"] + '_skeletons'
     node_service.create_keyvalue(skeletons_kv_instance)
     node_service.put(skeletons_kv_instance, "{}_swc".format(body_id), swc_contents.encode('utf-8'))
-
