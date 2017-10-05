@@ -392,7 +392,10 @@ class Evaluate(object):
             # each subvolume will extract subvol relevant stats
             def extractstats(stat):
                 # stat will produce an array of stats for each substack
-                return (stat.subvolumes[0].sv_index, stat.write_subvolume_stats())
+                sumstats = stat.write_subvolume_stats()
+                # add bbox type
+                sumstats.append({"name": "bbox", "val": stat.subvolumes[0].box}) 
+                return (stat.subvolumes[0].sv_index, sumstats)
             subvolstats = subvolstats_computed.map(extractstats).collect()
             # set allsubvolume_metrics
             for (sid, subvolstat) in subvolstats:
