@@ -10,7 +10,7 @@ import snappy
 #import httplib2
 #httplib2.debuglevel = 1
 
-BRAINMAPS_API_VERSION = 'v1beta2'
+BRAINMAPS_API_VERSION = 'v1'
 BRAINMAPS_BASE_URL = f'https://brainmaps.googleapis.com/{BRAINMAPS_API_VERSION}'
 
 
@@ -238,24 +238,29 @@ def fetch_json(http, url):
     return json.loads(content)
 
 
-def fetch_subvol_data(http, project, dataset, volume_id, corner, size, scale, change_stack_id="", subvol_format='raw_snappy'):
+def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", subvol_format='raw_snappy'):
     """
     Returns raw subvolume data (not decompressed).
     
     Clients should generally not call this function directly.
     Instead, use the BrainMapsVolume class.
     """
-    corner = ','.join(str(x) for x in corner)
-    size = ','.join(str(x) for x in size)
-    url = ( f'{BRAINMAPS_BASE_URL}/volumes/{project}:{dataset}:{volume_id}'
-            f'/binary/subvolume/geometry.corner={corner}/geometry.size={size}/geometry.scale={scale}'
-            f'/subvolumeFormat={subvol_format}?alt=media' )
+    url = f'{BRAINMAPS_BASE_URL}/volumes/{project}:{dataset}:{volume_id}/subvolume:binary'
+
+    params = \
+    {
+        'geometry': {
+            'corner': ','.join(str(x) for x in corner_xyz),
+            'size': ','.join(str(x) for x in size_xyz),
+            'scale': scale
+        },
+        'subvolumeFormat': 'RAW_SNAPPY'
+    }
 
     if change_stack_id:
-        url += f'&changeSpec.changeStackId={change_stack_id}'
+        params["changeSpec"] = { "changeStackId": change_stack_id }
     
-    response, content = http.request(url)
+    response, content = http.request(url, "POST", body=json.dumps(params).encode('utf-8'))
     if response['status'] != '200':
         raise RuntimeError(f"Bad response ({response['status']}):\n{content.decode('utf-8')}")
     return content
-
