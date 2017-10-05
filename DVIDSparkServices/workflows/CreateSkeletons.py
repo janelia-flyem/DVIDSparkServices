@@ -6,7 +6,8 @@ from functools import partial
 
 import numpy as np
 
-from DVIDSparkServices.util import MemoryWatcher
+
+from DVIDSparkServices.util import MemoryWatcher, Timer, persist_and_execute
 from DVIDSparkServices.io_util.brick import Grid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -16,6 +17,8 @@ from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 
 from .common_schemas import SegmentationVolumeSchema
+
+logger = logging.getLogger(__name__)
 
 class CreateSkeletons(Workflow):
     DvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
@@ -94,19 +97,26 @@ class CreateSkeletons(Workflow):
             raise RuntimeError(f"Can't write skeletons: The node you specified ({d['server']} / {d['uuid']}) is locked.")
         
         bricks, _bounding_box_zyx, _input_grid = self._partition_input()
+        persist_and_execute(bricks, "Downloading segmentation", logger)
         
-        # (vol_part, seg) -> (body_id, (box, mask))
+        # brick -> (body_id, (box, mask))
         body_ids_and_masks = bricks.flatMap( partial(body_masks, self.config_data) )
+        bricks.unpersist()
 
         # (body_id, (box, mask))
         #   --> (body_id, [(box, mask), (box, mask), (box, mask), ...])
         grouped_body_ids_and_masks = body_ids_and_masks.groupByKey()
+        persist_and_execute(grouped_body_ids_and_masks, "Grouping masks by body id", logger)
 
         #     --> (body_id, swc_contents)
         body_ids_and_skeletons = grouped_body_ids_and_masks.map( partial(combine_and_skeletonize, self.config_data) )
+        persist_and_execute(body_ids_and_skeletons, "Aggregating masks and computing skeletons", logger)
+        grouped_body_ids_and_masks.unpersist()
 
         # Write
-        body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, self.config_data) )
+        with Timer() as timer:
+            body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, self.config_data) )
+        logger.info(f"Writing skeletons to DVID took {timer.seconds}")
 
     def _partition_input(self):
         """
