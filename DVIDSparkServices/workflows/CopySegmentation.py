@@ -10,8 +10,6 @@ import numpy as np
 import h5py
 import pandas as pd
 
-from pyspark import StorageLevel
-
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
@@ -20,7 +18,7 @@ from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
 from DVIDSparkServices.auto_retry import auto_retry
 
@@ -130,7 +128,7 @@ class CopySegmentation(Workflow):
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
 
-        persist_and_execute(input_bricks, f"Reading entire volume")
+        persist_and_execute(input_bricks, f"Reading entire volume", logger)
 
         def translate_brick(offset, brick):
             return Brick( brick.logical_box + offset,
@@ -300,7 +298,7 @@ class CopySegmentation(Workflow):
         """
         # Downsampling effectively divides grid by half (i.e. 32x32x32)
         downsampled_bricks = bricks.map(downsample_brick)
-        persist_and_execute(downsampled_bricks, f"Scale {new_scale}: Downsampling")
+        persist_and_execute(downsampled_bricks, f"Scale {new_scale}: Downsampling", logger)
         bricks.unpersist()
         del bricks
 
@@ -323,7 +321,7 @@ class CopySegmentation(Workflow):
         #        This shuffle takes ~15 minutes per tab.
         output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
         remapped_bricks = remap_bricks_to_new_grid( output_writing_grid, bricks ).values()
-        persist_and_execute(remapped_bricks, f"Scale {scale}: Shuffling bricks into alignment")
+        persist_and_execute(remapped_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
 
         # Discard original
         bricks.unpersist()
@@ -333,7 +331,7 @@ class CopySegmentation(Workflow):
         output_padding_grid = Grid(output_config["block-width"], (0,0,0))
         output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
         padded_bricks = remapped_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
-        persist_and_execute(padded_bricks, f"Scale {scale}: Padding")
+        persist_and_execute(padded_bricks, f"Scale {scale}: Padding", logger)
 
         # Discard
         remapped_bricks.unpersist()
@@ -505,10 +503,3 @@ def downsample_brick(brick):
     downsampled_physical_box = brick.physical_box // 2
     
     return Brick(downsampled_logical_box, downsampled_physical_box, downsampled_volume)
-
-
-def persist_and_execute(rdd, description):
-    with Timer() as timer:
-        rdd.persist(StorageLevel.MEMORY_AND_DISK)
-        rdd.count()
-    logger.info(f"{description} took {timer.timedelta}")

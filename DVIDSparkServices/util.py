@@ -21,6 +21,7 @@ from skimage.util import view_as_blocks
 #import pandas as pd
 
 from numba import jit
+from pyspark import StorageLevel
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,14 @@ def num_worker_nodes():
     num_workers = max(1, num_nodes) # Don't count the driver, unless it's the only thing
     return num_workers
     
+
+def persist_and_execute(rdd, description, logger=None):
+    with Timer() as timer:
+        rdd.persist(StorageLevel.MEMORY_AND_DISK)
+        rdd.count()
+    if logger:
+        logger.info(f"{description} took {timer.timedelta}")
+
 
 def get_localhost_ip_address():
     """
