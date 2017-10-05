@@ -101,12 +101,14 @@ class CreateSkeletons(Workflow):
         
         # brick -> (body_id, (box, mask))
         body_ids_and_masks = bricks.flatMap( partial(body_masks, self.config_data) )
+        persist_and_execute(body_ids_and_masks, "Computing brick-local masks", logger)
         bricks.unpersist()
 
         # (body_id, (box, mask))
         #   --> (body_id, [(box, mask), (box, mask), (box, mask), ...])
         grouped_body_ids_and_masks = body_ids_and_masks.groupByKey()
         persist_and_execute(grouped_body_ids_and_masks, "Grouping masks by body id", logger)
+        body_ids_and_masks.unpersist()
 
         #     --> (body_id, swc_contents)
         body_ids_and_skeletons = grouped_body_ids_and_masks.map( partial(combine_and_skeletonize, self.config_data) )
