@@ -345,12 +345,13 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
         Return masks as a CompressedNumpyArray instead of an ordinary np.ndarray
     
     Returns:
-        List of tuples: [(label_id, (mask_bounding_box, mask)), 
-                         (label_id, (mask_bounding_box, mask)), ...]
+        List of tuples: [(label_id, (mask_bounding_box, mask, count)),
+                         (label_id, (mask_bounding_box, mask, count)), ...]
         
-        ...where `mask_bounding_box` is of the form ((z0, y0, x0), (z1, y1, x1)),
-        and `mask` is either a np.ndarray or CompressedNumpyArray, depending on the compress_masks argument.
-        
+        ...where: `mask_bounding_box` is of the form ((z0, y0, x0), (z1, y1, x1)),
+                  `mask` is either a np.ndarray or CompressedNumpyArray, depending on the compress_masks argument, and
+                   `count` is the count of nonzero pixels in the mask        
+
         Note: Result is *not* sorted by label ID.
     """
     if box is None:
@@ -385,7 +386,7 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
         if count >= minimum_object_size \
         or (always_keep_border_objects and (   (box_global[0] == sv_start).any()
                                             or (box_global[1] == sv_stop).any())):
-            body_ids_and_masks.append( (body_id, (bb_as_tuple(box_global), mask)) )
+            body_ids_and_masks.append( (body_id, (bb_as_tuple(box_global), mask, count)) )
     
     return body_ids_and_masks
 

@@ -32,7 +32,6 @@ class CreateSkeletons(Workflow):
                            "which will be used by default if you don't provide this setting.",
             "type": "string",
             "default": ""
-    
         }
     })
 
@@ -80,7 +79,6 @@ class CreateSkeletons(Workflow):
         return json.dumps(CreateSkeletons.Schema)
 
     def __init__(self, config_filename):
-        # ?! set number of cpus per task to 2 (make dynamic?)
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
 
         # Prepend 'http://' if necessary.
@@ -99,21 +97,30 @@ class CreateSkeletons(Workflow):
         bricks, _bounding_box_zyx, _input_grid = self._partition_input()
         persist_and_execute(bricks, "Downloading segmentation", logger)
         
-        # brick -> (body_id, (box, mask))
+        # brick -> (body_id, (box, mask, count))
         body_ids_and_masks = bricks.flatMap( partial(body_masks, self.config_data) )
         persist_and_execute(body_ids_and_masks, "Computing brick-local masks", logger)
         bricks.unpersist()
+        del bricks
 
-        # (body_id, (box, mask))
-        #   --> (body_id, [(box, mask), (box, mask), (box, mask), ...])
+        # (body_id, (box, mask, count))
+        #   --> (body_id, [(box, mask, count), (box, mask, count), (box, mask, count), ...])
         grouped_body_ids_and_masks = body_ids_and_masks.groupByKey()
         persist_and_execute(grouped_body_ids_and_masks, "Grouping masks by body id", logger)
         body_ids_and_masks.unpersist()
+        del body_ids_and_masks
+
+        # (Same RDD contents, but without small bodies)
+        grouped_large_body_ids_and_masks = grouped_body_ids_and_masks.filter( partial(is_combined_object_large_enough, self.config_data) )
+        persist_and_execute(grouped_large_body_ids_and_masks, "Filtering masks by size", logger)
+        grouped_body_ids_and_masks.unpersist()
+        del grouped_body_ids_and_masks
 
         #     --> (body_id, swc_contents)
-        body_ids_and_skeletons = grouped_body_ids_and_masks.map( partial(combine_and_skeletonize, self.config_data) )
+        body_ids_and_skeletons = grouped_large_body_ids_and_masks.map( partial(combine_and_skeletonize, self.config_data) )
         persist_and_execute(body_ids_and_skeletons, "Aggregating masks and computing skeletons", logger)
-        grouped_body_ids_and_masks.unpersist()
+        grouped_large_body_ids_and_masks.unpersist()
+        del grouped_large_body_ids_and_masks
 
         # Write
         with Timer() as timer:
@@ -190,6 +197,20 @@ def body_masks(config, brick):
                                     compress_masks=True )
 
 
+def is_combined_object_large_enough(config, ids_and_boxes_and_compressed_masks):
+    """
+    Given a tuple of the form:
+    
+        ( body_id,
+          [(box, mask, count), (box, mask, count), (box, mask, count), ...] )
+    
+    Return True if the combined counts is large enough (according to the config).
+    """
+    _body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
+    _boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
+    return (sum(counts) >= config["options"]["minimum-segment-size"])
+
+
 def combine_masks(config, body_id, boxes_and_compressed_masks ):
     """
     Given a list of binary masks and corresponding bounding
@@ -215,7 +236,8 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
                 otherwise equal to the downsample_factor you passed in.
 
     """
-    boxes, compressed_masks = zip(*boxes_and_compressed_masks)
+    boxes, compressed_masks, _counts = zip(*boxes_and_compressed_masks)
+
     boxes = np.asarray(boxes)
     assert boxes.shape == (len(boxes_and_compressed_masks), 2,3)
     
@@ -223,7 +245,8 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
     # to avoid excess RAM usage from many uncompressed masks.
     masks = ( compressed.deserialize() for compressed in compressed_masks )
 
-    # Note that combined_mask_downsampled may be 'None', which is handled below.
+    # In theory this can return 'None' for the combined mask if the object is too small,
+    # but we already filtered out 
     combined_box, combined_mask_downsampled, chosen_downsample_factor = \
         assemble_masks( boxes,
                         masks,
