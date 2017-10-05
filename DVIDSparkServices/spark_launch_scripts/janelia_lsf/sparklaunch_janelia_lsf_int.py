@@ -151,7 +151,10 @@ def main():
         if args.kill_master_on_exit:
             # Kill the spark cluster
             print('Job complete; Killing Spark Master (JOB_ID={})'.format(MASTER_BJOB_ID))
-            subprocess.check_call('bkill {}'.format(MASTER_BJOB_ID), shell=True)
+            try:
+                bkill_out = subprocess.check_output('bkill {}'.format(MASTER_BJOB_ID), shell=True)
+            except subprocess.CalledProcessError as ex:
+                print(f"Failed to kill Spark Cluster: {bkill_out} (Exit code {ex.returncode})")
 
         if args.email_on_exit:
             send_exit_email(args.workflow_name, workflow_proc.returncode, duration, args.config_or_callback_address)
