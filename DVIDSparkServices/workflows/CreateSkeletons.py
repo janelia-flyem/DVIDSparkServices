@@ -37,7 +37,7 @@ class CreateSkeletons(Workflow):
         "minimum-segment-size": {
             "description": "Segments smaller than this voxel count will not be skeletonized",
             "type": "number",
-            "default": 1000
+            "default": 1e6
         },
         "downsample-factor": {
             "description": "Minimum factor by which to downsample bodies before skeletonization. "
