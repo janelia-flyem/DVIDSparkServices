@@ -125,8 +125,8 @@ def main():
     
     master_job_id, master_hostname = launch_spark_cluster( args.job_name,
                                                            args.num_spark_workers,
-                                                           args.max_hours,
-                                                           args.job_log_dir)
+                                                           args.max_hours + 10/60, # 10 extra minutes for the spark cluster;  
+                                                           args.job_log_dir)       # it's easier to make sense of the logs when the driver dies first.
 
     _driver_job_id, _driver_hostname = launch_driver_job( master_job_id,
                                                           master_hostname,
