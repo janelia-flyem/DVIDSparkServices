@@ -41,9 +41,12 @@ def num_worker_nodes():
 def persist_and_execute(rdd, description, logger=None):
     with Timer() as timer:
         rdd.persist(StorageLevel.MEMORY_AND_DISK)
-        rdd.count()
+        count = rdd.count()
+
     if logger:
-        logger.info(f"{description} took {timer.timedelta}")
+        logger.info(f"{description} (N={count}) took {timer.timedelta}")
+    
+    return count
 
 
 def get_localhost_ip_address():
