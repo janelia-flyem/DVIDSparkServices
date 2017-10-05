@@ -25,7 +25,7 @@ TODO: better formalize histogram and best test stats
 
 """
 class count_stat(StatType):
-    def __init__(self, thresholds = [50, 75]):
+    def __init__(self, thresholds = [50, 75], debugthreshold=90):
         super(count_stat, self).__init__()
 
         self.thresholds = thresholds
@@ -33,6 +33,9 @@ class count_stat(StatType):
         # maximum overlap matches considered
         self.nummatches = 10 
         
+        # pecentage threshold for showing bodies
+        self.debugthreshold = debugthreshold
+
         self.supported_types = ["voxels", "synapse"]
 
     def write_subvolume_stats(self):
@@ -109,31 +112,35 @@ class count_stat(StatType):
 
             # find bodies that overlap with gt
             top_overlapgt = []
-            numoverlaps = self.segstats.num_displaybodies
             nummatches = self.nummatches # find only up to 10 matches
-            if len(gtdist) < numoverlaps:
-                numoverlaps = len(gtdist)
-            
-            for distiter in range(0, numoverlaps):
-                overlapmap = gotable.overlap_map[gtdist[distiter][2]]
+           
+            # examine bodies <= threshold
+            curramt = 0
+            for distiter in range(0, len(gtdist)):
+                curramt += gtdist[distiter][1]/float(gtcount)*100.0
+                if curramt > self.debugthreshold:
+                    break
+                overlapmap = gotable.overlap_map[gtdist[distiter][1]]
                 matchlist = []
                 for (body2, overlap) in overlapmap:
                     matchlist.append([overlap, body2])
                 matchlist.sort()
                 matchlist.reverse()
-                top_overlapgt.append([gtdist[distiter][2], matchlist[0:nummatches]])
+                top_overlapgt.append([gtdist[distiter][1], matchlist[0:nummatches]])
             
             debuginfo1 = {"typename": gotable.get_name(), "name": "gtoverlap"}
             debuginfo1["info"] = top_overlapgt
            
             # find bodies that overlap with test seg
             top_overlapseg = []
-            numoverlaps = self.segstats.num_displaybodies
-            if len(segdist) < numoverlaps:
-                numoverlaps = len(segdist)
 
-            for distiter in range(0, numoverlaps):
-                overlapmap = sotable.overlap_map[segdist[distiter][2]]
+            # examine bodies <= threshold
+            curramt = 0
+            for distiter in range(0, len(segdist)):
+                curramt += segdist[distiter][1]/float(gtcount)*100.0
+                if curramt > self.debugthreshold:
+                    break
+                overlapmap = sotable.overlap_map[segdist[distiter][1]]
                 matchlist = []
                 for (body2, overlap) in overlapmap:
                     if body2 in ignorebodies:
@@ -141,7 +148,7 @@ class count_stat(StatType):
                     matchlist.append([overlap, body2])
                 matchlist.sort()
                 matchlist.reverse()
-                top_overlapseg.append([gtdist[distiter][2], matchlist[0:nummatches]])
+                top_overlapseg.append([segdist[distiter][1], matchlist[0:nummatches]])
             
             debuginfo2 = {"typename": gotable.get_name(), "name": "segoverlap"}
             debuginfo2["info"] = top_overlapseg
@@ -209,6 +216,7 @@ class count_stat(StatType):
             localcount = self._get_body_volume(overlapset, ignorebodies) 
             if localcount == 0:
                 continue
+            count += localcount
 
             # ignore small bodies if ignorebodies is not already set
             if ignorebodies is None:
@@ -216,8 +224,7 @@ class count_stat(StatType):
                     ignorebodies_temp.add(body)
                     continue
 
-            count += localcount
-            cumdisttemp.append([localcount, count, body])
+            cumdisttemp.append([localcount, body])
 
         cumdisttemp.sort()
         cumdisttemp.reverse()
@@ -273,11 +280,11 @@ class count_stat(StatType):
         for index, val in enumerate(gtdist):
             if index == num_displaybodies:
                 break
-            gtbodies[val[2]] = [val[0], [val[1]/float(gtcount)*100.0]]
+            gtbodies[val[1]] = [val[0], [val[0]/float(gtcount)*100.0]]
         for index, val in enumerate(segdist):
             if index == num_displaybodies:
                 break
-            segbodies[val[2]] = [val[0], [val[1]/float(segcount)*100.0]]
+            segbodies[val[1]] = [val[0], [val[0]/float(gtcount)*100.0]]
         
         # add max overlap body stats
         bodystat = {"typename": gotable.get_name(), "name": "Best Test", "largest2smallest": True}
@@ -334,34 +341,44 @@ class count_stat(StatType):
                 thresholds = self.thresholds.copy()
                 thresholds.sort()
                 curr_thres = thresholds[0]
-                thresholds = self.thresholds[1:]
+                thresholds = thresholds[1:]
+                curramt = 0
                 for index, val in enumerate(gtdist):
-                    curramt = val[1]/float(gtcount)*100.0
+                    curramt += val[1]/float(gtcount)*100.0
                     if curramt >= curr_thres:
                         numgtbodies.append(index+1)         
                         if len(thresholds) > 0:
-                            curr_thres = self.thresholds[0]
-                            thresholds = self.thresholds[1:]
+                            curr_thres = thresholds[0]
+                            thresholds = thresholds[1:]
                         else:
                             break
+                # if threshold is unreachable just put all bodies
+                while len(numgtbodies) < len(self.thresholds):
+                    numgtbodies.append(len(gtdist))
             
                 # grab number of seg bodies at each threshold 
                 thresholds = self.thresholds.copy()
                 thresholds.sort()
                 curr_thres = thresholds[0]
-                thresholds = self.thresholds[1:]
+                thresholds = thresholds[1:]
+                curramt = 0
                 for index, val in enumerate(segdist):
-                    curramt = val[1]/float(segcount)*100.0
+                    curramt += val[1]/float(gtcount)*100.0
                     if curramt >= curr_thres:
                         numsegbodies.append(index+1)         
                         if len(thresholds) > 0:
-                            curr_thres = self.thresholds[0]
-                            thresholds = self.thresholds[1:]
+                            curr_thres = thresholds[0]
+                            thresholds = thresholds[1:]
                         else:
                             break
-            
+                # if threshold is unreachable just put all bodies
+                while len(numsegbodies) < len(self.thresholds):
+                    numsegbodies.append(len(segdist))
+
                 # write stat for each histogram threshold
-                for iter1, threshold in enumerate(self.thresholds):
+                thresholds = self.thresholds.copy()
+                thresholds.sort()
+                for iter1, threshold in enumerate(thresholds):
                     sumstat = {"name": "HIST-%d"%threshold, "higher-better": False, "typename": gotable.get_name(), "val": abs(numgtbodies[iter1]-numsegbodies[iter1])}
                     sumstat["description"] = "#Body difference between GT (%d) and test segmentation (%d) for %d percent of volume" % (numgtbodies[iter1], numsegbodies[iter1], threshold) 
                     summarystats.append(sumstat)
