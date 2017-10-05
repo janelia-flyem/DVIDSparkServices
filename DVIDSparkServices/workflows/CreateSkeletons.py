@@ -5,7 +5,9 @@ import logging
 from functools import partial
 
 import numpy as np
+import requests
 
+from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import MemoryWatcher, Timer, persist_and_execute
 from DVIDSparkServices.io_util.brick import Grid
@@ -92,10 +94,8 @@ class CreateSkeletons(Workflow):
                 self.config_data["dvid-info"]["uuid"], self)
 
     def execute(self):
-        d = self.config_data["dvid-info"]
-        if is_node_locked(d["server"], d["uuid"]):
-            raise RuntimeError(f"Can't write skeletons: The node you specified ({d['server']} / {d['uuid']}) is locked.")
-        
+        self._init_skeletons_instance()
+
         bricks, _bounding_box_zyx, _input_grid = self._partition_input()
         persist_and_execute(bricks, "Downloading segmentation", logger)
         
@@ -119,6 +119,23 @@ class CreateSkeletons(Workflow):
         with Timer() as timer:
             body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, self.config_data) )
         logger.info(f"Writing skeletons to DVID took {timer.seconds}")
+
+    def _init_skeletons_instance(self):
+        dvid_info = self.config_data["dvid-info"]
+        options = self.config_data["options"]
+        if is_node_locked(dvid_info["server"], dvid_info["uuid"]):
+            raise RuntimeError(f"Can't write skeletons: The node you specified ({dvid_info['server']} / {dvid_info['uuid']}) is locked.")
+
+        if not dvid_info["skeletons-destination"]:
+            # Edit the config to supply a default key/value instance name
+            dvid_info["skeletons-destination"] = dvid_info["segmentation-name"]+ '_skeletons'
+
+        node_service = retrieve_node_service( dvid_info["server"],
+                                              dvid_info["uuid"],
+                                              options["resource-server"],
+                                              options["resource-port"] )
+
+        node_service.create_keyvalue(dvid_info["skeletons-destination"])
 
     def _partition_input(self):
         """
@@ -265,18 +282,33 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
 
         return (body_id, swc_contents)
 
-def post_swc_to_dvid(config, body_id_and_swc_contents ):
+def post_swc_to_dvid(config, body_id_and_swc_contents):
+    """
+    Send the given SWC as a key/value pair to DVID.
+    
+    TODO: There is a tiny bit of extra overhead here due to the fact
+          that we are creating a new requests.Session() and ResourceManagerClient
+          for every SWC we write.
+          If we want, we could refactor this to be used with mapPartitions(),
+          which would allow those objects to be initialized only once per partition,
+          and then shared for all SWCs in the partition.
+    """
     body_id, swc_contents = body_id_and_swc_contents
     if swc_contents is None:
         return
 
-    node_service = retrieve_node_service(config["dvid-info"]["server"],
-                                         config["dvid-info"]["uuid"],
-                                         config["options"]["resource-server"],
-                                         config["options"]["resource-port"])
+    swc_contents = swc_contents.encode('utf-8')
 
-    skeletons_kv_instance = config["dvid-info"]["skeletons-destination"]
-    if not skeletons_kv_instance:
-        skeletons_kv_instance = config["dvid-info"]["segmentation-name"] + '_skeletons'
-    node_service.create_keyvalue(skeletons_kv_instance)
-    node_service.put(skeletons_kv_instance, "{}_swc".format(body_id), swc_contents.encode('utf-8'))
+    dvid_server = config["dvid-info"]["server"]
+    uuid = config["dvid-info"]["uuid"]
+    instance = config["dvid-info"]["skeletons-destination"]
+
+    if not config["options"]["resource-server"]:
+        # No throttling.
+        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
+    else:
+        resource_client = ResourceManagerClient( config["options"]["resource-server"],
+                                                 config["options"]["resource-port"] )
+    
+        with resource_client.access_context(dvid_server, False, 1, len(swc_contents)):
+            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
