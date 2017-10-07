@@ -1,5 +1,7 @@
+import os
 import copy
 import json
+import signal
 import datetime
 import logging
 from functools import partial
@@ -19,6 +21,8 @@ from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 
 from .common_schemas import SegmentationVolumeSchema
+
+from multiprocessing import Pool, TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -43,15 +47,15 @@ class CreateSkeletons(Workflow):
             "type": "number",
             "default": 1e6
         },
-        "downsample-factor": {
+        "preemptive-downsample-factor": {
             "description": "Minimum factor by which to downsample bodies before skeletonization. "
                            "NOTE: If the object is larger than max-skeletonization-volume, even after "
                            "downsampling, then it will be downsampled even further before skeletonization. "
                            "The comments in the generated SWC file will indicate the final-downsample-factor.",
             "type": "integer",
-            "default": 1 # 1 means "no downsampling, if possible"
-                         # 2 means "downsample only by 2x, if possible"
-                         # 3 means "downsample only by 3x, if possible [note: NOT (2^3)x]"
+            "default": 1 # 1 means "no pre-downsampling, but dynamically downsample each body indvidually, if necessary (2x, 3x, 4x, etc.)"
+                         # 2 means "pre-downsample by 2x.  If necessary, dynamically downsample each body further (4x, 6x, 8x, etc.)"
+                         # 3 means "pre-downsample by 3x.  If necessary, dynamically downsample each body further (6x, 9x, 12x, etc.)"
         },
         "max-skeletonization-volume": {
             "description": "The above downsample-factor will be overridden if the body would still "
@@ -250,14 +254,53 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
     combined_box, combined_mask_downsampled, chosen_downsample_factor = \
         assemble_masks( boxes,
                         masks,
-                        config["options"]["downsample-factor"],
+                        1,
                         config["options"]["minimum-segment-size"],
                         config["options"]["max-skeletonization-volume"] )
 
     return (combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
 
+def execute_in_subprocess(timeout=None):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # TODO: Use initializer to handle logging?
+            pool = Pool(1)
+            pid = pool.apply(os.getpid)
+            fut = pool.apply_async(func, args, kwargs)
+            try:
+                return fut.get(timeout)
+            except TimeoutError:
+                # Make sure it's dead
+                os.kill(pid, signal.SIGTERM)
+                os.kill(pid, signal.SIGKILL)
+                raise
+        return wrapper
+    return decorator
+
+                
 def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
+    """
+    Executes _combine_and_skeletonize() in a subprocess, but times out after 60 seconds.
+    """
+    f = execute_in_subprocess(60.0)(_combine_and_skeletonize)
+    try:
+        return f(config, ids_and_boxes_and_compressed_masks)
+    except TimeoutError:
+        body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
+        boxes, _compressed_masks, _counts = zip(*boxes_and_compressed_masks)
+
+        boxes = np.asarray(boxes)
+        
+        combined_box = np.zeros((2,3), dtype=np.int64)
+        combined_box[0] = boxes[:, 0, :].min(axis=0)
+        combined_box[1] = boxes[:, 1, :].max(axis=0)
+
+        logger.error(f"Failed to skeletonize body: id={body_id} box={combined_box.tolist()}")
+
+        return (body_id, None)
+
+def _combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
     Given a list of binary masks and corresponding bounding
     boxes, assemble them all into a combined binary mask.
