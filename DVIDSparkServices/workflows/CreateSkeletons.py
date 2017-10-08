@@ -265,25 +265,27 @@ def execute_in_subprocess(timeout=None):
             # TODO: Use initializer to handle logging?
             pool = Pool(1)
             pid = pool.apply(os.getpid)
-            fut = pool.apply_async(func, args, kwargs)
+            future = pool.apply_async(func, args, kwargs)
             try:
-                return fut.get(timeout)
+                return future.get(timeout)
             except TimeoutError:
-                # Make sure it's dead
+                # Make sure it's really dead
                 os.kill(pid, signal.SIGTERM)
                 os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
                 raise
+            finally:
+                pool.terminate()
         return wrapper
     return decorator
 
                 
 def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
-    Executes _combine_and_skeletonize() in a subprocess,
-    but times out after 60 seconds.
+    Execute _combine_and_skeletonize(), and handle TimeoutErrors.
     """
-    f = execute_in_subprocess(60.0)(_combine_and_skeletonize)
     try:
+        f = execute_in_subprocess(timeout=60.0)(_combine_and_skeletonize)
         return f(config, ids_and_boxes_and_compressed_masks)
     except TimeoutError:
         body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
