@@ -279,23 +279,23 @@ def execute_in_subprocess(timeout=None):
                 
 def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
-    Executes _combine_and_skeletonize() in a subprocess, but times out after 60 seconds.
+    Executes _combine_and_skeletonize() in a subprocess,
+    but times out after 60 seconds.
     """
     f = execute_in_subprocess(60.0)(_combine_and_skeletonize)
     try:
         return f(config, ids_and_boxes_and_compressed_masks)
     except TimeoutError:
         body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
-        boxes, _compressed_masks, _counts = zip(*boxes_and_compressed_masks)
+        boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
 
+        total_count = sum(counts)
         boxes = np.asarray(boxes)
-        
         combined_box = np.zeros((2,3), dtype=np.int64)
         combined_box[0] = boxes[:, 0, :].min(axis=0)
         combined_box[1] = boxes[:, 1, :].max(axis=0)
-
-        logger.error(f"Failed to skeletonize body: id={body_id} box={combined_box.tolist()}")
-
+        
+        logger.error(f"Failed to skeletonize body: id={body_id} size={total_count} box={combined_box.tolist()}")
         return (body_id, None)
 
 def _combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
