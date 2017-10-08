@@ -269,10 +269,13 @@ def execute_in_subprocess(timeout=None):
             try:
                 return future.get(timeout)
             except TimeoutError:
-                # Make sure it's really dead
-                os.kill(pid, signal.SIGTERM)
-                os.kill(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
+                try:
+                    # Make sure it's really dead
+                    os.kill(pid, signal.SIGTERM)
+                    os.kill(pid, signal.SIGKILL)
+                    os.waitpid(pid, 0)
+                except:
+                    pass
                 raise
             finally:
                 pool.terminate()
