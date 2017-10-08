@@ -47,15 +47,13 @@ class CreateSkeletons(Workflow):
             "type": "number",
             "default": 1e6
         },
-        "preemptive-downsample-factor": {
+        "downsample-factor": {
             "description": "Minimum factor by which to downsample bodies before skeletonization. "
                            "NOTE: If the object is larger than max-skeletonization-volume, even after "
                            "downsampling, then it will be downsampled even further before skeletonization. "
                            "The comments in the generated SWC file will indicate the final-downsample-factor.",
             "type": "integer",
-            "default": 1 # 1 means "no pre-downsampling, but dynamically downsample each body indvidually, if necessary (2x, 3x, 4x, etc.)"
-                         # 2 means "pre-downsample by 2x.  If necessary, dynamically downsample each body further (4x, 6x, 8x, etc.)"
-                         # 3 means "pre-downsample by 3x.  If necessary, dynamically downsample each body further (6x, 9x, 12x, etc.)"
+            "default": 1
         },
         "max-skeletonization-volume": {
             "description": "The above downsample-factor will be overridden if the body would still "
@@ -254,7 +252,7 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
     combined_box, combined_mask_downsampled, chosen_downsample_factor = \
         assemble_masks( boxes,
                         masks,
-                        1,
+                        config["options"]["downsample-factor"],
                         config["options"]["minimum-segment-size"],
                         config["options"]["max-skeletonization-volume"] )
 

@@ -7,7 +7,7 @@
         "bounding-box": [[0,0,0], [256,256,256]],
         "message-block-shape": [6400,64,64],
 
-        "skeletons-destination": "labels_vol_skeletons"        
+        "skeletons-destination": "labels_vol_skeletons"
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],
@@ -19,6 +19,7 @@
     },
     "options": {
         "downsample-factor": 32,
+        "minimum-segment-size": 1000,
         "max-skeletonization-volume": 1e9,
         "log-collector-port": 3000,
         "log-collector-directory": ""
