@@ -60,7 +60,13 @@ class CreateSkeletons(Workflow):
                            "be too large to skeletonize, as defined by this setting.",
             "type": "number",
             "default": 1e9 # 1 GB max
-        }
+        },
+        "skeletonization-timeout": {
+            "description": "The maximum time to wait for an object to be skeletonized. "
+                           "If timeout is exceeded, the an error is logged and the object is skipped.",
+            "type": "number",
+            "default": 180.0 # 3 minutes max
+        },
     })
     
     Schema = \
@@ -288,7 +294,7 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     Execute _combine_and_skeletonize(), and handle TimeoutErrors.
     """
     try:
-        f = execute_in_subprocess(timeout=60.0)(_combine_and_skeletonize)
+        f = execute_in_subprocess(timeout=config['options']['skeletonization-timeout'])(_combine_and_skeletonize)
         return f(config, ids_and_boxes_and_compressed_masks)
     except TimeoutError:
         body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
