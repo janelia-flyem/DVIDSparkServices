@@ -18,10 +18,10 @@ class BrainMapsVolume:
     def __init__(self, project, dataset, volume_id, change_stack_id="", dtype=None, skip_checks=False):
         """
         Utility for accessing subvolumes of a BrainMaps volume.
-        Instances of this class is pickleable, but they will have to re-authenticate after unpickling.
+        Instances of this class are pickleable, but they will have to re-authenticate after unpickling.
         
         For REST API details, see the BrainMaps API documentation:
-        https://developers.google.com/brainmaps/v1beta2/rest/
+        https://developers.google.com/brainmaps/v1/rest/
         
         (To access the docs, you need to email a BrainMaps developer at Google and
         ask them to add your email to brainmaps-tt@googlegroups.com.)
