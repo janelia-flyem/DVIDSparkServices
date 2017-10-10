@@ -468,6 +468,13 @@ class CopySegmentation(Workflow):
             logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
 
         min_size = self.config_data["options"]["body-sizes"]["minimum-size"]
+
+        nonzero_start = 0
+        if body_labels[0] == 0:
+            nonzero_start = 1
+        nonzero_count = body_sizes[nonzero_start:].sum()
+        logger.info(f"Final volume contains {nonzero_count} nonzero voxels")
+
         if min_size > 1:
             logger.info(f"Omitting body sizes below {min_size} voxels...")
             valid_rows = body_sizes >= min_size
@@ -488,6 +495,7 @@ class CopySegmentation(Workflow):
             with h5py.File(output_path, 'w') as f:
                 f.create_dataset('labels', data=body_labels, chunks=True)
                 f.create_dataset('sizes', data=body_sizes, chunks=True)
+                f['total_nonzero_voxels'] = nonzero_count
         logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
 
 
