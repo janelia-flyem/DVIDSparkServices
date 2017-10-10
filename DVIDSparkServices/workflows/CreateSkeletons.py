@@ -1,7 +1,5 @@
-import os
 import copy
 import json
-import signal
 import datetime
 import logging
 from functools import partial
@@ -19,10 +17,11 @@ from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletoniz
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
+from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 
 from .common_schemas import SegmentationVolumeSchema
 
-from multiprocessing import Pool, TimeoutError
+from multiprocessing import TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -265,36 +264,13 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
     return (combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
 
-def execute_in_subprocess(timeout=None):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            # TODO: Use initializer to handle logging?
-            pool = Pool(1)
-            pid = pool.apply(os.getpid)
-            future = pool.apply_async(func, args, kwargs)
-            try:
-                return future.get(timeout)
-            except TimeoutError:
-                try:
-                    # Make sure it's really dead
-                    os.kill(pid, signal.SIGTERM)
-                    os.kill(pid, signal.SIGKILL)
-                    os.waitpid(pid, 0)
-                except:
-                    pass
-                raise
-            finally:
-                pool.terminate()
-        return wrapper
-    return decorator
-
-                
 def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
     Execute _combine_and_skeletonize(), and handle TimeoutErrors.
     """
     try:
-        f = execute_in_subprocess(timeout=config['options']['skeletonization-timeout'])(_combine_and_skeletonize)
+        logger = logging.getLogger('__name__' + '.combine_and_skeletonize')
+        f = execute_in_subprocess(config['options']['skeletonization-timeout'], logger)(_combine_and_skeletonize)
         return f(config, ids_and_boxes_and_compressed_masks)
     except TimeoutError:
         body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
@@ -318,13 +294,17 @@ def _combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
     logger = logging.getLogger(__name__ + '.combine_and_skeletonize')
 
+    body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
+    combined_box, combined_mask, downsample_factor = combine_masks( config, body_id, boxes_and_compressed_masks )
+
+    if combined_mask is None:
+        return (body_id, None)
+    
+    return _skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
+    
+def _skeletonize(config, body_id, combined_box, combined_mask, downsample_factor):
+    (combined_box_start, _combined_box_stop) = combined_box
     with MemoryWatcher() as memory_watcher:
-        body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
-        (combined_box_start, _combined_box_stop), combined_mask, downsample_factor = combine_masks( config, body_id, boxes_and_compressed_masks )
-
-        if combined_mask is None:
-            return (body_id, None)
-
         memory_watcher.log_increase(logger, logging.DEBUG,
                                     'After mask assembly (combined_mask.shape: {} downsample_factor: {})'
                                     .format(combined_mask.shape, downsample_factor))
