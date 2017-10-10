@@ -93,7 +93,7 @@ class BrainMapsVolume:
                                          shape_xyz,
                                          scale,
                                          self.change_stack_id,
-                                         subvol_format='raw_snappy' )
+                                         subvol_format='RAW_SNAPPY' )
 
         volume_buffer = snappy.decompress(snappy_data)
         volume = np.frombuffer(volume_buffer, dtype=self.dtype).reshape(shape_zyx)
@@ -238,7 +238,7 @@ def fetch_json(http, url):
     return json.loads(content)
 
 
-def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", subvol_format='raw_snappy'):
+def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", subvol_format='RAW_SNAPPY'):
     """
     Returns raw subvolume data (not decompressed).
     
@@ -254,7 +254,7 @@ def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, s
             'size': ','.join(str(x) for x in size_xyz),
             'scale': scale
         },
-        'subvolumeFormat': 'RAW_SNAPPY'
+        'subvolumeFormat': subvol_format
     }
 
     if change_stack_id:
