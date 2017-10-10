@@ -249,10 +249,12 @@ def fetch_subvol_data(http, project, dataset, volume_id, corner, size, scale, ch
     size = ','.join(str(x) for x in size)
     url = ( f'{BRAINMAPS_BASE_URL}/volumes/{project}:{dataset}:{volume_id}'
             f'/binary/subvolume/geometry.corner={corner}/geometry.size={size}/geometry.scale={scale}'
-            f'/subvolumeFormat={subvol_format}?alt=media' )
+            f'/subvolumeFormat={subvol_format}' )
 
     if change_stack_id:
-        url += f'&changeSpec.changeStackId={change_stack_id}'
+        url += f'/changeSpec.changeStackId={change_stack_id}'
+            
+    url += '?alt=media'
     
     response, content = http.request(url)
     if response['status'] != '200':
