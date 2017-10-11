@@ -26,8 +26,8 @@ from multiprocessing import TimeoutError
 logger = logging.getLogger(__name__)
 
 class CreateSkeletons(Workflow):
-    DvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
-    DvidInfoSchema["properties"].update(
+    SkeletonDvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
+    SkeletonDvidInfoSchema["properties"].update(
     {
         "skeletons-destination": {
             "description": "Name of key-value instance to store the skeletons. "
@@ -75,7 +75,7 @@ class CreateSkeletons(Workflow):
       "type": "object",
       "required": ["dvid-info"],
       "properties": {
-        "dvid-info": SegmentationVolumeSchema,
+        "dvid-info": SkeletonDvidInfoSchema,
         "skeleton-config": SkeletonConfigSchema,
         "options" : SkeletonWorkflowOptionsSchema
       }
