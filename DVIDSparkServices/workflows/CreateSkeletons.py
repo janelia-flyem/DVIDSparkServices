@@ -11,7 +11,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import MemoryWatcher, Timer, persist_and_execute
 from DVIDSparkServices.io_util.brick import Grid
-from DVIDSparkServices.workflow.workflow import Workflow, DRIVER_LOGNAME
+from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
@@ -282,10 +282,11 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
     Execute _combine_and_skeletonize(), and handle TimeoutErrors.
     """
+    logger = logging.getLogger(__name__ + '.combine_and_skeletonize')
+    logger.setLevel(logging.WARN)
+    timeout = config['options']['skeletonization-timeout']
+
     try:
-        logger = logging.getLogger('__name__' + '.combine_and_skeletonize')
-        logger.setLevel(logging.WARN)
-        timeout = config['options']['skeletonization-timeout']
         f = execute_in_subprocess(timeout, logger)(_combine_and_skeletonize)
         body_id, swc = f(config, ids_and_boxes_and_compressed_masks)
         return (body_id, swc, None)
