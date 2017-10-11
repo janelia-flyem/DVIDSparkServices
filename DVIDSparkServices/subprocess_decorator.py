@@ -117,9 +117,9 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                 try:
                     # We timed out.
                     # Kill the child process and make sure it's REALLY dead
-                    os.kill(child_pid, signal.SIGTERM)
+                    pool._pool[0].terminate()
                     time.sleep(0.1)
-                    os.kill(child_pid, signal.SIGKILL)
+                    pool._pool[0].kill()
                     os.waitpid(child_pid, 0)
                 except Exception:
                     pass
@@ -128,9 +128,12 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                 # These are already invalid if the process was killed due to timeout.
                 os.close(stdout_from_child)
                 os.close(stderr_from_child)
-
-                pool.terminate()
             finally:
+                pool.terminate()
+                pool.close()
+                pool.join()
+                del pool
+
                 record_logging_thread.stop_and_join()
                 if stream_logger:
                     stdout_logging_thread.join()
