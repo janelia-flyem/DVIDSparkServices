@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import signal
+import pickle
 import inspect
 import logging
 import threading
@@ -65,7 +66,13 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
     
     """
     def decorator(func):
-        def wrapper(*args, **kwargs):            
+        try:
+            pickle.dumps(func)
+        except Exception:
+            raise RuntimeError(f"Can't decorate this function ({func.__name__}) with execute_in_subprocess():\n"
+                               "It isn't pickleable. Try declaring the function at module scope.")
+        
+        def wrapper(*args, **kwargs):
             func_with_args = partial( func, *args, **kwargs )
             
             # Open pipes for the child process to inherit.
