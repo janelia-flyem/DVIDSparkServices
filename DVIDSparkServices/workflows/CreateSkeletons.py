@@ -11,7 +11,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import MemoryWatcher, Timer, persist_and_execute
 from DVIDSparkServices.io_util.brick import Grid
-from DVIDSparkServices.workflow.workflow import Workflow
+from DVIDSparkServices.workflow.workflow import Workflow, DRIVER_LOGNAME
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
@@ -99,13 +99,14 @@ class CreateSkeletons(Workflow):
                 self.config_data["dvid-info"]["uuid"], self)
 
     def execute(self):
+        config = self.config_data
         self._init_skeletons_instance()
 
         bricks, _bounding_box_zyx, _input_grid = self._partition_input()
         persist_and_execute(bricks, "Downloading segmentation", logger)
         
         # brick -> (body_id, (box, mask, count))
-        body_ids_and_masks = bricks.flatMap( partial(body_masks, self.config_data) )
+        body_ids_and_masks = bricks.flatMap( partial(body_masks, config) )
         persist_and_execute(body_ids_and_masks, "Computing brick-local masks", logger)
         bricks.unpersist()
         del bricks
@@ -118,20 +119,33 @@ class CreateSkeletons(Workflow):
         del body_ids_and_masks
 
         # (Same RDD contents, but without small bodies)
-        grouped_large_body_ids_and_masks = grouped_body_ids_and_masks.filter( partial(is_combined_object_large_enough, self.config_data) )
+        grouped_large_body_ids_and_masks = grouped_body_ids_and_masks.filter( partial(is_combined_object_large_enough, config) )
         persist_and_execute(grouped_large_body_ids_and_masks, "Filtering masks by size", logger)
         grouped_body_ids_and_masks.unpersist()
         del grouped_body_ids_and_masks
 
-        #     --> (body_id, swc_contents)
-        body_ids_and_skeletons = grouped_large_body_ids_and_masks.map( partial(combine_and_skeletonize, self.config_data) )
+        # Wrap combine_and_skeletonize() in a little helper so we can decorate it with collect_log()
+        @self.collect_log(lambda _: '_SKELETON_ERRORS')
+        def logged_combine_and_skeletonize(ids_and_boxes_and_compressed_masks):
+            return combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks)
+
+        #     --> (body_id, swc_contents, error_msg)
+        body_ids_and_skeletons = grouped_large_body_ids_and_masks.map( logged_combine_and_skeletonize )
         persist_and_execute(body_ids_and_skeletons, "Aggregating masks and computing skeletons", logger)
         grouped_large_body_ids_and_masks.unpersist()
         del grouped_large_body_ids_and_masks
 
+        # If any skeletons couldn't be generated (due to timeout), log those errors in the driver log.
+        def extract_error(id_swc_err):
+            _id, _swc, err = id_swc_err
+            return err
+        errors = body_ids_and_skeletons.map(extract_error).filter(bool).collect()
+        for error in errors:
+            logger.error(error)
+
         # Write
         with Timer() as timer:
-            body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, self.config_data) )
+            body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, config) )
         logger.info(f"Writing skeletons to DVID took {timer.seconds}")
 
     def _init_skeletons_instance(self):
@@ -270,8 +284,11 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
     try:
         logger = logging.getLogger('__name__' + '.combine_and_skeletonize')
-        f = execute_in_subprocess(config['options']['skeletonization-timeout'], logger)(_combine_and_skeletonize)
-        return f(config, ids_and_boxes_and_compressed_masks)
+        logger.setLevel(logging.WARN)
+        timeout = config['options']['skeletonization-timeout']
+        f = execute_in_subprocess(timeout, logger)(_combine_and_skeletonize)
+        body_id, swc = f(config, ids_and_boxes_and_compressed_masks)
+        return (body_id, swc, None)
     except TimeoutError:
         body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
         boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
@@ -281,9 +298,10 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
         combined_box = np.zeros((2,3), dtype=np.int64)
         combined_box[0] = boxes[:, 0, :].min(axis=0)
         combined_box[1] = boxes[:, 1, :].max(axis=0)
-        
-        logger.error(f"Failed to skeletonize body: id={body_id} size={total_count} box={combined_box.tolist()}")
-        return (body_id, None)
+
+        err_msg = f"Timeout ({timeout}) while skeletonizing body: id={body_id} size={total_count} box={combined_box.tolist()}"     
+        logger.error(err_msg)
+        return (body_id, None, err_msg)
 
 def _combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     """
@@ -298,7 +316,7 @@ def _combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     combined_box, combined_mask, downsample_factor = combine_masks( config, body_id, boxes_and_compressed_masks )
 
     if combined_mask is None:
-        return (body_id, None)
+        return (body_id, None) # No swc, but no error
     
     return _skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
     
@@ -335,11 +353,16 @@ def _skeletonize(config, body_id, combined_box, combined_mask, downsample_factor
         del tree
         memory_watcher.log_increase(logger, logging.DEBUG, 'After tree deletion')
 
-        return (body_id, swc_contents)
+        return (body_id, swc_contents) # No error
 
-def post_swc_to_dvid(config, body_id_and_swc_contents):
+def post_swc_to_dvid(config, body_swc_err):
     """
     Send the given SWC as a key/value pair to DVID.
+    
+    Args:
+        body_swc_err: tuple (body_id, swc_text, error_text)
+                      If swc_text is None or error_text is NOT None, then nothing is posted.
+                      (We could have filtered out such items upstream, but it's convenient to just handle it here.)
     
     TODO: There is a tiny bit of extra overhead here due to the fact
           that we are creating a new requests.Session() and ResourceManagerClient
@@ -348,8 +371,8 @@ def post_swc_to_dvid(config, body_id_and_swc_contents):
           which would allow those objects to be initialized only once per partition,
           and then shared for all SWCs in the partition.
     """
-    body_id, swc_contents = body_id_and_swc_contents
-    if swc_contents is None:
+    body_id, swc_contents, err = body_swc_err
+    if swc_contents is None or err is not None:
         return
 
     swc_contents = swc_contents.encode('utf-8')

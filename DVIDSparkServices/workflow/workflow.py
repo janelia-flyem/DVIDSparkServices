@@ -34,6 +34,8 @@ class WorkflowError(Exception):
     pass
 
 
+DRIVER_LOGNAME = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
+
 # defines workflows that work over DVID
 class Workflow(object):
     """Base class for all DVIDSparkServices workflow.
@@ -329,20 +331,20 @@ class Workflow(object):
         r.raise_for_status()
 
         # Send all driver log messages to the server, too.
-        driver_logname = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
         formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
-        handler = HTTPHandlerWithExtraData( { 'task_key': driver_logname },
-                                            "0.0.0.0:{}".format(log_port),
-                                            '/logsink', 'POST' )
+        handler = HTTPHandlerWithExtraData( { 'task_key': DRIVER_LOGNAME },
+                                              "0.0.0.0:{}".format(log_port),
+                                              '/logsink', 'POST' )
         handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
-        
+
+        logger.info(f"Started logserver on {driver_ip_addr}:{log_port}")
         return handler, logserver
 
     def _kill_logserver(self, handler, log_server_proc):
         if log_server_proc:
-            logging.getLogger().removeHandler(handler)
             logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
+            logging.getLogger().removeHandler(handler)
             kill_if_running(log_server_proc.pid, 10.0)
 
     def _start_resource_server(self):
