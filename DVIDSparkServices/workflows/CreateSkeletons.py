@@ -61,12 +61,18 @@ class CreateSkeletons(Workflow):
             "type": "number",
             "default": 1e9 # 1 GB max
         },
+        "downsample-timeout": {
+            "description": "The maximum time to wait for an object to be downsampled before skeletonization. "
+                           "If timeout is exceeded, the an error is logged and the object is skipped.",
+            "type": "number",
+            "default": 600.0 # 10 minutes max
+        },
         "skeletonization-timeout": {
             "description": "The maximum time to wait for an object to be skeletonized. "
                            "If timeout is exceeded, the an error is logged and the object is skipped.",
             "type": "number",
-            "default": 180.0 # 3 minutes max
-        },
+            "default": 600.0 # 10 minutes max
+        }
     })
     
     Schema = \
@@ -125,21 +131,31 @@ class CreateSkeletons(Workflow):
         grouped_body_ids_and_masks.unpersist()
         del grouped_body_ids_and_masks
 
-        # Wrap combine_and_skeletonize() in a little helper so we can decorate it with collect_log()
-        @self.collect_log(lambda _: '_SKELETON_ERRORS')
-        def logged_combine_and_skeletonize(ids_and_boxes_and_compressed_masks):
-            return combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks)
+        #  --> (body_id, combined_box, mask, downsample_factor)
+        id_box_mask_factor_err = grouped_large_body_ids_and_masks.map( partial(combine_masks_in_subprocess, config) )
 
-        #     --> (body_id, swc_contents, error_msg)
-        body_ids_and_skeletons = grouped_large_body_ids_and_masks.map( logged_combine_and_skeletonize )
-        persist_and_execute(body_ids_and_skeletons, "Aggregating masks and computing skeletons", logger)
+        # Small bodies were not processed and 'None' was returned instead of a mask.
+        # Remove them.
+        def mask_is_not_none(i_b_m_f_e):
+            _body_id, _combined_box, combined_mask, _downsample_factor, _error_msg = i_b_m_f_e
+            return combined_mask is not None
+
+        large_id_box_mask_factor_err = id_box_mask_factor_err.filter( mask_is_not_none )
+        persist_and_execute(large_id_box_mask_factor_err, "Downsampling and aggregating masks", logger)
         grouped_large_body_ids_and_masks.unpersist()
         del grouped_large_body_ids_and_masks
+        
+        #     --> (body_id, swc_contents, error_msg)
+        body_ids_and_skeletons = large_id_box_mask_factor_err.map( partial(skeletonize_in_subprocess, config) )
+        persist_and_execute(body_ids_and_skeletons, "Computing skeletons", logger)
+        large_id_box_mask_factor_err.unpersist()
+        del large_id_box_mask_factor_err
 
         # If any skeletons couldn't be generated (due to timeout), log those errors in the driver log.
         def extract_error(id_swc_err):
             _id, _swc, err = id_swc_err
             return err
+
         errors = body_ids_and_skeletons.map(extract_error).filter(bool).collect()
         for error in errors:
             logger.error(error)
@@ -148,6 +164,7 @@ class CreateSkeletons(Workflow):
         with Timer() as timer:
             body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, config) )
         logger.info(f"Writing skeletons to DVID took {timer.seconds}")
+
 
     def _init_skeletons_instance(self):
         dvid_info = self.config_data["dvid-info"]
@@ -165,6 +182,7 @@ class CreateSkeletons(Workflow):
                                               options["resource-port"] )
 
         node_service.create_keyvalue(dvid_info["skeletons-destination"])
+
 
     def _partition_input(self):
         """
@@ -233,6 +251,34 @@ def is_combined_object_large_enough(config, ids_and_boxes_and_compressed_masks):
     return (sum(counts) >= config["options"]["minimum-segment-size"])
 
 
+def combine_masks_in_subprocess(config, ids_and_boxes_and_compressed_masks):
+    """
+    Execute _combine_and_skeletonize(), and handle TimeoutErrors.
+    """
+    logger = logging.getLogger(__name__ + '.combine_masks')
+    logger.setLevel(logging.WARN)
+    timeout = config['options']['downsample-timeout']
+
+    body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
+
+    try:
+        func = execute_in_subprocess(timeout, logger)(combine_masks)
+        body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor = func(config, body_id, boxes_and_compressed_masks)
+        return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor, None)
+    except TimeoutError:
+        boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
+
+        total_count = sum(counts)
+        boxes = np.asarray(boxes)
+        combined_box = np.zeros((2,3), dtype=np.int64)
+        combined_box[0] = boxes[:, 0, :].min(axis=0)
+        combined_box[1] = boxes[:, 1, :].max(axis=0)
+
+        err_msg = f"Timeout ({timeout}) while downsampling/assembling body: id={body_id} size={total_count} box={combined_box.tolist()}"
+        logger.error(err_msg)
+        return (body_id, combined_box, None, None, err_msg)
+
+
 def combine_masks(config, body_id, boxes_and_compressed_masks ):
     """
     Given a list of binary masks and corresponding bounding
@@ -243,9 +289,12 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
 
     For more details, see documentation for assemble_masks().
 
-    Returns: (combined_bounding_box, combined_mask, downsample_factor)
+    Returns: (body_id, combined_bounding_box, combined_mask, downsample_factor)
 
         where:
+            body_id:
+                As passed in
+            
             combined_bounding_box:
                 the bounding box of the returned mask,
                 in NON-downsampled coordinates: ((z0,y0,x0), (z1,y1,x1))
@@ -276,10 +325,10 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
                         config["options"]["minimum-segment-size"],
                         config["options"]["max-skeletonization-volume"] )
 
-    return (combined_box, combined_mask_downsampled, chosen_downsample_factor)
+    return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
 
-def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
+def skeletonize_in_subprocess(config, id_box_mask_factor_err):
     """
     Execute _combine_and_skeletonize(), and handle TimeoutErrors.
     """
@@ -287,42 +336,19 @@ def combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
     logger.setLevel(logging.WARN)
     timeout = config['options']['skeletonization-timeout']
 
+    body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
+
     try:
-        f = execute_in_subprocess(timeout, logger)(_combine_and_skeletonize)
-        body_id, swc = f(config, ids_and_boxes_and_compressed_masks)
+        func = execute_in_subprocess(timeout, logger)(skeletonize)
+        body_id, swc = func(config, body_id, combined_box, combined_mask, downsample_factor)
         return (body_id, swc, None)
     except TimeoutError:
-        body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
-        boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
-
-        total_count = sum(counts)
-        boxes = np.asarray(boxes)
-        combined_box = np.zeros((2,3), dtype=np.int64)
-        combined_box[0] = boxes[:, 0, :].min(axis=0)
-        combined_box[1] = boxes[:, 1, :].max(axis=0)
-
-        err_msg = f"Timeout ({timeout}) while skeletonizing body: id={body_id} size={total_count} box={combined_box.tolist()}"     
+        err_msg = f"Timeout ({timeout}) while skeletonizing body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
         return (body_id, None, err_msg)
 
-def _combine_and_skeletonize(config, ids_and_boxes_and_compressed_masks):
-    """
-    Given a list of binary masks and corresponding bounding
-    boxes, assemble them all into a combined binary mask.
-    
-    Then convert that combined mask into a skeleton (SWC string).
-    """
-    logger = logging.getLogger(__name__ + '.combine_and_skeletonize')
 
-    body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
-    combined_box, combined_mask, downsample_factor = combine_masks( config, body_id, boxes_and_compressed_masks )
-
-    if combined_mask is None:
-        return (body_id, None) # No swc, but no error
-    
-    return _skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
-    
-def _skeletonize(config, body_id, combined_box, combined_mask, downsample_factor):
+def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor):
     (combined_box_start, _combined_box_stop) = combined_box
     with MemoryWatcher() as memory_watcher:
         memory_watcher.log_increase(logger, logging.DEBUG,
