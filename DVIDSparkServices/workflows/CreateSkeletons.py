@@ -39,6 +39,7 @@ class CreateSkeletons(Workflow):
     })
 
     SkeletonWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
+    SkeletonWorkflowOptionsSchema["additionalProperties"] = False
     SkeletonWorkflowOptionsSchema["properties"].update(
     {
         "minimum-segment-size": {

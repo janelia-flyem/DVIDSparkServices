@@ -56,9 +56,11 @@ class CopySegmentation(Workflow):
     }
 
     OptionsSchema = copy.deepcopy(Workflow.OptionsSchema)
+    OptionsSchema["additionalProperties"] = False
     OptionsSchema["properties"].update(
     {
         "body-sizes": BodySizesOptionsSchema,
+        
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
