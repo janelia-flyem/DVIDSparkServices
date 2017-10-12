@@ -74,10 +74,10 @@ class CreateSkeletons(Workflow):
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
-        "failed-skeleton-volume-dir": {
+        "failed-skeleton-mask-dir": {
             "description": "Volumes that fail to skeletonize (due to timeout) will be written out as h5 files to this directory.",
             "type": "string",
-            "default": "failed-skeleton-masks"
+            "default": "./failed-skeleton-masks"
         }
     })
     
@@ -100,16 +100,23 @@ class CreateSkeletons(Workflow):
 
     def __init__(self, config_filename):
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
+        self._sanitize_config()
+        
+        # create spark dvid context
+        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
+                self.config_data["dvid-info"]["server"],
+                self.config_data["dvid-info"]["uuid"], self)
 
+    def _sanitize_config(self):
         # Prepend 'http://' if necessary.
         dvid_info = self.config_data['dvid-info']
         if not dvid_info['server'].startswith('http'):
             dvid_info['server'] = 'http://' + dvid_info['server']
 
-        # create spark dvid context
-        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
-                self.config_data["dvid-info"]["server"],
-                self.config_data["dvid-info"]["uuid"], self)
+        # Convert failed-skeleton-mask-dir to absolute path
+        failed_skeleton_dir = self.config_data['options']['failed-skeleton-mask-dir']
+        if failed_skeleton_dir and not os.path.isabs(failed_skeleton_dir):
+            self.config_data['options']['failed-skeleton-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
     def execute(self):
         config = self.config_data
@@ -273,7 +280,7 @@ def is_combined_object_large_enough(config, ids_and_boxes_and_compressed_masks):
 
 def combine_masks_in_subprocess(config, ids_and_boxes_and_compressed_masks):
     """
-    Execute _combine_and_skeletonize(), and handle TimeoutErrors.
+    Execute combine_masks() in a subprocess, and handle TimeoutErrors.
     """
     logger = logging.getLogger(__name__ + '.combine_masks')
     logger.setLevel(logging.WARN)
@@ -350,7 +357,7 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
 
 def skeletonize_in_subprocess(config, id_box_mask_factor_err):
     """
-    Execute _combine_and_skeletonize(), and handle TimeoutErrors.
+    Execute skeletonize() in a subprocess, and handle TimeoutErrors.
     """
     logger = logging.getLogger(__name__ + '.skeletonize')
     logger.setLevel(logging.WARN)
@@ -366,15 +373,18 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
         err_msg = f"Timeout ({timeout}) while skeletonizing body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
 
-        output_dir = config['options']['failed-skeleton-volume-dir']
+        output_dir = config['options']['failed-skeleton-mask-dir']
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
+            output_path = output_dir + f'/failed-body-{body_id}.h5'
+            logger.error(f"Writing mask to {output_path}")
+
             import h5py
-            with h5py.File(output_dir + f'/failed-body-{body_id}.h5', 'w') as f:
+            with h5py.File(output_path, 'w') as f:
                 f["downsample_factor"] = downsample_factor
                 f["box"] = combined_box
-                f.create_dataset("mask", chunks=True, data=combined_mask)
+                f.create_dataset("mask", data=combined_mask, chunks=True)
         
         return (body_id, None, err_msg)
 
