@@ -131,32 +131,46 @@ class CreateSkeletons(Workflow):
         grouped_body_ids_and_masks.unpersist()
         del grouped_body_ids_and_masks
 
-        #  --> (body_id, combined_box, mask, downsample_factor)
-        id_box_mask_factor_err = grouped_large_body_ids_and_masks.map( partial(combine_masks_in_subprocess, config) )
+        @self.collect_log(lambda _: '_AGGREGATION_ERRORS')
+        def logged_combine(arg):
+            return combine_masks_in_subprocess(config, arg)
 
-        # Small bodies were not processed and 'None' was returned instead of a mask.
-        # Remove them.
+        #  --> (body_id, combined_box, mask, downsample_factor)
+        id_box_mask_factor_err = grouped_large_body_ids_and_masks.map( logged_combine )
+        persist_and_execute(id_box_mask_factor_err, "Downsampling and aggregating masks", logger)
+        grouped_large_body_ids_and_masks.unpersist()
+        del grouped_large_body_ids_and_masks
+
+        # Errors were already written to a separate file, but let's duplicate them in the master log. 
+        errors = id_box_mask_factor_err.map(lambda i_b_m_f_e: i_b_m_f_e[-1]).filter(bool).collect()
+        for error in errors:
+            logger.error(error)
+
+        # Small bodies (or those with errors) were not processed,
+        # and 'None' was returned instead of a mask. Remove them.
         def mask_is_not_none(i_b_m_f_e):
             _body_id, _combined_box, combined_mask, _downsample_factor, _error_msg = i_b_m_f_e
             return combined_mask is not None
 
         large_id_box_mask_factor_err = id_box_mask_factor_err.filter( mask_is_not_none )
-        persist_and_execute(large_id_box_mask_factor_err, "Downsampling and aggregating masks", logger)
-        grouped_large_body_ids_and_masks.unpersist()
-        del grouped_large_body_ids_and_masks
+
+        @self.collect_log(lambda _: '_SKELETONIZATION_ERRORS')
+        def logged_skeletonize(arg):
+            return skeletonize_in_subprocess(config, arg)
         
         #     --> (body_id, swc_contents, error_msg)
-        body_ids_and_skeletons = large_id_box_mask_factor_err.map( partial(skeletonize_in_subprocess, config) )
+        body_ids_and_skeletons = large_id_box_mask_factor_err.map( logged_skeletonize )
         persist_and_execute(body_ids_and_skeletons, "Computing skeletons", logger)
-        large_id_box_mask_factor_err.unpersist()
-        del large_id_box_mask_factor_err
+        id_box_mask_factor_err.unpersist()
+        del id_box_mask_factor_err
 
         # If any skeletons couldn't be generated (due to timeout), log those errors in the driver log.
-        def extract_error(id_swc_err):
+        def extract_skeleton_error(id_swc_err):
             _id, _swc, err = id_swc_err
             return err
 
-        errors = body_ids_and_skeletons.map(extract_error).filter(bool).collect()
+        # Errors were already written to a separate file, but let's duplicate them in the master log. 
+        errors = body_ids_and_skeletons.map(lambda id_swc_err: id_swc_err[-1]).filter(bool).collect()
         for error in errors:
             logger.error(error)
 
@@ -332,7 +346,7 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
     """
     Execute _combine_and_skeletonize(), and handle TimeoutErrors.
     """
-    logger = logging.getLogger(__name__ + '.combine_and_skeletonize')
+    logger = logging.getLogger(__name__ + '.skeletonize')
     logger.setLevel(logging.WARN)
     timeout = config['options']['skeletonization-timeout']
 
