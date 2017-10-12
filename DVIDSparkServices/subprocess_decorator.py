@@ -27,7 +27,6 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
     Note: Returns a pseudo-decorator.
           For technical reasons, you can't actually use Python @-syntax.
     
-    
     Example:
         
         def myfunc(a,b,c):
@@ -65,6 +64,10 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                         If not provided, the subprocess inherits the parent's stderr and stdout as usual.
     
     """
+    assert timeout >= 1.0, \
+        f"Timeout is too short: ({timeout}).\n"\
+        "The execute_in_subprocess() decorator does not behave well for very short timeouts.\n" \
+        "It is intended to be used as a safeguard for potentially long-running jobs."
     def decorator(func):
         try:
             pickle.dumps(func)
@@ -108,7 +111,6 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                 stderr_to_parent = sys.stderr.fileno()
             
             child_pid = pool.apply(os.getpid)
-            
             future = pool.apply_async(_subproc_inner_wrapper, (func_with_args, stdout_to_parent, stderr_to_parent, log_records_to_parent))
 
             try:
@@ -117,9 +119,10 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                 try:
                     # We timed out.
                     # Kill the child process and make sure it's REALLY dead
-                    pool._pool[0].terminate()
-                    time.sleep(0.1)
-                    pool._pool[0].kill()
+                    # Don't use pool._pool[0].terminate() or .kill() because that can hang...
+                    os.kill(child_pid, signal.SIGTERM)
+                    time.sleep(1.0)
+                    os.kill(child_pid, signal.SIGKILL) 
                     os.waitpid(child_pid, 0)
                 except Exception:
                     pass
@@ -128,6 +131,7 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                 # These are already invalid if the process was killed due to timeout.
                 os.close(stdout_from_child)
                 os.close(stderr_from_child)
+                
             finally:
                 pool.terminate()
                 pool.close()
@@ -138,6 +142,7 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                 if stream_logger:
                     stdout_logging_thread.join()
                     stderr_logging_thread.join()
+
         return wrapper
     return decorator
 
@@ -159,7 +164,7 @@ def _subproc_inner_wrapper( func, stdout_fd, stderr_fd, connection_to_parent ):
         # redirect stdout and stderr to pipes for the parent to pull from.
         with stdout_redirected( stdout_fd, sys.stdout ), \
              stdout_redirected( stderr_fd, sys.stderr ):
-    
+
             try:
                 return func()
             finally:
