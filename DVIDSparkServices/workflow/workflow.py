@@ -344,8 +344,8 @@ class Workflow(object):
     def _kill_logserver(self, handler, log_server_proc):
         if log_server_proc:
             log_port = self.config_data["options"]["log-collector-port"]
-            requests.post(f"http://{driver_ip_addr}:{log_port}/logs/flush")
-            logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
+            requests.post(f"http://127.0.0.1:{log_port}/logs/flush")
+            logger.info(f"Terminating logserver (PID {log_server_proc.pid})")
             logging.getLogger().removeHandler(handler)
             kill_if_running(log_server_proc.pid, 10.0)
 
