@@ -1,3 +1,4 @@
+import os
 import copy
 import json
 import datetime
@@ -72,6 +73,11 @@ class CreateSkeletons(Workflow):
                            "If timeout is exceeded, the an error is logged and the object is skipped.",
             "type": "number",
             "default": 600.0 # 10 minutes max
+        },
+        "failed-skeleton-volume-dir": {
+            "description": "Volumes that fail to skeletonize (due to timeout) will be written out as h5 files to this directory.",
+            "type": "string",
+            "default": "failed-skeleton-masks"
         }
     })
     
@@ -359,6 +365,17 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
     except TimeoutError:
         err_msg = f"Timeout ({timeout}) while skeletonizing body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
+
+        output_dir = config['options']['failed-skeleton-volume-dir']
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+            import h5py
+            with h5py.File(output_dir + f'/failed-body-{body_id}.h5', 'w') as f:
+                f["downsample_factor"] = downsample_factor
+                f["box"] = combined_box
+                f.create_dataset("mask", chunks=True, data=combined_mask)
+        
         return (body_id, None, err_msg)
 
 
