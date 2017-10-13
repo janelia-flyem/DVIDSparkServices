@@ -32,7 +32,7 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
         def myfunc(a,b,c):
             print("yada yada")
             logging.getLogger().info("YADA YADA")
-            return 'yada yada'
+            return np.array([42, 42, 42])
         
         myfunc_in_subprocess = execute_in_subprocess(10.0, logger)(myfunc)
         result = myfunc_in_subprocess('a', 'b', 'c')
@@ -51,6 +51,12 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
     
     - On Unix, uses fork to avoid interpreter startup overhead.
       (Not tested on Windows, which uses 'spawn'.)
+
+    Warning: This decorator temporarily spawns up to THREE threads in the parent process to collect
+             log/stdout/stderr messages from the child process.  Therefore, if you use this decorator
+             in parallel 10 times on one machine, you'll temporarily spawn 30 extra threads.
+             That should be fine for most use cases (the threads spend most of their time waiting for I/O),
+             but presumably this becomes unmanageable at some point for large N.
     
     Args:
     
