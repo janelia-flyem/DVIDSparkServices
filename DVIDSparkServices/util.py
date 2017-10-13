@@ -2,7 +2,7 @@ from __future__ import print_function, absolute_import
 from __future__ import division
 import os
 import sys
-import signal
+from signal import SIGINT, SIGTERM, SIGKILL
 import copy
 import time
 import contextlib
@@ -21,7 +21,7 @@ from skimage.util import view_as_blocks
 #import pandas as pd
 
 from numba import jit
-from pyspark import StorageLevel
+from psutil import AccessDenied
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ def num_worker_nodes():
     
 
 def persist_and_execute(rdd, description, logger=None):
+    from pyspark import StorageLevel
     with Timer() as timer:
         rdd.persist(StorageLevel.MEMORY_AND_DISK)
         count = rdd.count()
@@ -290,27 +291,34 @@ def kill_if_running(pid, escalation_delay_seconds=10.0):
     and finally SIGKILL if it still hasn't died.
     
     This is similar to the behavior of the LSF 'bkill' command.
+    
+    Returns: True if the process was terminated 'nicely', or
+             False it if it had to be killed with SIGKILL.
     """
     try:
         proc_cmd = ' '.join( psutil.Process(pid).cmdline() )
-    except psutil.NoSuchProcess:
-        return
+    except (psutil.NoSuchProcess, PermissionError, AccessDenied):
+        return True
 
-    _try_kill(pid, signal.SIGINT)
+    _try_kill(pid, SIGINT)
     if not _is_still_running_after_delay(pid, escalation_delay_seconds):
         logger.info("Successfully interrupted process {}".format(pid))
         logger.info("Interrupted process was: " + proc_cmd)
-    else:
-        _try_kill(pid, signal.SIGTERM)
-        if not _is_still_running_after_delay(pid, escalation_delay_seconds):
-            logger.info("Successfully terminated process {}".format(pid))
-            logger.info("Terminated process was: " + proc_cmd)
-        else:
-            logger.warn("Process {} did not respond to SIGINT or SIGTERM.  Killing!".format(pid))
-            logger.warn("Killed process was: " + proc_cmd)
-            
-            # No more Mr. Nice Guy
-            _try_kill(pid, signal.SIGKILL, kill_children=True)
+        return True
+
+    _try_kill(pid, SIGTERM)
+    if not _is_still_running_after_delay(pid, escalation_delay_seconds):
+        logger.info("Successfully terminated process {}".format(pid))
+        logger.info("Terminated process was: " + proc_cmd)
+        return True
+
+    logger.warn("Process {} did not respond to SIGINT or SIGTERM.  Killing!".format(pid))
+    
+    # No more Mr. Nice Guy
+    _try_kill(pid, SIGKILL, kill_children=True)
+    logger.warn("Killed process was: " + proc_cmd)
+    return False
+
 
 def _try_kill(pid, sig, kill_children=False):
     """
@@ -340,10 +348,13 @@ def _is_still_running_after_delay(pid, secs):
         still_running = is_process_running(pid)
     return still_running
     
-def is_process_running(pid):
+def is_process_running(pid, reap_zombie=True):
     """
     Return True if a process with the given PID
-    is currently running, False otherwise.    
+    is currently running, False otherwise.
+    
+    reap_zombie:
+        If it's in zombie state, reap it and return False.
     """
     # Sending signal 0 to a pid will raise an OSError 
     # exception if the pid is not running, and do nothing otherwise.        
@@ -352,8 +363,21 @@ def is_process_running(pid):
         os.kill(pid, 0) # Signal 0
     except OSError:
         return False
-    else:
+
+    if not reap_zombie:
         return True
+
+    proc = psutil.Process(pid)
+    if proc.status() != psutil.STATUS_ZOMBIE:
+        return True
+
+    # Process is a zombie. Attempt to reap.
+    try:
+        os.waitpid(proc.pid, 0)
+    except ChildProcessError:
+        pass
+
+    return False
 
 class RoiMap(object):
     """
