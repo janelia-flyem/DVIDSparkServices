@@ -350,7 +350,8 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
                         masks,
                         config["options"]["downsample-factor"],
                         config["options"]["minimum-segment-size"],
-                        config["options"]["max-skeletonization-volume"] )
+                        config["options"]["max-skeletonization-volume"],
+                        suppress_zero=True )
 
     return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
