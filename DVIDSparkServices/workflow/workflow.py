@@ -347,6 +347,7 @@ class Workflow(object):
             requests.post(f"http://127.0.0.1:{log_port}/logs/flush")
             logger.info(f"Terminating logserver (PID {log_server_proc.pid})")
             logging.getLogger().removeHandler(handler)
+            log_server_proc.terminate()
             kill_if_running(log_server_proc.pid, 10.0)
 
     def _start_resource_server(self):
@@ -410,6 +411,7 @@ class Workflow(object):
     def _kill_resource_server(self, resource_server_proc):
         if resource_server_proc:
             logger.info("Terminating resource manager (PID {})".format(resource_server_proc.pid))
+            resource_server_proc.terminate()
             kill_if_running(resource_server_proc.pid, 10.0)
 
     def run(self):
