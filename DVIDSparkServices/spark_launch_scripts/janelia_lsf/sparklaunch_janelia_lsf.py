@@ -162,7 +162,10 @@ def main():
         if driver_job_id:
             print(f"Killing driver (job {driver_job_id})")
             kill_job(driver_job_id)
-        raise
-        
+        if isinstance(ex, KeyboardInterrupt):
+            return 1
+    
+    return 0
+
 if __name__ == "__main__":
-    main()
+    sys.exit( main() )
