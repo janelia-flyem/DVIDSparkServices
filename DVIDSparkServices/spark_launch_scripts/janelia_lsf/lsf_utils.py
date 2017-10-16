@@ -195,3 +195,6 @@ def wait_for_job_start(job_id):
             wait_times = wait_times[1:]
         hostname = get_job_hostname(job_id)
     return hostname
+
+def kill_job(job_id):
+    subprocess.check_call(f"bkill {job_id}", shell=True)

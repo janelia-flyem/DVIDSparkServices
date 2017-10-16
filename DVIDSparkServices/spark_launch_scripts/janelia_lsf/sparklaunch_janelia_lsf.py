@@ -19,7 +19,7 @@ import argparse
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices
-from .lsf_utils import Bjob
+from .lsf_utils import Bjob, kill_job
 
 ## NOTE: LSF jobs will inherit all of these environment variables by default. 
 
@@ -76,13 +76,20 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
                 max_runtime_minutes=int(max_hours * 60),
                 stdout_file=f'{job_log_dir}/{job_name}-cluster.log' )
 
-    print("Launching spark cluster:")
-    master_job_id, queue_name, master_hostname = job.submit()
-     
-    assert queue_name == 'spark', f"Unexpected queue name for master job: {queue_name}"
-    print(f'...master ({master_job_id}) is running on http://{master_hostname}:8080\n')
+    try:
+        print("Launching spark cluster:")
+        master_job_id, queue_name, master_hostname = job.submit()
+        assert queue_name == 'spark', f"Unexpected queue name for master job: {queue_name}"
 
-    return master_job_id, master_hostname
+        print(f'...master ({master_job_id}) is running on http://{master_hostname}:8080\n')
+        return master_job_id, master_hostname
+
+    except KeyboardInterrupt:
+        if job.job_id:
+            print(f"Interrupted. Killing job {job.job_id}")
+            kill_job(job.job_id)
+        raise
+
 
 def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log_dir, max_hours, job_name, workflow_name, config_file):
     # Set MASTER now so that it will be inherited by the driver process
@@ -99,11 +106,18 @@ def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log
                 max_runtime_minutes=int(max_hours * 60),
                 stdout_file=f"{job_log_dir}/{job_name}-driver.log" )
 
-    print("Launching spark driver:")
-    job_id, queue_name, hostname = job.submit()
-    print(f'...driver ({job_id}) is running in queue "{queue_name}" on http://{hostname}:4040\n')
 
-    return job_id, hostname
+    try:
+        print("Launching spark driver:")
+        job_id, queue_name, hostname = job.submit()
+        print(f'...driver ({job_id}) is running in queue "{queue_name}" on http://{hostname}:4040\n')
+        return job_id, hostname
+
+    except KeyboardInterrupt:
+        if job.job_id:
+            print(f"Interrupted. Killing job {job.job_id}")
+            kill_job(job.job_id)
+        raise
 
 
 def main():
@@ -123,19 +137,32 @@ def main():
 
     setup_environment(args.num_spark_workers, args.config_file, args.job_log_dir)
     
-    master_job_id, master_hostname = launch_spark_cluster( args.job_name,
-                                                           args.num_spark_workers,
-                                                           args.max_hours + 10/60, # 10 extra minutes for the spark cluster;  
-                                                           args.job_log_dir)       # it's easier to make sense of the logs when the driver dies first.
-
-    _driver_job_id, _driver_hostname = launch_driver_job( master_job_id,
-                                                          master_hostname,
-                                                          args.driver_slots,
-                                                          args.job_log_dir,
-                                                          args.max_hours,
-                                                          args.job_name,
-                                                          args.workflow_name,
-                                                          args.config_file )
-
+    master_job_id = driver_job_id = None
+    
+    try:
+        master_job_id, master_hostname = launch_spark_cluster( args.job_name,
+                                                               args.num_spark_workers,
+                                                               args.max_hours + 10/60, # 10 extra minutes for the spark cluster;  
+                                                               args.job_log_dir)       # it's easier to make sense of the logs when the driver dies first.
+    
+        driver_job_id, _driver_hostname = launch_driver_job( master_job_id,
+                                                              master_hostname,
+                                                              args.driver_slots,
+                                                              args.job_log_dir,
+                                                              args.max_hours,
+                                                              args.job_name,
+                                                              args.workflow_name,
+                                                              args.config_file )
+    except BaseException as ex:
+        if isinstance(ex, KeyboardInterrupt):
+            print("User Interrupted!")
+        if master_job_id:
+            print(f"Killing master (job {master_job_id})")
+            kill_job(master_job_id)
+        if driver_job_id:
+            print(f"Killing driver (job {driver_job_id})")
+            kill_job(driver_job_id)
+        raise
+        
 if __name__ == "__main__":
     main()
