@@ -209,6 +209,10 @@ class CopySegmentation(Workflow):
                                    input_config["change-stack-id"],
                                    dtype=np.uint64 )
 
+            assert (input_bb_zyx[0] >= vol.bounding_box[0]).all() and (input_bb_zyx[1] <= vol.bounding_box[1]).all(), \
+                f"Specified bounding box ({input_bb_zyx.tolist()}) extends outside the "\
+                f"BrainMaps volume geometry ({vol.bounding_box.tolist()})"
+
             # Two-levels of auto-retry:
             # 1. Auto-retry up to three time for any reason.
             # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
