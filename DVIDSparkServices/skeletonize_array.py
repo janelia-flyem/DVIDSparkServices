@@ -156,12 +156,16 @@ def skeletonize_array(binary_zyx, config={}):
     return tree
 
 if __name__ == "__main__":
-    # Create a test object
+    # Create a test object (shaped like an 'X')
     from scipy.ndimage import distance_transform_edt
     center_line_img = np.zeros((100,100,100), dtype=np.uint32)
     for i in range(100):
         center_line_img[i, i, i] = 1
         center_line_img[99-i, i, i] = 1
+    
+    # Scipy distance_transform_edt conventions are opposite of vigra:
+    # it calculates distances of non-zero pixels to the zero pixels.
+    center_line_img = 1 - center_line_img
     distance_to_line = distance_transform_edt(center_line_img)
     binary_vol = (distance_to_line <= 10).astype(np.uint8)
 
