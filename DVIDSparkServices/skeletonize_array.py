@@ -85,6 +85,7 @@ SkeletonConfigSchema = \
   #"$schema": "http://json-schema.org/schema#",
   #"title": "Skeletonization config file",
   "type": "object",
+  "default": {},
   "properties": {
     "downsampleInterval": {
       "type": "array",
