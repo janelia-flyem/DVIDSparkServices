@@ -308,8 +308,8 @@ class BrainMapsVolume:
         # }
 
         num_edges = len(edges_json['edge'])
-        firsts = (edge['first'] for edge in edges_json['edge'])
-        seconds = (edge['second'] for edge in edges_json['edge'])
+        firsts = (int(edge['first']) for edge in edges_json['edge'])
+        seconds = (int(edge['second']) for edge in edges_json['edge'])
 
         edges_flat = np.fromiter(chain(firsts, seconds), np.uint64, 2*num_edges)
         edges = edges_flat.reshape((2,-1)).transpose()
