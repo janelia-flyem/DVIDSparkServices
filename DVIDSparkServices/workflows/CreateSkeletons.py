@@ -1,16 +1,18 @@
 import os
 import copy
 import json
-import datetime
+from datetime import datetime
 import logging
 from functools import partial
 
 import numpy as np
 import requests
 
+from vol2mesh.vol2mesh import mesh_from_array
+
 from dvid_resource_manager.client import ResourceManagerClient
 
-from DVIDSparkServices.util import MemoryWatcher, Timer, persist_and_execute
+from DVIDSparkServices.util import Timer, persist_and_execute
 from DVIDSparkServices.io_util.brick import Grid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -36,13 +38,57 @@ class CreateSkeletons(Workflow):
                            "which will be used by default if you don't provide this setting.",
             "type": "string",
             "default": ""
+        },
+        "meshes-destination": {
+            "description": "Name of key-value instance to store the meshes. "
+                           "By convention, this should usually be {segmentation-name}_meshes, "
+                           "which will be used by default if you don't provide this setting.",
+            "type": "string",
+            "default": ""
         }
     })
+
+    MeshGenerationSchema = \
+    {
+        "type": "object",
+        "default": {},
+        "properties": {
+            "simplify-ratio": {
+                "description": "Mesh simplification aims to reduce the number of "
+                               "mesh vertices in the mesh to a fraction of the original mesh. "
+                               "This ratio is the fraction to aim for.  To disable simplification, use 1.0.",
+                "type": "number",
+                "minimum": 0.0000001,
+                "maximum": 1.0,
+                "default": 0.2 # Set to 1.0 to disable.
+            },
+            "smoothing-rounds": {
+                "description": "How many rounds of smoothing to apply during marching cubes.",
+                "type": "integer",
+                "default": 3
+            },
+            "format": {
+                "description": "Format to save the meshes in. ",
+                "type": "string",
+                "enum": ["obj",    # Wavefront OBJ (.obj)
+                         "draco"], # Draco (compressed) (.drc)
+                "default": "obj"
+            }
+        }
+    }
 
     SkeletonWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
     SkeletonWorkflowOptionsSchema["additionalProperties"] = False
     SkeletonWorkflowOptionsSchema["properties"].update(
     {
+        "output-types": {
+            "description": "Either skeletons or meshes can be generated, or both.",
+            "type": "array",
+            "items": { "type": "string",
+                       "enum": ["neutube-skeleton", "mesh"] },
+            "minItems": 1,
+            "default": ["neutube-skeleton"]
+        },
         "minimum-segment-size": {
             "description": "Segments smaller than this voxel count will not be skeletonized",
             "type": "number",
@@ -50,13 +96,13 @@ class CreateSkeletons(Workflow):
         },
         "downsample-factor": {
             "description": "Minimum factor by which to downsample bodies before skeletonization. "
-                           "NOTE: If the object is larger than max-skeletonization-volume, even after "
+                           "NOTE: If the object is larger than max-analysis-volume, even after "
                            "downsampling, then it will be downsampled even further before skeletonization. "
                            "The comments in the generated SWC file will indicate the final-downsample-factor.",
             "type": "integer",
             "default": 1
         },
-        "max-skeletonization-volume": {
+        "max-analysis-volume": {
             "description": "The above downsample-factor will be overridden if the body would still "
                            "be too large to skeletonize, as defined by this setting.",
             "type": "number",
@@ -68,16 +114,16 @@ class CreateSkeletons(Workflow):
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
-        "skeletonization-timeout": {
-            "description": "The maximum time to wait for an object to be skeletonized. "
+        "analysis-timeout": {
+            "description": "The maximum time to wait for an object to be skeletonized or meshified. "
                            "If timeout is exceeded, the an error is logged and the object is skipped.",
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
-        "failed-skeleton-mask-dir": {
+        "failed-mask-dir": {
             "description": "Volumes that fail to skeletonize (due to timeout) will be written out as h5 files to this directory.",
             "type": "string",
-            "default": "./failed-skeleton-masks"
+            "default": "./failed-masks"
         }
     })
     
@@ -90,6 +136,7 @@ class CreateSkeletons(Workflow):
       "properties": {
         "dvid-info": SkeletonDvidInfoSchema,
         "skeleton-config": SkeletonConfigSchema,
+        "mesh-config": MeshGenerationSchema,
         "options" : SkeletonWorkflowOptionsSchema
       }
     }
@@ -107,17 +154,27 @@ class CreateSkeletons(Workflow):
                 self.config_data["dvid-info"]["server"],
                 self.config_data["dvid-info"]["uuid"], self)
 
+    
     def _sanitize_config(self):
         # Prepend 'http://' if necessary.
         dvid_info = self.config_data['dvid-info']
         if not dvid_info['server'].startswith('http'):
             dvid_info['server'] = 'http://' + dvid_info['server']
 
-        # Convert failed-skeleton-mask-dir to absolute path
-        failed_skeleton_dir = self.config_data['options']['failed-skeleton-mask-dir']
+        # Convert failed-mask-dir to absolute path
+        failed_skeleton_dir = self.config_data['options']['failed-mask-dir']
         if failed_skeleton_dir and not os.path.isabs(failed_skeleton_dir):
-            self.config_data['options']['failed-skeleton-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
+            self.config_data['options']['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
+        # Provide default skeletons instance name if needed
+        if not dvid_info["skeletons-destination"]:
+            dvid_info["skeletons-destination"] = dvid_info["segmentation-name"]+ '_skeletons'
+
+        # Provide default meshes instance name if needed
+        if not dvid_info["meshes-destination"]:
+            dvid_info["meshes-destination"] = dvid_info["segmentation-name"]+ '_meshes'
+
+    
     def execute(self):
         config = self.config_data
         self._init_skeletons_instance()
@@ -167,6 +224,14 @@ class CreateSkeletons(Workflow):
 
         large_id_box_mask_factor_err = id_box_mask_factor_err.filter( mask_is_not_none )
 
+        if "neutube-skeleton" in config["options"]["output-types"]:
+            self._execute_skeletonization(large_id_box_mask_factor_err)
+
+        if "mesh" in config["options"]["output-types"]:
+            self._execute_mesh_generation(large_id_box_mask_factor_err)
+    
+    def _execute_skeletonization(self, large_id_box_mask_factor_err):
+        config = self.config_data
         @self.collect_log(lambda _: '_SKELETONIZATION_ERRORS')
         def logged_skeletonize(arg):
             return skeletonize_in_subprocess(config, arg)
@@ -174,13 +239,6 @@ class CreateSkeletons(Workflow):
         #     --> (body_id, swc_contents, error_msg)
         body_ids_and_skeletons = large_id_box_mask_factor_err.map( logged_skeletonize )
         persist_and_execute(body_ids_and_skeletons, "Computing skeletons", logger)
-        id_box_mask_factor_err.unpersist()
-        del id_box_mask_factor_err
-
-        # If any skeletons couldn't be generated (due to timeout), log those errors in the driver log.
-        def extract_skeleton_error(id_swc_err):
-            _id, _swc, err = id_swc_err
-            return err
 
         # Errors were already written to a separate file, but let's duplicate them in the master log. 
         errors = body_ids_and_skeletons.map(lambda id_swc_err: id_swc_err[-1]).filter(bool).collect()
@@ -193,22 +251,43 @@ class CreateSkeletons(Workflow):
         logger.info(f"Writing skeletons to DVID took {timer.seconds}")
 
 
+    def _execute_mesh_generation(self, large_id_box_mask_factor_err):
+        config = self.config_data
+        @self.collect_log(lambda _: '_MESH_GENERATION_ERRORS')
+        def logged_generate_mesh(arg):
+            return generate_mesh_in_subprocess(config, arg)
+        
+        #     --> (body_id, swc_contents, error_msg)
+        body_ids_and_meshes = large_id_box_mask_factor_err.map( logged_generate_mesh )
+        persist_and_execute(body_ids_and_meshes, "Computing meshes", logger)
+
+        # Errors were already written to a separate file, but let's duplicate them in the master log. 
+        errors = body_ids_and_meshes.map(lambda id_swc_err: id_swc_err[-1]).filter(bool).collect()
+        for error in errors:
+            logger.error(error)
+
+        # Write
+        with Timer() as timer:
+            body_ids_and_meshes.foreach( partial(post_mesh_to_dvid, config) )
+        logger.info(f"Writing meshes to DVID took {timer.seconds}")
+
+
     def _init_skeletons_instance(self):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
         if is_node_locked(dvid_info["server"], dvid_info["uuid"]):
-            raise RuntimeError(f"Can't write skeletons: The node you specified ({dvid_info['server']} / {dvid_info['uuid']}) is locked.")
-
-        if not dvid_info["skeletons-destination"]:
-            # Edit the config to supply a default key/value instance name
-            dvid_info["skeletons-destination"] = dvid_info["segmentation-name"]+ '_skeletons'
+            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['server']} / {dvid_info['uuid']}) is locked.")
 
         node_service = retrieve_node_service( dvid_info["server"],
                                               dvid_info["uuid"],
                                               options["resource-server"],
                                               options["resource-port"] )
 
-        node_service.create_keyvalue(dvid_info["skeletons-destination"])
+        if "neutube-skeleton" in options["output-types"]:
+            node_service.create_keyvalue(dvid_info["skeletons-destination"])
+
+        if "mesh" in options["output-types"]:
+            node_service.create_keyvalue(dvid_info["meshes-destination"])
 
 
     def _partition_input(self):
@@ -242,7 +321,6 @@ class CreateSkeletons(Workflow):
                                                                   bounding_box_zyx,
                                                                   input_grid,
                                                                   target_partition_size_voxels )
-
         return bricks, bounding_box_zyx, input_grid
 
 
@@ -350,7 +428,7 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
                         masks,
                         config["options"]["downsample-factor"],
                         config["options"]["minimum-segment-size"],
-                        config["options"]["max-skeletonization-volume"],
+                        config["options"]["max-analysis-volume"],
                         suppress_zero=True )
 
     return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor)
@@ -362,7 +440,7 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
     """
     logger = logging.getLogger(__name__ + '.skeletonize')
     logger.setLevel(logging.WARN)
-    timeout = config['options']['skeletonization-timeout']
+    timeout = config['options']['analysis-timeout']
 
     body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
 
@@ -374,11 +452,11 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
         err_msg = f"Timeout ({timeout}) while skeletonizing body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
 
-        output_dir = config['options']['failed-skeleton-mask-dir']
+        output_dir = config['options']['failed-mask-dir']
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
 
-            output_path = output_dir + f'/failed-body-{body_id}.h5'
+            output_path = output_dir + f'/failed-skeleton-{body_id}.h5'
             logger.error(f"Writing mask to {output_path}")
 
             import h5py
@@ -392,38 +470,34 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
 
 def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor):
     (combined_box_start, _combined_box_stop) = combined_box
-    with MemoryWatcher() as memory_watcher:
-        memory_watcher.log_increase(logger, logging.DEBUG,
-                                    'After mask assembly (combined_mask.shape: {} downsample_factor: {})'
-                                    .format(combined_mask.shape, downsample_factor))
-        
+
+    with Timer() as timer:
         tree = skeletonize_array(combined_mask, config["skeleton-config"])
         tree.rescale(downsample_factor, downsample_factor, downsample_factor, True)
         tree.translate(*combined_box_start.astype(np.float64)[::-1]) # Pass x,y,z, not z,y,x
 
-        memory_watcher.log_increase(logger, logging.DEBUG, 'After skeletonization')
+    del combined_mask
+    
+    swc_contents =   "# {:%Y-%m-%d %H:%M:%S}\n".format(datetime.now())
+    swc_contents +=  "# Generated by the DVIDSparkServices 'CreateSkeletons' workflow.\n"
+    swc_contents += f"# (Skeletonization time: {timer.seconds}):\n"
+    swc_contents +=  "# Workflow configuration:\n"
+    swc_contents +=  "# \n"
 
-        del combined_mask
-        memory_watcher.log_increase(logger, logging.DEBUG, 'After mask deletion')
-        
-        # Also show which downsample factor was actually chosen
-        config_copy = copy.deepcopy(config)
-        config_copy["options"]["(final-downsample-factor)"] = downsample_factor
-        
-        config_comment = json.dumps(config_copy, sort_keys=True, indent=4, separators=(',', ': '))
-        config_comment = "\n".join( "# " + line for line in config_comment.split("\n") )
-        config_comment += "\n\n"
-        
-        swc_contents =  "# {:%Y-%m-%d %H:%M:%S}\n".format(datetime.datetime.now())
-        swc_contents += "# Generated by the 'CreateSkeletons' workflow,\n"
-        swc_contents += "# using the following configuration:\n"
-        swc_contents += "# \n"
-        swc_contents += config_comment + tree.toString()
+    # Also show which downsample factor was actually chosen
+    config_copy = copy.deepcopy(config)
+    config_copy["options"]["(final-downsample-factor)"] = downsample_factor
+    
+    config_comment = json.dumps(config_copy, sort_keys=True, indent=4, separators=(',', ': '))
+    config_comment = "\n".join( "# " + line for line in config_comment.split("\n") )
+    config_comment += "\n\n"
 
-        del tree
-        memory_watcher.log_increase(logger, logging.DEBUG, 'After tree deletion')
+    swc_contents += config_comment + tree.toString()
 
-        return (body_id, swc_contents) # No error
+    del tree
+
+    return (body_id, swc_contents) # No error
+
 
 def post_swc_to_dvid(config, body_swc_err):
     """
@@ -460,3 +534,88 @@ def post_swc_to_dvid(config, body_swc_err):
     
         with resource_client.access_context(dvid_server, False, 1, len(swc_contents)):
             requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
+
+
+def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
+    """
+    Execute generate_mesh() in a subprocess, and handle TimeoutErrors.
+    """
+    logger = logging.getLogger(__name__ + '.generate_mesh')
+    logger.setLevel(logging.WARN)
+    timeout = config['options']['analysis-timeout']
+
+    body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
+
+    try:
+        func = execute_in_subprocess(timeout, logger)(generate_mesh)
+        body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
+        return (body_id, mesh_obj, None)
+    except TimeoutError:
+        err_msg = f"Timeout ({timeout}) while meshifying body: id={body_id} box={combined_box.tolist()}"     
+        logger.error(err_msg)
+
+        output_dir = config['options']['failed-mask-dir']
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+            output_path = output_dir + f'/failed-mesh-{body_id}.h5'
+            logger.error(f"Writing mask to {output_path}")
+
+            import h5py
+            with h5py.File(output_path, 'w') as f:
+                f["downsample_factor"] = downsample_factor
+                f["box"] = combined_box
+                f.create_dataset("mask", data=combined_mask, chunks=True)
+        
+        return (body_id, None, err_msg)
+
+
+def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
+    simplify_ratio = config["mesh-config"]["simplify-ratio"]
+    if simplify_ratio == 1.0:
+        simplify_ratio = None
+
+    mesh_bytes = mesh_from_array( combined_mask,
+                                  combined_box,
+                                  downsample_factor,
+                                  simplify_ratio,
+                                  config["mesh-config"]["smoothing-rounds"] )
+    
+#     if config["mesh-config"]["format"] == "draco":
+#         mesh_bytes = draco_encode(mesh_bytes)
+    
+    return body_id, mesh_bytes
+
+def post_mesh_to_dvid(config, body_obj_err):
+    """
+    Send the given mesh .obj (or .drc) as a key/value pair to DVID.
+    
+    Args:
+        body_swc_err: tuple (body_id, swc_text, error_text)
+                      If swc_text is None or error_text is NOT None, then nothing is posted.
+                      (We could have filtered out such items upstream, but it's convenient to just handle it here.)
+    """
+    body_id, mesh_obj, err = body_obj_err
+    if mesh_obj is None or err is not None:
+        return
+
+    dvid_server = config["dvid-info"]["server"]
+    uuid = config["dvid-info"]["uuid"]
+    instance = config["dvid-info"]["meshes-destination"]
+
+    info = {"format": "obj"}
+
+    if config["mesh-config"]["format"] == "draco":
+        info = {"format": "drc"}
+
+    if not config["options"]["resource-server"]:
+        # No throttling.
+        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_obj)
+        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
+    else:
+        resource_client = ResourceManagerClient( config["options"]["resource-server"],
+                                                 config["options"]["resource-port"] )
+    
+        with resource_client.access_context(dvid_server, False, 2, len(mesh_obj)):
+            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_obj)
+            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)

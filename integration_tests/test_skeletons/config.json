@@ -18,12 +18,13 @@
         "maximalDistance": 64
     },
     "options": {
+        "output-type": "neutube-skeleton",
         "downsample-factor": 2,
         "minimum-segment-size": 1000,
-        "max-skeletonization-volume": 1e9,
+        "max-analysis-volume": 1e9,
         
-        "downsample-timeout": 1.0,
-        "skeletonization-timeout": 1.0,
+        "downsample-timeout": 10.0,
+        "analysis-timeout": 10.0,
         
         "log-collector-port": 3000,
         "log-collector-directory": ""
