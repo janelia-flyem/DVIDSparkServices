@@ -12,6 +12,7 @@ import requests
 import subprocess
 from jsonschema import ValidationError
 import json
+import yaml
 import uuid
 import socket
 
@@ -160,16 +161,18 @@ class Workflow(object):
         self.config_data = None
         schema_data = json.loads(schema)
 
-        if jsonfile.startswith('http'):
-            try:
+        try:
+            ext = os.path.splitext(jsonfile)[1]
+            if jsonfile.startswith('http'):
                 self.config_data = requests.get(jsonfile).json()
-            except Exception as e:
-                raise WorkflowError("Could not load file: ", str(e))
-        else:
-            try:
+            elif ext == '.json':
                 self.config_data = json.load(open(jsonfile))
-            except Exception as e:
-                raise WorkflowError("Could not load file: ", str(e))
+            elif ext in ('.yml', '.yaml'):
+                self.config_data = yaml.load(open(jsonfile))
+            else:
+                raise RuntimeError(f"Unknown config file extension: {ext}")
+        except Exception as e:
+            raise WorkflowError("Could not load config file: ", str(e))
 
         # validate JSON
         try:

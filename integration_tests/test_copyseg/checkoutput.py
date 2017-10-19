@@ -1,12 +1,16 @@
 import sys
-import json
+import glob
+import yaml
 import numpy as np
 from libdvid import DVIDNodeService
 
 dirpath = sys.argv[1]
 
-with open(dirpath + "/temp_data/config.json") as f:
-    config = json.load(f)
+configs = glob.glob(dirpath + "/temp_data/config.*")
+assert len(configs) == 1, "Why does the temp_dir have more than one config.* file?"
+
+with open(configs[0], 'r') as f:
+    config = yaml.load(f)
 
 input_service = DVIDNodeService(str(config['input']['server']), str(config['input']['uuid']))
 input_name = config['input']['segmentation-name']
