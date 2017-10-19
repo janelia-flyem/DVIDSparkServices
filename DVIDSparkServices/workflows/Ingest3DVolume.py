@@ -8,6 +8,8 @@ from __future__ import division
 import sys
 import copy
 import json
+import glob
+import re
 import logging
 
 from io import BytesIO
@@ -153,11 +155,17 @@ class Ingest3DVolume(Workflow):
         #
         "minslice": {
             "description": "Minimum Z image slice",
-            "type": "integer" 
+            "oneOf": [
+                { "type": "integer" },
+                { "type": "string", "enum": ["auto"] }
+            ],
         },
         "maxslice": { 
             "description": "Maximum Z image slice (inclusive)",
-            "type": "integer" 
+            "oneOf": [
+                { "type": "integer" },
+                { "type": "string", "enum": ["auto"] }
+            ],
         },
         "basename": { 
             "description": "Path and name format for image files (images should be 8-bit grayscale)",
@@ -293,7 +301,15 @@ class Ingest3DVolume(Workflow):
         Calls default init and sets option variables
         """
         super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
+        
+        # Note: We call _sanitize_config is not called here, because
+        #       logging isn't fully initialized yet. 
+        #       It's called in execute()
 
+    def _sanitize_config(self):
+        """
+        Tidy up some config values, and replace "auto" parameters with the real values.
+        """
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
 
@@ -318,14 +334,37 @@ class Ingest3DVolume(Workflow):
         assert options["num-tasks"] % (options["blocksize"] * 2) == 0, \
             "Bad config: num-tasks must be a multiple of 2*blocksize"
 
-        self.partition_size = options["blockwritelimit"] * options["blocksize"]
+        if "auto" in (options["minslice"], options["maxslice"]):
+            slice_template = options["basename"]
+            if '%' in slice_template:
+                raise RuntimeError("Please use python-style string formatting for 'basename': (e.g. zcorr.{:05d}.png)")
+            match = re.match('^(.*)({[^}]*})(.*)$', options["basename"])
+            if not match:
+                raise RuntimeError(f"Unrecognized format string for image basename: {options['basename']}")
+
+            prefix, _index_format, suffix = match.groups()
+            matching_paths = sorted( glob.glob(f"{prefix}*{suffix}") )
+            minslice = int( matching_paths[0][len(prefix):-len(suffix)] )
+            maxslice = int( matching_paths[-1][len(prefix):-len(suffix)] )
+
+            if options["minslice"] == "auto":
+                logger.info(f"Setting minslice = {minslice}")
+                options["minslice"] = minslice 
+
+            if options["maxslice"] == "auto":
+                logger.info(f"Setting maxslice = {maxslice}")
+                options["maxslice"] = maxslice 
 
     def execute(self):
-        """Execute spark workflow.
         """
+        Execute spark workflow.
+        """
+        self._sanitize_config()
+
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
         block_shape = 3*(options["blocksize"],)
+        self.partition_size = options["blockwritelimit"] * options["blocksize"]
         # ?? num parallel requests might be really small at high levels of pyramids
 
         # xdim is unbounded or very large
@@ -352,7 +391,14 @@ class Ingest3DVolume(Workflow):
         # get dims from image (hackage)
         from PIL import Image
         import requests
-        img = Image.open(options["basename"] % options["minslice"]) 
+        if '%' in options["basename"]:
+            minslice_name = options["basename"] % options["minslice"]
+        elif '{' in options["basename"]:
+            minslice_name = options["basename"].format(options["minslice"])
+        else:
+            raise RuntimeError(f"Unrecognized format string for image basename: {options['basename']}")
+        
+        img = Image.open(minslice_name) 
         volume_shape = (1 + options["maxslice"] - options["minslice"], img.height, img.width)
         del img
 

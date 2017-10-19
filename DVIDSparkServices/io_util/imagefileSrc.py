@@ -64,8 +64,14 @@ class imagefileSrc(volumeSrc):
             minplane, maxplane = minmaxplane 
             self.slicenum = minplane
 
-            for slicenum in range(minplane, maxplane+1):
-                self.filelist.append(fileprefix % slicenum)
+            if '%' in fileprefix: 
+                for slicenum in range(minplane, maxplane+1):
+                    self.filelist.append(fileprefix % slicenum)
+            elif '{' in fileprefix:
+                for slicenum in range(minplane, maxplane+1):
+                    self.filelist.append(fileprefix.format(slicenum))
+            else:
+                raise RuntimeError(f"Unrecognized format string for fileprefix: {fileprefix}")
 
         # find iteration start and finish plane
         self.offset = offset
