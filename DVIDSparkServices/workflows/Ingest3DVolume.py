@@ -449,6 +449,11 @@ class Ingest3DVolume(Workflow):
                     options["pyramid-depth"] += 1
                     zsize /= 2
 
+                # NeuTu doesn't work well if there aren't at least a few pyramid levels.
+                # Even for small volumes, use at least a few pyramid levels,
+                # unless the depth was explicit in the config.
+                options["pyramid-depth"] = max(options["pyramid-depth"], 4)
+
         # create pyramid data instances
         if options["create-pyramid-jpeg"]:
             dataname_jpeg = dvid_info["dataname"] + self.JPEGPYRAMID_NAME 
