@@ -123,9 +123,9 @@ class CopySegmentation(Workflow):
         assert not any(np.array(output_config["message-block-shape"]) % output_config["block-width"]), \
             "Output message-block-shape should be a multiple of the block size in all dimensions."
 
-
         input_bricks, bounding_box, _input_grid = self._partition_input()
         self._create_output_instance_if_necessary(bounding_box)
+        self._log_neuroglancer_link()
 
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
@@ -273,6 +273,38 @@ class CopySegmentation(Workflow):
                            depth,
                            3*(output_config["block-width"],) )
 
+    def _log_neuroglancer_link(self):
+        """
+        Write a link to the log file for viewing the segmentation data after it is ingested.
+        We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
+        """
+        server = self.config_data["output"]["server"] # Note: Begins with http://
+        uuid = self.config_data["output"]["uuid"]
+        instance = self.config_data["output"]["segmentation-name"]
+        
+        output_box_xyz = np.array(self.config_data["output"]["bounding-box"])
+        output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
+        
+        link_prefix = f"{server}/neuroglancer/#!"
+        link_json = \
+        {
+            "layers": {
+                "segmentation": {
+                    "type": "segmentation",
+                    "source": f"dvid://{server}/{uuid}/{instance}"
+                }
+            },
+            "navigation": {
+                "pose": {
+                    "position": {
+                        "voxelSize": [8,8,8],
+                        "voxelCoordinates": output_center_xyz.tolist()
+                    }
+                },
+                "zoomFactor": 8
+            }
+        }
+        logger.info(f"Neuroglancer link to output: {link_prefix}{json.dumps(link_json)}")
 
     def _read_pyramid_depth(self):
         """
