@@ -8,7 +8,7 @@ from functools import partial
 import numpy as np
 import requests
 
-from vol2mesh.vol2mesh import mesh_from_array
+from vol2mesh.mesh_from_array import mesh_from_array
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -71,7 +71,7 @@ class CreateSkeletons(Workflow):
                 "description": "Format to save the meshes in. ",
                 "type": "string",
                 "enum": ["obj",    # Wavefront OBJ (.obj)
-                         "draco"], # Draco (compressed) (.drc)
+                         "drc"],   # Draco (compressed) (.drc)
                 "default": "obj"
             }
         }
@@ -472,6 +472,7 @@ def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
     (combined_box_start, _combined_box_stop) = combined_box
 
     with Timer() as timer:
+        # FIXME: Should the skeleton-config be tweaked in any way based on the downsample_factor??
         tree = skeletonize_array(combined_mask, config["skeleton-config"])
         tree.rescale(downsample_factor, downsample_factor, downsample_factor, True)
         tree.translate(*combined_box_start.astype(np.float64)[::-1]) # Pass x,y,z, not z,y,x
@@ -571,19 +572,12 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
 
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
-    simplify_ratio = config["mesh-config"]["simplify-ratio"]
-    if simplify_ratio == 1.0:
-        simplify_ratio = None
-
     mesh_bytes = mesh_from_array( combined_mask,
                                   combined_box,
                                   downsample_factor,
-                                  simplify_ratio,
-                                  config["mesh-config"]["smoothing-rounds"] )
-    
-#     if config["mesh-config"]["format"] == "draco":
-#         mesh_bytes = draco_encode(mesh_bytes)
-    
+                                  config["mesh-config"]["simplify-ratio"],
+                                  config["mesh-config"]["smoothing-rounds"],
+                                  config["mesh-config"]["format"])
     return body_id, mesh_bytes
 
 def post_mesh_to_dvid(config, body_obj_err):
@@ -602,20 +596,17 @@ def post_mesh_to_dvid(config, body_obj_err):
     dvid_server = config["dvid-info"]["server"]
     uuid = config["dvid-info"]["uuid"]
     instance = config["dvid-info"]["meshes-destination"]
+    info = {"format": config["mesh-config"]["format"]}
 
-    info = {"format": "obj"}
-
-    if config["mesh-config"]["format"] == "draco":
-        info = {"format": "drc"}
-
-    if not config["options"]["resource-server"]:
-        # No throttling.
+    def post_mesh():
         requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_obj)
         requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
-    else:
-        resource_client = ResourceManagerClient( config["options"]["resource-server"],
-                                                 config["options"]["resource-port"] )
-    
+
+    if config["options"]["resource-server"]:
+        # Throttle with resource manager
+        resource_client = ResourceManagerClient( config["options"]["resource-server"], config["options"]["resource-port"] )
         with resource_client.access_context(dvid_server, False, 2, len(mesh_obj)):
-            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_obj)
-            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
+            post_mesh()
+    else:
+        # No throttle
+        post_mesh()
