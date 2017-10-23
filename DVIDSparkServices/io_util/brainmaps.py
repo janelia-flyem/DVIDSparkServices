@@ -29,7 +29,7 @@ class BrainMapsVolume:
         ask them to add your email to brainmaps-tt@googlegroups.com.)
         
         Args:
-            project, dataset, volume_id, and (optionally) change_stack_id can be extracted from a brainmaps volume url:
+            project, dataset, volume_id, and (optionally) change_stack_id can be extracted from a brainmaps volume uri:
             
             >>> url = 'brainmaps://274750196357:janelia-flyem-cx-flattened-tabs:sec26_seg_v2a:ffn_agglo_pass1_seg5663627_medt160'
             >>> full_id = url.split('://')[1]
@@ -67,6 +67,61 @@ class BrainMapsVolume:
                     f"Provided dtype {dtype} doesn't match volume metadata ({self.dtype})"
 
         self._dtype = dtype
+
+
+    @classmethod
+    def from_volume_uri(cls, uri):
+        """
+        Convenience constructor.
+        Construct from 
+        """
+        assert uri.startswith('brainmaps://')
+        
+        components = uri.split('://')[1].split(':')
+        if len(components) == 4:
+            project, dataset, volume_id, change_stack_id = components
+        elif len(components) == 3:
+            project, dataset, volume_id = components
+            change_stack_id = ""
+        else:
+            raise RuntimeError(f"Invalid volume URI: {uri}")
+        
+        return BrainMapsVolume(project, dataset, volume_id, change_stack_id)
+    
+
+    @classmethod
+    def from_flyem_source_info(cls, d):
+        """
+        Convenience constructor.
+        Construct from FlyEM JSON config data.
+        """
+        return BrainMapsVolume(d["project"], d["dataset"], d["volume-id"], d["change-stack-id"])
+
+
+    def flyem_source_info(self, as_str=False):
+        """
+        Convenience method.
+        Return parameters as JSON for FlyEM config files.
+        """
+        info = {
+            "service-type": "brainmaps",
+            "project": self.project,
+            "dataset": self.dataset,
+            "volume-id": self.volume_id,
+            "change-stack-id": self.change_stack_id,
+            "bounding-box": self.bounding_box[:,::-1] # Print in xyz order
+        }
+        if not as_str:
+            return info
+
+        # The json so-called pretty-print makes the bounding-box ugly.
+        # Make it pretty and re-insert it.
+        del info["bounding-box"]
+        json_text = json.dumps(info, indent=4, cls=NumpyConvertingEncoder)
+        json_lines = json_text.split('\n')
+        json_lines[-2] += ','
+        json_lines.insert(-1, f'    "bounding-box": {self.bounding_box[:,::-1].tolist()}')
+        return '\n'.join(json_lines)
 
 
     def get_subvolume(self, box, scale=0):
