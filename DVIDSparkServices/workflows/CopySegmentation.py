@@ -8,7 +8,9 @@ from functools import partial
 
 import numpy as np
 import h5py
-import pandas as pd
+
+# Don't import pandas here; import it locally as needed
+#import pandas as pd
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -448,6 +450,7 @@ class CopySegmentation(Workflow):
               for the sake of performance comparisons between the two methods.
               The method used is determined by the ['body-sizes]['method'] option.
         """
+        import pandas as pd
         if not self.config_data["options"]["body-sizes"]["output-path"]:
             logger.info("Skipping body size calculation.")
             return
