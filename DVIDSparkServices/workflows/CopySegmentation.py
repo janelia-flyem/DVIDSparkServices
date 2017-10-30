@@ -17,7 +17,7 @@ import h5py
 
 from dvid_resource_manager.client import ResourceManagerClient
 
-from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, remap_bricks_to_new_grid, pad_brick_data_from_volume_source
+from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -412,8 +412,8 @@ class CopySegmentation(Workflow):
         # FIXME: We should skip this if the grids happen to be aligned already.
         #        This shuffle takes ~15 minutes per tab.
         output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
-        remapped_bricks = remap_bricks_to_new_grid( output_writing_grid, bricks ).values()
-        persist_and_execute(remapped_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
+        realigned_bricks = realign_bricks_to_new_grid( output_writing_grid, bricks ).values()
+        persist_and_execute(realigned_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
 
         # Discard original
         bricks.unpersist()
@@ -422,12 +422,12 @@ class CopySegmentation(Workflow):
         # Pad from previously-existing pyramid data.
         output_padding_grid = Grid(output_config["block-width"], (0,0,0))
         output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
-        padded_bricks = remapped_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
+        padded_bricks = realigned_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
         persist_and_execute(padded_bricks, f"Scale {scale}: Padding", logger)
 
         # Discard
-        remapped_bricks.unpersist()
-        del remapped_bricks
+        realigned_bricks.unpersist()
+        del realigned_bricks
 
         return padded_bricks
 

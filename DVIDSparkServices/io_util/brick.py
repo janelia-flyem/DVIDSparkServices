@@ -163,7 +163,7 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
     return Brick( brick.logical_box, padded_box, padded_volume )
 
 
-def remap_bricks_to_new_grid(new_grid, original_bricks):
+def realign_bricks_to_new_grid(new_grid, original_bricks):
     """
     Given a list/RDD of Bricks which are tiled over some original grid,
     chop them up and reassemble them into a new list/RDD of Bricks,

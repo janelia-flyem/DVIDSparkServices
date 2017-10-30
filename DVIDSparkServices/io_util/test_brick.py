@@ -5,7 +5,7 @@ import numpy as np
 
 from DVIDSparkServices.util import extract_subvol, box_intersection
 from DVIDSparkServices.io_util.brick import ( Grid, Brick, boxes_from_grid, generate_bricks_from_volume_source,
-                                              remap_bricks_to_new_grid, split_brick, assemble_brick_fragments,
+                                              realign_bricks_to_new_grid, split_brick, assemble_brick_fragments,
                                               pad_brick_data_from_volume_source )
 
 class TestBrickFunctions(unittest.TestCase):
@@ -153,7 +153,7 @@ class TestBrickFunctions(unittest.TestCase):
         assert (assembled_brick.volume == extract_subvol(volume, assembled_brick.physical_box)).all()
         
 
-    def test_remap_bricks_to_new_grid(self):
+    def test_realign_bricks_to_new_grid(self):
         grid = Grid( (10,20), (12,3) )
         bounding_box = np.array([(15,30), (95,290)])
         volume = np.random.randint(0,10, (100,300) )
@@ -161,7 +161,7 @@ class TestBrickFunctions(unittest.TestCase):
         original_bricks = generate_bricks_from_volume_source( bounding_box, grid, partial(extract_subvol, volume) )
 
         new_grid = Grid((20,10), (0,0))
-        boxes_and_bricks = remap_bricks_to_new_grid(new_grid, original_bricks)
+        boxes_and_bricks = realign_bricks_to_new_grid(new_grid, original_bricks)
 
         new_logical_boxes, new_bricks = list(zip(*boxes_and_bricks))
 
