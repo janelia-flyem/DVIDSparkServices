@@ -10,7 +10,7 @@
         "block-width": 64
     },
 
-    "output": {
+    "outputs": [{
         "service-type": "dvid",
         "server": "127.0.0.1:8000",
         "uuid": "UUID2",
@@ -18,16 +18,14 @@
         "bounding-box": [[0, 0, 0], [512, 512, 512]],
         "message-block-shape": [6400, 64, 64],
         "block-width": 64
-    },
+    }],
 
     "options": {
-        "corespertask": 1,
-
-        "chunk-size": 128,
-        "offset": [0,0,0],
         "pyramid-depth": 2,
 
-        "body-size-minimum": 10,
+        "body-sizes": {
+            "minimum-size": 10
+        },
         
         "resource-server": "driver",
         "resource-port": 4000,

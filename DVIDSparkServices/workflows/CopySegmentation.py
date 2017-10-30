@@ -18,16 +18,15 @@ import h5py
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
-from DVIDSparkServices.sparkdvid import sparkdvid
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
 from DVIDSparkServices.auto_retry import auto_retry
 
-from .common_schemas import SegmentationVolumeSchema
+from .common_schemas import SegmentationVolumeSchema, SegmentationVolumeListSchema
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +38,9 @@ class CopySegmentation(Workflow):
         "additionalProperties": False,
         "default": {},
         "properties": {
-            "output-path" : {
-                "description": "A file name to write the body size HDF5 output. "
-                               "Relative paths are interpreted as relative to this config file. "
-                               "An empty string forces body size calculation to be skipped.",
-                "type": "string",
-                "default": "./body-sizes.h5"
+            "compute": {
+                "type": "boolean",
+                "default": True
             },
             "minimum-size" : {
                 "description": "Minimum size to include in the body size HDF5 output.  Smaller bodies are omitted.",
@@ -79,10 +75,11 @@ class CopySegmentation(Workflow):
         "title": "Service to load raw and label data into DVID",
         "type": "object",
         "additionalProperties": False,
-        "required": ["input", "output"],
+        "required": ["input", "outputs"],
         "properties": {
-            "input": SegmentationVolumeSchema,  # Labelmap, if any, is applied post-read
-            "output": SegmentationVolumeSchema, # Labelmap, if any, is applied pre-write
+            "input": SegmentationVolumeSchema,       # Labelmap, if any, is applied post-read
+            "outputs": SegmentationVolumeListSchema, # LIST of output locations to write to.
+                                                     # Labelmap, if any, is applied pre-write for each volume.
             "options" : OptionsSchema
         }
     }
@@ -100,19 +97,15 @@ class CopySegmentation(Workflow):
                                                 "Copy Segmentation" )
         self._sanitize_config()
 
-        self.sparkdvid_output_context = sparkdvid.sparkdvid( self.sc,
-                                                             self.config_data["output"]["server"],
-                                                             self.config_data["output"]["uuid"], self )
-
 
     def _sanitize_config(self):
         """
         Tidy up some config values.
         """
         input_config = self.config_data["input"]
-        output_config = self.config_data["output"]
+        output_configs = self.config_data["outputs"]
         
-        for cfg in (input_config, output_config):
+        for cfg in [input_config] + output_configs:
             # Prepend 'http://' to the server if necessary.
             if "server" in cfg and not cfg["server"].startswith('http'):
                 cfg["server"] = 'http://' + cfg["server"]
@@ -122,23 +115,52 @@ class CopySegmentation(Workflow):
             if labelmap_file and not os.path.isabs(labelmap_file):
                 cfg["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
-
-    def execute(self):
-        input_config = self.config_data["input"]
-        output_config = self.config_data["output"]
-        options = self.config_data["options"]
-
+        ##
+        ## Check input/output dimensions and grid schemes.
+        ##
         input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
-        output_bb_zyx = np.array(output_config["bounding-box"])[:,::-1]
 
+        first_output_config = output_configs[0]
+        output_bb_zyx = np.array(first_output_config["bounding-box"])[:,::-1]
+        output_brick_shape = np.array(first_output_config["message-block-shape"])
+        output_block_width = np.array(first_output_config["block-width"])
+
+        assert not any(np.array(output_brick_shape) % output_configs[0]["block-width"]), \
+            "Output message-block-shape should be a multiple of the block size in all dimensions."
         assert ((input_bb_zyx[1] - input_bb_zyx[0]) == (output_bb_zyx[1] - output_bb_zyx[0])).all(), \
             "Input bounding box and output bounding box do not have the same dimensions"
-        assert not any(np.array(output_config["message-block-shape"]) % output_config["block-width"]), \
-            "Output message-block-shape should be a multiple of the block size in all dimensions."
+
+        # NOTE: For now, we require that all outputs use the same bounding box and grid scheme,
+        #       to simplify the execute() function.
+        #       (We avoid re-translating and re-downsampling the input data for every new output.)
+        #       The only way in which the outputs may differ is their label mapping data.
+        for output_config in output_configs:
+            bb = np.array(output_config["bounding-box"])[:,::-1]
+            bs = output_config["message-block-shape"]
+            bw = output_config["block-width"]
+            
+            assert (output_bb_zyx == bb).all(), \
+                "For now, all output destinations must use the same bounding box and grid scheme"
+            assert (output_brick_shape == bs).all(), \
+                "For now, all output destinations must use the same bounding box and grid scheme"
+            assert (output_block_width == bw).all(), \
+                "For now, all output destinations must use the same bounding box and grid scheme"
+
+    def execute(self):
+        options = self.config_data["options"]
+
+        input_config = self.config_data["input"]
+        output_configs = self.config_data["outputs"]
+
+        # See note in _sanitize_config()
+        first_output_config = output_configs[0]
+
+        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
+        output_bb_zyx = np.array(first_output_config["bounding-box"])[:,::-1]
 
         input_bricks, bounding_box, _input_grid = self._partition_input()
-        self._create_output_instance_if_necessary(bounding_box)
-        self._log_neuroglancer_link()
+        self._create_output_instances_if_necessary(bounding_box)
+        self._log_neuroglancer_links()
 
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
@@ -159,36 +181,42 @@ class CopySegmentation(Workflow):
         # This has no effect on the brick volumes themselves.
         translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
         translated_bricks = remapped_input_bricks.map( partial(translate_brick, translation_offset_zyx) )
+        remapped_input_bricks.unpersist()
         del remapped_input_bricks
 
-        # Re-align to output grid, pad internally to block-align.
-        aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0)
-        del translated_bricks
-
-        # Apply pre-output label map (if any)
-        remapped_output_bricks = self._remap_bricks(aligned_input_bricks, output_config["apply-labelmap"])
-
-        # Compute body sizes and write to HDf5
-        self._write_body_sizes( remapped_output_bricks )
-
-        # Write scale 0 to DVID
-        self._write_bricks( remapped_output_bricks, 0 )
-        remapped_output_bricks.unpersist()
-        del remapped_output_bricks
-
+        for output_config in self.config_data["outputs"]:
+            # Re-align to output grid, pad internally to block-align.
+            aligned_bricks = self._consolidate_and_pad(translated_bricks, 0, output_config)
+    
+            # Apply pre-output label map (if any)
+            remapped_output_bricks = self._remap_bricks(aligned_bricks, output_config["apply-labelmap"])
+    
+            # Compute body sizes and write to HDF5
+            self._write_body_sizes( remapped_output_bricks, output_config )
+    
+            # Write scale 0 to DVID
+            self._write_bricks( remapped_output_bricks, 0, output_config )
+            remapped_output_bricks.unpersist()
+            del remapped_output_bricks
+    
         # Downsample and write the rest of the pyramid scales
         for new_scale in range(1, 1+options["pyramid-depth"]):
             # Compute downsampled (results in small bricks)
-            downsampled_bricks = self._downsample_bricks(aligned_input_bricks, new_scale)
+            downsampled_bricks = self._downsample_bricks(aligned_bricks, new_scale)
+            aligned_bricks.unpersist()
+            del aligned_bricks
 
-            # Consolidate to full-size bricks and pad internally to block-align
-            consolidated_input_bricks = self._consolidate_and_pad(aligned_input_bricks, new_scale)
+            for output_config in self.config_data["outputs"]:
+                # Consolidate to full-size bricks and pad internally to block-align
+                consolidated_input_bricks = self._consolidate_and_pad(downsampled_bricks, new_scale, output_config)
 
-            # Remap the downsampled bricks.
-            remapped_consolidated_bricks = self._remap_bricks(consolidated_input_bricks, output_config["apply-labelmap"])
-            
-            # Write to DVID
-            self._write_bricks(remapped_consolidated_bricks, new_scale)
+                # Remap the downsampled bricks.
+                remapped_consolidated_bricks = self._remap_bricks(consolidated_input_bricks, output_config["apply-labelmap"])
+                
+                # Write to DVID
+                self._write_bricks( remapped_consolidated_bricks, new_scale, output_config )
+
+            aligned_bricks = downsampled_bricks
             del downsampled_bricks
 
 
@@ -220,7 +248,7 @@ class CopySegmentation(Workflow):
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
 
         if input_config["service-type"] == "dvid":
-            sparkdvid_input_context = sparkdvid.sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
+            sparkdvid_input_context = sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
             bricks = sparkdvid_input_context.parallelize_bounding_box( input_config["segmentation-name"],
                                                                        input_bb_zyx,
                                                                        input_grid,
@@ -273,85 +301,91 @@ class CopySegmentation(Workflow):
         return bricks, input_bb_zyx, input_grid
 
     
-    def _create_output_instance_if_necessary(self, bounding_box):
+    def _create_output_instances_if_necessary(self, bounding_box):
         """
         If it doesn't exist yet, create it first with the user's specified
         pyramid-depth, or with an automatically chosen depth.
         """
-        output_config = self.config_data["output"]
         options = self.config_data["options"]
+        for output_config in self.config_data["outputs"]:
+            # Create new segmentation instance first if necessary
+            if not is_datainstance( output_config["server"],
+                                output_config["uuid"],
+                                output_config["segmentation-name"] ):
 
-        # Create new segmentation instance first if necessary
-        if is_datainstance( output_config["server"],
-                            output_config["uuid"],
-                            output_config["segmentation-name"] ):
-            return
+                depth = options["pyramid-depth"]
+                if depth == -1:
+                    # if no pyramid depth is specified, determine the max
+                    depth = choose_pyramid_depth(bounding_box, 512)
+        
+                # create new label array with correct number of pyramid scales
+                create_labelarray( output_config["server"],
+                                   output_config["uuid"],
+                                   output_config["segmentation-name"],
+                                   depth,
+                                   3*(output_config["block-width"],) )
 
-        depth = options["pyramid-depth"]
-        if depth == -1:
-            # if no pyramid depth is specified, determine the max
-            depth = choose_pyramid_depth(bounding_box, 512)
-
-        # create new label array with correct number of pyramid scales
-        create_labelarray( output_config["server"],
-                           output_config["uuid"],
-                           output_config["segmentation-name"],
-                           depth,
-                           3*(output_config["block-width"],) )
-
-    def _log_neuroglancer_link(self):
+    def _log_neuroglancer_links(self):
         """
         Write a link to the log file for viewing the segmentation data after it is ingested.
         We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
         """
-        server = self.config_data["output"]["server"] # Note: Begins with http://
-        uuid = self.config_data["output"]["uuid"]
-        instance = self.config_data["output"]["segmentation-name"]
-        
-        output_box_xyz = np.array(self.config_data["output"]["bounding-box"])
-        output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
-        
-        link_prefix = f"{server}/neuroglancer/#!"
-        link_json = \
-        {
-            "layers": {
-                "segmentation": {
-                    "type": "segmentation",
-                    "source": f"dvid://{server}/{uuid}/{instance}"
-                }
-            },
-            "navigation": {
-                "pose": {
-                    "position": {
-                        "voxelSize": [8,8,8],
-                        "voxelCoordinates": output_center_xyz.tolist()
+        for index, output_config in enumerate(self.config_data["outputs"]):
+            server = output_config["server"] # Note: Begins with http://
+            uuid = output_config["uuid"]
+            instance = output_config["segmentation-name"]
+            
+            output_box_xyz = np.array(output_config["bounding-box"])
+            output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
+            
+            link_prefix = f"{server}/neuroglancer/#!"
+            link_json = \
+            {
+                "layers": {
+                    "segmentation": {
+                        "type": "segmentation",
+                        "source": f"dvid://{server}/{uuid}/{instance}"
                     }
                 },
-                "zoomFactor": 8
+                "navigation": {
+                    "pose": {
+                        "position": {
+                            "voxelSize": [8,8,8],
+                            "voxelCoordinates": output_center_xyz.tolist()
+                        }
+                    },
+                    "zoomFactor": 8
+                }
             }
-        }
-        logger.info(f"Neuroglancer link to output: {link_prefix}{json.dumps(link_json)}")
+            logger.info(f"Neuroglancer link to output {index}: {link_prefix}{json.dumps(link_json)}")
 
     def _read_pyramid_depth(self):
         """
-        Read the MaxDownresLevel from it and verify that it matches our config for pyramid-depth.
-        Return the MaxDownresLevel.
+        Read the MaxDownresLevel from each output instance we'll be writing to,
+        and verify that it matches our config for pyramid-depth.
+        
+        Return the max depth we found in the outputs.
+        (They should all be the same...)
         """
-        output_config = self.config_data["output"]
-        options = self.config_data["options"]
+        max_depth = -1
+        for output_config in self.config_data["outputs"]:
+            options = self.config_data["options"]
+    
+            node_service = retrieve_node_service( output_config["server"],
+                                                  output_config["uuid"], 
+                                                  self.resource_server,
+                                                  self.resource_port,
+                                                  self.APPNAME )
+    
+            info = node_service.get_typeinfo(output_config["segmentation-name"])
+    
+            existing_depth = int(info["Extended"]["MaxDownresLevel"])
+            if options["pyramid-depth"] not in (-1, existing_depth):
+                raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
+                                f"Data instance '{output_config['segmentation-name']}' already existed, with depth {existing_depth}")
 
-        node_service = retrieve_node_service( output_config["server"],
-                                              output_config["uuid"], 
-                                              self.resource_server,
-                                              self.resource_port,
-                                              self.APPNAME )
+            max_depth = max(max_depth, existing_depth)
 
-        info = node_service.get_typeinfo(output_config["segmentation-name"])
-
-        existing_depth = int(info["Extended"]["MaxDownresLevel"])
-        if options["pyramid-depth"] not in (-1, existing_depth):
-            raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
-                            f"Data instance '{output_config['segmentation-name']}' already existed, with depth {existing_depth}")
         return existing_depth
 
     def _remap_bricks(self, bricks, labelmap_config):
@@ -398,7 +432,7 @@ class CopySegmentation(Workflow):
         return downsampled_bricks
 
 
-    def _consolidate_and_pad(self, bricks, scale):
+    def _consolidate_and_pad(self, bricks, scale, output_config):
         """
         Consolidate (align), and pad the given RDD of Bricks.
 
@@ -406,8 +440,6 @@ class CopySegmentation(Workflow):
         
         Note: UNPERSISTS the input data and returns the new, downsampled data.
         """
-        output_config = self.config_data["output"]
-
         # Consolidate bricks to full size, aligned blocks (shuffles data)
         # FIXME: We should skip this if the grids happen to be aligned already.
         #        This shuffle takes ~15 minutes per tab.
@@ -421,7 +453,9 @@ class CopySegmentation(Workflow):
 
         # Pad from previously-existing pyramid data.
         output_padding_grid = Grid(output_config["block-width"], (0,0,0))
-        output_accessor = self.sparkdvid_output_context.get_volume_accessor(output_config["segmentation-name"], scale)
+
+        output_context = sparkdvid( self.sc, output_config["server"], output_config["uuid"], self )
+        output_accessor = output_context.get_volume_accessor(output_config["segmentation-name"], scale)
         padded_bricks = realigned_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
         persist_and_execute(padded_bricks, f"Scale {scale}: Padding", logger)
 
@@ -432,11 +466,10 @@ class CopySegmentation(Workflow):
         return padded_bricks
 
 
-    def _write_bricks(self, bricks, scale):
+    def _write_bricks(self, bricks, scale, output_config):
         """
         Writes partition to specified dvid.
         """
-        output_config = self.config_data["output"]
         appname = self.APPNAME
 
         server = output_config["server"]
@@ -494,7 +527,7 @@ class CopySegmentation(Workflow):
         logger.info(f"Scale {scale}: Writing to DVID took {timer.timedelta}")
 
     
-    def _write_body_sizes( self, bricks ):
+    def _write_body_sizes( self, bricks, output_config ):
         """
         Calculate the size (in voxels) of all label bodies in the volume,
         and write the results to an HDF5 file.
@@ -504,7 +537,7 @@ class CopySegmentation(Workflow):
               The method used is determined by the ['body-sizes]['method'] option.
         """
         import pandas as pd
-        if not self.config_data["options"]["body-sizes"]["output-path"]:
+        if not self.config_data["options"]["body-sizes"]["compute"]:
             logger.info("Skipping body size calculation.")
             return
 
@@ -583,7 +616,8 @@ class CopySegmentation(Workflow):
             body_labels = body_labels[sort_indices]
         logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
-        output_path = self.relpath_to_abspath(self.config_data["options"]["body-sizes"]["output-path"])
+        suffix = output_config["segmentation-name"]
+        output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
         with Timer() as timer:
             logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
             with h5py.File(output_path, 'w') as f:

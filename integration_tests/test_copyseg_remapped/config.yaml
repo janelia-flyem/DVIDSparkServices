@@ -19,28 +19,62 @@
         "block-width": 64
     },
 
-    "output": {
-        "service-type": "dvid",
-        "server": "127.0.0.1:8000",
-        "uuid": "UUID2",
-        "segmentation-name": "labels-copy",
-        "bounding-box": [[0, 0, 0], [256, 256, 256]],
-
-        # Mapping adds 200 to every (remapped input pixel)
-        "apply-labelmap": {
-          "file":  "../output_mapping_plus200.csv",
-          "file-type": "label-to-body"
-        },
-
-        "message-block-shape": [6400, 64, 64],
-        "block-width": 64
-    },
+    "outputs": [
+      {
+          "service-type": "dvid",
+          "server": "127.0.0.1:8000",
+          "uuid": "UUID2",
+          "segmentation-name": "labels-remapped200",
+          "bounding-box": [[0, 0, 0], [256, 256, 256]],
+  
+          # Mapping adds 200 input pixels, which were already remapped by +100
+          "apply-labelmap": {
+            "file":  "../output_mapping_plus200.csv",
+            "file-type": "label-to-body"
+          },
+  
+          "message-block-shape": [6400, 64, 64],
+          "block-width": 64
+      },
+      {
+          "service-type": "dvid",
+          "server": "127.0.0.1:8000",
+          "uuid": "UUID2",
+          "segmentation-name": "labels-remapped400",
+          "bounding-box": [[0, 0, 0], [256, 256, 256]],
+  
+          # Mapping adds 400 input pixels, which were already remapped by +100
+          "apply-labelmap": {
+            "file":  "../output_mapping_plus400.csv",
+            "file-type": "label-to-body"
+          },
+  
+          "message-block-shape": [6400, 64, 64],
+          "block-width": 64
+      },
+      {
+          "service-type": "dvid",
+          "server": "127.0.0.1:8000",
+          "uuid": "UUID2",
+          "segmentation-name": "labels-complete-merge",
+          "bounding-box": [[0, 0, 0], [256, 256, 256]],
+  
+          # This is an edge-equivalency mapping.
+          # In this mapping, the edges form a giant cycle, resulting in a completely merged volume.
+          "apply-labelmap": {
+            "file":  "../output_totalmerge_edges.csv",
+            "file-type": "equivalence-edges"
+          },
+  
+          "message-block-shape": [6400, 64, 64],
+          "block-width": 64
+      }
+    ],
 
     "options": {
         "pyramid-depth": 2,
 
         "body-sizes": {
-            "output-path": "./body-sizes.h5",
             "minimum-size": 10
         },
         

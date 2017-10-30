@@ -20,9 +20,9 @@ input_shape = input_bb_zyx[1] - input_bb_zyx[0]
 
 input_volume = input_service.get_labels3D(input_name, input_shape, input_bb_zyx[0])
 
-output_service = DVIDNodeService(str(config['output']['server']), str(config['output']['uuid']))
-output_name = config['output']['segmentation-name']
-output_bb_xyz = config['output']['bounding-box']
+output_service = DVIDNodeService(str(config['outputs'][0]['server']), str(config['outputs'][0]['uuid']))
+output_name = config['outputs'][0]['segmentation-name']
+output_bb_xyz = config['outputs'][0]['bounding-box']
 output_bb_zyx = np.array(output_bb_xyz)[:,::-1]
 output_shape = output_bb_zyx[1] - output_bb_zyx[0]
 

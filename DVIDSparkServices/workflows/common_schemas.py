@@ -102,7 +102,7 @@ LabelMapSchema = \
 
 SegmentationVolumeSchema = \
 {
-    "description": "Describes a segmentation volume source, extents, and preferred access pattern",
+    "description": "Describes a segmentation volume source (or destination), extents, and preferred access pattern",
     "type": "object",
     "required": ["bounding-box", "message-block-shape"],
     "oneOf": [
@@ -129,4 +129,12 @@ SegmentationVolumeSchema = \
             "default": 64
         }        
     }
+}
+
+SegmentationVolumeListSchema = \
+{
+    "description": "A list of segmentation volume sources (or destinations).",
+    "type": "array",
+    "items": SegmentationVolumeSchema,
+    "minItems": 1
 }
