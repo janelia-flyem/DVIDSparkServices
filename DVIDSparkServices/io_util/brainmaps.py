@@ -1,4 +1,5 @@
 import os
+import csv
 import json
 from itertools import chain
 
@@ -52,6 +53,7 @@ class BrainMapsVolume:
         self._http = None
         self._bounding_boxes = None
         self._geometries = None
+        self._equivalence_mapping = None
 
         if not self.skip_checks:
             volume_list = fetch_json(self.http, f'{BRAINMAPS_BASE_URL}/volumes')
@@ -324,11 +326,23 @@ class BrainMapsVolume:
 
         # There is no API for getting all groups, so we have to get the
         # full set of edges and run connected components ourselves.
-        import networkx as nx
-        
         all_edges = self.get_equivalence_edges()
+        return BrainMapsVolume.groups_from_edges(all_edges)
+
+
+    @classmethod
+    def groups_from_edges(cls, edges):
+        """
+        The given list of edges [(node_a, node_b),(node_a, node_b),...] encode a graph.
+        Find the connected components in the graph and return them as a dict:
+        
+        { group_id : [node_id, node_id, node_id] }
+        
+        ...where each group_id is the minimum node_id of the group.
+        """
+        import networkx as nx
         g = nx.Graph()
-        g.add_edges_from(all_edges)
+        g.add_edges_from(edges)
         
         groups = {}
         for segment_set in nx.connected_components(g):
@@ -337,6 +351,65 @@ class BrainMapsVolume:
 
         return groups
 
+    def equivalence_mapping(self):
+        if self._equivalence_mapping is not None:
+            return self._equivalence_mapping
+        groups = self.get_all_equivalence_groups()
+        self._equivalence_mapping = BrainMapsVolume.mapping_from_groups(groups)
+        return self._equivalence_mapping
+
+    def set_equivalence_mapping(self, mapping):
+        self._equivalence_mapping = mapping
+
+    @classmethod
+    def equivalence_mapping_from_edge_csv(cls, csv_path):
+        """
+        Load and return the equivalence_mapping from the given csv_path of equivalence edges.
+        
+        The CSV files should have no header row and just two columns.
+        Each row represents an edge. For example:
+        
+            123,456
+            123,789
+            789,234
+            
+        Returns: ndarray with two columns representing node and group
+
+        Note: The returned array is NOT merely the parsed CSV.
+              It has been transformed from equivalence edges to node mappings,
+              via a connected components step.
+        """
+        with open(csv_path, 'r') as csv_file:
+            rows = csv.reader(csv_file)
+            all_items = chain.from_iterable(rows)
+            edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
+
+        groups = BrainMapsVolume.groups_from_edges(edges)
+        mapping = BrainMapsVolume.mapping_from_groups(groups)
+        return mapping
+
+    @classmethod
+    def mapping_from_groups(cls, groups):
+        """
+        Given a dict of { group_id: [node_a, node_b,...] },
+        Return a reverse-mapping in the form of an ndarray:
+            
+            [[node_a, group_id],
+             [node_b, group_id],
+             [node_c, group_id],
+             ...
+            ]
+        """
+        element_count = sum(map(len, groups.values()))
+        
+        def generate():
+            for group_id, members in groups.items():
+                for member in members:
+                    yield member
+                    yield group_id
+
+        mapping = np.fromiter( generate(), np.uint64, 2*element_count ).reshape(-1,2)
+        return mapping
 
     def get_equivalence_edges(self, segment_id=None):
         """
