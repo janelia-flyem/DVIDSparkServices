@@ -1,9 +1,12 @@
 from __future__ import print_function, absolute_import
 from __future__ import division
+import os
+import csv
 import copy
 import json
 import logging
 import socket
+from itertools import chain
 from functools import partial
 
 import numpy as np
@@ -78,8 +81,8 @@ class CopySegmentation(Workflow):
         "additionalProperties": False,
         "required": ["input", "output"],
         "properties": {
-            "input": SegmentationVolumeSchema,
-            "output": SegmentationVolumeSchema,
+            "input": SegmentationVolumeSchema,  # Labelmap, if any, is applied post-read
+            "output": SegmentationVolumeSchema, # Labelmap, if any, is applied pre-write
             "options" : OptionsSchema
         }
     }
@@ -106,10 +109,18 @@ class CopySegmentation(Workflow):
         """
         Tidy up some config values.
         """
-        for cfg in (self.config_data["input"], self.config_data["output"]):
+        input_config = self.config_data["input"]
+        output_config = self.config_data["output"]
+        
+        for cfg in (input_config, output_config):
             # Prepend 'http://' to the server if necessary.
             if "server" in cfg and not cfg["server"].startswith('http'):
                 cfg["server"] = 'http://' + cfg["server"]
+
+            # Convert labelmap (if any) to absolute path (relative to config file)
+            labelmap_file = cfg["apply-labelmap"]["file"]
+            if labelmap_file and not os.path.isabs(labelmap_file):
+                cfg["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
 
     def execute(self):
@@ -134,6 +145,10 @@ class CopySegmentation(Workflow):
 
         persist_and_execute(input_bricks, f"Reading entire volume", logger)
 
+        # Apply post-input label map (if any)
+        remapped_input_bricks = self._remap_bricks(input_bricks, input_config["apply-labelmap"])
+        del input_bricks
+        
         def translate_brick(offset, brick):
             return Brick( brick.logical_box + offset,
                           brick.physical_box + offset,
@@ -141,30 +156,39 @@ class CopySegmentation(Workflow):
 
         # Translate coordinates from input to output
         # (which will leave the bricks in a new, offset grid)
+        # This has no effect on the brick volumes themselves.
         translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
-        output_bricks = input_bricks.map( partial(translate_brick, translation_offset_zyx) )
-        del input_bricks
+        translated_bricks = remapped_input_bricks.map( partial(translate_brick, translation_offset_zyx) )
+        del remapped_input_bricks
 
         # Re-align to output grid, pad internally to block-align.
-        aligned_bricks = self._consolidate_and_pad(output_bricks, 0)
-        del output_bricks
+        aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0)
+        del translated_bricks
+
+        # Apply pre-output label map (if any)
+        remapped_output_bricks = self._remap_bricks(aligned_input_bricks, output_config["apply-labelmap"])
 
         # Compute body sizes and write to HDf5
-        self._write_body_sizes( aligned_bricks )
+        self._write_body_sizes( remapped_output_bricks )
 
         # Write scale 0 to DVID
-        self._write_bricks( aligned_bricks, output_config["segmentation-name"], 0 )
+        self._write_bricks( remapped_output_bricks, 0 )
+        remapped_output_bricks.unpersist()
+        del remapped_output_bricks
 
         # Downsample and write the rest of the pyramid scales
         for new_scale in range(1, 1+options["pyramid-depth"]):
             # Compute downsampled (results in small bricks)
-            downsampled_bricks = self._downsample_bricks(aligned_bricks, new_scale)
+            downsampled_bricks = self._downsample_bricks(aligned_input_bricks, new_scale)
 
             # Consolidate to full-size bricks and pad internally to block-align
-            aligned_bricks = self._consolidate_and_pad(downsampled_bricks, new_scale)
+            consolidated_input_bricks = self._consolidate_and_pad(aligned_input_bricks, new_scale)
 
+            # Remap the downsampled bricks.
+            remapped_consolidated_bricks = self._remap_bricks(consolidated_input_bricks, output_config["apply-labelmap"])
+            
             # Write to DVID
-            self._write_bricks(aligned_bricks, output_config["segmentation-name"], new_scale)
+            self._write_bricks(remapped_consolidated_bricks, new_scale)
             del downsampled_bricks
 
 
@@ -330,6 +354,34 @@ class CopySegmentation(Workflow):
                             f"Data instance '{output_config['segmentation-name']}' already existed, with depth {existing_depth}")
         return existing_depth
 
+    def _remap_bricks(self, bricks, labelmap_config):
+        if not labelmap_config["file"]:
+            return bricks
+
+        from dvidutils import LabelMapper
+
+        # Mapping is loaded once, in driver
+        if labelmap_config["file-type"] == "label-to-body":
+            with open(labelmap_config["file"], 'r') as csv_file:
+                rows = csv.reader(csv_file)
+                all_items = chain.from_iterable(rows)
+                mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
+        elif labelmap_config["file-type"] == "equivalence-edges":
+            mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(labelmap_config["file"])
+
+        def remap_bricks(partition_bricks):
+            domain, codomain = mapping_pairs.transpose()
+            mapper = LabelMapper(domain, codomain)
+            
+            partition_bricks = list(partition_bricks)
+            for brick in partition_bricks:
+                mapper.apply_inplace(brick.volume)
+            return partition_bricks
+        
+        # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
+        remapped_bricks = bricks.mapPartitions(remap_bricks)
+        persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
+        return remapped_bricks
 
     def _downsample_bricks(self, bricks, new_scale):
         """
@@ -380,7 +432,7 @@ class CopySegmentation(Workflow):
         return padded_bricks
 
 
-    def _write_bricks(self, bricks, dataname, scale):
+    def _write_bricks(self, bricks, scale):
         """
         Writes partition to specified dvid.
         """
@@ -390,6 +442,7 @@ class CopySegmentation(Workflow):
         server = output_config["server"]
         uuid = output_config["uuid"]
         block_width = output_config["block-width"]
+        dataname = output_config["segmentation-name"]
         
         resource_server = self.resource_server 
         resource_port = self.resource_port 
@@ -397,7 +450,7 @@ class CopySegmentation(Workflow):
         # default delimiter
         delimiter = 0
     
-        @self.collect_log(lambda i: socket.gethostname() + '-write-blocks-' + str(scale))
+        @self.collect_log(lambda _: socket.gethostname() + '-write-blocks-' + str(scale))
         def write_brick(brick):
             logger = logging.getLogger(__name__)
             

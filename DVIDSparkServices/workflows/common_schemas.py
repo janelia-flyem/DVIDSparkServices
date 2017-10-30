@@ -79,6 +79,27 @@ BoundingBoxSchema = \
     }
 }
 
+LabelMapSchema = \
+{
+    "description": "A label mapping file to apply to segmentation after reading or before writing.",
+    "type": "object",
+    "required": ["file", "file-type"],
+    "default": {"file": "", "file-type": "__invalid__"},
+    "properties": {
+        "file": {
+            "description": "Path to a file of labelmap data",
+            "type": "string" ,
+            "default": ""
+        },
+        "file-type": {
+            "type": "string",
+            "enum": ["label-to-body",       # CSV file containing the direct mapping.  Rows are orig,new 
+                     "equivalence-edges",   # CSV file containing a list of label merges. A label-to-body mapping is derived from this after a connected components step.
+                     "__invalid__"]
+        }
+    }
+}
+
 SegmentationVolumeSchema = \
 {
     "description": "Describes a segmentation volume source, extents, and preferred access pattern",
@@ -90,6 +111,9 @@ SegmentationVolumeSchema = \
     ],
     "properties": {
         "bounding-box": BoundingBoxSchema,
+
+        "apply-labelmap": LabelMapSchema,
+
         "message-block-shape": {
             "description": "The block shape (XYZ) for the initial tasks that fetch segmentation from DVID.",
             "type": "array",
@@ -98,10 +122,11 @@ SegmentationVolumeSchema = \
             "maxItems": 3,
             "default": [6400,64,64],
         },
+        
         "block-width": {
             "description": "The block size of the underlying volume storage.",
             "type": "integer",
             "default": 64
-        }
+        }        
     }
 }

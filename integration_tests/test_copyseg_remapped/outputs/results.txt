@@ -1,0 +1,60 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/tmp/test_copyseg_logs', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/test_copyseg_logs
+INFO [2017-10-30 16:04:23,814] workflow Started logserver on 10.101.10.118:3000
+Copy Segmentation: Started [2017-10-30 16:04:23]
+INFO [2017-10-30 16:04:24,070] CopySegmentation Neuroglancer link to output: http://127.0.0.1:8000/neuroglancer/#!{"layers": {"segmentation": {"type": "segmentation", "source": "dvid://http://127.0.0.1:8000/b45da3520c634fc9bd1e2fb9b34cb379/labels-copy"}}, "navigation": {"pose": {"position": {"voxelSize": [8, 8, 8], "voxelCoordinates": [128.0, 128.0, 128.0]}}, "zoomFactor": 8}}
+INFO [2017-10-30 16:04:24,074] util Reading entire volume...
+INFO [2017-10-30 16:04:43,676] util Reading entire volume (N=25) took 0:00:19.600841
+INFO [2017-10-30 16:04:43,690] util Remapping bricks...
+INFO [2017-10-30 16:04:44,076] util Remapping bricks (N=25) took 0:00:00.384367
+INFO [2017-10-30 16:04:44,104] util Scale 0: Shuffling bricks into alignment...
+INFO [2017-10-30 16:04:44,549] util Scale 0: Shuffling bricks into alignment (N=16) took 0:00:00.442905
+INFO [2017-10-30 16:04:44,576] util Scale 0: Padding...
+INFO [2017-10-30 16:04:44,783] util Scale 0: Padding (N=16) took 0:00:00.204372
+INFO [2017-10-30 16:04:44,796] util Remapping bricks...
+INFO [2017-10-30 16:04:45,228] util Remapping bricks (N=16) took 0:00:00.430227
+INFO [2017-10-30 16:04:45,409] CopySegmentation Computing body sizes...
+INFO [2017-10-30 16:04:45,755] CopySegmentation Computing 525 body sizes took 0.34371399879455566 seconds
+INFO [2017-10-30 16:04:45,757] CopySegmentation Final volume contains 16777216 nonzero voxels
+INFO [2017-10-30 16:04:45,758] CopySegmentation Omitting body sizes below 10 voxels...
+INFO [2017-10-30 16:04:45,760] CopySegmentation Sorting 513 bodies by size...
+INFO [2017-10-30 16:04:45,761] CopySegmentation Sorting 513 bodies by size took 0.0016467571258544922 seconds
+INFO [2017-10-30 16:04:45,763] CopySegmentation Writing 513 body sizes to integration_tests/test_copyseg_remapped/temp_data/body-sizes.h5
+INFO [2017-10-30 16:04:45,768] CopySegmentation Writing 513 body sizes took 0.005353212356567383 seconds
+INFO [2017-10-30 16:04:47,210] CopySegmentation Scale 0: Writing to DVID took 0:00:01.439278
+INFO [2017-10-30 16:04:47,213] util Scale 1: Downsampling...
+INFO [2017-10-30 16:04:52,532] util Scale 1: Downsampling (N=16) took 0:00:05.317685
+INFO [2017-10-30 16:04:52,554] util Scale 1: Shuffling bricks into alignment...
+INFO [2017-10-30 16:04:53,783] util Scale 1: Shuffling bricks into alignment (N=16) took 0:00:01.227232
+INFO [2017-10-30 16:04:53,788] util Scale 1: Padding...
+INFO [2017-10-30 16:04:54,002] util Scale 1: Padding (N=16) took 0:00:00.211873
+INFO [2017-10-30 16:04:54,013] util Remapping bricks...
+INFO [2017-10-30 16:04:54,454] util Remapping bricks (N=16) took 0:00:00.438155
+INFO [2017-10-30 16:04:55,797] CopySegmentation Scale 1: Writing to DVID took 0:00:01.340541
+INFO [2017-10-30 16:04:55,799] util Scale 2: Downsampling...
+INFO [2017-10-30 16:05:01,333] util Scale 2: Downsampling (N=16) took 0:00:05.532422
+INFO [2017-10-30 16:05:01,355] util Scale 2: Shuffling bricks into alignment...
+INFO [2017-10-30 16:05:01,845] util Scale 2: Shuffling bricks into alignment (N=16) took 0:00:00.486305
+INFO [2017-10-30 16:05:01,851] util Scale 2: Padding...
+INFO [2017-10-30 16:05:02,047] util Scale 2: Padding (N=16) took 0:00:00.194381
+INFO [2017-10-30 16:05:02,052] util Remapping bricks...
+INFO [2017-10-30 16:05:02,429] util Remapping bricks (N=16) took 0:00:00.374072
+INFO [2017-10-30 16:05:03,517] CopySegmentation Scale 2: Writing to DVID took 0:00:01.086029
+Copy Segmentation: Finished [2017-10-30 16:05:03]
+INFO [2017-10-30 16:05:03,519] workflow No worker init processes to kill
+INFO [2017-10-30 16:05:03,521] workflow No driver init process to kill
+INFO [2017-10-30 16:05:03,535] workflow Terminating logserver (PID 4613)
+Log server killed via external signal: SystemExit
+Traceback (most recent call last):
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 193, in _run_module_as_main
+    "__main__", mod_spec)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 85, in _run_code
+    exec(code, run_globals)
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 259, in <module>
+    close_all()
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 164, in close_all
+    f.close()
+KeyboardInterrupt
+INFO [2017-10-30 16:05:05,538] util Successfully interrupted process 4613
+INFO [2017-10-30 16:05:05,538] util Interrupted process was: /miniforge/envs/flyem-forge/bin/python -m logcollector.logserver --log-dir=/tmp/test_copyseg_logs --port=3000
