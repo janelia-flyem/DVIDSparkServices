@@ -9,8 +9,10 @@ from __future__ import print_function, absolute_import
 import sys
 import subprocess
 import os
+from os.path import basename
 import json
 import time
+import glob
 from collections import OrderedDict
 
 import numpy as np
@@ -23,17 +25,23 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     start = time.time()
     print("Starting test: ", test_name)
 
+    config_template_path = ""
+    for candidate_path in glob.glob(f"{test_dir}/{test_name}/config.*"):
+        if os.path.splitext(candidate_path)[1] in ('.json', '.yml', '.yaml'):
+            assert not config_template_path, "Your test directory has more than one config file in it."
+            config_template_path = candidate_path
+    
     temp_data_dir = test_dir + "/" + test_name + "/temp_data"
     if not os.path.exists(temp_data_dir):
         os.makedirs(temp_data_dir)
 
     num_jobs = 8
-    temp_config_json = temp_data_dir + "/config.json"
+    temp_config_json = os.path.join(temp_data_dir, basename(config_template_path))
     job_command = 'spark-submit --driver-memory 2G --executor-memory 4G --master local[{num_jobs}] {test_dir}/../DVIDSparkServices/workflow/launchworkflow.py {plugin} -c {temp_config_json}'\
                    .format(**locals())
 
     print(job_command)
-    with open(test_dir+"/"+test_name+"/config.json") as fin:
+    with open(config_template_path) as fin:
         data = fin.read()
 
     data = data.replace("UUID1", uuid1)
@@ -290,6 +298,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_seg_with_roi"] = "CreateSegmentation"
 
     tests["test_skeletons"] = "CreateSkeletons"
+    tests["test_meshes"] = "CreateSkeletons"
     tests["test_cc"] = "ConnectedComponents"
     tests["test_comp"] = "EvaluateSeg"
     tests["test_graph"] = "ComputeGraph"

@@ -1,7 +1,39 @@
 import re
 import time
-import subprocess
+from subprocess import check_output, Popen, CalledProcessError
 from datetime import datetime
+
+def nice_call(*popenargs, timeout=None, **kwargs):
+    """
+    Like subprocess.call(), but give the child process time to
+    clean up and communicate if a KeyboardInterrupt is raised.
+    """
+    with Popen(*popenargs, **kwargs) as p:
+        try:
+            return p.wait(timeout=timeout)
+        except KeyboardInterrupt:
+            if not timeout:
+                timeout = 0.5
+            p.wait(timeout=timeout)
+            raise
+        except:
+            p.kill()
+            p.wait()
+            raise
+
+
+def nice_check_call(*popenargs, **kwargs):
+    """
+    Like subprocess.check_call(), but give the child process time to
+    clean up and communicate if a KeyboardInterrupt is raised.
+    """
+    retcode = nice_call(*popenargs, **kwargs)
+    if retcode:
+        cmd = kwargs.get("args")
+        if cmd is None:
+            cmd = popenargs[0]
+        raise CalledProcessError(retcode, cmd)
+    return 0
 
 class Bjob(object):
     """
@@ -61,7 +93,7 @@ class Bjob(object):
         self.bsub_cmd = self.construct_bsub_command(suspend or write_log_header)
         
         print(self.bsub_cmd + "\n")
-        bsub_output = subprocess.check_output(self.bsub_cmd, shell=True).decode()
+        bsub_output = check_output(self.bsub_cmd, shell=True).decode()
         print(bsub_output)
         self.job_id, self.queue_name = parse_bsub_output(bsub_output)
         
@@ -105,7 +137,7 @@ class Bjob(object):
         return cmd
 
     def resume(self):
-        subprocess.check_output(f"bresume {self.job_id}", shell=True).decode()
+        check_output(f"bresume {self.job_id}", shell=True).decode()
     
     def wait_for_start(self):
         name = self.name or str(self.job_id)
@@ -168,7 +200,7 @@ def get_job_hostname(job_id):
     If it is running on more than one host, the first hostname listed by bjobs is returned.
     (For 'sparkbatch' jobs, the first host is the master.)
     """
-    bjobs_output = subprocess.check_output(f'bjobs -X -noheader -o EXEC_HOST {job_id}', shell=True).decode()
+    bjobs_output = check_output(f'bjobs -X -noheader -o EXEC_HOST {job_id}', shell=True).decode()
     hostname = bjobs_output.split(':')[0].split('*')[-1].strip()
     return hostname
 
@@ -176,7 +208,7 @@ def get_job_submit_time(job_id):
     """
     Return the job's submit_time as a datetime object.
     """
-    bjobs_output = subprocess.check_output(f'bjobs -X -noheader -o SUBMIT_TIME {job_id}', shell=True).strip().decode()
+    bjobs_output = check_output(f'bjobs -X -noheader -o SUBMIT_TIME {job_id}', shell=True).strip().decode()
     # Example:
     # Sep  6 13:10:09 2017
     submit_time = datetime.strptime(f"{bjobs_output} {time.localtime().tm_zone}", "%b %d %H:%M:%S %Y %Z")
@@ -195,3 +227,6 @@ def wait_for_job_start(job_id):
             wait_times = wait_times[1:]
         hostname = get_job_hostname(job_id)
     return hostname
+
+def kill_job(job_id):
+    nice_check_call(f"bkill {job_id}", shell=True)

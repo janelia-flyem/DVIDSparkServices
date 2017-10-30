@@ -278,10 +278,8 @@ class Segmentor(object):
         
         if self.segmentor_config[segmentation_step]["use-subprocess"]:
             timeout = self.segmentor_config[segmentation_step]["subprocess-timeout"]
-            def log_msg(msg):
-                logger = logging.getLogger(full_function_name)
-                logger.info(msg.rstrip())
-            func = execute_in_subprocess(log_msg, timeout)(func)
+            logger = logging.getLogger(full_function_name)
+            func = execute_in_subprocess(timeout, logger)(func)
         else:
             assert self.segmentor_config[segmentation_step]["subprocess-timeout"] == 0, \
                 "Can't use subprocess-timeout without use-subprocess: True"

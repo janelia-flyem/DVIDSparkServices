@@ -8,7 +8,9 @@ from functools import partial
 
 import numpy as np
 import h5py
-import pandas as pd
+
+# Don't import pandas here; import it locally as needed
+#import pandas as pd
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -56,9 +58,11 @@ class CopySegmentation(Workflow):
     }
 
     OptionsSchema = copy.deepcopy(Workflow.OptionsSchema)
+    OptionsSchema["additionalProperties"] = False
     OptionsSchema["properties"].update(
     {
         "body-sizes": BodySizesOptionsSchema,
+        
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
@@ -121,9 +125,9 @@ class CopySegmentation(Workflow):
         assert not any(np.array(output_config["message-block-shape"]) % output_config["block-width"]), \
             "Output message-block-shape should be a multiple of the block size in all dimensions."
 
-
         input_bricks, bounding_box, _input_grid = self._partition_input()
         self._create_output_instance_if_necessary(bounding_box)
+        self._log_neuroglancer_link()
 
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
@@ -207,6 +211,10 @@ class CopySegmentation(Workflow):
                                    input_config["change-stack-id"],
                                    dtype=np.uint64 )
 
+            assert (input_bb_zyx[0] >= vol.bounding_box[0]).all() and (input_bb_zyx[1] <= vol.bounding_box[1]).all(), \
+                f"Specified bounding box ({input_bb_zyx.tolist()}) extends outside the "\
+                f"BrainMaps volume geometry ({vol.bounding_box.tolist()})"
+
             # Two-levels of auto-retry:
             # 1. Auto-retry up to three time for any reason.
             # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
@@ -267,6 +275,38 @@ class CopySegmentation(Workflow):
                            depth,
                            3*(output_config["block-width"],) )
 
+    def _log_neuroglancer_link(self):
+        """
+        Write a link to the log file for viewing the segmentation data after it is ingested.
+        We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
+        """
+        server = self.config_data["output"]["server"] # Note: Begins with http://
+        uuid = self.config_data["output"]["uuid"]
+        instance = self.config_data["output"]["segmentation-name"]
+        
+        output_box_xyz = np.array(self.config_data["output"]["bounding-box"])
+        output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
+        
+        link_prefix = f"{server}/neuroglancer/#!"
+        link_json = \
+        {
+            "layers": {
+                "segmentation": {
+                    "type": "segmentation",
+                    "source": f"dvid://{server}/{uuid}/{instance}"
+                }
+            },
+            "navigation": {
+                "pose": {
+                    "position": {
+                        "voxelSize": [8,8,8],
+                        "voxelCoordinates": output_center_xyz.tolist()
+                    }
+                },
+                "zoomFactor": 8
+            }
+        }
+        logger.info(f"Neuroglancer link to output: {link_prefix}{json.dumps(link_json)}")
 
     def _read_pyramid_depth(self):
         """
@@ -410,6 +450,7 @@ class CopySegmentation(Workflow):
               for the sake of performance comparisons between the two methods.
               The method used is determined by the ['body-sizes]['method'] option.
         """
+        import pandas as pd
         if not self.config_data["options"]["body-sizes"]["output-path"]:
             logger.info("Skipping body size calculation.")
             return
@@ -468,6 +509,13 @@ class CopySegmentation(Workflow):
             logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
 
         min_size = self.config_data["options"]["body-sizes"]["minimum-size"]
+
+        nonzero_start = 0
+        if body_labels[0] == 0:
+            nonzero_start = 1
+        nonzero_count = body_sizes[nonzero_start:].sum()
+        logger.info(f"Final volume contains {nonzero_count} nonzero voxels")
+
         if min_size > 1:
             logger.info(f"Omitting body sizes below {min_size} voxels...")
             valid_rows = body_sizes >= min_size
@@ -488,6 +536,7 @@ class CopySegmentation(Workflow):
             with h5py.File(output_path, 'w') as f:
                 f.create_dataset('labels', data=body_labels, chunks=True)
                 f.create_dataset('sizes', data=body_sizes, chunks=True)
+                f['total_nonzero_voxels'] = nonzero_count
         logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
 
 

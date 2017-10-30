@@ -6,8 +6,8 @@
     },
     "options": {
         "minslice" : 0,
-        "maxslice" : 261,
-        "basename" : "integration_tests/resources/grayscale_maps/iso.%05d.png",
+        "maxslice" : "auto",
+        "basename" : "integration_tests/resources/grayscale_maps/iso.{:05d}.png",
 
         "create-pyramid": true,
         "create-pyramid-jpeg": true,

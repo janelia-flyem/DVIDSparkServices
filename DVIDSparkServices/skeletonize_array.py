@@ -1,10 +1,8 @@
 from __future__ import print_function, absolute_import
 import ctypes
-import json
-from DVIDSparkServices.json_util import validate_and_inject_defaults
 
 import numpy as np
-from neutube import ZStack, ZStackSkeletonizer
+from neutube import ZStack, ZStackSkeletonizer, ZSwcTree
 
 BYTE_PTR = ctypes.POINTER(ctypes.c_byte)
 
@@ -71,64 +69,80 @@ def copy_ndarray_to_zstack(data_zyx):
 
 # These default values match the ones Ting uses for his Skeletonizer service,
 # not the defaults in the C++ constructor.
+DefaultConfig = \
+{
+    "downsampleInterval": [0,0,0],
+    "minimalLength": 40.0,
+    "maximalDistance": 100,
+    "keepingSingleObject": True,
+    "rebase": True,
+    "fillingHole": True,
+    "minimalObjectSize": 0
+}
+
 SkeletonConfigSchema = \
-    {
-      #"$schema": "http://json-schema.org/schema#",
-      #"title": "Skeletonization config file",
-      "type": "object",
-      "properties": {
-        "downsampleInterval": {
-          "type": "array",
-          "items": { "type": "integer" },
-          "minItems": 3,
-          "maxItems": 3,
-          "default": [0,0,0]
-        },
-        "minimalLength": {
-          "description": "",
-          "type": "number",
-          "default": 40.0
-        },
-        "maximalDistance": {
-          "description": "",
-          "type": "number",
-          "default": 100
-        },
-        "keepingSingleObject": {
-          "description": "",
-          "type": "boolean",
-          "default": True
-        },
-        "rebase": {
-          "description": "",
-          "type": "boolean",
-          "default": True
-        },
-        "fillingHole": {
-          "description": "",
-          "type": "boolean",
-          "default": True
-        },
-        "minimalObjectSize": {
-          "description": "",
-          "type": "integer",
-          "default": 0
-        }    
-      }
-    }
+{
+  #"$schema": "http://json-schema.org/schema#",
+  #"title": "Skeletonization config file",
+  "type": "object",
+  "default": {},
+  "properties": {
+    "downsampleInterval": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "minimalLength": {
+      "description": "",
+      "type": "number"
+    },
+    "maximalDistance": {
+      "description": "",
+      "type": "number"
+    },
+    "keepingSingleObject": {
+      "description": "",
+      "type": "boolean"
+    },
+    "rebase": {
+      "description": "",
+      "type": "boolean"
+    },
+    "fillingHole": {
+      "description": "",
+      "type": "boolean"
+    },
+    "minimalObjectSize": {
+      "description": "",
+      "type": "integer"
+    }    
+  }
+}
+
+# Augment the schema with defaults.
+for key, default in DefaultConfig.items():
+    SkeletonConfigSchema["properties"][key]["default"] = default
 
 def make_skeletonizer(config={}):
-    # Validate and replace missing values with their defaults
-    validate_and_inject_defaults(config, SkeletonConfigSchema)
+    try:
+        full_config = config.copy()
+        from DVIDSparkServices.json_util import validate_and_inject_defaults
+        # Validate and replace missing values with their defaults
+        validate_and_inject_defaults(full_config, SkeletonConfigSchema)
+    except ImportError:
+        # Skip schema validation
+        full_config = DefaultConfig.copy()
+        full_config.update(config)
 
     # Configure
     skeletonizer = ZStackSkeletonizer()
-    skeletonizer.setDownsampleInterval( *config['downsampleInterval'] )
-    skeletonizer.setLengthThreshold( config['minimalLength'] )
-    skeletonizer.setDistanceThreshold( config['maximalDistance'] )
-    skeletonizer.setMinObjSize( config['minimalObjectSize'] )
-    skeletonizer.setKeepingSingleObject( config['keepingSingleObject'] )
-    skeletonizer.setRebase( config['rebase'] )
+    skeletonizer.setDownsampleInterval( *full_config['downsampleInterval'] )
+    skeletonizer.setLengthThreshold( full_config['minimalLength'] )
+    skeletonizer.setDistanceThreshold( full_config['maximalDistance'] )
+    skeletonizer.setMinObjSize( full_config['minimalObjectSize'] )
+    skeletonizer.setKeepingSingleObject( full_config['keepingSingleObject'] )
+    skeletonizer.setRebase( full_config['rebase'] )
 
     return skeletonizer
 
@@ -143,17 +157,30 @@ def skeletonize_array(binary_zyx, config={}):
     return tree
 
 if __name__ == "__main__":
-    import vigra
+    # Create a test object (shaped like an 'X')
+    from scipy.ndimage import distance_transform_edt
     center_line_img = np.zeros((100,100,100), dtype=np.uint32)
     for i in range(100):
         center_line_img[i, i, i] = 1
         center_line_img[99-i, i, i] = 1
     
-    distance_to_line = vigra.filters.distanceTransform(center_line_img)
+    # Scipy distance_transform_edt conventions are opposite of vigra:
+    # it calculates distances of non-zero pixels to the zero pixels.
+    center_line_img = 1 - center_line_img
+    distance_to_line = distance_transform_edt(center_line_img)
     binary_vol = (distance_to_line <= 10).astype(np.uint8)
+
+    # Generate a skeleton
     tree = skeletonize_array(binary_vol)
-    tree.translate(1000,1000,1000)
+    assert isinstance(tree, ZSwcTree)
+
+    # Translate and scale the skeleton
+    tree.translate(1000,1000,1000) # X,Y,Z
+    tree.rescale(2,2,2) # X,Y,Z
+
+    # Save it, print it.
     tree.save('/tmp/test-skeleton.swc')
+
     print("...................")
     print(tree.toString())
     print("...................")

@@ -12,6 +12,7 @@ import requests
 import subprocess
 from jsonschema import ValidationError
 import json
+import yaml
 import uuid
 import socket
 
@@ -33,6 +34,8 @@ driver_ip_addr = get_localhost_ip_address()
 class WorkflowError(Exception):
     pass
 
+
+DRIVER_LOGNAME = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
 
 # defines workflows that work over DVID
 class Workflow(object):
@@ -158,16 +161,18 @@ class Workflow(object):
         self.config_data = None
         schema_data = json.loads(schema)
 
-        if jsonfile.startswith('http'):
-            try:
+        try:
+            ext = os.path.splitext(jsonfile)[1]
+            if jsonfile.startswith('http'):
                 self.config_data = requests.get(jsonfile).json()
-            except Exception as e:
-                raise WorkflowError("Could not load file: ", str(e))
-        else:
-            try:
+            elif ext == '.json':
                 self.config_data = json.load(open(jsonfile))
-            except Exception as e:
-                raise WorkflowError("Could not load file: ", str(e))
+            elif ext in ('.yml', '.yaml'):
+                self.config_data = yaml.load(open(jsonfile))
+            else:
+                raise RuntimeError(f"Unknown config file extension: {ext}")
+        except Exception as e:
+            raise WorkflowError("Could not load config file: ", str(e))
 
         # validate JSON
         try:
@@ -329,20 +334,23 @@ class Workflow(object):
         r.raise_for_status()
 
         # Send all driver log messages to the server, too.
-        driver_logname = '@_DRIVER_@' # <-- Funky name so it shows up at the top of the list.
         formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
-        handler = HTTPHandlerWithExtraData( { 'task_key': driver_logname },
-                                            "0.0.0.0:{}".format(log_port),
-                                            '/logsink', 'POST' )
+        handler = HTTPHandlerWithExtraData( { 'task_key': DRIVER_LOGNAME },
+                                              "0.0.0.0:{}".format(log_port),
+                                              '/logsink', 'POST' )
         handler.setFormatter(formatter)
         logging.getLogger().addHandler(handler)
-        
+
+        logger.info(f"Started logserver on {driver_ip_addr}:{log_port}")
         return handler, logserver
 
     def _kill_logserver(self, handler, log_server_proc):
         if log_server_proc:
+            log_port = self.config_data["options"]["log-collector-port"]
+            requests.post(f"http://127.0.0.1:{log_port}/logs/shutdown")
+            logger.info(f"Terminating logserver (PID {log_server_proc.pid})")
             logging.getLogger().removeHandler(handler)
-            logger.info("Terminating logserver (PID {})".format(log_server_proc.pid))
+            log_server_proc.terminate()
             kill_if_running(log_server_proc.pid, 10.0)
 
     def _start_resource_server(self):
@@ -406,6 +414,7 @@ class Workflow(object):
     def _kill_resource_server(self, resource_server_proc):
         if resource_server_proc:
             logger.info("Terminating resource manager (PID {})".format(resource_server_proc.pid))
+            resource_server_proc.terminate()
             kill_if_running(resource_server_proc.pid, 10.0)
 
     def run(self):

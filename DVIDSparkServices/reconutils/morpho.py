@@ -11,7 +11,7 @@ import vigra
 import scipy.sparse
 from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple, reverse_dict
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_box
+from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_binary_3d_suppress_zero, downsample_box
 
 
 try:
@@ -390,7 +390,7 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
     
     return body_ids_and_masks
 
-def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, max_combined_mask_size=1e9 ):
+def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, max_combined_mask_size=1e9, suppress_zero=True ):
     """
     Given a list of bounding boxes and corresponding binary mask arrays,
     assemble the superset of those masks in a larger array.
@@ -415,6 +415,10 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
         The maximum allowed size for the combined downsampled array.
         If the given downsample_factor would result in an array that exceeds max_combined_mask_size,
         then a new downsample_factor is automatically chosen.
+    
+    suppress_zero:
+        ("Maximal value downsampling") In the downsampled mask result, output voxels
+        will be 1 if *any* of their input voxels were 1 (even of they were outnumbered by 0s).
     
     Returns: (combined_bounding_box, combined_mask, downsample_factor)
 
@@ -447,12 +451,16 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
     combined_downsampled_box_shape = combined_downsampled_box[1] - combined_downsampled_box[0]
 
     combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.uint8 )
-    
+
+    if suppress_zero:
+        downsample_func = downsample_binary_3d_suppress_zero
+    else:
+        downsample_func = downsample_binary_3d
+
     for box_global, mask in zip(boxes, masks):
         box_global = np.asarray(box_global)
-        mask_downsampled, downsampled_box = downsample_binary_3d(mask, chosen_downsample_factor, box_global)
+        mask_downsampled, downsampled_box = downsample_func(mask, chosen_downsample_factor, box_global)
         downsampled_box[:] -= combined_downsampled_box[0]
-
         combined_mask_downsampled[ bb_to_slicing(*downsampled_box) ] |= mask_downsampled
 
     if combined_mask_downsampled.sum() * chosen_downsample_factor**3 < minimum_object_size:
