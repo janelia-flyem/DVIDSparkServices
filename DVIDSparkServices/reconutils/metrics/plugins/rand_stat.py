@@ -115,27 +115,27 @@ class rand_stat(StatType):
 
         # generate subvolume stats
         for name, val1 in self.fmergebest.items():
-            sumstat = {"name": "S-BEST-FM-RD", "higher-better": True, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-BEST-FM-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Best False Merge Rand for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fmergeworst.items():
-            sumstat = {"name": "S-WRST-FM-RD", "higher-better": True, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-WRST-FM-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Worst False Merge Rand for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fsplitbest.items():
-            sumstat = {"name": "S-BEST-FS-RD", "higher-better": True, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-BEST-FS-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Best False Split Rand for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fsplitworst.items():
-            sumstat = {"name": "S-WRST-FS-RD", "higher-better": True, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-WRST-FS-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Worst False Split Rand for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fmergefsplitave.items():
-            sumstat = {"name": "S-AVE-RD", "higher-better": True, "typename": name, "val": 2*(val1[0]*val1[1])/(val1[0]+val1[1])}
+            sumstat = {"name": "S-AVE-RD", "higher-better": True, "typename": name, "val": round(2*(val1[0]*val1[1])/(val1[0]+val1[1]), 4)}
             sumstat["description"] = "Average Substack Rand"
             summarystats.append(sumstat)
 
@@ -146,15 +146,15 @@ class rand_stat(StatType):
         fmerge, fsplit = self._calculate_rand(gotable, sotable, disablefilter)
         name = gotable.get_name()
 
-        sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": 2*fmerge*fsplit/(fmerge+fsplit)}
+        sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": round(2*fmerge*fsplit/(fmerge+fsplit), 4)}
         sumstat["description"] = "Rand"
         summarystats.append(sumstat)
 
-        sumstat = {"name": "FM-RD", "higher-better": True, "typename": name, "val": fmerge}
+        sumstat = {"name": "FM-RD", "higher-better": True, "typename": name, "val": round(fmerge, 4)}
         sumstat["description"] = "False Merge Rand"
         summarystats.append(sumstat)
 
-        sumstat = {"name": "FS-RD", "higher-better": True, "typename": name, "val": fsplit}
+        sumstat = {"name": "FS-RD", "higher-better": True, "typename": name, "val": round(fsplit, 4)}
         sumstat["description"] = "False Split Rand"
         summarystats.append(sumstat)
 

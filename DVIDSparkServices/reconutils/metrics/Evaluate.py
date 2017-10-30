@@ -46,6 +46,8 @@ class Evaluate(object):
         self.point_threshold = config["options"]["point-threshold"]
         self.num_displaybodies = config["options"]["num-displaybodies"]
         self.debug = False
+        self.comptypes = []
+
         if "debug" in config:
             self.debug = config["debug"]
 
@@ -155,6 +157,8 @@ class Evaluate(object):
             Original RDD with new subvolume stats and overlap stats included.
 
         """
+        comptype = ComparisonType()
+        self.comptypes.append(comptype.get_name())
 
         def _calcoverlap(label_pairs):
             subvolume, labelgt_map, label2_map, labelgt, label2 = label_pairs
@@ -185,9 +189,8 @@ class Evaluate(object):
             # ?! disable if only one substack ?? -- maybe still good for viewer
 
             self._load_subvolume_stats(stats, overlaps12, overlaps21,
-                    ComparisonType(), labelgt_map, label2_map)
-
-           
+                    comptype, labelgt_map, label2_map)
+            
             # keep volumes for subsequent point queries
             return (stats, labelgt_map, label2_map,
                     labelgt.astype(numpy.uint64),
@@ -224,8 +227,9 @@ class Evaluate(object):
         """
 
         # set type, name, sparse
-        comparsison_type = ComparisonType(str(point_data["type"]),
+        comparison_type = ComparisonType(str(point_data["type"]),
                 str(point_list_name), point_data["sparse"])
+        self.comptypes.append(comparison_type.get_name())
 
         # TODO combine labels with relevant points 
         #lpairs_split = lpairs_split.join(distpoints)
@@ -306,8 +310,6 @@ class Evaluate(object):
                 overlap_gt.append((gt,seg,overlap))
                 overlap_seg.append((seg,gt,overlap))
 
-            comparison_type = ComparisonType(str(point_data["type"]),
-                    str(point_list_name), point_data["sparse"])
             self._load_subvolume_stats(stats, overlap_gt, overlap_seg,
                     comparison_type, labelgt_map, label2_map)
 
@@ -372,6 +374,8 @@ class Evaluate(object):
         metric_results["bodydebug"] = []
         allsubvolume_metrics = {}
         metric_results['subvolumes'] = allsubvolume_metrics
+        metric_results['types'] = self.comptypes
+
 
         # no longer need volumes
         allstats = lpairs_splits.map(lambda x: x[1][0]) 

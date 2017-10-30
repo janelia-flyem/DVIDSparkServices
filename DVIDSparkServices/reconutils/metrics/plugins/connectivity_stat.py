@@ -297,7 +297,7 @@ class connectivity_stat(StatType):
             sum_stats.append(thresstat)
        
         # configure body stats
-        bodytype = {"typename": typename, "name": "GTConn", "largest2smallest": True}
+        bodytype = {"typename": typename, "name": "GTConn", "largest2smallest": True, "isgt": True}
         
         # sort and restrict number of bodies displayed
         bodystatstemp.sort()

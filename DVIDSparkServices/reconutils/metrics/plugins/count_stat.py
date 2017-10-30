@@ -97,7 +97,7 @@ class count_stat(StatType):
         """Generate overlap information.
         """
         debuginfo = []
-        
+       
         # for each comparison type, find overlaps
         for onum, gotable in enumerate(self.segstats.gt_overlaps):
             if gotable.get_comparison_type() not in self.supported_types:
@@ -111,13 +111,13 @@ class count_stat(StatType):
             segdist = segdist[0:self.segstats.num_displaybodies]
 
             # find bodies that overlap with gt
-            top_overlapgt = []
+            top_overlapgt = {}
             nummatches = self.nummatches # find only up to 10 matches
            
             # examine bodies <= threshold
             curramt = 0
             for distiter in range(0, len(gtdist)):
-                curramt += gtdist[distiter][1]/float(gtcount)*100.0
+                curramt += gtdist[distiter][0]/float(gtcount)*100.0
                 if curramt > self.debugthreshold:
                     break
                 overlapmap = gotable.overlap_map[gtdist[distiter][1]]
@@ -126,18 +126,18 @@ class count_stat(StatType):
                     matchlist.append([overlap, body2])
                 matchlist.sort()
                 matchlist.reverse()
-                top_overlapgt.append([gtdist[distiter][1], matchlist[0:nummatches]])
+                top_overlapgt[gtdist[distiter][1]] = matchlist[0:nummatches]
             
             debuginfo1 = {"typename": gotable.get_name(), "name": "gtoverlap"}
             debuginfo1["info"] = top_overlapgt
            
             # find bodies that overlap with test seg
-            top_overlapseg = []
+            top_overlapseg = {}
 
             # examine bodies <= threshold
             curramt = 0
             for distiter in range(0, len(segdist)):
-                curramt += segdist[distiter][1]/float(gtcount)*100.0
+                curramt += segdist[distiter][0]/float(gtcount)*100.0
                 if curramt > self.debugthreshold:
                     break
                 overlapmap = sotable.overlap_map[segdist[distiter][1]]
@@ -148,7 +148,7 @@ class count_stat(StatType):
                     matchlist.append([overlap, body2])
                 matchlist.sort()
                 matchlist.reverse()
-                top_overlapseg.append([segdist[distiter][1], matchlist[0:nummatches]])
+                top_overlapseg[segdist[distiter][1]] = matchlist[0:nummatches]
             
             debuginfo2 = {"typename": gotable.get_name(), "name": "segoverlap"}
             debuginfo2["info"] = top_overlapseg
@@ -263,8 +263,8 @@ class count_stat(StatType):
                 important_segbodies[max_id] = max_val
       
         # add dist bodies
-        bodytest_diststat = {"typename": gotable.get_name(), "name": "Largest Test", "largest2smallest": True}
-        bodygt_diststat = {"typename": gotable.get_name(), "name": "Largest GT", "largest2smallest": True}
+        bodytest_diststat = {"typename": gotable.get_name(), "name": "Largest Test", "largest2smallest": True, "isgt": False}
+        bodygt_diststat = {"typename": gotable.get_name(), "name": "Largest GT", "largest2smallest": True, "isgt": True}
 
         segbodies = {}
         gtbodies = {}
@@ -287,7 +287,7 @@ class count_stat(StatType):
             segbodies[val[1]] = [val[0], [val[0]/float(gtcount)*100.0]]
         
         # add max overlap body stats
-        bodystat = {"typename": gotable.get_name(), "name": "Best Test", "largest2smallest": True}
+        bodystat = {"typename": gotable.get_name(), "name": "Best Test", "largest2smallest": True, "isgt": False}
         bodies1 = []
 
         # examine seg bodies

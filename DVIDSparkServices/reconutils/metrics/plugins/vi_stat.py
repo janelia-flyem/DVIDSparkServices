@@ -118,28 +118,28 @@ class vi_stat(StatType):
 
         # generate subvolume stats
         for name, val1 in self.fmergebest.items():
-            sumstat = {"name": "S-BEST-FM-VI", "higher-better": False, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-BEST-FM-VI", "higher-better": False, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Best False Merge VI for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
 
         for name, val1 in self.fmergeworst.items():
-            sumstat = {"name": "S-WRST-FM-VI", "higher-better": False, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-WRST-FM-VI", "higher-better": False, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Worst False Merge VI for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fsplitbest.items():
-            sumstat = {"name": "S-BEST-FS-VI", "higher-better": False, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-BEST-FS-VI", "higher-better": False, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Best False Split VI for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fsplitworst.items():
-            sumstat = {"name": "S-WRST-FS-VI", "higher-better": False, "typename": name, "val": val1[0]}
+            sumstat = {"name": "S-WRST-FS-VI", "higher-better": False, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Worst False Split VI for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
         for name, val1 in self.fmergefsplitave.items():
-            sumstat = {"name": "S-AVE-VI", "higher-better": False, "typename": name, "val": val1[0]+val1[1]}
+            sumstat = {"name": "S-AVE-VI", "higher-better": False, "typename": name, "val": round(val1[0]+val1[1], 4)}
             sumstat["description"] = "Average Substack VI"
             summarystats.append(sumstat)
 
@@ -168,15 +168,15 @@ class vi_stat(StatType):
         name = gotable.get_name()
         fmerge, fsplit, fmerge_bodies, fsplit_bodies, vi_bodies = self._calculate_vi(gotable, sotable, disablefilter)
          
-        sumstat = {"name": "VI", "higher-better": False, "typename": name, "val": fmerge+fsplit}
+        sumstat = {"name": "VI", "higher-better": False, "typename": name, "val": round(fmerge+fsplit, 4)}
         sumstat["description"] = "Total VI"
         summarystats.append(sumstat)
 
-        sumstat = {"name": "FM-VI", "higher-better": False, "typename": name, "val": fmerge}
+        sumstat = {"name": "FM-VI", "higher-better": False, "typename": name, "val": round(fmerge, 4)}
         sumstat["description"] = "False Merge VI"
         summarystats.append(sumstat)
 
-        sumstat = {"name": "FS-VI", "higher-better": False, "typename": name, "val": fsplit}
+        sumstat = {"name": "FS-VI", "higher-better": False, "typename": name, "val": round(fsplit, 4)}
         sumstat["description"] = "False Split VI"
         summarystats.append(sumstat)
 
@@ -289,8 +289,8 @@ class vi_stat(StatType):
         worst_fsplit_body = 0
         
         # stats for worst vi and worst fsplit
-        bodystat = {"typename": gtoverlap.get_name(), "name": "Worst GT", "largest2smallest": True}
-        bodystat2 = {"typename": gtoverlap.get_name(), "name": "GT Frag", "largest2smallest": True}
+        bodystat = {"typename": gtoverlap.get_name(), "name": "Worst GT", "largest2smallest": True, "isgt": True}
+        bodystat2 = {"typename": gtoverlap.get_name(), "name": "GT Frag", "largest2smallest": True, "isgt": True}
         bodies1 = []
         bodies2 = []
 
@@ -320,7 +320,7 @@ class vi_stat(StatType):
         worst_fmerge_body = 0
 
         # stats for worst vi and worst fsplit
-        bodystat3 = {"typename": gtoverlap.get_name(), "name": "Test Frag", "largest2smallest": True}
+        bodystat3 = {"typename": gtoverlap.get_name(), "name": "Test Frag", "largest2smallest": True, "isgt": False}
         bodies3 = []
         
         #for body, overlapset in seg_overlap.overlap_map.items():
@@ -356,7 +356,7 @@ class vi_stat(StatType):
                 dbodies1[bid] = [val]
             for (val, bid) in bodies2:
                 dbodies2[bid] = [val]
-            for (val, bid) in bodies2:
+            for (val, bid) in bodies3:
                 dbodies3[bid] = [val]
 
             # add body stats
@@ -366,20 +366,19 @@ class vi_stat(StatType):
             
             bodystats.append(bodystat)
             bodystats.append(bodystat2)
-            bodystats.append(bodystat2)
+            bodystats.append(bodystat3)
         
         # body summary stats
         if summarystats is not None:
-
-            sumstat = {"name": "B-WRST-GT-VI", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_gt_val}
+            sumstat = {"name": "B-WRST-GT-VI", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_gt_val, 4)}
             sumstat["description"] = "Worst body VI. GT body ID = %d" % worst_gt_body
             summarystats.append(sumstat)
 
-            sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_fsplit}
+            sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_fsplit, 4)}
             sumstat["description"] = "Worst body fragmentation VI. GT body ID = %d" % worst_fsplit_body
             summarystats.append(sumstat)
 
-            sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": worst_fmerge}
+            sumstat = {"name": "B-WRST-TEST-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_fmerge, 4)}
             sumstat["description"] = "Worst body fragmentation VI. Test body ID = %d" % worst_fmerge_body
             summarystats.append(sumstat)
  
