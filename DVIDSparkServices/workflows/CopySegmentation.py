@@ -5,6 +5,7 @@ import csv
 import copy
 import json
 import logging
+import subprocess
 import socket
 from itertools import chain
 from functools import partial
@@ -117,6 +118,12 @@ class CopySegmentation(Workflow):
             labelmap_file = cfg["apply-labelmap"]["file"]
             if labelmap_file and not os.path.isabs(labelmap_file):
                 cfg["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
+                
+                # If the user gave a .csv.gz file but the .csv file 
+                # happens to be already uncompressed on-disk, use that instead.
+                name, ext = os.path.splitext(cfg["apply-labelmap"]["file"])
+                if ext == '.gz' and os.path.exists(name):
+                    cfg["apply-labelmap"]["file"] = name
 
         ##
         ## Check input/output dimensions and grid schemes.
@@ -392,20 +399,29 @@ class CopySegmentation(Workflow):
         return existing_depth
 
     def _remap_bricks(self, bricks, labelmap_config):
-        if not labelmap_config["file"]:
+        path = labelmap_config["file"]
+        if not path:
             return bricks
 
-        from dvidutils import LabelMapper
+        if not os.path.exists(path) and os.path.exists(path + '.gz'):
+            path = path + '.gz'
+
+        # If the file is compressed, decompress it first
+        if os.path.splitext(path)[1] == '.gz':
+            subprocess.check_call(f"gunzip --keep {labelmap_config['file'] + '.gz'}", shell=True)
+            path = path[:-3] # drop '.gz'
+            assert os.path.exists(path), "Tried to uncompress the labelmap CSV file... where did it go?"
 
         # Mapping is loaded once, in driver
         if labelmap_config["file-type"] == "label-to-body":
-            with open(labelmap_config["file"], 'r') as csv_file:
+            with open(path, 'r') as csv_file:
                 rows = csv.reader(csv_file)
                 all_items = chain.from_iterable(rows)
                 mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
         elif labelmap_config["file-type"] == "equivalence-edges":
             mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(labelmap_config["file"])
 
+        from dvidutils import LabelMapper
         def remap_bricks(partition_bricks):
             domain, codomain = mapping_pairs.transpose()
             mapper = LabelMapper(domain, codomain)
