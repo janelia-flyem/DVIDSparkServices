@@ -15,7 +15,10 @@ import h5py
 # Don't import pandas here; import it locally as needed
 #import pandas as pd
 
+
 from dvid_resource_manager.client import ResourceManagerClient
+
+from dvidutils import downsample_labels
 
 from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
@@ -628,12 +631,18 @@ class CopySegmentation(Workflow):
 
 
 def downsample_brick(brick):
+    # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
     assert (brick.physical_box % 2 == 0).all()
     assert (brick.logical_box % 2 == 0).all()
 
-    # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
-    downsampled_volume, _ = \
-        downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
+    # Old: Python downsampling
+    # downsample_3Dlabels(brick.volume)
+
+    # Newer: Numba downsampling
+    #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
+
+    # Even Newer: C++ downsampling (note: only works on aligned data.)
+    downsampled_volume = downsample_labels(brick.volume, 2, suppress_zero=True)
 
     downsampled_logical_box = brick.logical_box // 2
     downsampled_physical_box = brick.physical_box // 2
