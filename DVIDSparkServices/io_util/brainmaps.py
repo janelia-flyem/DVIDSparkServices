@@ -380,8 +380,16 @@ class BrainMapsVolume:
               via a connected components step.
         """
         with open(csv_path, 'r') as csv_file:
-            rows = csv.reader(csv_file)
-            all_items = chain.from_iterable(rows)
+            # Is there a header?
+            has_header = csv.Sniffer().has_header(csv_file.read(1024))
+            csv_file.seek(0)
+            rows = iter(csv.reader(csv_file))
+            if has_header:
+                # Skip header
+                _header = next(rows)
+            
+            # We only care about the first two columns
+            all_items = chain.from_iterable( (row[0], row[1]) for row in rows )
             edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
 
         groups = BrainMapsVolume.groups_from_edges(edges)
