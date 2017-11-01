@@ -193,15 +193,18 @@ class CopySegmentation(Workflow):
 
         # For now, all output_configs are required to have identical grid alignment settings
         # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
-        aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0, output_configs[0], pad=False)
+        aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0, output_configs[0], align=True, pad=False)
+        translated_bricks.unpersist()
         del translated_bricks
 
         for output_config in self.config_data["outputs"]:
-            # Re-align to output grid, pad internally to block-align.
-            aligned_bricks = self._consolidate_and_pad(aligned_input_bricks, 0, output_config)
+            # Pad internally to block-align.
+            aligned_bricks = self._consolidate_and_pad(aligned_input_bricks, 0, output_config, align=False, pad=True)
     
             # Apply pre-output label map (if any)
             remapped_output_bricks = self._remap_bricks(aligned_bricks, output_config["apply-labelmap"])
+            aligned_bricks.unpersist()
+            del aligned_bricks
     
             # Compute body sizes and write to HDF5
             self._write_body_sizes( remapped_output_bricks, output_config )
@@ -214,9 +217,9 @@ class CopySegmentation(Workflow):
         # Downsample and write the rest of the pyramid scales
         for new_scale in range(1, 1+options["pyramid-depth"]):
             # Compute downsampled (results in small bricks)
-            downsampled_bricks = self._downsample_bricks(aligned_bricks, new_scale)
-            aligned_bricks.unpersist()
-            del aligned_bricks
+            downsampled_bricks = self._downsample_bricks(aligned_input_bricks, new_scale)
+            aligned_input_bricks.unpersist()
+            del aligned_input_bricks
 
             for output_config in self.config_data["outputs"]:
                 # Consolidate to full-size bricks and pad internally to block-align
@@ -228,7 +231,7 @@ class CopySegmentation(Workflow):
                 # Write to DVID
                 self._write_bricks( remapped_consolidated_bricks, new_scale, output_config )
 
-            aligned_bricks = downsampled_bricks
+            aligned_input_bricks = downsampled_bricks
             del downsampled_bricks
 
 
@@ -463,7 +466,7 @@ class CopySegmentation(Workflow):
         return downsampled_bricks
 
 
-    def _consolidate_and_pad(self, bricks, scale, output_config, pad=True):
+    def _consolidate_and_pad(self, bricks, scale, output_config, align=True, pad=True):
         """
         Consolidate (align), and pad the given RDD of Bricks.
 
@@ -471,20 +474,25 @@ class CopySegmentation(Workflow):
         
         output_config: The config settings for the output volume to align to and pad from
         
+        align: If False, skip the alignment step. (Only use this if the bricks are already aligned.)
+        
         pad: If False, skip the padding step
         
         Note: UNPERSISTS the input data and returns the new, downsampled data.
         """
-        # Consolidate bricks to full size, aligned blocks (shuffles data)
-        # FIXME: We should skip this if the grids happen to be aligned already.
-        #        This shuffle takes ~15 minutes per tab.
-        output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
-        realigned_bricks = realign_bricks_to_new_grid( output_writing_grid, bricks ).values()
-        persist_and_execute(realigned_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
-
-        # Discard original
-        bricks.unpersist()
-        del bricks
+        if not align:
+            realigned_bricks = bricks
+        else:
+            # Consolidate bricks to full-size, aligned blocks (shuffles data)
+            # FIXME: We should skip this if the grids happen to be aligned already.
+            #        This shuffle takes ~15 minutes per tab.
+            output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
+            realigned_bricks = realign_bricks_to_new_grid( output_writing_grid, bricks ).values()
+            persist_and_execute(realigned_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
+    
+            # Discard original
+            bricks.unpersist()
+            del bricks
         
         if not pad:
             return realigned_bricks
