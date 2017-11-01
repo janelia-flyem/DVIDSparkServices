@@ -427,7 +427,7 @@ class CopySegmentation(Workflow):
         if os.path.splitext(path)[1] == '.gz':
             uncompressed_path = path[:-3] # drop '.gz'
             if not os.path.exists(uncompressed_path):
-                subprocess.check_call(f"gunzip {path + '.gz'}", shell=True)
+                subprocess.check_call(f"gunzip {path}", shell=True)
                 assert os.path.exists(uncompressed_path), "Tried to uncompress the labelmap CSV file... where did it go?"
             path = uncompressed_path # drop '.gz'
 
