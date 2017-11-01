@@ -191,9 +191,14 @@ class CopySegmentation(Workflow):
         remapped_input_bricks.unpersist()
         del remapped_input_bricks
 
+        # For now, all output_configs are required to have identical grid alignment settings
+        # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
+        aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0, output_configs[0], pad=False)
+        del translated_bricks
+
         for output_config in self.config_data["outputs"]:
             # Re-align to output grid, pad internally to block-align.
-            aligned_bricks = self._consolidate_and_pad(translated_bricks, 0, output_config)
+            aligned_bricks = self._consolidate_and_pad(aligned_input_bricks, 0, output_config)
     
             # Apply pre-output label map (if any)
             remapped_output_bricks = self._remap_bricks(aligned_bricks, output_config["apply-labelmap"])
@@ -458,11 +463,15 @@ class CopySegmentation(Workflow):
         return downsampled_bricks
 
 
-    def _consolidate_and_pad(self, bricks, scale, output_config):
+    def _consolidate_and_pad(self, bricks, scale, output_config, pad=True):
         """
         Consolidate (align), and pad the given RDD of Bricks.
 
         scale: The pyramid scale of the data.
+        
+        output_config: The config settings for the output volume to align to and pad from
+        
+        pad: If False, skip the padding step
         
         Note: UNPERSISTS the input data and returns the new, downsampled data.
         """
@@ -476,6 +485,9 @@ class CopySegmentation(Workflow):
         # Discard original
         bricks.unpersist()
         del bricks
+        
+        if not pad:
+            return realigned_bricks
 
         # Pad from previously-existing pyramid data.
         output_padding_grid = Grid(output_config["block-width"], (0,0,0))
