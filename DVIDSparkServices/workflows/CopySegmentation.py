@@ -449,7 +449,7 @@ class CopySegmentation(Workflow):
             
             partition_bricks = list(partition_bricks)
             for brick in partition_bricks:
-                mapper.apply_inplace(brick.volume)
+                mapper.apply_inplace(brick.volume, allow_unmapped=True)
             return partition_bricks
         
         # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
