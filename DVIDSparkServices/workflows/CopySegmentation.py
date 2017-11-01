@@ -118,7 +118,7 @@ class CopySegmentation(Workflow):
             labelmap_file = cfg["apply-labelmap"]["file"]
             if labelmap_file.startswith('gs://'):
                 # Verify that gsutil is able to see the file before we start doing real work.
-                subprocess.check_call(f'gsutil ls {labelmap_file}', shell=True)
+                subprocess.check_output(f'gsutil ls {labelmap_file}', shell=True)
             elif labelmap_file and not os.path.isabs(labelmap_file):
                 cfg["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
@@ -408,6 +408,8 @@ class CopySegmentation(Workflow):
         if not path:
             return bricks
 
+        # path is [gs://]/path/to/file.csv[.gz]
+
         # If the file is in a gbucket, download it first (if necessary)
         if path.startswith('gs://'):
             filename = path.split('/')[-1]
@@ -415,6 +417,8 @@ class CopySegmentation(Workflow):
             if not os.path.exists(downloaded_path):
                 subprocess.check_call(f'gsutil cp {path} {downloaded_path}', shell=True)
             path = downloaded_path
+
+        # Now path is /path/to/file.csv[.gz]
         
         if not os.path.exists(path) and os.path.exists(path + '.gz'):
             path = path + '.gz'
@@ -423,18 +427,20 @@ class CopySegmentation(Workflow):
         if os.path.splitext(path)[1] == '.gz':
             uncompressed_path = path[:-3] # drop '.gz'
             if not os.path.exists(uncompressed_path):
-                subprocess.check_call(f"gunzip {labelmap_config['file'] + '.gz'}", shell=True)
+                subprocess.check_call(f"gunzip {path + '.gz'}", shell=True)
                 assert os.path.exists(uncompressed_path), "Tried to uncompress the labelmap CSV file... where did it go?"
             path = uncompressed_path # drop '.gz'
 
-        # Mapping is loaded once, in driver
+        # Now path is /path/to/file.csv
+
+        # Mapping is only loaded once, on the driver
         if labelmap_config["file-type"] == "label-to-body":
             with open(path, 'r') as csv_file:
                 rows = csv.reader(csv_file)
                 all_items = chain.from_iterable(rows)
                 mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
         elif labelmap_config["file-type"] == "equivalence-edges":
-            mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(labelmap_config["file"])
+            mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
 
         from dvidutils import LabelMapper
         def remap_bricks(partition_bricks):
