@@ -548,9 +548,10 @@ class CopySegmentation(Workflow):
                 megavoxels_per_second = datacrop.size / 1e6 / put_timer.seconds
                 logger.info(f"Put block {data_offset_zyx} in {put_timer.seconds:.3f} seconds ({megavoxels_per_second:.1f} Megavoxels/second)")
 
+        logger.info(f"Scale {scale}: Writing bricks to {dataname}...")
         with Timer() as timer:
             bricks.foreach(write_brick)
-        logger.info(f"Scale {scale}: Writing to DVID took {timer.timedelta}")
+        logger.info(f"Scale {scale}: Writing bricks to {dataname} {timer.timedelta}")
 
     
     def _write_body_sizes( self, bricks, output_config ):
