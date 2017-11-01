@@ -116,14 +116,11 @@ class CopySegmentation(Workflow):
 
             # Convert labelmap (if any) to absolute path (relative to config file)
             labelmap_file = cfg["apply-labelmap"]["file"]
-            if labelmap_file and not os.path.isabs(labelmap_file):
+            if labelmap_file.startswith('gs://'):
+                # Verify that gsutil is able to see the file before we start doing real work.
+                subprocess.check_call(f'gsutil ls {labelmap_file}', shell=True)
+            elif labelmap_file and not os.path.isabs(labelmap_file):
                 cfg["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
-                
-                # If the user gave a .csv.gz file but the .csv file 
-                # happens to be already uncompressed on-disk, use that instead.
-                name, ext = os.path.splitext(cfg["apply-labelmap"]["file"])
-                if ext == '.gz' and os.path.exists(name):
-                    cfg["apply-labelmap"]["file"] = name
 
         ##
         ## Check input/output dimensions and grid schemes.
@@ -403,14 +400,24 @@ class CopySegmentation(Workflow):
         if not path:
             return bricks
 
+        # If the file is in a gbucket, download it first (if necessary)
+        if path.startswith('gs://'):
+            filename = path.split('/')[-1]
+            downloaded_path = self.relpath_to_abspath('.') + '/' + filename
+            if not os.path.exists(downloaded_path):
+                subprocess.check_call(f'gsutil cp {path} {downloaded_path}', shell=True)
+            path = downloaded_path
+        
         if not os.path.exists(path) and os.path.exists(path + '.gz'):
             path = path + '.gz'
 
-        # If the file is compressed, decompress it first
+        # If the file is compressed, decompress it first (if necessary)
         if os.path.splitext(path)[1] == '.gz':
-            subprocess.check_call(f"gunzip --keep {labelmap_config['file'] + '.gz'}", shell=True)
-            path = path[:-3] # drop '.gz'
-            assert os.path.exists(path), "Tried to uncompress the labelmap CSV file... where did it go?"
+            uncompressed_path = path[:-3] # drop '.gz'
+            if not os.path.exists(uncompressed_path):
+                subprocess.check_call(f"gunzip --keep {labelmap_config['file'] + '.gz'}", shell=True)
+                assert os.path.exists(uncompressed_path), "Tried to uncompress the labelmap CSV file... where did it go?"
+            path = uncompressed_path # drop '.gz'
 
         # Mapping is loaded once, in driver
         if labelmap_config["file-type"] == "label-to-body":
