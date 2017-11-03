@@ -30,7 +30,8 @@ def setup_faulthandler():
 
     output_dir = os.environ.get("DVIDSPARKSERVICES_FAULTHANDLER_OUTPUT_DIR", "")
     if not output_dir:
-        output_dir = "/tmp"
+        import getpass
+        output_dir = f"/tmp/{getpass.getuser()}"
 
     makedirs(output_dir, exist_ok=True)
 
