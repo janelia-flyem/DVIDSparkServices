@@ -13,7 +13,7 @@ Assumptions:
 
 import sys
 import os
-from os.path import abspath, dirname, basename, splitext 
+from os.path import abspath, dirname, basename, splitext, exists
 from datetime import datetime
 import argparse
 
@@ -26,10 +26,10 @@ from .lsf_utils import Bjob, kill_job
 # Location of spark distribution
 SPARK_HOME = "/misc/local/spark-test" # /misc/local/spark-versions/spark-2.2.0-bin-without-hadoop
 
-# spark configuration path (disable default python)
-# FIXME: This won't work if DVIDSparkServices is 'installed' to the python interpreter.
-#        The 'conf' dir is in the top-level of the repo and won't get installed!
+# spark configuration path
 SPARK_CONF_DIR = abspath(dirname(DVIDSparkServices.__file__) + '/SPARK_CONF_DIR')
+if ( not exists(f'{SPARK_CONF_DIR}/spark-defaults.conf') or not exists(f'{SPARK_CONF_DIR}/spark-env.sh') ):
+    raise RuntimeError(f"SPARK_CONF_DIR does not contain necessary configuration files: {SPARK_CONF_DIR}")
 
 # DVIDSparkServices will check this variable and use to override Python's tempfile.tempdir
 DVIDSPARK_WORKFLOW_TMPDIR = "/scratch/" + os.environ['USER']
