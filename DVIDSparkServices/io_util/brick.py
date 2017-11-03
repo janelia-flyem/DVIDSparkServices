@@ -1,4 +1,3 @@
-import warnings
 from collections import namedtuple, defaultdict
 from itertools import chain, starmap
 from functools import partial
@@ -11,6 +10,7 @@ try:
     from pyspark.rdd import RDD
     _RDD = RDD
 except ImportError:
+    import warnings
     warnings.warn("PySpark is not available.")
     class _RDD: pass
 
