@@ -5,7 +5,7 @@ setup( name='DVIDSparkServices',
        description='Spark-based reconstruction tools working on DVID',
        url='https://github.com/janelia-flyem/DVIDSparkServices',
        packages=find_packages(exclude=('unit_tests', 'integration_tests')),
-       package_data={},
+       package_data={'DVIDSparkServices': ['SPARK_CONF_DIR/*']},
        test_suite="DVIDSparkServices.reconutils.metrics.tests",
        entry_points={
           'console_scripts': [

@@ -29,7 +29,7 @@ SPARK_HOME = "/misc/local/spark-test" # /misc/local/spark-versions/spark-2.2.0-b
 # spark configuration path (disable default python)
 # FIXME: This won't work if DVIDSparkServices is 'installed' to the python interpreter.
 #        The 'conf' dir is in the top-level of the repo and won't get installed!
-CONF_DIR = abspath(dirname(DVIDSparkServices.__file__) + '/../conf')
+SPARK_CONF_DIR = abspath(dirname(DVIDSparkServices.__file__) + '/SPARK_CONF_DIR')
 
 # DVIDSparkServices will check this variable and use to override Python's tempfile.tempdir
 DVIDSPARK_WORKFLOW_TMPDIR = "/scratch/" + os.environ['USER']
@@ -49,7 +49,7 @@ def setup_environment(num_spark_workers, config_file, job_log_dir):
     os.environ["SPARK_HOME"] = SPARK_HOME
 
     # set configuration directory
-    os.environ["SPARK_CONF_DIR"] = CONF_DIR
+    os.environ["SPARK_CONF_DIR"] = SPARK_CONF_DIR
 
     # set exact python to be used
     os.environ["PYSPARK_PYTHON"] = sys.executable
