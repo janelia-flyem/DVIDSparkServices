@@ -203,7 +203,6 @@ class CopySegmentation(Workflow):
     
             # Apply pre-output label map (if any)
             remapped_output_bricks = self._remap_bricks(aligned_bricks, output_config["apply-labelmap"])
-            aligned_bricks.unpersist()
             del aligned_bricks
     
             # Compute body sizes and write to HDF5
@@ -227,6 +226,7 @@ class CopySegmentation(Workflow):
 
                 # Remap the downsampled bricks.
                 remapped_consolidated_bricks = self._remap_bricks(consolidated_input_bricks, output_config["apply-labelmap"])
+                del consolidated_input_bricks
                 
                 # Write to DVID
                 self._write_bricks( remapped_consolidated_bricks, new_scale, output_config )
@@ -404,6 +404,12 @@ class CopySegmentation(Workflow):
         return existing_depth
 
     def _remap_bricks(self, bricks, labelmap_config):
+        """
+        Relabel the bricks with a labelmap.
+        If the given config specifies not labelmap, then the original is returned.
+        
+        If remap is applied, the input is UN-persisted automatically.
+        """
         path = labelmap_config["file"]
         if not path:
             return bricks
@@ -455,6 +461,7 @@ class CopySegmentation(Workflow):
         # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
         remapped_bricks = bricks.mapPartitions(remap_bricks)
         persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
+        bricks.unpersist()
         return remapped_bricks
 
     def _downsample_bricks(self, bricks, new_scale):
