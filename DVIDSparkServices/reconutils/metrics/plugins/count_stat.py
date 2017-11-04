@@ -315,16 +315,19 @@ class count_stat(StatType):
         # add body stat
         if bodystats is not None:
             # restrict number of bodies to top num_displaybodies
-            bodies1.sort()
-            bodies1.reverse()
-            bodies1 = bodies1[0:num_displaybodies]
-            dbodies1 = {}
-            for (val, bid, total) in bodies1:
-                dbodies1[bid] = [val, [total]]
+            
+            # disable Best Test if non-gt mode
+            if not self.segstats.nogt:
+                bodies1.sort()
+                bodies1.reverse()
+                bodies1 = bodies1[0:num_displaybodies]
+                dbodies1 = {}
+                for (val, bid, total) in bodies1:
+                    dbodies1[bid] = [val, [total]]
 
-            # add body stats
-            bodystat["bodies"] = dbodies1
-            bodystats.append(bodystat)
+                # add body stats
+                bodystat["bodies"] = dbodies1
+                bodystats.append(bodystat)
             
             bodystats.append(bodytest_diststat)
             bodystats.append(bodygt_diststat)
@@ -383,11 +386,13 @@ class count_stat(StatType):
                     sumstat["description"] = "#Body difference between GT (%d) and test segmentation (%d) for %d percent of volume" % (numgtbodies[iter1], numsegbodies[iter1], threshold) 
                     summarystats.append(sumstat)
 
-            # write body summary stat
-            sumstat = {"name": "B-BST-TST-OV", "higher-better": True, "typename": gotable.get_name(), "val": best_size}
-            sumstat["description"] = "Test segment with greatest (best) correct overlap.  Test body ID = %d" % best_body_id
-            summarystats.append(sumstat)
+            # disable Best Test if non-gt mode
+            if not self.segstats.nogt:
+                # write body summary stat
+                sumstat = {"name": "B-BST-TST-OV", "higher-better": True, "typename": gotable.get_name(), "val": best_size}
+                sumstat["description"] = "Test segment with greatest (best) correct overlap.  Test body ID = %d" % best_body_id
+                summarystats.append(sumstat)
 
-        
+            
 
 

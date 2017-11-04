@@ -360,19 +360,23 @@ class vi_stat(StatType):
                 dbodies3[bid] = [val]
 
             # add body stats
-            bodystat["bodies"] = dbodies1
+            # disable Worst GT VI if non-gt mode
+            if not self.segstats.nogt:
+                bodystat["bodies"] = dbodies1
+                bodystats.append(bodystat)
+            
             bodystat2["bodies"] = dbodies2
             bodystat3["bodies"] = dbodies3
-            
-            bodystats.append(bodystat)
             bodystats.append(bodystat2)
             bodystats.append(bodystat3)
         
         # body summary stats
         if summarystats is not None:
-            sumstat = {"name": "B-WRST-GT-VI", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_gt_val, 4)}
-            sumstat["description"] = "Worst body VI. GT body ID = %d" % worst_gt_body
-            summarystats.append(sumstat)
+            # disable Worst GT VI if non-gt mode
+            if not self.segstats.nogt:
+                sumstat = {"name": "B-WRST-GT-VI", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_gt_val, 4)}
+                sumstat["description"] = "Worst body VI. GT body ID = %d" % worst_gt_body
+                summarystats.append(sumstat)
 
             sumstat = {"name": "B-WRST-GT-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_fsplit, 4)}
             sumstat["description"] = "Worst body fragmentation VI. GT body ID = %d" % worst_fsplit_body

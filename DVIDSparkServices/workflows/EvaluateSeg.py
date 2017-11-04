@@ -130,6 +130,11 @@ class EvaluateSeg(DVIDWorkflow):
           "uniqueItems": true,
           "default": []
         },
+        "no-gt": {
+          "description": "Set flag if neither volume is ground truth.",
+          "type": "boolean",
+          "default": false 
+        },
         "disable-subvolumes": {
           "description": "disables subvolume stats.  This could be useful if working with smaller volumes where such information is unnecessary.  It could also save memory / computation.",
           "type": "boolean",

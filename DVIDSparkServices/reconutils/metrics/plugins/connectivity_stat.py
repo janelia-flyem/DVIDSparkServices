@@ -15,6 +15,11 @@ class connectivity_stat(StatType):
     def write_summary_stats(self):
         """Write stats for the volume.
         """
+
+        # disable if non-gt mode
+        if self.segstats.nogt:
+            return []
+
         gotable, gtseg = self._retrieve_overlap_tables()
 
         bodymatches = self._compute_bodymatch(gotable.overlap_map)
@@ -25,6 +30,10 @@ class connectivity_stat(StatType):
     def write_body_stats(self):
         """Write stats per body.
         """
+        # disable if non-gt mode
+        if self.segstats.nogt:
+            return []
+        
         gotable, gtseg = self._retrieve_overlap_tables()
         typename = gotable.get_name()
 
@@ -36,6 +45,10 @@ class connectivity_stat(StatType):
     def write_bodydebug(self):
         """Write connectivity table in the debug info.
         """
+        # disable if non-gt mode
+        if self.segstats.nogt:
+            return []
+        
         gotable, gtseg = self._retrieve_overlap_tables()
         typename = gotable.get_name()
 
