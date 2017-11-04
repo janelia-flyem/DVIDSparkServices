@@ -155,7 +155,6 @@ class CopySegmentation(Workflow):
 
     def execute(self):
         options = self.config_data["options"]
-
         input_config = self.config_data["input"]
         output_configs = self.config_data["outputs"]
 
@@ -164,76 +163,63 @@ class CopySegmentation(Workflow):
 
         input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
         output_bb_zyx = np.array(first_output_config["bounding-box"])[:,::-1]
+        translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
 
         input_bricks, bounding_box, _input_grid = self._partition_input()
         self._create_output_instances_if_necessary(bounding_box)
-        self._log_neuroglancer_links()
 
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
 
+        self._log_neuroglancer_links()
+
         persist_and_execute(input_bricks, f"Reading entire volume", logger)
 
         # Apply post-input label map (if any)
-        remapped_input_bricks = self._remap_bricks(input_bricks, input_config["apply-labelmap"])
+        remapped_input_bricks = self._remap_bricks(input_bricks, input_config["apply-labelmap"], keep_original=False)
         del input_bricks
-        
-        def translate_brick(offset, brick):
-            return Brick( brick.logical_box + offset,
-                          brick.physical_box + offset,
-                          brick.volume )
 
         # Translate coordinates from input to output
         # (which will leave the bricks in a new, offset grid)
         # This has no effect on the brick volumes themselves.
-        translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
-        translated_bricks = remapped_input_bricks.map( partial(translate_brick, translation_offset_zyx) )
-        remapped_input_bricks.unpersist()
+        translated_bricks = self._translate_bricks(remapped_input_bricks, translation_offset_zyx)
         del remapped_input_bricks
 
         # For now, all output_configs are required to have identical grid alignment settings
         # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
         aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0, output_configs[0], align=True, pad=False)
-        translated_bricks.unpersist()
         del translated_bricks
 
         for output_config in self.config_data["outputs"]:
-            # Pad internally to block-align.
-            aligned_bricks = self._consolidate_and_pad(aligned_input_bricks, 0, output_config, align=False, pad=True)
-    
             # Apply pre-output label map (if any)
-            remapped_output_bricks = self._remap_bricks(aligned_bricks, output_config["apply-labelmap"])
-            del aligned_bricks
-    
-            # Compute body sizes and write to HDF5
-            self._write_body_sizes( remapped_output_bricks, output_config )
-    
-            # Write scale 0 to DVID
-            self._write_bricks( remapped_output_bricks, 0, output_config )
-            remapped_output_bricks.unpersist()
+            # Don't delete input, because we need to reuse it for each iteration of this loop
+            remapped_output_bricks = self._remap_bricks(aligned_input_bricks, output_config["apply-labelmap"], keep_original=True)
+
+            # Pad internally to block-align.
+            padded_bricks = self._consolidate_and_pad(remapped_output_bricks, 0, output_config, align=False, pad=True)
             del remapped_output_bricks
     
-        # Downsample and write the rest of the pyramid scales
-        for new_scale in range(1, 1+options["pyramid-depth"]):
-            # Compute downsampled (results in small bricks)
-            downsampled_bricks = self._downsample_bricks(aligned_input_bricks, new_scale)
-            aligned_input_bricks.unpersist()
-            del aligned_input_bricks
+            # Compute body sizes and write to HDF5
+            self._write_body_sizes( padded_bricks, output_config )
+    
+            # Write scale 0 to DVID
+            self._write_bricks( padded_bricks, 0, output_config )
+    
+            for new_scale in range(1, 1+options["pyramid-depth"]):
+                # Compute downsampled (results in smaller bricks)
+                downsampled_bricks = self._downsample_bricks( padded_bricks, new_scale )
 
-            for output_config in self.config_data["outputs"]:
                 # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_input_bricks = self._consolidate_and_pad(downsampled_bricks, new_scale, output_config)
+                consolidated_bricks = self._consolidate_and_pad( downsampled_bricks, new_scale, output_config )
+                del downsampled_bricks
 
-                # Remap the downsampled bricks.
-                remapped_consolidated_bricks = self._remap_bricks(consolidated_input_bricks, output_config["apply-labelmap"])
-                del consolidated_input_bricks
-                
                 # Write to DVID
-                self._write_bricks( remapped_consolidated_bricks, new_scale, output_config )
+                self._write_bricks( consolidated_bricks, new_scale, output_config )
+                padded_bricks = consolidated_bricks
+                del consolidated_bricks
+            del padded_bricks
 
-            aligned_input_bricks = downsampled_bricks
-            del downsampled_bricks
-
+        logger.info(f"DONE copying segmentation to {len(self.config_data['outputs'])} destinations.")
 
     def _partition_input(self):
         """
@@ -403,12 +389,21 @@ class CopySegmentation(Workflow):
 
         return existing_depth
 
-    def _remap_bricks(self, bricks, labelmap_config):
+    def _translate_bricks(self, bricks, offset_zyx):
+        def translate_brick(brick):
+            return Brick( brick.logical_box + offset_zyx,
+                          brick.physical_box + offset_zyx,
+                          brick.volume )
+
+        translated_bricks = bricks.map( translate_brick )
+        return translated_bricks
+
+    def _remap_bricks(self, bricks, labelmap_config, keep_original=False):
         """
         Relabel the bricks with a labelmap.
         If the given config specifies not labelmap, then the original is returned.
         
-        If remap is applied, the input is UN-persisted automatically.
+        Does not unpersist the input.
         """
         path = labelmap_config["file"]
         if not path:
@@ -461,7 +456,8 @@ class CopySegmentation(Workflow):
         # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
         remapped_bricks = bricks.mapPartitions(remap_bricks)
         persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
-        bricks.unpersist()
+        if not keep_original:
+            bricks.unpersist()
         return remapped_bricks
 
     def _downsample_bricks(self, bricks, new_scale):
