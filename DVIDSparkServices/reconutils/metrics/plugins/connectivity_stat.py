@@ -105,22 +105,30 @@ class connectivity_stat(StatType):
 
         # find important bodies
         for b1, overlapset in table.items():
-            total = 0
+            # filter smalll bodies (do not consider)
+            total = self._get_body_volume(overlapset)
+            if total < threshold:
+                continue 
+            indextobodies1[len(bodies1)] = b1
+            bodies1[b1] = len(bodies1)
+            body1size[b1] = total
+          
+            bodysizelist = []
             for b2, overlap in overlapset:
-                total += overlap
-                overlapflat[(b1,b2)] = overlap 
-                if b2 not in bodies2:
+                if b2 not in body2size:
                     body2size[b2] = overlap
                 else:
                     body2size[b2] += overlap
-                if body2size[b2] >= threshold and b2 not in bodies2:
+                overlapflat[(b1,b2)] = overlap 
+                bodysizelist.append((overlap, b2))
+
+            # only grab the top 3 candidates for each body
+            bodysizelist.sort()
+            bodysizelist.reverse()
+            for (overlap, b2) in bodysizelist[0:3]:
+                if b2 not in bodies2:
                     indextobodies2[len(bodies2)] = b2
                     bodies2[b2] = len(bodies2)
-                    
-            if total >= threshold:
-                indextobodies1[len(bodies1)] = b1
-                bodies1[b1] = len(bodies1)
-                body1size[b1] = total
 
         # create overlap table
         tablewidth = len(bodies2)
