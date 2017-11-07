@@ -455,6 +455,13 @@ class CopySegmentation(Workflow):
         elif labelmap_config["file-type"] == "equivalence-edges":
             mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
 
+            # Export mapping to disk in case anyone wants to view it later
+            output_dir, basename = os.path.split(path)
+            mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
+            if not os.path.exists(mapping_csv_path):
+                with open(mapping_csv_path, 'w') as f:
+                    csv.writer(f).writerows(mapping_pairs)
+
         from dvidutils import LabelMapper
         def remap_bricks(partition_bricks):
             domain, codomain = mapping_pairs.transpose()
