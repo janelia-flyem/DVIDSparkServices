@@ -112,8 +112,8 @@ class CopySegmentation(Workflow):
             "Not allowed to skip the input!"
 
         # Delete skipped output_configs
-        for i, cfg in enumerate(list(self.config_data["outputs"])):
-            if cfg["service-type"] == "SKIP":
+        for i, cfg in reversed(list(enumerate(self.config_data["outputs"]))):
+            if self.config_data["outputs"][i]["service-type"] == "SKIP":
                 logger.info(f"NOTE: SKIPPING output configuration {i}")
                 del self.config_data["outputs"][i]
 
