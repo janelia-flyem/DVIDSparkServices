@@ -1,5 +1,5 @@
 from __future__ import division
-from munkres import Munkres
+from scipy.optimize import linear_sum_assignment
 import numpy
 from .stat import *
 
@@ -138,12 +138,14 @@ class connectivity_stat(StatType):
 
         # create profit matrix and run hungarian match
         tableflip = table.max() - table
-        m = Munkres()
-        res = m.compute(tableflip)
+       
+        # munkres hungarian math algorithm
+        row_ind, col_ind = linear_sum_assignment(tableflip)  
 
         # create match overlap list: b1,b2,overlap,b1size,b2size
         match_overlap = []
-        for (b1,b2) in res:
+        for b1 in row_ind:
+            b2 = col_ind[b1]
             body1 = 0
             if b1 in indextobodies1:
                 body1 = indextobodies1[b1]
