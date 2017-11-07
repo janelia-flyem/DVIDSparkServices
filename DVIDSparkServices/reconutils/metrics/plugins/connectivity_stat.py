@@ -93,15 +93,13 @@ class connectivity_stat(StatType):
         threshold = self.segstats.ptfilter
 
         # keep track of important bodies 
-        bodies1 = {}
-        bodies2 = {}
-        indextobodies1 = {}
-        indextobodies2 = {}
         body1size = {}
         body2size = {}
 
         # adjacency list for overlap
         overlapflat = {}
+        
+        body2partners = {}
 
         # find important bodies
         for b1, overlapset in table.items():
@@ -109,8 +107,6 @@ class connectivity_stat(StatType):
             total = self._get_body_volume(overlapset)
             if total < threshold:
                 continue 
-            indextobodies1[len(bodies1)] = b1
-            bodies1[b1] = len(bodies1)
             body1size[b1] = total
           
             bodysizelist = []
@@ -126,51 +122,95 @@ class connectivity_stat(StatType):
             bodysizelist.sort()
             bodysizelist.reverse()
             for (overlap, b2) in bodysizelist[0:3]:
-                if b2 not in bodies2:
-                    indextobodies2[len(bodies2)] = b2
-                    bodies2[b2] = len(bodies2)
-
-        # create overlap table
-        tablewidth = len(bodies2)
-        tableheight = len(bodies1)
-
-        # algorithm run on NxN table -- pad with 0
-        maxdim = max(tablewidth, tableheight)
-        table = numpy.zeros((maxdim, maxdim), dtype=numpy.uint32)
-
-        # populate table
-        for (b1,b2), overlap in overlapflat.items():
-            # both bodies must be present for the overlap to be considered
-            if b1 in bodies1 and b2 in bodies2:
-                table[bodies1[b1],bodies2[b2]] = overlap
-
-        # create profit matrix and run hungarian match
-        tableflip = table.max() - table
-       
-        # munkres hungarian math algorithm
-        row_ind, col_ind = linear_sum_assignment(tableflip)  
+                if b2 not in body2partners:
+                    body2partners[b2] = [b1]
+                else:
+                    body2partners[b2].append(b1)
 
         # create match overlap list: b1,b2,overlap,b1size,b2size
         match_overlap = []
-        for b1 in row_ind:
-            b2 = col_ind[b1]
-            body1 = 0
-            if b1 in indextobodies1:
-                body1 = indextobodies1[b1]
-            body2 = 0
-            if b2 in indextobodies2:
-                body2 = indextobodies2[b2]
+      
+        # find disjoint partitions
+        body1partmap = {}
+        partitions = {}
+        for b2, b1list in body2partners.items():
+            b1list.sort()
+            repelement = b1list[0]
+            for b1 in b1list:
+                if b1 in body1partmap:
+                    rep2 = body1partmap[b1]
+                    if repelement < rep2:
+                        body1partmap[b1] = repelement
+                else:
+                    body1partmap[b1] = repelement
 
-            overlap = table[b1,b2]
+        for b2, b1list in body2partners.items():
+            repelement = 0
+            for b1 in b1list:
+                repelement = body1partmap[b1]
+                if repelement not in partitions:
+                    partitions[repelement] = ([],[])
+                partitions[repelement][0].append(b1)
+            partitions[repelement][1].append(b2)
 
-            b1size = 0
-            if body1 != 0:
-                b1size = body1size[body1]
-            b2size = 0
-            if body2 != 0:
-                b2size = body2size[body2]
+        # iterate through different disjoint partitions of the table
+        # (should be pretty sparse)
+        for rep, partition in partitions.items():
+            # create table
+            body1list = partition[0]
+            body2list = partition[1]
             
-            match_overlap.append((body1,body2,overlap,b1size,b2size))
+            bodies1 = {}
+            bodies2 = {}
+            indextobodies1 = {}
+            indextobodies2 = {}
+
+            for b1 in body1list:
+                indextobodies1[len(bodies1)] = b1
+                bodies1[b1] = len(bodies1)
+            for b2 in body2list:
+                indextobodies2[len(bodies2)] = b2
+                bodies2[b2] = len(bodies2)
+
+            # create overlap table
+            tablewidth = len(bodies2)
+            tableheight = len(bodies1)
+
+            # algorithm run on NxN table -- pad with 0
+            maxdim = max(tablewidth, tableheight)
+            table = numpy.zeros((maxdim, maxdim), dtype=numpy.uint32)
+
+            # populate table
+            for (b1,b2), overlap in overlapflat.items():
+                # both bodies must be present for the overlap to be considered
+                if b1 in bodies1 and b2 in bodies2:
+                    table[bodies1[b1],bodies2[b2]] = overlap
+
+            # create profit matrix and run hungarian match
+            tableflip = table.max() - table
+           
+            # munkres hungarian math algorithm
+            row_ind, col_ind = linear_sum_assignment(tableflip)  
+
+            for b1 in row_ind:
+                b2 = col_ind[b1]
+                body1 = 0
+                if b1 in indextobodies1:
+                    body1 = indextobodies1[b1]
+                body2 = 0
+                if b2 in indextobodies2:
+                    body2 = indextobodies2[b2]
+
+                overlap = table[b1,b2]
+
+                b1size = 0
+                if body1 != 0:
+                    b1size = body1size[body1]
+                b2size = 0
+                if body2 != 0:
+                    b2size = body2size[body2]
+                
+                match_overlap.append((body1,body2,overlap,b1size,b2size))
 
         return match_overlap
 
