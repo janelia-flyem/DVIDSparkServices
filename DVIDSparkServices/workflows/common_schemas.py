@@ -64,6 +64,17 @@ BrainMapsSegmentationSourceSchema = \
     }
 }
 
+SkippedSegmentationSourceSchema = \
+{
+    "description": "A quick way to specify that a given segmentation source/destination should be SKIPPED.",
+    "type": "object",
+    "required": ["service-type"],
+    "additionalProperties": True,
+    "properties": {
+        "service-type": { "type": "string", "enum": ["SKIP"] }
+    }
+}
+
 BoundingBoxSchema = \
 {
     "description": "The bounding box [[x0,y0,z0],[x1,y1,z1]], "
@@ -107,7 +118,8 @@ SegmentationVolumeSchema = \
     "required": ["bounding-box", "message-block-shape"],
     "oneOf": [
         DvidSegmentationSourceSchema,
-        BrainMapsSegmentationSourceSchema
+        BrainMapsSegmentationSourceSchema,
+        SkippedSegmentationSourceSchema
     ],
     "properties": {
         "bounding-box": BoundingBoxSchema,
