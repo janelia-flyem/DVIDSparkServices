@@ -46,6 +46,7 @@ requirements:
     - dvid-resource-manager
     - psutil
     - pandas
+    - munkres
 
 test:
   requires:
