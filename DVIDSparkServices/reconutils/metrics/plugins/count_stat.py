@@ -38,6 +38,61 @@ class count_stat(StatType):
 
         self.supported_types = ["voxels", "synapse"]
 
+        self.subsvol_hist_stats = None
+
+    def reduce_subvolume(self, stat):
+        """Combine subvolume stats.
+        """
+
+        # combine subvolume hist state for each overlap
+        for onum, gotable in enumerate(self.segstats.gt_overlaps):
+            if gotable.get_comparison_type() not in self.supported_types:
+                continue
+
+            stats = self.subsvol_hist_stats[onum]
+            stats2 = stat.subsvol_hist_stats[onum]
+        
+            for iter1, threshold in enumerate(self.thresholds):
+                stat1 = stats[iter1]
+                stat2 = stats2[iter1]
+            
+                # save big value
+                if stat2["val"] > stat1["val"]:
+                    stats[iter1] = stat2
+
+    def compute_subvolume_before_remapping(self):
+        """Generates histogram differences for a subvolume.
+
+        Note:
+            Disable if subvolume stats are turned off.
+        """
+        
+        # should not compute state if multiple subvolumes
+        assert len(self.segstats.subvolumes) <= 1
+        
+        # reduce not needed if subvol stats unused
+        if self.segstats.disable_subvolumes:
+            return
+
+        # populate subvol stat cache
+        self.subsvol_hist_stats = {}
+
+        # get summary rand stats for subvolume
+        for onum, gotable in enumerate(self.segstats.gt_overlaps):
+            if gotable.get_comparison_type() not in self.supported_types:
+                continue
+            # retrieve hist diff stats
+            tempstats = []
+            self._calculate_bodystats(tempstats, None, gotable, self.segstats.seg_overlaps[onum], True) 
+
+            # prepare for subvolume summary 
+            for stat in tempstats:
+                stat["description"] += " (substack=%d)" % self.segstats.subvolumes[0].sv_index
+                stat["name"] = "S-" + stat["name"] 
+
+            # save for later
+            self.subsvol_hist_stats[onum] = tempstats
+
     def write_subvolume_stats(self):
         """Write subvolume summary stats for the subvolume.
         """
@@ -45,10 +100,13 @@ class count_stat(StatType):
 
         # get summary rand stats for subvolume
         for onum, gotable in enumerate(self.segstats.gt_overlaps):
-            # add rand summary stats
             if gotable.get_comparison_type() not in self.supported_types:
                 continue
             self._write_subcount(summarystats, gotable, self.segstats.seg_overlaps[onum], True)
+
+            # retrieve hist diff stats
+            temp_stats = self.subsvol_hist_stats[onum]
+            summarystats.extend(temp_stats)
 
         return summarystats
 
@@ -67,7 +125,12 @@ class count_stat(StatType):
             # get body summary stats
             if gotable.get_comparison_type() not in self.supported_types:
                 continue
-            self._calculate_bodystats(summarystats, None, gotable, self.segstats.seg_overlaps[onum]) 
+            self._calculate_bodystats(summarystats, None, gotable, self.segstats.seg_overlaps[onum])
+
+            # add subvol summary stats
+            if not self.segstats.disable_subvolumes:
+                summarystats.extend(self.subsvol_hist_stats[onum])
+
 
         return summarystats
 
@@ -232,7 +295,7 @@ class count_stat(StatType):
 
 
 
-    def _calculate_bodystats(self, summarystats, bodystats, gotable, sotable):
+    def _calculate_bodystats(self, summarystats, bodystats, gotable, sotable, disablegt=False):
         body_threshold = self.segstats.ptfilter
         if gotable.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
@@ -387,7 +450,7 @@ class count_stat(StatType):
                     summarystats.append(sumstat)
 
             # disable Best Test if non-gt mode
-            if not self.segstats.nogt:
+            if not self.segstats.nogt and not disablegt:
                 # write body summary stat
                 sumstat = {"name": "B-BST-TST-OV", "higher-better": True, "typename": gotable.get_name(), "val": best_size}
                 sumstat["description"] = "Test segment with greatest (best) correct overlap.  Test body ID = %d" % best_body_id
