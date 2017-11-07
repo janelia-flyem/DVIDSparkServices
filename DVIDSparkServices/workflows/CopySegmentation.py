@@ -107,6 +107,16 @@ class CopySegmentation(Workflow):
         Tidy up some config values.
         """
         input_config = self.config_data["input"]
+        
+        assert input_config["service-type"] != "SKIP",\
+            "Not allowed to skip the input!"
+
+        # Delete skipped output_configs
+        for i, cfg in enumerate(list(self.config_data["outputs"])):
+            if cfg["service-type"] == "SKIP":
+                logger.info(f"NOTE: SKIPPING output configuration {i}")
+                del self.config_data["outputs"][i]
+
         output_configs = self.config_data["outputs"]
         
         for cfg in [input_config] + output_configs:
@@ -416,7 +426,9 @@ class CopySegmentation(Workflow):
             filename = path.split('/')[-1]
             downloaded_path = self.relpath_to_abspath('.') + '/' + filename
             if not os.path.exists(downloaded_path):
-                subprocess.check_call(f'gsutil cp {path} {downloaded_path}', shell=True)
+                cmd = f'gsutil -q cp {path} {downloaded_path}'
+                logger.info(cmd)
+                subprocess.check_call(cmd, shell=True)
             path = downloaded_path
 
         # Now path is /path/to/file.csv[.gz]
@@ -442,6 +454,13 @@ class CopySegmentation(Workflow):
                 mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
         elif labelmap_config["file-type"] == "equivalence-edges":
             mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
+
+            # Export mapping to disk in case anyone wants to view it later
+            output_dir, basename = os.path.split(path)
+            mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
+            if not os.path.exists(mapping_csv_path):
+                with open(mapping_csv_path, 'w') as f:
+                    csv.writer(f).writerows(mapping_pairs)
 
         from dvidutils import LabelMapper
         def remap_bricks(partition_bricks):
@@ -580,7 +599,7 @@ class CopySegmentation(Workflow):
         logger.info(f"Scale {scale}: Writing bricks to {dataname}...")
         with Timer() as timer:
             bricks.foreach(write_brick)
-        logger.info(f"Scale {scale}: Writing bricks to {dataname} {timer.timedelta}")
+        logger.info(f"Scale {scale}: Writing bricks to {dataname} took {timer.timedelta}")
 
     
     def _write_body_sizes( self, bricks, output_config ):
