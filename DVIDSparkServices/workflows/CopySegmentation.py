@@ -107,6 +107,16 @@ class CopySegmentation(Workflow):
         Tidy up some config values.
         """
         input_config = self.config_data["input"]
+        
+        assert input_config["service-type"] != "SKIP",\
+            "Not allowed to skip the input!"
+
+        # Delete skipped output_configs
+        for i, cfg in reversed(list(enumerate(self.config_data["outputs"]))):
+            if self.config_data["outputs"][i]["service-type"] == "SKIP":
+                logger.info(f"NOTE: SKIPPING output configuration {i}")
+                del self.config_data["outputs"][i]
+
         output_configs = self.config_data["outputs"]
         
         for cfg in [input_config] + output_configs:
