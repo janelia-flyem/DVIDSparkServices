@@ -416,7 +416,9 @@ class CopySegmentation(Workflow):
             filename = path.split('/')[-1]
             downloaded_path = self.relpath_to_abspath('.') + '/' + filename
             if not os.path.exists(downloaded_path):
-                subprocess.check_call(f'gsutil cp {path} {downloaded_path}', shell=True)
+                cmd = f'gsutil -q cp {path} {downloaded_path}'
+                logger.info(cmd)
+                subprocess.check_call(cmd, shell=True)
             path = downloaded_path
 
         # Now path is /path/to/file.csv[.gz]
@@ -580,7 +582,7 @@ class CopySegmentation(Workflow):
         logger.info(f"Scale {scale}: Writing bricks to {dataname}...")
         with Timer() as timer:
             bricks.foreach(write_brick)
-        logger.info(f"Scale {scale}: Writing bricks to {dataname} {timer.timedelta}")
+        logger.info(f"Scale {scale}: Writing bricks to {dataname} took {timer.timedelta}")
 
     
     def _write_body_sizes( self, bricks, output_config ):

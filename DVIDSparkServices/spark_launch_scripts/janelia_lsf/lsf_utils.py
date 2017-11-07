@@ -14,6 +14,7 @@ def nice_call(*popenargs, timeout=None, **kwargs):
         except KeyboardInterrupt:
             if not timeout:
                 timeout = 0.5
+            # Wait again, now that the child has received SIGINT, too.
             p.wait(timeout=timeout)
             raise
         except:
