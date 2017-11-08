@@ -1,9 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Parse a neuroglancer link (from stdin) into JSON text and print it to the console.
 """
 import sys
 import json
+
+assert sys.version_info.major == 3, "Requires Python 3"
 
 example_link = \
 """
@@ -34,6 +36,7 @@ def pseudo_json_to_data(pseudo_json):
     # But underscores within strings should not have been replaced,
     # so change those ones back as we load the json data.
     data = json.loads(pseudo_json, object_hook=replace_commas)
+    
     return data
 
 def main():
