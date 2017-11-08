@@ -79,6 +79,13 @@ class CompressedNumpyArray(object):
             for subarray in numpy_array:
                 self.serialized_subarrays.append( self.serialize_subarray(subarray) )
 
+    @property
+    def compressed_nbytes(self):
+        nbytes = 0
+        for buf in self.serialized_subarrays:
+            nbytes += len(buf)
+        return nbytes
+
     @classmethod
     def serialize_subarray(cls, subarray):
         if not subarray.flags['C_CONTIGUOUS']:
