@@ -273,7 +273,7 @@ class CreateSkeletons(Workflow):
             return set()
 
         logger.warn(f"Warning: {len(bad_body_ids)} bodies were too large to aggregate,"
-                    " and will be skipped: {list(bad_body_ids)}")
+                    f" and will be skipped: {list(bad_body_ids)}")
 
         # Write the body block statistics to a file.
         csv_path = self.relpath_to_abspath('.') + '/mask-stats.csv'
