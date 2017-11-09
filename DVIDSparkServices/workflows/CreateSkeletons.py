@@ -195,32 +195,10 @@ class CreateSkeletons(Workflow):
         bricks.unpersist()
         del bricks
 
-        def mask_stats(element):
-            (box, mask, count) = element
-            assert isinstance(mask, CompressedNumpyArray)
-            box = np.asarray(box)
-            box_voxel_count = np.prod(box[1] - box[0])
-            return (box_voxel_count, mask.compressed_nbytes, count)
-
-        # (body_id, (box, mask, count))
-        #   --> (body_id, [(box_voxel_count, mask_nbytes, mask_voxel_count), ...])
-        logger.info("Collecting mask stats...")
-        body_ids_and_stats = body_ids_and_masks.mapValues( mask_stats )
-        grouped_body_ids_and_stats = body_ids_and_stats.groupByKey().collect()
-
-        if config["options"]["write-mask-stats"]:
-            csv_path = self.relpath_to_abspath('.') + '/mask-stats.csv'
-            logger.info(f"Writing mask stats to {csv_path}...")
-            with open(csv_path, 'w') as f:
-                f.write('body_id,total_box_voxel_count,total_mask_nbytes,total_mask_voxel_count,block_count\n')
-                for body_id, elements in grouped_body_ids_and_stats:
-                    total_box_voxel_count = total_mask_nbytes = total_mask_voxel_count = 0
-                    for box_voxel_count, mask_nbytes, mask_voxel_count in elements:
-                        total_box_voxel_count += box_voxel_count
-                        total_mask_nbytes += mask_nbytes
-                        total_mask_voxel_count += mask_voxel_count
-                    f.write(f'{body_id},{total_box_voxel_count},{total_mask_nbytes},{total_mask_voxel_count},{len(elements)}\n')
-            logger.info(f"Done writing mask stats")
+        # In the case of catastrophic merges, some bodies may be too big to handle.
+        # Skeletonizing them would probably time out anyway.
+        bad_bodies = self.list_unmanageable_bodies(body_ids_and_masks)
+        body_ids_and_masks = body_ids_and_masks.filter(lambda k_v: k_v[0] not in bad_bodies)
 
         # (body_id, (box, mask, count))
         #   --> (body_id, [(box, mask, count), (box, mask, count), (box, mask, count), ...])
@@ -263,7 +241,55 @@ class CreateSkeletons(Workflow):
 
         if "mesh" in config["options"]["output-types"]:
             self._execute_mesh_generation(large_id_box_mask_factor_err)
-    
+
+    def list_unmanageable_bodies(self, body_ids_and_masks):
+        """
+        Return a set of body IDs whose aggregate compressed mask data is larger than 2GB, 
+        and therefore unmanageable by Spark's groupByKey() operation.
+        
+        body_ids_and_masks: RDD of (body_id, (box, mask, count))
+        """
+        def mask_stats(element):
+            (box, mask, count) = element
+            assert isinstance(mask, CompressedNumpyArray)
+            box = np.asarray(box)
+            box_voxel_count = np.prod(box[1] - box[0])
+            return (box_voxel_count, mask.compressed_nbytes, count)
+
+        # (body_id, (box, mask, count))
+        #   --> (body_id, [(box_voxel_count, mask_nbytes, mask_voxel_count), ...])
+        logger.info("Collecting mask stats...")
+        body_ids_and_stats = body_ids_and_masks.mapValues( mask_stats )
+        grouped_body_ids_and_stats = body_ids_and_stats.groupByKey().collect()
+
+        # Were any bodies too big?
+        bad_body_ids = set()
+        for body_id, elements in grouped_body_ids_and_stats:
+            total_mask_nbytes = sum(mask_nbytes for (_, mask_nbytes, _) in elements)
+            if total_mask_nbytes > 2e9:
+                bad_body_ids.add(body_id)
+
+        if not bad_body_ids and not self.config_data["options"]["write-mask-stats"]:
+            return set()
+
+        logger.warn(f"Warning: {len(bad_body_ids)} bodies were too large to aggregate,"
+                    " and will be skipped: {list(bad_body_ids)}")
+
+        # Write the body block statistics to a file.
+        csv_path = self.relpath_to_abspath('.') + '/mask-stats.csv'
+        logger.info(f"Writing mask stats to {csv_path}...")
+        with open(csv_path, 'w') as f:
+            f.write('body_id,total_box_voxel_count,total_mask_nbytes,total_mask_voxel_count,block_count\n')
+            for body_id, elements in grouped_body_ids_and_stats:
+                total_box_voxel_count = total_mask_nbytes = total_mask_voxel_count = 0
+                for box_voxel_count, mask_nbytes, mask_voxel_count in elements:
+                    total_box_voxel_count += box_voxel_count
+                    total_mask_nbytes += mask_nbytes
+                    total_mask_voxel_count += mask_voxel_count
+                f.write(f'{body_id},{total_box_voxel_count},{total_mask_nbytes},{total_mask_voxel_count},{len(elements)}\n')
+        logger.info(f"Done writing mask stats")
+        return bad_body_ids
+
     def _execute_skeletonization(self, large_id_box_mask_factor_err):
         config = self.config_data
         @self.collect_log(lambda _: '_SKELETONIZATION_ERRORS')
