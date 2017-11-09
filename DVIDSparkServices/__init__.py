@@ -16,6 +16,7 @@ import socket
 from pathlib import Path
 import glob
 import faulthandler
+import contextlib
 from subprocess import Popen, PIPE
 
 # Segfaults will trigger a traceback dump
@@ -46,6 +47,12 @@ def setup_faulthandler():
 # We enable faulthandler here, as soon as DVIDSparkServices is imported,
 # so that all spark tasks use it automatically.
 setup_faulthandler()
+
+@contextlib.contextmanager
+def pause_faulthandler():
+    faulthandler.disable()
+    yield
+    faulthandler.enable(FAULTHANDLER_TEE.stdin)
 
 # Cleanup function is intended for Workflow
 def cleanup_faulthandler():

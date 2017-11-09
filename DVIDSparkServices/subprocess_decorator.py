@@ -58,6 +58,11 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
              That should be fine for most use cases (the threads spend most of their time waiting for I/O),
              but presumably this becomes unmanageable at some point for large N.
     
+    Note: If the process dies via a signal (SEGFAULT or SIGKILL), the error is not
+          propagated immediately and eventually an ordinary TimeoutError is raised.
+          This is due to a limitation in the Python multiprocessing module:
+          https://bugs.python.org/issue22393
+    
     Args:
     
         timeout: (float)

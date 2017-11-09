@@ -1,4 +1,5 @@
 import sys
+import ctypes
 import unittest
 from collections import defaultdict
 from multiprocessing import TimeoutError
@@ -8,6 +9,7 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+from DVIDSparkServices import pause_faulthandler
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess, _test_helper, stdout_redirected
 from DVIDSparkServices.skeletonize_array import skeletonize_array
 
@@ -23,6 +25,8 @@ def c_sleep():
     """
     C.sleep(3)
 
+def generate_segfault():
+    ctypes.string_at(0) # BOOM!
 
 class MessageCollector(logging.StreamHandler):
     
@@ -47,11 +51,9 @@ class TestSubprocessDecorator(unittest.TestCase):
             assert result == 1+2+0, "Wrong result: {}".format(result)
             assert handler.collected_messages['INFO'] == ['1', '0']
             assert handler.collected_messages['ERROR'] == ['2']
-              
-      
+
         finally:        
             logging.getLogger().removeHandler(handler)
-      
 
     def test_error(self):
         """
@@ -64,7 +66,24 @@ class TestSubprocessDecorator(unittest.TestCase):
             pass
         else:
             raise RuntimeError("Expected to see an exception in the subprocess.")
-      
+
+    def test_segfault(self):
+        """
+        Test the behavior of a subprocess that segfaults.
+        
+        Note: If the process dies via a signal (SEGFAULT or SIGKILL), the error is not
+              propagated immediately and eventually an ordinary TimeoutError is raised.
+              This is due to a limitation in the Python multiprocessing module:
+              https://bugs.python.org/issue22393
+        """
+        try:
+            with pause_faulthandler():
+                _result = execute_in_subprocess(1.0, logger)(generate_segfault)()
+        except TimeoutError:
+            pass
+        else:
+            raise RuntimeError("Expected to see a TimeoutError exception.")
+    
 
     def test_timeout(self):
         try:
