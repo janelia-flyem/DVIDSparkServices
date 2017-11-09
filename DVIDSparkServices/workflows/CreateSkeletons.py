@@ -1,4 +1,5 @@
 import os
+import csv
 import copy
 import json
 from datetime import datetime
@@ -21,6 +22,7 @@ from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assembl
 from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 from .common_schemas import SegmentationVolumeSchema
 
@@ -124,6 +126,11 @@ class CreateSkeletons(Workflow):
             "description": "Volumes that fail to skeletonize (due to timeout) will be written out as h5 files to this directory.",
             "type": "string",
             "default": "./failed-masks"
+        },
+        "write-mask-stats":  {
+            "description": "Debugging feature.  Writes a CSV file containing information about the body masks computed during the job.",
+            "type": "boolean",
+            "default": False
         }
     })
     
@@ -187,6 +194,33 @@ class CreateSkeletons(Workflow):
         persist_and_execute(body_ids_and_masks, "Computing brick-local masks", logger)
         bricks.unpersist()
         del bricks
+
+        def mask_stats(element):
+            (box, mask, count) = element
+            assert isinstance(mask, CompressedNumpyArray)
+            box = np.asarray(box)
+            box_voxel_count = np.prod(box[1] - box[0])
+            return (box_voxel_count, mask.compressed_nbytes, count)
+
+        # (body_id, (box, mask, count))
+        #   --> (body_id, [(box_voxel_count, mask_nbytes, mask_voxel_count), ...])
+        logger.info("Collecting mask stats...")
+        body_ids_and_stats = body_ids_and_masks.mapValues( mask_stats )
+        grouped_body_ids_and_stats = body_ids_and_stats.groupByKey().collect()
+
+        if config["options"]["write-mask-stats"]:
+            csv_path = self.relpath_to_abspath('.') + '/mask-stats.csv'
+            logger.info(f"Writing mask stats to {csv_path}...")
+            with open(csv_path, 'w') as f:
+                f.write('body_id,total_box_voxel_count,total_mask_nbytes,total_mask_voxel_count,block_count\n')
+                for body_id, elements in grouped_body_ids_and_stats:
+                    total_box_voxel_count = total_mask_nbytes = total_mask_voxel_count = 0
+                    for box_voxel_count, mask_nbytes, mask_voxel_count in elements:
+                        total_box_voxel_count += box_voxel_count
+                        total_mask_nbytes += mask_nbytes
+                        total_mask_voxel_count += mask_voxel_count
+                    f.write(f'{body_id},{total_box_voxel_count},{total_mask_nbytes},{total_mask_voxel_count},{len(elements)}\n')
+            logger.info(f"Done writing mask stats")
 
         # (body_id, (box, mask, count))
         #   --> (body_id, [(box, mask, count), (box, mask, count), (box, mask, count), ...])

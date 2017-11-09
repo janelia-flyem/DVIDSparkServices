@@ -12,9 +12,13 @@ import requests
 import subprocess
 from jsonschema import ValidationError
 import json
-import yaml
 import uuid
 import socket
+
+# ruamel.yaml supports YAML 1.2, which has
+# slightly better compatibility with json.
+from ruamel.yaml import YAML
+yaml = YAML(typ='safe')
 
 from quilted.filelock import FileLock
 from DVIDSparkServices import cleanup_faulthandler

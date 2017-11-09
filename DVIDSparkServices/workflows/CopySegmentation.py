@@ -413,10 +413,17 @@ class CopySegmentation(Workflow):
         Relabel the bricks with a labelmap.
         If the given config specifies not labelmap, then the original is returned.
         
-        Does not unpersist the input.
+        keep_original: If True, does not unpersist the input, and the caller
+                       is free to unpersist the result without affecting the
+                       original input.
         """
         path = labelmap_config["file"]
         if not path:
+            if keep_original:
+                # The caller wants to be sure that the result can be
+                # unpersisted safely without affecting the bricks he passed in,
+                # so we return a *new* RDD, even though it's just a copy of the original.
+                return bricks.map(lambda brick: brick, bricks)
             return bricks
 
         # path is [gs://]/path/to/file.csv[.gz]
@@ -436,7 +443,7 @@ class CopySegmentation(Workflow):
         if not os.path.exists(path) and os.path.exists(path + '.gz'):
             path = path + '.gz'
 
-        # If the file is compressed, decompress it first (if necessary)
+        # If the file is compressed, decompress it
         if os.path.splitext(path)[1] == '.gz':
             uncompressed_path = path[:-3] # drop '.gz'
             if not os.path.exists(uncompressed_path):
@@ -446,7 +453,7 @@ class CopySegmentation(Workflow):
 
         # Now path is /path/to/file.csv
 
-        # Mapping is only loaded once, on the driver
+        # Mapping is only loaded into numpy once, on the driver
         if labelmap_config["file-type"] == "label-to-body":
             with open(path, 'r') as csv_file:
                 rows = csv.reader(csv_file)
