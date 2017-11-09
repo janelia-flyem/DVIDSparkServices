@@ -132,26 +132,45 @@ class connectivity_stat(StatType):
       
         # find disjoint partitions
         body1partmap = {}
+        repmap = {}
         partitions = {}
         for b2, b1list in body2partners.items():
             b1list.sort()
             repelement = b1list[0]
+            if repelement in body1partmap:
+                repelement = body1partmap[repelement]
             for b1 in b1list:
                 if b1 in body1partmap:
                     rep2 = body1partmap[b1]
                     if repelement < rep2:
-                        body1partmap[b1] = repelement
+                        for body in repmap[rep2]:
+                            body1partmap[body] = repelement
+                        if repelement not in repmap:
+                            repmap[repelement] = []
+                        repmap[repelement].extend(repmap[rep2])
+                        del repmap[rep2]
+                    elif repelement > rep2:
+                        if repelement in repmap:
+                            for body in repmap[repelement]:
+                                body1partmap[body] = rep2
+                            repmap[rep2].extend(repmap[repelement])
+                            del repmap[repelement]
+                        repelement = rep2
                 else:
                     body1partmap[b1] = repelement
+                    if repelement not in repmap:
+                        repmap[repelement] = []
+                    repmap[repelement].append(b1)
+
 
         for b2, b1list in body2partners.items():
             repelement = 0
             for b1 in b1list:
                 repelement = body1partmap[b1]
                 if repelement not in partitions:
-                    partitions[repelement] = ([],[])
-                partitions[repelement][0].append(b1)
-            partitions[repelement][1].append(b2)
+                    partitions[repelement] = (set(),set())
+                partitions[repelement][0].add(b1)
+            partitions[repelement][1].add(b2)
 
         # iterate through different disjoint partitions of the table
         # (should be pretty sparse)
