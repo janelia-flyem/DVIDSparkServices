@@ -18,6 +18,7 @@ import glob
 import faulthandler
 import contextlib
 from subprocess import Popen, PIPE
+import atexit
 
 # Segfaults will trigger a traceback dump
 FAULTHANDLER_TEE, FAULTHANDLER_OUTPUT_PATH = None, None
@@ -55,10 +56,12 @@ def pause_faulthandler():
     faulthandler.enable(FAULTHANDLER_TEE.stdin)
 
 # Cleanup function is intended for Workflow
-def cleanup_faulthandler():
+def cleanup_faulthandler(atexit=False):
     """
     Disable the faulthandler module, and delete the on-disk log file if it's empty.
     Only call this from the driver, just before it exits.
+    
+    atexit: If True, stop the 'tee' process, but don't overwrite the output file.
     """
     # Disable before closing the file handle.
     faulthandler.disable()
@@ -71,6 +74,9 @@ def cleanup_faulthandler():
         FAULTHANDLER_TEE.stdin.close()
         FAULTHANDLER_TEE.wait()
     
+    if atexit:
+        return
+
     # Remove the file if it's empty.
     if os.path.exists(FAULTHANDLER_OUTPUT_PATH):
         if os.stat(FAULTHANDLER_OUTPUT_PATH).st_size == 0:
@@ -81,6 +87,13 @@ def cleanup_faulthandler():
             with open(FAULTHANDLER_OUTPUT_PATH, 'r') as f:
                 sys.stderr.write(f.read())
             sys.stderr.write("*****************************************\n")
+
+# Make sure that the 'tee' process is not still running while we shut down.
+# Under normal circumstances, the driver calls cleanup_faulthandler() in Workflow.run(),
+# but if no workflow was run (e.g. during testing), we still need to call it.
+# Otherwise, we get bitten by this bug:
+# - https://bugs.python.org/issue26153
+atexit.register(cleanup_faulthandler, True)
 
 # Ensure SystemExit is raised if terminated via SIGTERM (e.g. by bkill).
 signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))
