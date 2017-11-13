@@ -14,9 +14,13 @@ source:
 build:
   number: 0
   string: py{{CONDA_PY}}_{{PKG_BUILDNUM}}_g{{GIT_FULL_HASH[:7]}}
-  
+
+  noarch: python  
+  script: python setup.py install --single-version-externally-managed --record=record.txt
   entry_points:
     - launchworkflow = DVIDSparkServices.workflow.launchworkflow:main
+    - sparklaunch_janelia_lsf = DVIDSparkServices.spark_launch_scripts.janelia_lsf.sparklaunch_janelia_lsf:main
+    - sparklaunch_janelia_lsf_int = DVIDSparkServices.spark_launch_scripts.janelia_lsf.sparklaunch_janelia_lsf_int:main
 
 requirements:
   build:
