@@ -104,9 +104,10 @@ class count_stat(StatType):
                 continue
             self._write_subcount(summarystats, gotable, self.segstats.seg_overlaps[onum], True)
 
-            # retrieve hist diff stats
-            temp_stats = self.subsvol_hist_stats[onum]
-            summarystats.extend(temp_stats)
+            # retrieve hist diff stats (not using stat for comparison mode since
+            # not as useful as using just VI differences)
+            # temp_stats = self.subsvol_hist_stats[onum]
+            # summarystats.extend(temp_stats)
 
         return summarystats
 
