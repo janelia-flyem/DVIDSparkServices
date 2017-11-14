@@ -1,7 +1,12 @@
 *.pyc
+__pycache__/
 *.swp
 
 temp_data/
+integration_tests/resources/*.npy
+integration_tests/resources/*.xml
+integration_tests/resources/*.ilp
+integration_tests/resources/labels*.bin
 integration_tests/test_comp/temp_data/config.json
 integration_tests/test_comp/temp_data/results.txt
 integration_tests/test_graph/temp_data/config.json
