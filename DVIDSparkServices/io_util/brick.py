@@ -1,24 +1,16 @@
-from collections import namedtuple, defaultdict
-from itertools import chain, starmap
+from collections import namedtuple
+from itertools import starmap
 from functools import partial
 
 import numpy as np
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
-
-# See adaptor functions _map(), _flat_map(), etc. (below)
-try:
-    from pyspark.rdd import RDD
-    _RDD = RDD
-except ImportError:
-    import warnings
-    warnings.warn("PySpark is not available.")
-    class _RDD: pass
+from DVIDSparkServices import rddtools as rt
+from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes
 
 # Grid:
 # Describes a blocking scheme, which is simply a grid block shape,
 # and an offset coordinate for the first block in the grid.
 Grid = namedtuple("Grid", "block_shape offset")
-
 
 class Brick:
     """
@@ -84,12 +76,22 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
     # Use map_partitions instead of map(), to be explicit about
     # the fact that the function is re-used within each partition.
     def make_bricks( logical_and_physical_boxes ):
+        logical_and_physical_boxes = list(logical_and_physical_boxes)
+        if not logical_and_physical_boxes:
+            return []
         logical_boxes, physical_boxes = zip( *logical_and_physical_boxes )
         volumes = map( volume_accessor_func, physical_boxes )
         return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
     
-    return _map_partitions( make_bricks, logical_and_physical_boxes )
+    bricks = rt.map_partitions( make_bricks, logical_and_physical_boxes )
 
+    if sc:
+        # If we're working with a tiny volume (e.g. testing),
+        # make sure we at least parallelize across all cores.
+        if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
+            bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+
+    return bricks
 
 def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick ):
     """
@@ -99,6 +101,16 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
     Note: padding_grid need not be identical to the grid the Brick was created with,
           but it must divide evenly into that grid. 
 
+    For instance, if padding_grid happens to be the same as the brick's own native grid,
+    then the phyiscal_box is expanded to align perfectly with the logical_box on all sides: 
+    
+        +-------------+      +-------------+
+        | physical |  |      |     same    |
+        |__________|  |      |   physical  |
+        |             |  --> |     and     |
+        |   logical   |      |   logical   |
+        |_____________|      |_____________|
+    
     Args:
         brick: Brick
         padding_grid: Grid
@@ -177,13 +189,13 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
     """
     # For each original brick, split it up according
     # to the new logical box destinations it will map to.
-    new_logical_boxes_and_brick_fragments = _flat_map( partial(split_brick, new_grid), original_bricks )
+    new_logical_boxes_and_brick_fragments = rt.flat_map( partial(split_brick, new_grid), original_bricks )
 
     # Group fragments according to their new homes
-    grouped_brick_fragments = _group_by_key( new_logical_boxes_and_brick_fragments )
+    grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
-    new_logical_boxes_and_bricks = _map_values(assemble_brick_fragments, grouped_brick_fragments)
+    new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)
     
     return new_logical_boxes_and_bricks
 
@@ -326,49 +338,6 @@ def clipped_boxes_from_grid(bounding_box, grid):
     Returned boxes that would intersect the edge of the bounding_box are clipped so as not
     to extend beyond the bounding_box.
     """
-    for box in boxes_from_grid(bounding_box, grid.block_shape, grid.offset):
+    for box in boxes_from_grid(bounding_box, grid):
         yield box_intersection(box, bounding_box)
 
-
-#
-# Functions for working with either PySpark RDDs or ordinary Python iterables.
-#
-def _map(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.map(f)
-    else:
-        return map(f, iterable)
-
-def _flat_map(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.flatMap(f)
-    else:
-        return chain(*map(f, iterable))
-
-def _map_partitions(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.mapPartitions(f, preservesPartitioning=True)
-    else:
-        # In the pure-python case, there's only one 'partition'.
-        return f(iterable)
-
-def _map_values(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.mapValues(f)
-    else:
-        return ( (k,f(v)) for (k,v) in iterable )
-
-def _values(iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.values()
-    else:
-        return ( v for (k,v) in iterable )
-
-def _group_by_key(iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.groupByKey()
-    else:
-        partitions = defaultdict(lambda: [])
-        for k,v in iterable:
-            partitions[k].append(v)
-        return partitions.items()
