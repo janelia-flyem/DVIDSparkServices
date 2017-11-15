@@ -20,11 +20,15 @@ def main():
     parser.add_argument('--config-file', '-c', default="",
             help="json config file")
 
-    # will dump the json schema
     parser.add_argument('--dump-schema', '-d', action="store_true",
             default=False, help="dump json schema")
+
+    parser.add_argument('--dump-default-json', '-j', action="store_true",
+            default=False, help="dump default config as json")
+
+    parser.add_argument('--dump-default-yaml', '-y', action="store_true",
+            default=False, help="dump default config as yaml")
     
-    # will dump the json schema
     parser.add_argument('--list-workflows', '-w', action="store_true",
             default=False, help="list all the workflow plugins")
 
@@ -48,6 +52,14 @@ def main():
     if args.dump_schema:
         print(workflow_cls.dumpschema())
         return
+
+    if args.dump_default_json:
+        print(workflow_cls.default_config("json"))
+        return        
+
+    if args.dump_default_yaml:
+        print(workflow_cls.default_config("yaml"))
+        return        
 
     # execute the workflow
     if args.config_file != "":

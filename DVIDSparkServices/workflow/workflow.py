@@ -14,16 +14,18 @@ from jsonschema import ValidationError
 import json
 import uuid
 import socket
+from io import StringIO
 
 # ruamel.yaml supports YAML 1.2, which has
 # slightly better compatibility with json.
 from ruamel.yaml import YAML
-yaml = YAML(typ='safe')
+yaml = YAML(typ='rt')
+yaml.default_flow_style = False
 
 from quilted.filelock import FileLock
 from DVIDSparkServices import cleanup_faulthandler
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
-from DVIDSparkServices.json_util import validate_and_inject_defaults
+from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
 import logging
@@ -579,3 +581,16 @@ class Workflow(object):
         """Children must provide their own json specification"""
 
         raise WorkflowError("Derived class must provide a schema")
+
+    @classmethod
+    def default_config(cls, syntax="json"):
+        assert syntax in ("json", "yaml") 
+        schema = json.loads( cls.dumpschema() )
+        default_instance = {}
+        inject_defaults( default_instance, schema )
+        output_stream = StringIO()
+        if syntax == "json":
+            json.dump( default_instance, output_stream, indent=4 )
+        else:
+            yaml.dump(default_instance, output_stream )
+        return output_stream.getvalue()
