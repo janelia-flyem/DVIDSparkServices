@@ -26,7 +26,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_servi
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
 from DVIDSparkServices.auto_retry import auto_retry
 
@@ -483,7 +483,7 @@ class CopySegmentation(Workflow):
         remapped_bricks = bricks.mapPartitions(remap_bricks)
         persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
         if not keep_original:
-            bricks.unpersist()
+            unpersist(bricks)
         return remapped_bricks
 
     def _downsample_bricks(self, bricks, new_scale):
@@ -494,7 +494,7 @@ class CopySegmentation(Workflow):
         # Downsampling effectively divides grid by half (i.e. 32x32x32)
         downsampled_bricks = bricks.map(downsample_brick)
         persist_and_execute(downsampled_bricks, f"Scale {new_scale}: Downsampling", logger)
-        bricks.unpersist()
+        unpersist(bricks)
         del bricks
 
         # Bricks are now half-size
@@ -526,7 +526,7 @@ class CopySegmentation(Workflow):
             persist_and_execute(realigned_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
     
             # Discard original
-            bricks.unpersist()
+            unpersist(bricks)
             del bricks
         
         if not pad:
@@ -541,7 +541,7 @@ class CopySegmentation(Workflow):
         persist_and_execute(padded_bricks, f"Scale {scale}: Padding", logger)
 
         # Discard
-        realigned_bricks.unpersist()
+        unpersist(realigned_bricks)
         del realigned_bricks
 
         return padded_bricks

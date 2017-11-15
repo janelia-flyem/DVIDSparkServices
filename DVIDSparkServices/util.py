@@ -53,6 +53,11 @@ def persist_and_execute(rdd, description, logger=None):
     
     return count
 
+def unpersist(rdd):
+    # PySpark freaks out if you try to unpersist an RDD
+    # that wasn't persisted in the first place
+    if rdd.is_cached:
+        rdd.unpersist()
 
 def get_localhost_ip_address():
     """
