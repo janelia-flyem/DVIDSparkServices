@@ -82,6 +82,7 @@ class CopySegmentation(Workflow):
         "required": ["input", "outputs"],
         "properties": {
             "input": SegmentationVolumeSchema,       # Labelmap, if any, is applied post-read
+            
             "outputs": SegmentationVolumeListSchema, # LIST of output locations to write to.
                                                      # Labelmap, if any, is applied pre-write for each volume.
             "options" : OptionsSchema
@@ -106,43 +107,45 @@ class CopySegmentation(Workflow):
         """
         Tidy up some config values.
         """
-        input_config = self.config_data["input"]
+        input_source = self.config_data["input"]["source"]
+        input_geometry = self.config_data["input"]["geometry"]
         
-        assert input_config["service-type"] != "SKIP",\
+        assert input_source["service-type"] != "SKIP",\
             "Not allowed to skip the input!"
 
         # Delete skipped output_configs
         for i, cfg in reversed(list(enumerate(self.config_data["outputs"]))):
-            if self.config_data["outputs"][i]["service-type"] == "SKIP":
+            if cfg["source"]["service-type"] == "SKIP":
                 logger.info(f"NOTE: SKIPPING output configuration {i}")
                 del self.config_data["outputs"][i]
 
         output_configs = self.config_data["outputs"]
+        output_sources = [cfg["source"] for cfg in output_configs]
         
-        for cfg in [input_config] + output_configs:
+        for source in [input_source] + output_sources:
             # Prepend 'http://' to the server if necessary.
-            if "server" in cfg and not cfg["server"].startswith('http'):
-                cfg["server"] = 'http://' + cfg["server"]
+            if "server" in source and not source["server"].startswith('http'):
+                source["server"] = 'http://' + source["server"]
 
             # Convert labelmap (if any) to absolute path (relative to config file)
-            labelmap_file = cfg["apply-labelmap"]["file"]
+            labelmap_file = source["apply-labelmap"]["file"]
             if labelmap_file.startswith('gs://'):
                 # Verify that gsutil is able to see the file before we start doing real work.
                 subprocess.check_output(f'gsutil ls {labelmap_file}', shell=True)
             elif labelmap_file and not os.path.isabs(labelmap_file):
-                cfg["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
+                source["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
         ##
         ## Check input/output dimensions and grid schemes.
         ##
-        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
 
-        first_output_config = output_configs[0]
-        output_bb_zyx = np.array(first_output_config["bounding-box"])[:,::-1]
-        output_brick_shape = np.array(first_output_config["message-block-shape"])
-        output_block_width = np.array(first_output_config["block-width"])
+        first_output_geometry = output_configs[0]["geometry"]
+        output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
+        output_brick_shape = np.array(first_output_geometry["message-block-shape"])
+        output_block_width = np.array(first_output_geometry["block-width"])
 
-        assert not any(np.array(output_brick_shape) % output_configs[0]["block-width"]), \
+        assert not any(np.array(output_brick_shape) % first_output_geometry["block-width"]), \
             "Output message-block-shape should be a multiple of the block size in all dimensions."
         assert ((input_bb_zyx[1] - input_bb_zyx[0]) == (output_bb_zyx[1] - output_bb_zyx[0])).all(), \
             "Input bounding box and output bounding box do not have the same dimensions"
@@ -152,9 +155,10 @@ class CopySegmentation(Workflow):
         #       (We avoid re-translating and re-downsampling the input data for every new output.)
         #       The only way in which the outputs may differ is their label mapping data.
         for output_config in output_configs:
-            bb = np.array(output_config["bounding-box"])[:,::-1]
-            bs = output_config["message-block-shape"]
-            bw = output_config["block-width"]
+            output_geometry = output_config["geometry"]
+            bb = np.array(output_geometry["bounding-box"])[:,::-1]
+            bs = output_geometry["message-block-shape"]
+            bw = output_geometry["block-width"]
             
             assert (output_bb_zyx == bb).all(), \
                 "For now, all output destinations must use the same bounding box and grid scheme"
@@ -165,14 +169,15 @@ class CopySegmentation(Workflow):
 
     def execute(self):
         options = self.config_data["options"]
-        input_config = self.config_data["input"]
+        input_source = self.config_data["input"]["source"]
+        input_geometry = self.config_data["input"]["geometry"]
         output_configs = self.config_data["outputs"]
 
         # See note in _sanitize_config()
-        first_output_config = output_configs[0]
+        first_output_geometry = output_configs[0]["geometry"]
 
-        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
-        output_bb_zyx = np.array(first_output_config["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
+        output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
         translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
 
         input_bricks, bounding_box, _input_grid = self._partition_input()
@@ -186,7 +191,7 @@ class CopySegmentation(Workflow):
         persist_and_execute(input_bricks, f"Reading entire volume", logger)
 
         # Apply post-input label map (if any)
-        remapped_input_bricks = self._remap_bricks(input_bricks, input_config["apply-labelmap"], keep_original=False)
+        remapped_input_bricks = self._remap_bricks(input_bricks, input_source["apply-labelmap"], keep_original=False)
         del input_bricks
 
         # Translate coordinates from input to output
@@ -203,7 +208,7 @@ class CopySegmentation(Workflow):
         for output_config in self.config_data["outputs"]:
             # Apply pre-output label map (if any)
             # Don't delete input, because we need to reuse it for each iteration of this loop
-            remapped_output_bricks = self._remap_bricks(aligned_input_bricks, output_config["apply-labelmap"], keep_original=True)
+            remapped_output_bricks = self._remap_bricks(aligned_input_bricks, output_config["source"]["apply-labelmap"], keep_original=True)
 
             # Pad internally to block-align.
             padded_bricks = self._consolidate_and_pad(remapped_output_bricks, 0, output_config, align=False, pad=True)
@@ -245,33 +250,35 @@ class CopySegmentation(Workflow):
                 - partition_shape_zyx is a tuple
             
         """
-        input_config = self.config_data["input"]
+        input_source = self.config_data["input"]["source"]
+        input_geometry = self.config_data["input"]["geometry"]
+        
         options = self.config_data["options"]
 
         # repartition to be z=blksize, y=blksize, x=runlength
-        brick_shape_zyx = input_config["message-block-shape"][::-1]
+        brick_shape_zyx = input_geometry["message-block-shape"][::-1]
         input_grid = Grid(brick_shape_zyx, (0,0,0))
         
-        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
 
-        if input_config["service-type"] == "dvid":
-            sparkdvid_input_context = sparkdvid(self.sc, input_config["server"], input_config["uuid"], self)
-            bricks = sparkdvid_input_context.parallelize_bounding_box( input_config["segmentation-name"],
+        if input_source["service-type"] == "dvid":
+            sparkdvid_input_context = sparkdvid(self.sc, input_source["server"], input_source["uuid"], self)
+            bricks = sparkdvid_input_context.parallelize_bounding_box( input_source["segmentation-name"],
                                                                        input_bb_zyx,
                                                                        input_grid,
                                                                        target_partition_size_voxels )
-        elif input_config["service-type"] == "brainmaps":
+        elif input_source["service-type"] == "brainmaps":
 
             # Instantiate this outside of get_brainmaps_subvolume,
             # so it can be shared across an entire partition.
-            vol = BrainMapsVolume( input_config["project"],
-                                   input_config["dataset"],
-                                   input_config["volume-id"],
-                                   input_config["change-stack-id"],
+            vol = BrainMapsVolume( input_source["project"],
+                                   input_source["dataset"],
+                                   input_source["volume-id"],
+                                   input_source["change-stack-id"],
                                    dtype=np.uint64 )
 
             assert (input_bb_zyx[0] >= vol.bounding_box[0]).all() and (input_bb_zyx[1] <= vol.bounding_box[1]).all(), \
@@ -307,7 +314,7 @@ class CopySegmentation(Workflow):
             if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
                 bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
         else:
-            raise RuntimeError(f'Unknown service-type: {input_config["service-type"]}')
+            raise RuntimeError(f'Unknown service-type: {input_source["service-type"]}')
 
         return bricks, input_bb_zyx, input_grid
 
@@ -320,9 +327,9 @@ class CopySegmentation(Workflow):
         options = self.config_data["options"]
         for output_config in self.config_data["outputs"]:
             # Create new segmentation instance first if necessary
-            if not is_datainstance( output_config["server"],
-                                output_config["uuid"],
-                                output_config["segmentation-name"] ):
+            if not is_datainstance( output_config["source"]["server"],
+                                    output_config["source"]["uuid"],
+                                    output_config["source"]["segmentation-name"] ):
 
                 depth = options["pyramid-depth"]
                 if depth == -1:
@@ -330,11 +337,11 @@ class CopySegmentation(Workflow):
                     depth = choose_pyramid_depth(bounding_box, 512)
         
                 # create new label array with correct number of pyramid scales
-                create_labelarray( output_config["server"],
-                                   output_config["uuid"],
-                                   output_config["segmentation-name"],
+                create_labelarray( output_config["source"]["server"],
+                                   output_config["source"]["uuid"],
+                                   output_config["source"]["segmentation-name"],
                                    depth,
-                                   3*(output_config["block-width"],) )
+                                   3*(output_config["geometry"]["block-width"],) )
 
     def _log_neuroglancer_links(self):
         """
@@ -342,11 +349,11 @@ class CopySegmentation(Workflow):
         We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
         """
         for index, output_config in enumerate(self.config_data["outputs"]):
-            server = output_config["server"] # Note: Begins with http://
-            uuid = output_config["uuid"]
-            instance = output_config["segmentation-name"]
+            server = output_config["source"]["server"] # Note: Begins with http://
+            uuid = output_config["source"]["uuid"]
+            instance = output_config["source"]["segmentation-name"]
             
-            output_box_xyz = np.array(output_config["bounding-box"])
+            output_box_xyz = np.array(output_config["geometry"]["bounding-box"])
             output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
             
             link_prefix = f"{server}/neuroglancer/#!"
@@ -380,20 +387,21 @@ class CopySegmentation(Workflow):
         """
         max_depth = -1
         for output_config in self.config_data["outputs"]:
+            output_source = output_config["source"]
             options = self.config_data["options"]
     
-            node_service = retrieve_node_service( output_config["server"],
-                                                  output_config["uuid"], 
+            node_service = retrieve_node_service( output_source["server"],
+                                                  output_source["uuid"], 
                                                   self.resource_server,
                                                   self.resource_port,
                                                   self.APPNAME )
     
-            info = node_service.get_typeinfo(output_config["segmentation-name"])
+            info = node_service.get_typeinfo(output_source["segmentation-name"])
     
             existing_depth = int(info["Extended"]["MaxDownresLevel"])
             if options["pyramid-depth"] not in (-1, existing_depth):
                 raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
-                                f"Data instance '{output_config['segmentation-name']}' already existed, with depth {existing_depth}")
+                                f"Data instance '{output_source['segmentation-name']}' already existed, with depth {existing_depth}")
 
             max_depth = max(max_depth, existing_depth)
 
@@ -515,13 +523,16 @@ class CopySegmentation(Workflow):
         
         Note: UNPERSISTS the input data and returns the new, downsampled data.
         """
+        output_source = output_config["source"]
+        output_geometry = output_config["geometry"]
+        
         if not align:
             realigned_bricks = bricks
         else:
             # Consolidate bricks to full-size, aligned blocks (shuffles data)
             # FIXME: We should skip this if the grids happen to be aligned already.
             #        This shuffle takes ~15 minutes per tab.
-            output_writing_grid = Grid(output_config["message-block-shape"], (0,0,0))
+            output_writing_grid = Grid(output_geometry["message-block-shape"], (0,0,0))
             realigned_bricks = realign_bricks_to_new_grid( output_writing_grid, bricks ).values()
             persist_and_execute(realigned_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
     
@@ -533,10 +544,10 @@ class CopySegmentation(Workflow):
             return realigned_bricks
 
         # Pad from previously-existing pyramid data.
-        output_padding_grid = Grid(output_config["block-width"], (0,0,0))
+        output_padding_grid = Grid(output_geometry["block-width"], (0,0,0))
 
-        output_context = sparkdvid( self.sc, output_config["server"], output_config["uuid"], self )
-        output_accessor = output_context.get_volume_accessor(output_config["segmentation-name"], scale)
+        output_context = sparkdvid( self.sc, output_source["server"], output_source["uuid"], self )
+        output_accessor = output_context.get_volume_accessor(output_source["segmentation-name"], scale)
         padded_bricks = realigned_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
         persist_and_execute(padded_bricks, f"Scale {scale}: Padding", logger)
 
@@ -553,10 +564,10 @@ class CopySegmentation(Workflow):
         """
         appname = self.APPNAME
 
-        server = output_config["server"]
-        uuid = output_config["uuid"]
-        block_width = output_config["block-width"]
-        dataname = output_config["segmentation-name"]
+        server = output_config["source"]["server"]
+        uuid = output_config["source"]["uuid"]
+        dataname = output_config["source"]["segmentation-name"]
+        block_width = output_config["geometry"]["block-width"]
         
         resource_server = self.resource_server 
         resource_port = self.resource_port 
@@ -698,7 +709,7 @@ class CopySegmentation(Workflow):
             body_labels = body_labels[sort_indices]
         logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
-        suffix = output_config["segmentation-name"]
+        suffix = output_config["source"]["segmentation-name"]
         output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
         with Timer() as timer:
             logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")

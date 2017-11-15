@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 class CreateSkeletons(Workflow):
     SkeletonDvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
-    SkeletonDvidInfoSchema["properties"].update(
+    SkeletonDvidInfoSchema["properties"]["source"]["properties"].update(
     {
         "skeletons-destination": {
             "description": "Name of key-value instance to store the skeletons. "
@@ -158,15 +158,15 @@ class CreateSkeletons(Workflow):
         
         # create spark dvid context
         self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
-                self.config_data["dvid-info"]["server"],
-                self.config_data["dvid-info"]["uuid"], self)
+                self.config_data["dvid-info"]["source"]["server"],
+                self.config_data["dvid-info"]["source"]["uuid"], self)
 
     
     def _sanitize_config(self):
         # Prepend 'http://' if necessary.
         dvid_info = self.config_data['dvid-info']
-        if not dvid_info['server'].startswith('http'):
-            dvid_info['server'] = 'http://' + dvid_info['server']
+        if not dvid_info["source"]['server'].startswith('http'):
+            dvid_info["source"]['server'] = 'http://' + dvid_info["source"]['server']
 
         # Convert failed-mask-dir to absolute path
         failed_skeleton_dir = self.config_data['options']['failed-mask-dir']
@@ -174,12 +174,12 @@ class CreateSkeletons(Workflow):
             self.config_data['options']['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
         # Provide default skeletons instance name if needed
-        if not dvid_info["skeletons-destination"]:
-            dvid_info["skeletons-destination"] = dvid_info["segmentation-name"]+ '_skeletons'
+        if not dvid_info["source"]["skeletons-destination"]:
+            dvid_info["source"]["skeletons-destination"] = dvid_info["source"]["segmentation-name"] + '_skeletons'
 
         # Provide default meshes instance name if needed
-        if not dvid_info["meshes-destination"]:
-            dvid_info["meshes-destination"] = dvid_info["segmentation-name"]+ '_meshes'
+        if not dvid_info["source"]["meshes-destination"]:
+            dvid_info["source"]["meshes-destination"] = dvid_info["source"]["segmentation-name"]+ '_meshes'
 
     
     def execute(self):
@@ -335,19 +335,19 @@ class CreateSkeletons(Workflow):
     def _init_skeletons_instance(self):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
-        if is_node_locked(dvid_info["server"], dvid_info["uuid"]):
-            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['server']} / {dvid_info['uuid']}) is locked.")
+        if is_node_locked(dvid_info["source"]["server"], dvid_info["source"]["uuid"]):
+            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['source']['server']} / {dvid_info['source']['uuid']}) is locked.")
 
-        node_service = retrieve_node_service( dvid_info["server"],
-                                              dvid_info["uuid"],
+        node_service = retrieve_node_service( dvid_info["source"]["server"],
+                                              dvid_info["source"]["uuid"],
                                               options["resource-server"],
                                               options["resource-port"] )
 
         if "neutube-skeleton" in options["output-types"]:
-            node_service.create_keyvalue(dvid_info["skeletons-destination"])
+            node_service.create_keyvalue(dvid_info["source"]["skeletons-destination"])
 
         if "mesh" in options["output-types"]:
-            node_service.create_keyvalue(dvid_info["meshes-destination"])
+            node_service.create_keyvalue(dvid_info["source"]["meshes-destination"])
 
 
     def _partition_input(self):
@@ -365,19 +365,19 @@ class CreateSkeletons(Workflow):
             
         """
         dvid_info = self.config_data["dvid-info"]
-        assert dvid_info["service-type"] == "dvid", \
+        assert dvid_info["source"]["service-type"] == "dvid", \
             "Only DVID sources are supported right now."
 
         # repartition to be z=blksize, y=blksize, x=runlength
-        brick_shape_zyx = dvid_info["message-block-shape"][::-1]
+        brick_shape_zyx = dvid_info["geometry"]["message-block-shape"][::-1]
         input_grid = Grid(brick_shape_zyx, (0,0,0))
 
-        bounding_box_xyz = np.array(dvid_info["bounding-box"])
+        bounding_box_xyz = np.array(dvid_info["geometry"]["bounding-box"])
         bounding_box_zyx = bounding_box_xyz[:,::-1]
 
         # Aim for 2 GB RDD partitions
         target_partition_size_voxels = (2 * 2**30 // np.uint64().nbytes)
-        bricks = self.sparkdvid_context.parallelize_bounding_box( dvid_info['segmentation-name'],
+        bricks = self.sparkdvid_context.parallelize_bounding_box( dvid_info["source"]['segmentation-name'],
                                                                   bounding_box_zyx,
                                                                   input_grid,
                                                                   target_partition_size_voxels )
@@ -582,9 +582,9 @@ def post_swc_to_dvid(config, body_swc_err):
 
     swc_contents = swc_contents.encode('utf-8')
 
-    dvid_server = config["dvid-info"]["server"]
-    uuid = config["dvid-info"]["uuid"]
-    instance = config["dvid-info"]["skeletons-destination"]
+    dvid_server = config["dvid-info"]["source"]["server"]
+    uuid = config["dvid-info"]["source"]["uuid"]
+    instance = config["dvid-info"]["source"]["skeletons-destination"]
 
     if not config["options"]["resource-server"]:
         # No throttling.
@@ -653,9 +653,9 @@ def post_mesh_to_dvid(config, body_obj_err):
     if mesh_obj is None or err is not None:
         return
 
-    dvid_server = config["dvid-info"]["server"]
-    uuid = config["dvid-info"]["uuid"]
-    instance = config["dvid-info"]["meshes-destination"]
+    dvid_server = config["dvid-info"]["source"]["server"]
+    uuid = config["dvid-info"]["source"]["uuid"]
+    instance = config["dvid-info"]["source"]["meshes-destination"]
     info = {"format": config["mesh-config"]["format"]}
 
     def post_mesh():

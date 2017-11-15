@@ -1,13 +1,17 @@
 {
     "dvid-info": {
+      "source": {
         "service-type": "dvid",
+        "semantic-type": "segmentation",
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
-        "bounding-box": [[0,0,0], [256,256,256]],
-        "message-block-shape": [6400,64,64],
-
         "skeletons-destination": "labels_vol_skeletons"
+      },
+      "geometry": {
+        "bounding-box": [[0,0,0], [256,256,256]],
+        "message-block-shape": [6400,64,64]
+      }
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],

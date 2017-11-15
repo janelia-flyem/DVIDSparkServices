@@ -1,23 +1,33 @@
 {
     "input": {
+      "source": {
         "service-type": "brainmaps",
+        "semantic-type": "segmentation",
         "project": "274750196357",
         "dataset": "janelia-flyem-cx-flattened-tabs",
         "volume-id": "sec26_seg_v2a",
-        "change-stack-id": "ffn_agglo_pass1_seg5663627_medt160",
+        "change-stack-id": "ffn_agglo_pass1_seg5663627_medt160"
+      },
+      "geometry": {
         "bounding-box": [[18954, 3865, 15305], [19466,  4377, 15817]],
         "message-block-shape": [6400, 64, 64],
         "block-width": 64
+      }
     },
 
     "outputs": [{
+      "source": {
         "service-type": "dvid",
+        "semantic-type": "segmentation",
         "server": "127.0.0.1:8000",
         "uuid": "UUID2",
-        "segmentation-name": "labels-from-brainmaps",
+        "segmentation-name": "labels-from-brainmaps"
+      },
+      "geometry": {
         "bounding-box": [[0, 0, 0], [512, 512, 512]],
         "message-block-shape": [6400, 64, 64],
         "block-width": 64
+      }
     }],
 
     "options": {

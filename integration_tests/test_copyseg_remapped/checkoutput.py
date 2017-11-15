@@ -14,18 +14,18 @@ assert len(configs) == 1, "Why does the temp_dir have more than one config.* fil
 with open(configs[0], 'r') as f:
     config = yaml.load(f)
 
-input_service = DVIDNodeService(str(config['input']['server']), str(config['input']['uuid']))
-input_name = config['input']['segmentation-name']
-input_bb_xyz = config['input']['bounding-box']
+input_service = DVIDNodeService(str(config['input']['source']['server']), str(config['input']['source']['uuid']))
+input_name = config['input']['source']['segmentation-name']
+input_bb_xyz = config['input']['geometry']['bounding-box']
 input_bb_zyx = np.array(input_bb_xyz)[:,::-1]
 input_shape = input_bb_zyx[1] - input_bb_zyx[0]
 
 input_volume = input_service.get_labels3D(input_name, input_shape, input_bb_zyx[0])
 
 def get_output_vol(index):
-    output_service = DVIDNodeService(str(config['outputs'][index]['server']), str(config['outputs'][index]['uuid']))
-    output_name = config['outputs'][index]['segmentation-name']
-    output_bb_xyz = config['outputs'][index]['bounding-box']
+    output_service = DVIDNodeService(str(config['outputs'][index]['source']['server']), str(config['outputs'][index]['source']['uuid']))
+    output_name = config['outputs'][index]['source']['segmentation-name']
+    output_bb_xyz = config['outputs'][index]['geometry']['bounding-box']
     output_bb_zyx = np.array(output_bb_xyz)[:,::-1]
     output_shape = output_bb_zyx[1] - output_bb_zyx[0]
     
