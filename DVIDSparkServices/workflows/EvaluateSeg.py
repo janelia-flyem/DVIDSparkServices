@@ -185,15 +185,26 @@ class EvaluateSeg(DVIDWorkflow):
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
                 self.chunksize)
 
+        # check for self mode
+        selfcompare = False
+        dvidserver2 = ""
+        dviduuid2 = ""
+        dvidlname2 = ""
+        if "dvid-info-comp" in self.config_data:
+            dvidserver2 = self.config_data["dvid-info-comp"]["dvid-server"]
+            dviduuid2 = self.config_data["dvid-info-comp"]["uuid"]
+            dvidlname2 = self.config_data["dvid-info-comp"]["label-name"]
+
         # map ROI to two label volumes (0 overlap)
         # this will be used for all volume and point overlaps
         # (preserves partitioner)
         # (key, (subvolume, seggt, seg2)
+        
+        # creates a dummy volume if no second server is available
         lpairs = self.sparkdvid_context.map_labels64_pair(
                 distrois, self.config_data["dvid-info"]["label-name"],
-                self.config_data["dvid-info-comp"]["dvid-server"],
-                self.config_data["dvid-info-comp"]["uuid"],
-                self.config_data["dvid-info-comp"]["label-name"], self.config_data["dvid-info"]["roi"])
+                dvidserver2, dviduuid2, dvidlname2,
+                self.config_data["dvid-info"]["roi"])
       
         # filter bodies if there is a body list from GT
         important_bodies = self.config_data["options"]["important-bodies"]

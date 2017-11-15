@@ -106,8 +106,10 @@ class count_stat(StatType):
 
             # retrieve hist diff stats (not using stat for comparison mode since
             # not as useful as using just VI differences)
-            # temp_stats = self.subsvol_hist_stats[onum]
-            # summarystats.extend(temp_stats)
+            
+            if self.segstats.selfcompare:
+                temp_stats = self.subsvol_hist_stats[onum]
+                summarystats.extend(temp_stats)
 
         return summarystats
 
@@ -160,6 +162,11 @@ class count_stat(StatType):
     def write_bodydebug(self):
         """Generate overlap information.
         """
+    
+        # no overlap info for self compare
+        if self.segstats.selfcompare:
+            return []
+
         debuginfo = []
        
         # for each comparison type, find overlaps
@@ -255,9 +262,11 @@ class count_stat(StatType):
         sumstat["description"] = "Number of GT bodies"
         summarystats.append(sumstat)
 
-        sumstat = {"name": "num.seg.bodies", "typename": name, "val": segbodies, "display": False}
-        sumstat["description"] = "Number of seg bodies"
-        summarystats.append(sumstat)
+        # disable if self compare
+        if not self.segstats.selfcompare:
+            sumstat = {"name": "num.seg.bodies", "typename": name, "val": segbodies, "display": False}
+            sumstat["description"] = "Number of seg bodies"
+            summarystats.append(sumstat)
 
     def _extract_distribution(self, body_overlap, ignorebodies=None):
         """Helper function: extracts sorted list of body sizes.
@@ -294,8 +303,6 @@ class count_stat(StatType):
         cumdisttemp.reverse()
         return cumdisttemp, count, ignorebodies_temp
 
-
-
     def _calculate_bodystats(self, summarystats, bodystats, gotable, sotable, disablegt=False):
         body_threshold = self.segstats.ptfilter
         if gotable.get_comparison_type() == "voxels":
@@ -305,100 +312,103 @@ class count_stat(StatType):
         num_displaybodies = self.segstats.num_displaybodies
 
         # candidate bodies must have >50% in the GT body to be considered
-        # hungarian matching would probably be overkill
-        important_segbodies = {}
-        for gt, overlapset in gotable.overlap_map.items():
-            total = 0
-            max_id = 0
-            max_val = 0
-            for seg, overlap in overlapset:
-                total += overlap
-                if overlap > max_val:
-                    max_val = overlap
-                    max_id = seg
-            # find size of seg body
-            total2 = 0
-            overlapset2 = sotable.overlap_map[max_id]
-            for seg2, overlap2 in overlapset2:
-                total2 += overlap2
-            
-            # match body if over half of the seg
-            if max_val > (total2 // 2):
-                important_segbodies[max_id] = max_val
-      
+        if not self.segstats.selfcompare:
+            important_segbodies = {}
+            # hungarian matching would probably be overkill
+            for gt, overlapset in gotable.overlap_map.items():
+                total = 0
+                max_id = 0
+                max_val = 0
+                for seg, overlap in overlapset:
+                    total += overlap
+                    if overlap > max_val:
+                        max_val = overlap
+                        max_id = seg
+                # find size of seg body
+                total2 = 0
+                overlapset2 = sotable.overlap_map[max_id]
+                for seg2, overlap2 in overlapset2:
+                    total2 += overlap2
+                
+                # match body if over half of the seg
+                if max_val > (total2 // 2):
+                    important_segbodies[max_id] = max_val
+          
         # add dist bodies
-        bodytest_diststat = {"typename": gotable.get_name(), "name": "Largest Test", "largest2smallest": True, "isgt": False}
-        bodygt_diststat = {"typename": gotable.get_name(), "name": "Largest GT", "largest2smallest": True, "isgt": True}
-
-        segbodies = {}
-        gtbodies = {}
+        if not self.segstats.selfcompare:
+            segbodies = {}
+            bodytest_diststat = {"typename": gotable.get_name(), "name": "Largest Test", "largest2smallest": True, "isgt": False}
+            bodytest_diststat["bodies"] = segbodies
         
-        bodytest_diststat["bodies"] = segbodies
+        bodygt_diststat = {"typename": gotable.get_name(), "name": "Largest GT", "largest2smallest": True, "isgt": True}
+        gtbodies = {}
         bodygt_diststat["bodies"] = gtbodies
    
         # grab filtered bodies from largest to smallest and the total size 
         gtdist, gtcount, ignorebodies = self._extract_distribution(gotable)
-        segdist, segcount, ignorebodies2 = self._extract_distribution(sotable, ignorebodies)
+        
+        if not self.segstats.selfcompare:
+            segdist, segcount, ignorebodies2 = self._extract_distribution(sotable, ignorebodies)
 
         # iterate top X for each and add to diststat
         for index, val in enumerate(gtdist):
             if index == num_displaybodies:
                 break
             gtbodies[val[1]] = [val[0], [val[0]/float(gtcount)*100.0]]
-        for index, val in enumerate(segdist):
-            if index == num_displaybodies:
-                break
-            segbodies[val[1]] = [val[0], [val[0]/float(gtcount)*100.0]]
+        if not self.segstats.selfcompare:
+            for index, val in enumerate(segdist):
+                if index == num_displaybodies:
+                    break
+                segbodies[val[1]] = [val[0], [val[0]/float(gtcount)*100.0]]
         
-        # add max overlap body stats
-        bodystat = {"typename": gotable.get_name(), "name": "Best Test", "largest2smallest": True, "isgt": False}
-        bodies1 = []
+            # add max overlap body stats
+            bodystat = {"typename": gotable.get_name(), "name": "Best Test", "largest2smallest": True, "isgt": False}
+            bodies1 = []
 
-        # examine seg bodies
-        best_size = 0
-        best_body_id = 0
+            # examine seg bodies
+            best_size = 0
+            best_body_id = 0
 
-        for body, overlapset in sotable.overlap_map.items():
-            total = self._get_body_volume(overlapset, ignorebodies)
-            
-            # probably okay to skip these bodies since
-            # since the match volume would be less than
-            # what is allowable for GT bodies
-            if total < body_threshold:
-                continue
+            for body, overlapset in sotable.overlap_map.items():
+                total = self._get_body_volume(overlapset, ignorebodies)
+                
+                # probably okay to skip these bodies since
+                # since the match volume would be less than
+                # what is allowable for GT bodies
+                if total < body_threshold:
+                    continue
 
-            maxoverlap = 0
-            if body in important_segbodies:
-                maxoverlap = important_segbodies[body]
+                maxoverlap = 0
+                if body in important_segbodies:
+                    maxoverlap = important_segbodies[body]
 
-            if maxoverlap > best_size:
-                best_size = maxoverlap
-                best_body_id = body
-            bodies1.append((maxoverlap, body, total))
+                if maxoverlap > best_size:
+                    best_size = maxoverlap
+                    best_body_id = body
+                bodies1.append((maxoverlap, body, total))
 
         # add body stat
         if bodystats is not None:
             # restrict number of bodies to top num_displaybodies
-            
-            # disable Best Test if non-gt mode
-            if not self.segstats.nogt:
-                bodies1.sort()
-                bodies1.reverse()
-                bodies1 = bodies1[0:num_displaybodies]
-                dbodies1 = {}
-                for (val, bid, total) in bodies1:
-                    dbodies1[bid] = [val, [total]]
+            if not self.segstats.selfcompare:
+                # disable Best Test if non-gt mode
+                if not self.segstats.nogt:
+                    bodies1.sort()
+                    bodies1.reverse()
+                    bodies1 = bodies1[0:num_displaybodies]
+                    dbodies1 = {}
+                    for (val, bid, total) in bodies1:
+                        dbodies1[bid] = [val, [total]]
 
-                # add body stats
-                bodystat["bodies"] = dbodies1
-                bodystats.append(bodystat)
-            
-            bodystats.append(bodytest_diststat)
+                    # add body stats
+                    bodystat["bodies"] = dbodies1
+                    bodystats.append(bodystat)
+                
+                bodystats.append(bodytest_diststat)
             bodystats.append(bodygt_diststat)
        
         # add summary stat
         if summarystats is not None:
-
             # find #body count diff at threshold and put more info in description 
             if self.thresholds is not None:
                 numgtbodies = []
@@ -423,35 +433,42 @@ class count_stat(StatType):
                 while len(numgtbodies) < len(self.thresholds):
                     numgtbodies.append(len(gtdist))
             
-                # grab number of seg bodies at each threshold 
-                thresholds = self.thresholds.copy()
-                thresholds.sort()
-                curr_thres = thresholds[0]
-                thresholds = thresholds[1:]
-                curramt = 0
-                for index, val in enumerate(segdist):
-                    curramt += val[1]/float(gtcount)*100.0
-                    if curramt >= curr_thres:
-                        numsegbodies.append(index+1)         
-                        if len(thresholds) > 0:
-                            curr_thres = thresholds[0]
-                            thresholds = thresholds[1:]
-                        else:
-                            break
-                # if threshold is unreachable just put all bodies
-                while len(numsegbodies) < len(self.thresholds):
-                    numsegbodies.append(len(segdist))
+                if not self.segstats.selfcompare:
+                    # grab number of seg bodies at each threshold 
+                    thresholds = self.thresholds.copy()
+                    thresholds.sort()
+                    curr_thres = thresholds[0]
+                    thresholds = thresholds[1:]
+                    curramt = 0
+                    for index, val in enumerate(segdist):
+                        curramt += val[1]/float(gtcount)*100.0
+                        if curramt >= curr_thres:
+                            numsegbodies.append(index+1)         
+                            if len(thresholds) > 0:
+                                curr_thres = thresholds[0]
+                                thresholds = thresholds[1:]
+                            else:
+                                break
+                    # if threshold is unreachable just put all bodies
+                    while len(numsegbodies) < len(self.thresholds):
+                        numsegbodies.append(len(segdist))
 
                 # write stat for each histogram threshold
                 thresholds = self.thresholds.copy()
                 thresholds.sort()
                 for iter1, threshold in enumerate(thresholds):
-                    sumstat = {"name": "HIST-%d"%threshold, "higher-better": False, "typename": gotable.get_name(), "val": abs(numgtbodies[iter1]-numsegbodies[iter1])}
-                    sumstat["description"] = "#Body difference between GT (%d) and test segmentation (%d) for %d percent of volume" % (numgtbodies[iter1], numsegbodies[iter1], threshold) 
-                    summarystats.append(sumstat)
+                    if not self.segstats.selfcompare:
+                        sumstat = {"name": "HIST-%d"%threshold, "higher-better": False, "typename": gotable.get_name(), "val": abs(numgtbodies[iter1]-numsegbodies[iter1])}
+                        sumstat["description"] = "#Body difference between GT (%d) and test segmentation (%d) for %d percent of volume" % (numgtbodies[iter1], numsegbodies[iter1], threshold) 
+                        summarystats.append(sumstat)
+                    else:
+                        sumstat = {"name": "HIST-%d"%threshold, "higher-better": False, "typename": gotable.get_name(), "val": numgtbodies[iter1]}
+                        sumstat["description"] = "%d bodies for %d percent of volume" % (numgtbodies[iter1], threshold) 
+                        summarystats.append(sumstat)
 
-            # disable Best Test if non-gt mode
-            if not self.segstats.nogt and not disablegt:
+
+            # disable Best Test if non-gt mode and self compare
+            if not self.segstats.nogt and not disablegt and not self.segstats.selfcompare:
                 # write body summary stat
                 sumstat = {"name": "B-BST-TST-OV", "higher-better": True, "typename": gotable.get_name(), "val": best_size}
                 sumstat["description"] = "Test segment with greatest (best) correct overlap.  Test body ID = %d" % best_body_id

@@ -24,6 +24,10 @@ class rand_stat(StatType):
         Note:
             Disable if subvolume stats are turned off.
         """
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return
     
         # should not compute state if multiple subvolumes
         assert len(self.segstats.subvolumes) <= 1
@@ -51,6 +55,10 @@ class rand_stat(StatType):
     def reduce_subvolume(self, stat):
         """Combine subvolume stats.
         """
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return
 
         for name, val1 in self.fmergebest.items():
             val2 = stat.fmergebest[name]
@@ -83,6 +91,11 @@ class rand_stat(StatType):
     def write_subvolume_stats(self):
         """Write subvolume summary stats for the subvolume.
         """
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return []
+        
         summarystats = []
 
         # get summary rand stats for subvolume
@@ -100,6 +113,11 @@ class rand_stat(StatType):
 
         Substack summary stats are only produced if substacks are enable.
         """
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return []
+        
         summarystats = []
 
         # calculate summary and body stats

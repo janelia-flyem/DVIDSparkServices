@@ -35,6 +35,11 @@ class edit_stat(StatType):
             * Number of splits to get to threshold
             * Number of mergers to get to threshold
         """
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return []
+        
         summarystats = []
 
         # for each comparison type, find overlaps

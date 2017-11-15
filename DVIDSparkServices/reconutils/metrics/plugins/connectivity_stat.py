@@ -19,6 +19,10 @@ class connectivity_stat(StatType):
         # disable if non-gt mode
         if self.segstats.nogt:
             return []
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return []
 
         gotable, gtseg = self._retrieve_overlap_tables()
 
@@ -34,6 +38,10 @@ class connectivity_stat(StatType):
         if self.segstats.nogt:
             return []
         
+        # disable if self compare
+        if self.segstats.selfcompare:
+            return []
+        
         gotable, gtseg = self._retrieve_overlap_tables()
         typename = gotable.get_name()
 
@@ -47,6 +55,10 @@ class connectivity_stat(StatType):
         """
         # disable if non-gt mode
         if self.segstats.nogt:
+            return []
+        
+        # disable if self compare
+        if self.segstats.selfcompare:
             return []
         
         gotable, gtseg = self._retrieve_overlap_tables()

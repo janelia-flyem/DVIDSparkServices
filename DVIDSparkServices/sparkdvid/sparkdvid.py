@@ -553,6 +553,12 @@ class sparkdvid(object):
 
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_labels2():
+                # fetch dummy value if no server2
+                if server2 == "":
+                    label_volume2 = label_volume.copy()
+                    label_volume2[:,:,:] = 1
+                    return label_volume2
+
                 # fetch second label volume
                 # retrieve data from box start position
                 # Note: libdvid uses zyx order for python functions

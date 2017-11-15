@@ -46,6 +46,9 @@ class Evaluate(object):
         self.point_threshold = config["options"]["point-threshold"]
         self.no_gt = config["options"]["no-gt"]
         self.num_displaybodies = config["options"]["num-displaybodies"]
+        self.selfcompare = False
+        if "dvid-info-comp" not in config:
+            self.selfcompare = True
         self.debug = False
         self.comptypes = []
 
@@ -180,7 +183,7 @@ class Evaluate(object):
             for (body1, body2, overlap) in overlaps12:
                 overlaps21.append((body2, body1, overlap))
 
-            stats = SubvolumeStats(subvolume, self.body_threshold, self.point_threshold, self.num_displaybodies, self.no_gt)
+            stats = SubvolumeStats(subvolume, self.body_threshold, self.point_threshold, self.num_displaybodies, self.no_gt, self.selfcompare)
             stats.disable_subvolumes = self.config["options"]["disable-subvolumes"]
 
             # load different metrics available
