@@ -305,7 +305,7 @@ class CopySegmentation(Workflow):
             # If we're working with a tiny volume (e.g. testing),
             # make sure we at least parallelize across all cores.
             if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
-                bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+                bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
         else:
             raise RuntimeError(f'Unknown service-type: {input_config["service-type"]}')
 
