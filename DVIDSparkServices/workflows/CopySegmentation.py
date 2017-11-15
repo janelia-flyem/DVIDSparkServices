@@ -281,7 +281,7 @@ class CopySegmentation(Workflow):
             # Two-levels of auto-retry:
             # 1. Auto-retry up to three time for any reason.
             # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
-            @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
+            @auto_retry(2, pause_between_tries=5*60.0, logging_name=__name__,
                         predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def get_brainmaps_subvolume(box):
