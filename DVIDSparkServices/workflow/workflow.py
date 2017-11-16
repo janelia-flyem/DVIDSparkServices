@@ -14,6 +14,7 @@ from jsonschema import ValidationError
 import json
 import uuid
 import socket
+import getpass
 from io import StringIO
 
 # ruamel.yaml supports YAML 1.2, which has
@@ -395,7 +396,10 @@ class Workflow(object):
             return None
 
         if self.config_data["options"]["resource-server-config"]:
-            server_config_path = '/tmp/driver-resource-server-config.json'
+            tmpdir = f"/tmp/{getpass.getuser()}"
+            os.makedirs(tmpdir, exist_ok=True)
+
+            server_config_path = f'{tmpdir}/driver-resource-server-config.json'
             with open(server_config_path, 'w') as f:
                 json.dump(self.config_data["options"]["resource-server-config"], f)
             config_arg = '--config-file={}'.format(server_config_path)
