@@ -13,6 +13,7 @@ from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_per_worker
+from DVIDSparkServices.json_util import flow_style
 from DVIDSparkServices.workflow.workflow import Workflow
 
 from .common_schemas import GrayscaleVolumeSchema, SliceFilesVolumeSchema
@@ -25,8 +26,8 @@ class ExportSlices(Workflow):
     OptionsSchema["properties"].update(
     {
         "slices-per-slab": {
-            "description": "The volume is processed iteratively, in 'slabs' consisting of many contiguous Z-slices. "
-                           "This setting determines the thickness of each slab. -1 means choose automatically from number of worker threads."
+            "description": "The volume is processed iteratively, in 'slabs' consisting of many contiguous Z-slices.\n"
+                           "This setting determines the thickness of each slab. -1 means choose automatically from number of worker threads.\n"
                            "(Each worker thread processes a single Z-slice at a time.)",
             "type": "integer",
             "default": -1
@@ -50,16 +51,20 @@ class ExportSlices(Workflow):
     # Adjust defaults for this workflow in particular
     Schema["properties"]["output"]\
             ["properties"]["geometry"]\
-              ["properties"]["message-block-shape"]["default"] = [-1, -1, 1]
+              ["properties"]["message-block-shape"]["default"] = flow_style([-1, -1, 1])
 
     Schema["properties"]["output"]\
             ["properties"]["geometry"]\
-              ["properties"]["bounding-box"]["default"] = [[-1, -1, -1], [-1, -1, -1]]
+              ["properties"]["bounding-box"]["default"] = flow_style([[-1, -1, -1], [-1, -1, -1]])
 
 
-    @staticmethod
-    def dumpschema():
+    @classmethod
+    def dumpschema(cls):
         return json.dumps(ExportSlices.Schema)
+
+    @classmethod
+    def schema(cls):
+        return ExportSlices.Schema
 
     # name of application for DVID queries
     APPNAME = "ExportSlices".lower()

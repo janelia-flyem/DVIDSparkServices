@@ -29,6 +29,9 @@ def main():
     parser.add_argument('--dump-default-yaml', '-y', action="store_true",
             default=False, help="dump default config as yaml")
     
+    parser.add_argument('--dump-default-verbose-yaml', '-v', action="store_true",
+            default=False, help="dump default config as yaml")
+    
     parser.add_argument('--list-workflows', '-w', action="store_true",
             default=False, help="list all the workflow plugins")
 
@@ -60,6 +63,11 @@ def main():
     if args.dump_default_yaml:
         print(workflow_cls.default_config("yaml"))
         return        
+
+    if args.dump_default_verbose_yaml:
+        print(workflow_cls.default_config("yaml-with-comments"))
+        return
+
 
     # execute the workflow
     if args.config_file != "":

@@ -62,8 +62,8 @@ class Workflow(object):
         "properties": {
             ## RESOURCE SERVER
             "resource-server": {
-                "description": "If provided, workflows MAY use this resource server to coordinate competing requests from worker nodes. "
-                               "Set to the IP address of the (already-running) resource server, or use the special word 'driver' "
+                "description": "If provided, workflows MAY use this resource server to coordinate competing requests from worker nodes. \n"
+                               "Set to the IP address of the (already-running) resource server, or use the special word 'driver' \n"
                                "to automatically start a new resource server on the driver node.",
                 "type": "string",
                 "default": ""
@@ -96,7 +96,7 @@ class Workflow(object):
                         "default": []
                     },
                     "launch-delay": {
-                        "description": "By default, wait for the script to complete before continuing."
+                        "description": "By default, wait for the script to complete before continuing.\n"
                                        "Otherwise, launch the script asynchronously and then pause for N seconds before continuing.",
                         "type": "integer",
                         "default": -1 # default: blocking execution
@@ -106,7 +106,7 @@ class Workflow(object):
                         "default": "/tmp"
                     },
                     "also-run-on-driver": {
-                        "description": "Also run this initialization script on the driver machine.",
+                        "description": "Also run this initialization script on the driver machine.\n",
                         "type": "boolean",
                         "default": False
                     }
@@ -115,7 +115,8 @@ class Workflow(object):
 
             ## LOG SERVER
             "log-collector-port": {
-                "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
+                "description": "If provided, a server process will be launched on the \n"
+                               "driver node to collect certain log messages from worker nodes.",
                 "type": "integer",
                 "default": 0
             },
@@ -146,7 +147,8 @@ class Workflow(object):
             },
 
             "debug": {
-                "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
+                "description": "Enable certain debugging functionality.\n"
+                               "Mandatory for integration tests.",
                 "type": "boolean",
                 "default": False
             }
@@ -576,21 +578,25 @@ class Workflow(object):
 
 
     # make this an explicit abstract method ??
-    @staticmethod
-    def dumpschema():
+    @classmethod
+    def dumpschema(cls):
         """Children must provide their own json specification"""
 
         raise WorkflowError("Derived class must provide a schema")
 
     @classmethod
+    def schema(cls):
+        return json.loads( cls.dumpschema() )
+
+    @classmethod
     def default_config(cls, syntax="json"):
-        assert syntax in ("json", "yaml") 
-        schema = json.loads( cls.dumpschema() )
-        default_instance = {}
-        inject_defaults( default_instance, schema )
+        assert syntax in ("json", "yaml", "yaml-with-comments")
+        schema = cls.schema()
         output_stream = StringIO()
         if syntax == "json":
+            default_instance = inject_defaults( {}, schema )
             json.dump( default_instance, output_stream, indent=4 )
         else:
+            default_instance = inject_defaults( {}, schema, (syntax == "yaml-with-comments"), 2 )
             yaml.dump(default_instance, output_stream )
         return output_stream.getvalue()

@@ -1,3 +1,4 @@
+from DVIDSparkServices.json_util import flow_style
 # Terms:
 # - Source: Arbitrary source of voxels, with no defined bounding box or access pattern
 # - Geometry: Bounding box, access pattern
@@ -5,7 +6,7 @@
 
 BoundingBoxSchema = \
 {
-    "description": "The bounding box [[x0,y0,z0],[x1,y1,z1]], "
+    "description": "The bounding box [[x0,y0,z0],[x1,y1,z1]], \n"
                    "where [x1,y1,z1] == maxcoord+1 (i.e. Python conventions)",
     "type": "array",
     "minItems": 2,
@@ -15,7 +16,8 @@ BoundingBoxSchema = \
         "items": { "type": "integer" },
         "minItems": 3,
         "maxItems": 3
-    }
+    },
+    "default": flow_style( [[-1,-1,-1], [-1,-1,-1]] )
 }
 
 GeometrySchema = \
@@ -25,10 +27,10 @@ GeometrySchema = \
     "default": {},
     "properties": {
         "scale": {
-            "description": "The pyramid scale at which the data should be accessed: "
-                           "0: full-res; "
-                           "1: downsample-by-2; "
-                           "2: downsample-by-4; etc.",
+            "description": "The pyramid scale at which the data should be accessed: \n"
+                           "0: full-res; \n"
+                           "1: downsample-by-2; \n"
+                           "2: downsample-by-4; etc. \n",
             "type": "integer",
             "minimum": 0,
             "default": 0
@@ -37,12 +39,13 @@ GeometrySchema = \
         "bounding-box": BoundingBoxSchema,
 
         "message-block-shape": {
-            "description": "The preferred access pattern block shape. A value of -1 for any axis means 'auto'",
+            "description": "The preferred access pattern block shape.\n"
+                           "A value of -1 for any axis means 'auto'",
             "type": "array",
             "items": { "type": "integer" },
             "minItems": 3,
             "maxItems": 3,
-            "default": [6400,64,64],
+            "default": flow_style( [6400,64,64] )
         },
 
         "block-width": {
@@ -278,5 +281,6 @@ SegmentationVolumeListSchema = \
     "description": "A list of segmentation volume sources (or destinations).",
     "type": "array",
     "items": SegmentationVolumeSchema,
-    "minItems": 1
+    "minItems": 1,
+    "default": [{}] # One item by default (will be filled in during yaml dump)
 }

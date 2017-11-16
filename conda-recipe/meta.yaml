@@ -51,7 +51,7 @@ requirements:
     - psutil
     - pandas
     - munkres
-    - ruamel.yaml # Required for YAML 1.2 support (pyyaml supports 1.1)
+    - ruamel.yaml >=0.15.34 # Required for YAML 1.2 support (pyyaml supports 1.1)
 
 test:
   requires:
