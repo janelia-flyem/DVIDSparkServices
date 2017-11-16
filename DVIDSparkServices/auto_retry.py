@@ -1,18 +1,30 @@
 import functools
 import logging
 
-def auto_retry(total_tries=1, pause_between_tries=10.0, logging_name=None, predicate=None):
+def auto_retry(total_tries=2, pause_between_tries=10.0, logging_name=None, predicate=None):
     """
     Returns a decorator.
     If the decorated function fails for any reason,
     pause for a bit and then retry until it has been called total_tries times.
     
-    predicate: (Optional)
-               Should be a callable with signature: f(exception) -> bool
-               It will be called once per retry:
-               - If it returns true, we continue retrying as usual until total_tries
-                 have been exhausted.
-               - If it returns False, the retries are aborted, regardless of total_tries.
+    total_tries:
+        How many times to execute the function in total.
+        (Example: If total_tries = 1, the function is not retried at all.)
+    
+    pause_between_tries:
+        How long to wait before retrying the function.
+    
+    logging_name:
+        If any retries are necessary, a warning will be logged
+        to the logger with the given name.
+    
+    predicate:
+        (Optional)
+        Should be a callable with signature: f(exception) -> bool
+        It will be called once per retry:
+          - If it returns true, we continue retrying as usual until total_tries
+            have been exhausted.
+          - If it returns False, the retries are aborted, regardless of total_tries.
     """
     assert total_tries >= 1
     def decorator(func):
