@@ -27,7 +27,7 @@ GeometrySchema = \
     "type": "object",
     "default": {},
     "properties": {
-        "scale": {
+        "default_scale": {
             "description": "The pyramid scale at which the data should be accessed: \n"
                            "0: full-res; \n"
                            "1: downsample-by-2; \n"
