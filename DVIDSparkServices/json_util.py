@@ -25,6 +25,16 @@ def flow_style(ob):
     assert l.fa.flow_style()
     return l
 
+class Dict(dict):
+    """
+    This subclass allows us to tag dicts with a new attribute 'from_default'
+    to indicate that the config sub-object was generated from scratch.
+    (This is useful for figuring out which fields were user-provided and
+    which were automatically supplied from the schema.)
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.from_default = False
 
 def extend_with_default(validator_class):
     """
@@ -36,7 +46,11 @@ def extend_with_default(validator_class):
     def set_defaults_and_validate(validator, properties, instance, schema):
         for property, subschema in properties.items():
             if "default" in subschema:
-                instance.setdefault(property, copy.copy(subschema["default"]))
+                default = copy.deepcopy(subschema["default"])
+                if isinstance(default, dict):
+                    default = Dict(default)
+                    default.from_default = True
+                instance.setdefault(property, default)
 
         for error in validate_properties(validator, properties, instance, schema):
             yield error
@@ -79,6 +93,7 @@ def extend_with_default_without_validation(validator_class, include_yaml_comment
                     # To keep track of the current indentation level,
                     # we just monkey-patch this member onto the dict.
                     default.key_indent = instance.key_indent + yaml_indent
+                    default.from_default = True
                 if include_yaml_comments and isinstance(default, list):
                     if not isinstance(default, CommentedSeq):
                         default = CommentedSeq(copy.copy(default))
@@ -86,6 +101,7 @@ def extend_with_default_without_validation(validator_class, include_yaml_comment
                     # To keep track of the current indentation level,
                     # we just monkey-patch this member onto the dict.
                     default.key_indent = instance.key_indent + yaml_indent
+                    default.from_default = True
                 if property not in instance:
                     instance[property] = default
             else:
@@ -197,6 +213,7 @@ if __name__ == "__main__":
     obj1 = {}
     DefaultValidatingDraft4Validator(schema).validate(obj1)
     assert obj1 == {'outer-object': {'inner-object': 'INNER-DEFAULT'}}
+    assert obj1['outer-object'].from_default
 
     print("obj1:")
     print(json.dumps(obj1, indent=4) + '\n')
