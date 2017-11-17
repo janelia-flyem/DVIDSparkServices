@@ -440,10 +440,8 @@ class sparkdvid(object):
     def get_voxels( cls, server, uuid, instance_name, scale,
                     instance_type, is_labels,
                     volume_shape, offset,
-                    resource_server, resource_port, throttle="auto"):
-        # extract labels 64
-        # retrieve data from box start position considering border
-        # Note: libdvid uses zyx order for python functions
+                    resource_server="", resource_port=0, throttle="auto"):
+
         node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
         if throttle == "auto":
             throttle = (resource_server == "")
@@ -466,6 +464,28 @@ class sparkdvid(object):
         else:
             assert scale == 0, "FIXME: get_gray3D() doesn't support scale yet!"
             return node_service.get_gray3D( instance_name, volume_shape, offset, throttle, compress=False )
+
+    @classmethod
+    def post_voxels( cls, server, uuid, instance_name, scale,
+                     instance_type, is_labels,
+                     subvolume, offset,
+                     resource_server="", resource_port=0, throttle="auto"):
+
+        node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+
+        if throttle == "auto":
+            throttle = (resource_server == "")
+        
+        if instance_type == 'labelarray' and np.array(offset) % 64 == 0 and np.array(subvolume.shape) % 64 == 0:
+            # Labelarray data can be posted very efficiently if the request is block-aligned
+            node_service.put_labelblocks3D( instance_name, subvolume, offset, throttle, scale)
+        elif is_labels:
+            assert scale == 0, "FIXME: put_labels3D() doesn't support scale yet!"
+            # labelblk (or non-aligned labelarray) must be posted the old-fashioned way
+            node_service.put_labels3D( instance_name, subvolume, offset, throttle)
+        else:
+            assert scale == 0, "FIXME: put_gray3D() doesn't support scale yet!"
+            node_service.put_gray3D( instance_name, subvolume, offset, throttle)
 
     def get_volume_accessor(self, instance_name, scale=0):
         """
