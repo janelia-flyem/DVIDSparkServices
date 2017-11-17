@@ -1,8 +1,9 @@
 from DVIDSparkServices.json_util import flow_style
+
 # Terms:
-# - Source: Arbitrary source of voxels, with no defined bounding box or access pattern
-# - Geometry: Bounding box, access pattern
-# - Volume: Combines both Source and Geometry
+# - Service: Arbitrary source (or sink) of voxels, with no defined bounding box or access pattern
+# - Geometry: Bounding box, access pattern, scale
+# - Volume: Combines both Service with a Geometry (and possibly other properties, such as a labelmap)
 
 BoundingBoxSchema = \
 {
@@ -56,19 +57,7 @@ GeometrySchema = \
     }
 }
 
-SourceBaseSchema = \
-{
-    "description": "Base fields for source schemas",
-    "type": "object",
-    "required": ["service-type", "semantic-type"],
-    "default": {},
-    "properties": {
-        "service-type": { "type": "string", "enum": ["dvid", "brainmaps", "slice-files"] },
-        "semantic-type": { "type": "string", "enum": ["grayscale", "segmentation"] }
-    }    
-}
-
-SliceFilesSourceSchema = \
+SliceFilesServiceSchema = \
 {
     "description": "Parameters specify a source of grayscale data from image slices.",
     "type": "object",
@@ -77,25 +66,22 @@ SliceFilesSourceSchema = \
 
     "default": {},
     "properties": {
-        "service-type": { "type": "string", "enum": ["slice-files"], "default": "slice-files" },
-        "semantic-type": { "type": "string", "enum": ["grayscale"], "default": "grayscale" },
-        
         "slice-path-format": {
-            "description": 'String format for image Z-slice paths, using python format-string syntax, '
-                           'e.g. "/path/to/slice{:05}.png" '
+            "description": 'String format for image Z-slice paths, using python format-string syntax, \n'
+                           'e.g. "/path/to/slice{:05}.png"  \n'
                            'Some workflows may also support the prefix "gs://" for gbucket data.',
             "type": "string",
             "minLength": 1
         },
         "slice-xy-offset": {
-            "description": "The XY-offset indicating where the slices reside within the global input coordinates, "
-                           "That is, which global (X,Y) coordinate does pixel (0,0) of each slice correspond to? "
+            "description": "The XY-offset indicating where the slices reside within the global input coordinates, \n"
+                           "That is, which global (X,Y) coordinate does pixel (0,0) of each slice correspond to? \n"
                            "(The Z-offset is presumed to be already encoded within the slice-path-format)",
             "type": "array",
             "items": { "type": "integer" },
             "minItems": 2,
             "maxItems": 2,
-            "default": [0,0],
+            "default": flow_style( [0,0] ),
         }
     }
 }
@@ -106,23 +92,19 @@ SliceFilesVolumeSchema = \
     "type": "object",
     "default": {},
     "properties": {
-        "source": SliceFilesSourceSchema,
+        "slice-files": SliceFilesServiceSchema,
         "geometry": GeometrySchema
     }
 }
 
-DvidSourceBaseSchema = \
+DvidServiceSchema = \
 {
     "description": "Parameters specify a DVID node",
     "type": "object",
-    "required": ["service-type", "server", "uuid"],
-
-    "allOf": [SourceBaseSchema],
+    "required": ["server", "uuid"],
 
     "default": {},
     "properties": {
-        "service-type": { "type": "string", "enum": ["dvid"] },
-
         "server": {
             "description": "location of DVID server to READ.",
             "type": "string",
@@ -134,36 +116,19 @@ DvidSourceBaseSchema = \
     }
 }
 
-DvidGrayscaleSourceSchema = \
+DvidGrayscaleServiceSchema = \
 {
     "description": "Parameters specify a source of grayscale data from DVID",
     "type": "object",
 
-    "allOf": [DvidSourceBaseSchema],
+    "allOf": [DvidServiceSchema],
 
-    "required": ["grayscale-name"],
+    "required": DvidServiceSchema["required"] + ["grayscale-name"],
     "default": {},
     "properties": {
         "grayscale-name": {
-            "description": "The grayscale instance to read/write from/to. Instance must be grayscale (uint8blk).",
-            "type": "string",
-            "minLength": 1
-        }
-    }
-}
-
-DvidSegmentationSourceSchema = \
-{
-    "description": "Parameters specify a source of segmentation data from DVID",
-    "type": "object",
-
-    "allOf": [DvidSourceBaseSchema],
-
-    "required": ["segmentation-name"],
-    "default": {},
-    "properties": {
-        "segmentation-name": {
-            "description": "The labels instance to read/write from. Instance may be either googlevoxels, labelblk, or labelarray.",
+            "description": "The grayscale instance to read/write from/to.\n"
+                           "Instance must be grayscale (uint8blk).",
             "type": "string",
             "minLength": 1
         }
@@ -172,32 +137,44 @@ DvidSegmentationSourceSchema = \
 
 GrayscaleVolumeSchema = \
 {
-    "description": "Describes a segmentation volume source (or destination), extents, and preferred access pattern",
+    "description": "Describes a grayscale volume (service and geometry)",
     "type": "object",
-    "required": ["source", "geometry"],
     "default": {},
+    "oneOf": [
+        { "properties": { "dvid": DvidGrayscaleServiceSchema } },
+        { "properties": { "slice-files": SliceFilesServiceSchema } }
+    ],
     "properties": {
-        "source": {
-            "type": "object",
-            "semantic-type": { "enum": ["grayscale"] }, # Force as grayscale
-            "oneOf": [ DvidGrayscaleSourceSchema,
-                       SliceFilesSourceSchema ],
-            "default": {}
-        },
         "geometry": GeometrySchema
     }
 }
 
+DvidSegmentationServiceSchema = \
+{
+    "description": "Parameters specify a source of segmentation data from DVID",
+    "type": "object",
 
-BrainMapsSegmentationSourceSchema = \
+    "allOf": [DvidServiceSchema],
+
+    "required": DvidServiceSchema["required"] + ["segmentation-name"],
+    "default": {},
+    "properties": {
+        "segmentation-name": {
+            "description": "The labels instance to read/write from. \n"
+                           "Instance may be either googlevoxels, labelblk, or labelarray.",
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}
+
+BrainMapsSegmentationServiceSchema = \
 {
     "description": "Parameters to use Google BrainMaps as a source of voxel data",
     "type": "object",
-    "required": ["service-type", "project", "dataset", "volume-id", "change-stack-id"],
+    "required": ["project", "dataset", "volume-id", "change-stack-id"],
     "default": {},
     "properties": {
-        "service-type": { "type": "string",
-                          "enum": ["brainmaps"] },
         "project": {
             "description": "Project ID",
             "type": "string",
@@ -211,22 +188,11 @@ BrainMapsSegmentationSourceSchema = \
             "type": "string"
         },
         "change-stack-id": {
-            "description": "Change Stack ID, specifies a set of changes to apple on top of the volume, (e.g. a set of agglomeration steps).",
+            "description": "Change Stack ID. Specifies a set of changes to apple on top of the volume\n"
+                           "(e.g. a set of agglomeration steps).",
             "type": "string",
             "default": ""
         }
-    }
-}
-
-SkippedSegmentationSourceSchema = \
-{
-    "description": "A quick way to specify that a given segmentation source/destination should be SKIPPED.",
-    "type": "object",
-    "required": ["service-type"],
-    "additionalProperties": True,
-    "default": {},
-    "properties": {
-        "service-type": { "type": "string", "enum": ["SKIP"] }
     }
 }
 
@@ -254,24 +220,17 @@ LabelMapSchema = \
 
 SegmentationVolumeSchema = \
 {
-    "description": "Describes a segmentation volume source (or destination), extents, and preferred access pattern",
+    "description": "Describes a segmentation volume source (or destination), \n"
+                   "extents, and preferred access pattern",
     "type": "object",
     "required": ["source", "geometry"],
     "default": {},
+    "oneOf": [
+        { "properties": { "dvid": DvidSegmentationServiceSchema } },
+        { "properties": { "brainmaps": BrainMapsSegmentationServiceSchema } }
+    ],
     "properties": {
-        "source": {
-            "type": "object",
-            "oneOf": [ DvidSegmentationSourceSchema,
-                       BrainMapsSegmentationSourceSchema,
-                       SkippedSegmentationSourceSchema ],
-            
-            "default": {},
-            "properties": {
-                "semantic-type": { "enum": ["segmentation"], "default": "segmentation" }, # force as segmentation
-                # Add extra field for labelmap
-                "apply-labelmap": LabelMapSchema
-            }
-        },
+        "apply-labelmap": LabelMapSchema,
         "geometry": GeometrySchema
     }
 }

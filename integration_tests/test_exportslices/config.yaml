@@ -1,7 +1,5 @@
 input:
-  source:
-    service-type: 'dvid'
-    semantic-type: 'grayscale'
+  dvid:
     server: '127.0.0.1:8000'
     uuid: 'UUID1'
     grayscale-name: 'grayscale'
@@ -9,7 +7,7 @@ input:
     bounding-box: [[0,0,0], [256,256,256]]
 
 output:
-  source:
+  slice-files:
     service-type: slice-files
     semantic-type: grayscale
     slice-path-format: './slices/z{:05}.png'

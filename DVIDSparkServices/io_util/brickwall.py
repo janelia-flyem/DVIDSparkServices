@@ -104,21 +104,18 @@ class BrickWall:
     ##
 
     @classmethod
-    def from_volume_source_config(cls, volume_config, sc=None, target_partition_size_voxels=None, resource_manager_client=None):
-        if volume_config["source"]["semantic-type"] == "segmentation":
-            assert volume_config["apply-labelmap"]["file"] == "", \
-                "BrickWall does not automatically apply labelmaps. Remove that from the config and apply it afterwards."
+    def from_volume_config(cls, volume_config, sc=None, target_partition_size_voxels=None, resource_manager_client=None):
+        assert ("apply-labelmap" not in volume_config) or (volume_config["apply-labelmap"]  == ""), \
+            "BrickWall does not automatically apply labelmaps. Remove that from the config and apply it afterwards."
 
         if resource_manager_client is None:
             resource_manager_client = ResourceManagerClient("", "")
         
-        service = volume_config["source"]["service-type"]
-
-        if service == "dvid":
+        if "dvid" in volume_config.keys() :
             return cls._from_dvid_config(volume_config, sc, target_partition_size_voxels, resource_manager_client)
-        elif service == "brainmaps":
+        elif "brainmaps" in volume_config.keys() :
             return  cls._from_brainmaps_config(volume_config, sc, target_partition_size_voxels, resource_manager_client)
-        elif service == "slice-files":
+        elif "slice-files" in volume_config.keys() :
             return  cls._from_slice_files_config(volume_config, sc, target_partition_size_voxels, resource_manager_client)
 
         raise RuntimeError(f"Unsupported volume configuration: {volume_config}")
@@ -133,10 +130,10 @@ class BrickWall:
 
         # Instantiate this outside of get_brainmaps_subvolume,
         # so it can be shared across an entire partition.
-        vol = BrainMapsVolume( volume_config["source"]["project"],
-                               volume_config["source"]["dataset"],
-                               volume_config["source"]["volume-id"],
-                               volume_config["source"]["change-stack-id"],
+        vol = BrainMapsVolume( volume_config["brainmaps"]["project"],
+                               volume_config["brainmaps"]["dataset"],
+                               volume_config["brainmaps"]["volume-id"],
+                               volume_config["brainmaps"]["change-stack-id"],
                                dtype=np.uint64 )
 
         assert (input_bb_zyx[0] >= vol.bounding_box[0]).all() and (input_bb_zyx[1] <= vol.bounding_box[1]).all(), \
@@ -165,16 +162,16 @@ class BrickWall:
         mgr_ip = resource_manager_client.server_ip
         mgr_port = resource_manager_client.server_port
 
-        server = volume_config["source"]["server"]
-        uuid = volume_config["source"]["uuid"]
+        server = volume_config["dvid"]["server"]
+        uuid = volume_config["dvid"]["uuid"]
         scale = volume_config["geometry"]["scale"]
 
-        if volume_config["source"]["semantic-type"] == "grayscale":
-            instance_name = volume_config["source"]["grayscale-name"]
-        elif volume_config["source"]["semantic-type"] == "segmentation":
-            instance_name = volume_config["source"]["segmentation-name"]
+        if "segmentation-name" in volume_config["dvid"]:
+            instance_name = volume_config["dvid"]["segmentation-name"]
+        elif "grayscale-name" in volume_config["dvid"]:
+            instance_name = volume_config["dvid"]["grayscale-name"]
 
-        data_instance = DataInstance(volume_config["source"]["server"], volume_config["source"]["uuid"], instance_name)
+        data_instance = DataInstance(volume_config["dvid"]["server"], volume_config["dvid"]["uuid"], instance_name)
         instance_type = data_instance.datatype
         is_labels = data_instance.is_labels()        
 

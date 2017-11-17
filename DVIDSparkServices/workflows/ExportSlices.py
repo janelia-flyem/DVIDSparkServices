@@ -78,12 +78,11 @@ class ExportSlices(Workflow):
         Tidy up some config values, and fill in 'auto' values where needed.
         """
         options = self.config_data["options"]
-        input_source = self.config_data["input"]["source"]
         input_geometry = self.config_data["input"]["geometry"]
-        output_source = self.config_data["output"]["source"]
+        output_specs = self.config_data["output"]["slice-files"]
         output_geometry = self.config_data["output"]["geometry"]
         
-        assert output_source["slice-xy-offset"] == [0,0], "Nonzero xy offset is meaningless for outputs."
+        assert output_specs["slice-xy-offset"] == [0,0], "Nonzero xy offset is meaningless for outputs."
         assert output_geometry["message-block-shape"] == [-1, -1, 1], "Output must be Z-slices, and complete XY planes"
 
         if options["slices-per-slab"] == -1:
@@ -95,13 +94,13 @@ class ExportSlices(Workflow):
             options["slices-per-slab"] = brick_depth * threads_per_brick_layer
 
         # Convert relative path to absolute
-        path = output_source["slice-path-format"]
+        path = output_specs["slice-path-format"]
         if path.startswith('gs://'):
             assert False, "FIXME: Support gbuckets"
         elif not isabs(path):
-            output_source["slice-path-format"] = self.relpath_to_abspath(path)
+            output_specs["slice-path-format"] = self.relpath_to_abspath(path)
 
-        os.makedirs(dirname(output_source["slice-path-format"]), exist_ok=True)
+        os.makedirs(dirname(output_specs["slice-path-format"]), exist_ok=True)
 
         # Enforce correct output bounding-box
         input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
@@ -116,7 +115,7 @@ class ExportSlices(Workflow):
     def execute(self):
         input_config = self.config_data["input"]
         input_geometry = input_config["geometry"]
-        output_source = self.config_data["output"]["source"]
+        output_specs = self.config_data["output"]["slice-files"]
         options = self.config_data["options"]
 
         mgr_client = ResourceManagerClient( options["resource-server"],
@@ -142,7 +141,7 @@ class ExportSlices(Workflow):
             # Contruct BrickWall from input bricks
             slab_config = copy.copy(input_config)
             slab_config["geometry"]["bounding-box"] = slab_box[:, ::-1]
-            bricked_slab_wall = BrickWall.from_volume_source_config(slab_config, self.sc, resource_manager_client=mgr_client)
+            bricked_slab_wall = BrickWall.from_volume_config(slab_config, self.sc, resource_manager_client=mgr_client)
             
             # Force download
             persist_and_execute(bricked_slab_wall.bricks, f"Downloading slab {slab_index}/{len(slab_boxes)} bricks", logger)
@@ -161,7 +160,7 @@ class ExportSlices(Workflow):
                 assert (brick.physical_box[1,0] - brick.physical_box[0,0]) == 1, "Expected a single slice"
                 z_index = brick.physical_box[0,0]
                 slice_data = vigra.taggedView( brick.volume, 'zyx' )
-                vigra.impex.writeImage(slice_data[0], output_source["slice-path-format"].format(z_index))
+                vigra.impex.writeImage(slice_data[0], output_specs["slice-path-format"].format(z_index))
 
             # Export to PNG or TIFF, etc. (automatic via slice path extension)
             logger.info(f"Exporting slab {slab_index}/{len(slab_boxes)}", extra={"status": f"Exporting {slab_index}/{len(slab_boxes)}"})
