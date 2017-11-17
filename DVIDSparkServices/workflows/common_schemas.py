@@ -97,6 +97,27 @@ SliceFilesVolumeSchema = \
     }
 }
 
+N5ServiceSchema = \
+{
+    "description": "Parameters specify a DVID node",
+    "type": "object",
+    "required": ["path", "dataset-name"],
+    "default": {},
+    
+    "properties": {
+        "path": {
+            "description": "Path to the n5 parent directory, which may contain multiple datasets",
+            "type": "string",
+            "minLength": 1
+        },
+        "dataset-name": {
+            "description": "Name of the volume",
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}
+
 DvidServiceSchema = \
 {
     "description": "Parameters specify a DVID node",
@@ -142,7 +163,8 @@ GrayscaleVolumeSchema = \
     "default": {},
     "oneOf": [
         { "properties": { "dvid": DvidGrayscaleServiceSchema } },
-        { "properties": { "slice-files": SliceFilesServiceSchema } }
+        { "properties": { "slice-files": SliceFilesServiceSchema } },
+        { "properties": { "n5": N5ServiceSchema } }
     ],
     "properties": {
         "geometry": GeometrySchema

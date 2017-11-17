@@ -166,7 +166,10 @@ class Workflow(object):
 
         """
 
+        if not jsonfile.startswith('http'):
+            jsonfile = os.path.abspath(jsonfile)
         self.config_path = jsonfile
+
         self.config_data = None
         schema_data = json.loads(schema)
 
@@ -252,9 +255,15 @@ class Workflow(object):
         assert not self.config_path.startswith("http"), \
             "Can't convert relpath ({}) to abspath, since config comers from an http endpoint ({})".format(relpath, self.config_path)
 
-        config_dir = os.path.dirname( os.path.normpath(self.config_path) )
-        relpath = os.path.normpath( os.path.join(config_dir, relpath) )
-        return relpath
+        abspath = os.path.normpath( os.path.join(self.config_dir, relpath) )
+        return abspath
+
+    @property
+    def config_dir(self):
+        """
+        Return the directory that contains our config file.
+        """
+        return os.path.dirname( os.path.normpath(self.config_path) )
 
     def _init_logcollector_config(self):
         """

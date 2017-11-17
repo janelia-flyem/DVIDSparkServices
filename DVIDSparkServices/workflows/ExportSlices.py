@@ -16,6 +16,8 @@ from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_p
 from DVIDSparkServices.json_util import flow_style
 from DVIDSparkServices.workflow.workflow import Workflow
 
+from DVIDSparkServices.io_util.volume_service import VolumeService
+
 from .common_schemas import GrayscaleVolumeSchema, SliceFilesVolumeSchema
 
 logger = logging.getLogger(__name__)
@@ -141,7 +143,8 @@ class ExportSlices(Workflow):
             # Contruct BrickWall from input bricks
             slab_config = copy.copy(input_config)
             slab_config["geometry"]["bounding-box"] = slab_box[:, ::-1]
-            bricked_slab_wall = BrickWall.from_volume_config(slab_config, self.sc, resource_manager_client=mgr_client)
+            volume_service = VolumeService.create_from_config( slab_config, self.config_dir, mgr_client )
+            bricked_slab_wall = BrickWall.from_volume_service(volume_service, self.sc)
             
             # Force download
             persist_and_execute(bricked_slab_wall.bricks, f"Downloading slab {slab_index}/{len(slab_boxes)} bricks", logger)

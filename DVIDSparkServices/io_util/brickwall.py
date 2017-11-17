@@ -1,13 +1,7 @@
 import numpy as np
 
-from dvid_resource_manager.client import ResourceManagerClient
-
-from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
-from DVIDSparkServices.dvid.metadata import DataInstance
 from DVIDSparkServices import rddtools as rt
-from DVIDSparkServices.auto_retry import auto_retry
 
-from .brainmaps import BrainMapsVolume
 from .brick import Grid, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
 
 class BrickWall:
@@ -56,6 +50,19 @@ class BrickWall:
         return padded_bricks
 
     ##
+    ## Convenience Constructor
+    ##
+
+    @classmethod
+    def from_volume_service(cls, volume_service, sc=None, target_partition_size_voxels=None):
+        grid = Grid(volume_service.preferred_message_shape, (0,0,0))
+        return BrickWall( volume_service.bounding_box_zyx,
+                          grid,
+                          volume_service.get_subvolume,
+                          sc,
+                          target_partition_size_voxels )
+
+    ##
     ## Generic Constructor
     ##
 
@@ -98,105 +105,3 @@ class BrickWall:
                 block_size_voxels = np.prod(grid.block_shape)
                 rdd_partition_length = target_partition_size_voxels // block_size_voxels
             self.bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length)
-    
-    ##
-    ## Convenience Constructors
-    ##
-
-    @classmethod
-    def from_volume_config(cls, volume_config, sc=None, target_partition_size_voxels=None, resource_manager_client=None):
-        assert ("apply-labelmap" not in volume_config) or (volume_config["apply-labelmap"]  == ""), \
-            "BrickWall does not automatically apply labelmaps. Remove that from the config and apply it afterwards."
-
-        if resource_manager_client is None:
-            resource_manager_client = ResourceManagerClient("", "")
-        
-        if "dvid" in volume_config.keys() :
-            return cls._from_dvid_config(volume_config, sc, target_partition_size_voxels, resource_manager_client)
-        elif "brainmaps" in volume_config.keys() :
-            return  cls._from_brainmaps_config(volume_config, sc, target_partition_size_voxels, resource_manager_client)
-        elif "slice-files" in volume_config.keys() :
-            return  cls._from_slice_files_config(volume_config, sc, target_partition_size_voxels, resource_manager_client)
-
-        raise RuntimeError(f"Unsupported volume configuration: {volume_config}")
-            
-
-    @classmethod
-    def _from_brainmaps_config(cls, volume_config, sc, target_partition_size_voxels, resource_manager_client):
-        input_bb_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
-        brick_shape_zyx = volume_config["geometry"]["message-block-shape"][::-1]
-        scale = volume_config["geometry"]["scale"]
-        grid = Grid(brick_shape_zyx, (0,0,0))
-
-        # Instantiate this outside of get_brainmaps_subvolume,
-        # so it can be shared across an entire partition.
-        vol = BrainMapsVolume( volume_config["brainmaps"]["project"],
-                               volume_config["brainmaps"]["dataset"],
-                               volume_config["brainmaps"]["volume-id"],
-                               volume_config["brainmaps"]["change-stack-id"],
-                               dtype=np.uint64 )
-
-        assert (input_bb_zyx[0] >= vol.bounding_box[0]).all() and (input_bb_zyx[1] <= vol.bounding_box[1]).all(), \
-            f"Specified bounding box ({input_bb_zyx.tolist()}) extends outside the "\
-            f"BrainMaps volume geometry ({vol.bounding_box.tolist()})"
-        
-        # Two-levels of auto-retry:
-        # 1. Auto-retry up to three time for any reason.
-        # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
-        @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
-                    predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
-        @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
-        def get_brainmaps_subvolume(box):
-            req_bytes = 8 * np.prod(box[1] - box[0])
-            with resource_manager_client.access_context('brainmaps', True, 1, req_bytes):
-                return vol.get_subvolume(box, scale)
-
-        return BrickWall(input_bb_zyx, grid, get_brainmaps_subvolume, sc, target_partition_size_voxels)
-    
-    @classmethod
-    def _from_dvid_config(cls, volume_config, sc, target_partition_size_voxels, resource_manager_client):
-        input_bb_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
-        brick_shape_zyx = volume_config["geometry"]["message-block-shape"][::-1]
-        grid = Grid(brick_shape_zyx, (0,0,0))
-
-        mgr_ip = resource_manager_client.server_ip
-        mgr_port = resource_manager_client.server_port
-
-        server = volume_config["dvid"]["server"]
-        uuid = volume_config["dvid"]["uuid"]
-        scale = volume_config["geometry"]["scale"]
-
-        if "segmentation-name" in volume_config["dvid"]:
-            instance_name = volume_config["dvid"]["segmentation-name"]
-        elif "grayscale-name" in volume_config["dvid"]:
-            instance_name = volume_config["dvid"]["grayscale-name"]
-
-        data_instance = DataInstance(volume_config["dvid"]["server"], volume_config["dvid"]["uuid"], instance_name)
-        instance_type = data_instance.datatype
-        is_labels = data_instance.is_labels()        
-
-        # Two-levels of auto-retry:
-        # 1. Auto-retry up to three time for any reason.
-        # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
-        @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
-                    predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
-        @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
-        def get_voxels(box):
-            shape = np.asarray(box[1]) - box[0]
-            return sparkdvid.get_voxels( server,
-                                         uuid,
-                                         instance_name,
-                                         scale,
-                                         instance_type,
-                                         is_labels,
-                                         shape,
-                                         box[0],
-                                         mgr_ip,
-                                         mgr_port )
-    
-        return BrickWall(input_bb_zyx, grid, get_voxels, sc, target_partition_size_voxels)
-    
-    @classmethod
-    def _from_slice_files_config(cls, volume_config, sc, target_partition_size_voxels, resource_manager_client):
-        raise NotImplemented
-
