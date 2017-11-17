@@ -52,7 +52,7 @@ GeometrySchema = \
         "block-width": {
             "description": "The block size of the underlying volume storage, if applicable.",
             "type": "integer",
-            "default": 64
+            "default": -1
         } 
     }
 }
