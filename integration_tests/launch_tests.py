@@ -109,6 +109,17 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     print("Finished test: ", test_name, " in ", finish-start, " seconds")
     return correct
 
+def init_test_files(test_dir):
+    z5_vol_path = test_dir + '/resources/volume-256.n5'
+    if not os.path.exists(z5_vol_path):
+        with open(test_dir + '/resources/grayscale-256-256-256-uint8.bin', 'rb') as raw_f:
+            grayscale = np.frombuffer(raw_f.read(), dtype=np.uint8).reshape((256,256,256))
+        
+        import z5py
+        f = z5py.File(z5_vol_path, use_zarr_format=False)
+        ds = f.create_dataset('grayscale', dtype='uint8', shape=(256,256,256), chunks=(64,64,64), compressor='raw')
+        ds[:] = grayscale
+
 def init_dvid_database(test_dir, reuse_last=False):
     uuid_file = test_dir + '/uuid-cache.txt'
     if reuse_last:
@@ -352,5 +363,6 @@ if __name__ == "__main__":
 
     # It is assumed that this script lives in the integration_tests directory
     test_dir = os.path.split(__file__)[0]
+    init_test_files(test_dir)
     uuid1, uuid2 = init_dvid_database(test_dir, args.reuse_uuids)
     run_tests(test_dir, uuid1, uuid2, args.selected_tests, args.stop_after_fail)
