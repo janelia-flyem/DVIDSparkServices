@@ -112,6 +112,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
 def init_test_files(test_dir):
     z5_vol_path = test_dir + '/resources/volume-256.n5'
     if not os.path.exists(z5_vol_path):
+        print(f"Writing test data: {z5_vol_path}")
         with open(test_dir + '/resources/grayscale-256-256-256-uint8.bin', 'rb') as raw_f:
             grayscale = np.frombuffer(raw_f.read(), dtype=np.uint8).reshape((256,256,256))
         
@@ -119,6 +120,7 @@ def init_test_files(test_dir):
         f = z5py.File(z5_vol_path, use_zarr_format=False)
         ds = f.create_dataset('grayscale', dtype='uint8', shape=(256,256,256), chunks=(64,64,64), compressor='raw')
         ds[:] = grayscale
+        assert (ds[:] == grayscale).all(), "z5py appears broken..."
 
 def init_dvid_database(test_dir, reuse_last=False):
     uuid_file = test_dir + '/uuid-cache.txt'
@@ -299,6 +301,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
 
     tests = OrderedDict()
     tests["test_exportslices"] = "ExportSlices"
+    tests["test_exportslices_from_n5"] = "ExportSlices"
     tests["test_copyseg"] = "CopySegmentation"
     tests["test_copyseg_brainmaps"] = "CopySegmentation"
     tests["test_copyseg_remapped"] = "CopySegmentation"

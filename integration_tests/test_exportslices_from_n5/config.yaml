@@ -1,0 +1,26 @@
+input:
+  n5:
+    path: ../../resources/volume-256.n5 # Relative to ./temp_data
+    dataset-name: grayscale
+  geometry:
+    bounding-box: [[0,0,0], [256,256,256]]
+
+output:
+  slice-files:
+    service-type: slice-files
+    semantic-type: grayscale
+    slice-path-format: './slices/z{:05}.png'
+
+options:
+  slices-per-slab: -1
+
+  resource-server: ''
+  resource-port: 0
+  resource-server-config: {}
+
+  log-collector-port: 0
+  log-collector-directory: ''
+
+  spark-config:
+    spark.task.cpus: 1
+    spark.task.maxFailures: 1

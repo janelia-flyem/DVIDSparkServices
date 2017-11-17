@@ -77,7 +77,6 @@ class N5VolumeServiceReader(VolumeServiceReader):
         # This member is memoized because that makes it
         # easier to support pickling/unpickling.
         if self._n5_dataset is None:
-            print(f"Opening Z5: {self._path}")
             self._n5_file = z5py.File(self._path)
             self._n5_dataset = self._n5_file[self._dataset_name]
         return self._n5_dataset
