@@ -440,12 +440,13 @@ class sparkdvid(object):
     def get_voxels( cls, server, uuid, instance_name, scale,
                     instance_type, is_labels,
                     volume_shape, offset,
-                    resource_server, resource_port):
+                    resource_server, resource_port, throttle="auto"):
         # extract labels 64
         # retrieve data from box start position considering border
         # Note: libdvid uses zyx order for python functions
         node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
-        throttle = (resource_server == "")
+        if throttle == "auto":
+            throttle = (resource_server == "")
         
         if instance_type == 'labelarray':
             # Labelarray data can be fetched very efficiently if the request is block-aligned
