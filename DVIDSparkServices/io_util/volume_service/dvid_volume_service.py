@@ -20,6 +20,8 @@ class DvidVolumeServiceReader(VolumeServiceReader):
         self._preferred_message_shape_zyx = volume_config["geometry"]["message-block-shape"][::-1]
         assert -1 not in self._preferred_message_shape_zyx, \
             "volume_config must specify explicit values for message-block-shape"
+        assert -1 not in self._bounding_box_zyx.flat[:], \
+            "volume_config must specify explicit values for bounding-box"
         
         self._server = volume_config["dvid"]["server"]
         self._uuid = volume_config["dvid"]["uuid"]

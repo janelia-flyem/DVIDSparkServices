@@ -30,11 +30,12 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
         # Instantiate this outside of get_brainmaps_subvolume,
         # so it can be shared across an entire partition.
         self._brainmaps_client = BrainMapsVolume( volume_config["brainmaps"]["project"],
-                               volume_config["brainmaps"]["dataset"],
-                               volume_config["brainmaps"]["volume-id"],
-                               volume_config["brainmaps"]["change-stack-id"],
-                               dtype=np.uint64 )
+                                                  volume_config["brainmaps"]["dataset"],
+                                                  volume_config["brainmaps"]["volume-id"],
+                                                  volume_config["brainmaps"]["change-stack-id"],
+                                                  dtype=np.uint64 )
 
+        assert -1 not in bounding_box_zyx.flat[:], "automatic bounds not supported"
         assert  (bounding_box_zyx[0] >= self._brainmaps_client.bounding_box[0]).all() \
             and (bounding_box_zyx[1] <= self._brainmaps_client.bounding_box[1]).all(), \
             f"Specified bounding box ({bounding_box_zyx.tolist()}) extends outside the "\
