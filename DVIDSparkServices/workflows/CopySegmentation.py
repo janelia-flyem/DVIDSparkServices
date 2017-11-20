@@ -47,12 +47,14 @@ class CopySegmentation(Workflow):
                 "default": True
             },
             "minimum-size" : {
-                "description": "Minimum size to include in the body size HDF5 output.  Smaller bodies are omitted.",
+                "description": "Minimum size to include in the body size HDF5 output.\n"
+                               "Smaller bodies are omitted.",
                 "type": "integer",
                 "default": 1000
             },
             "method" : {
-                "description": "(For performance experiments) Whether to perform the body size computation via reduceByKey.",
+                "description": "(For performance experiments)\n"
+                               "Whether to perform the body size computation via reduceByKey.",
                 "type": "string",
                 "enum": ["reduce-by-key", "reduce-with-pandas"],
                 "default": "reduce-with-pandas"
@@ -67,7 +69,8 @@ class CopySegmentation(Workflow):
         "body-sizes": BodySizesOptionsSchema,
         
         "pyramid-depth": {
-            "description": "Number of pyramid levels to generate (-1 means choose automatically, 0 means no pyramid)",
+            "description": "Number of pyramid levels to generate \n"
+                           "(-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
             "default": -1 # automatic by default
         }
@@ -92,6 +95,10 @@ class CopySegmentation(Workflow):
     @staticmethod
     def dumpschema():
         return json.dumps(CopySegmentation.Schema)
+
+    @classmethod
+    def schema(cls):
+        return CopySegmentation.Schema
 
     # name of application for DVID queries
     APPNAME = "copysegmentation"
