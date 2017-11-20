@@ -45,7 +45,7 @@ class N5VolumeServiceReader(VolumeServiceReader):
         assert (auto_bb[1] >= bounding_box_zyx[1]).all(), \
             f"Volume config bounding box ({bounding_box_zyx}) exceeds the bounding box of the data ({auto_bb})."
 
-        # Fill in 'auto' bounds
+        # Replace -1 bounds with auto
         missing_bounds = (bounding_box_zyx == -1)
         bounding_box_zyx[missing_bounds] = auto_bb[missing_bounds]
 
@@ -69,8 +69,13 @@ class N5VolumeServiceReader(VolumeServiceReader):
         return self._bounding_box_zyx
 
     def get_subvolume(self, box_zyx, scale=0):
+        box_zyx = np.asarray(box_zyx)
         assert scale == 0, "For now, only scale 0 is supported."
-        return self.n5_dataset[box_to_slicing(*box_zyx.tolist())]
+        
+        # FIXME: z5py reverses the slicing order (but returns the data in the correct order).
+        #return self.n5_dataset[box_to_slicing(*box_zyx.tolist())]
+        return self.n5_dataset[box_to_slicing(*box_zyx[:,::-1].tolist())]
+
 
     @property
     def n5_dataset(self):
