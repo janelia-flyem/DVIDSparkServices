@@ -23,6 +23,7 @@ from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from DVIDSparkServices.auto_retry import auto_retry
 
 from .common_schemas import SegmentationVolumeSchema
 
@@ -608,9 +609,14 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
     body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
 
     try:
-        func = execute_in_subprocess(timeout, logger)(generate_mesh)
-        body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
-        return (body_id, mesh_obj, None)
+        # There seems to be an occasional segfault in the marching_cubes code.
+        # Until we find a fix, just retry failed meshes one extra time.
+        @auto_retry(2, pause_between_tries=0.0, logging_name=__name__)
+        def gen_mesh():
+            func = execute_in_subprocess(timeout, logger)(generate_mesh)
+            _body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
+            return (body_id, mesh_obj, None)
+        return gen_mesh()
     except TimeoutError:
         err_msg = f"Timeout ({timeout}) while meshifying body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
@@ -629,7 +635,6 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
                 f.create_dataset("mask", data=combined_mask, chunks=True)
         
         return (body_id, None, err_msg)
-
 
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
     mesh_bytes = mesh_from_array( combined_mask,
