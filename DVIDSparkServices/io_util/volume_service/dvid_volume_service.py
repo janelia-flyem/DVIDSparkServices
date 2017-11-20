@@ -76,11 +76,12 @@ class DvidVolumeServiceReader(VolumeServiceReader):
     def get_subvolume(self, box_zyx, scale=0):
         shape = np.asarray(box_zyx[1]) - box_zyx[0]
         req_bytes = self._dtype_nbytes * np.prod(box_zyx[1] - box_zyx[0])
+        throttle = (self._resource_manager_client.server_ip == "")
         with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
             return sparkdvid.get_voxels( self._server, self._uuid, self._instance_name,
                                          scale, self._instance_type, self._is_labels,
                                          shape, box_zyx[0],
-                                         throttle=False )
+                                         throttle=throttle )
 
 class DvidVolumeServiceWriter(DvidVolumeServiceReader, VolumeServiceWriter):
     
@@ -92,8 +93,9 @@ class DvidVolumeServiceWriter(DvidVolumeServiceReader, VolumeServiceWriter):
     @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
     def write_subvolume(self, subvolume, offset_zyx, scale):
         req_bytes = self._dtype_nbytes * np.prod(subvolume.shape)
+        throttle = (self._resource_manager_client.server_ip == "")
         with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
             return sparkdvid.post_voxels( self._server, self._uuid, self._instance_name,
-                                         scale, self._instance_type, self._is_labels,
-                                         subvolume, offset_zyx,
-                                         throttle=False )
+                                          scale, self._instance_type, self._is_labels,
+                                          subvolume, offset_zyx,
+                                          throttle=throttle )
