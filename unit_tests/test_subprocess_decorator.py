@@ -55,7 +55,6 @@ class TestSubprocessDecorator(unittest.TestCase):
             result = execute_in_subprocess(1.0, logger)(_test_helper)(1,2,0)
             assert result == 1+2+0, f"Wrong result: {result}"
             assert handler.collected_messages['INFO'] == ['1', '0']
-            print(handler.collected_messages)
             assert handler.collected_messages['ERROR'] == ['2']
 
         finally:        
