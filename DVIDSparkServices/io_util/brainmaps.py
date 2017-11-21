@@ -397,6 +397,12 @@ class BrainMapsVolume:
         return mapping
 
     @classmethod
+    def equivalence_mapping_to_csv(cls, mapping_pairs, output_path):
+        if not os.path.exists(output_path):
+            with open(output_path, 'w') as f:
+                csv.writer(f).writerows(mapping_pairs)
+
+    @classmethod
     def mapping_from_groups(cls, groups):
         """
         Given a dict of { group_id: [node_a, node_b,...] },
