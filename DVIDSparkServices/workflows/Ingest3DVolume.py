@@ -249,9 +249,9 @@ class Ingest3DVolume(Workflow):
             "default": True
         },
         "pyramid-depth": {
-            "description": "Number of pyramid levels to generate (0 means choose automatically)",
+            "description": "Number of pyramid levels to generate (-1 means choose automatically)",
             "type": "integer",
-            "default": 0
+            "default": -1
         },
         "skipped-pyramid-levels": {
             "description": "List of pyramid levels to skip writing to DVID.  (They will still be computed, but not written.)",
@@ -327,7 +327,7 @@ class Ingest3DVolume(Workflow):
             assert not options["create-pyramid-jpeg"], "Bad config: Can't create tiles for label data."
 
         if not options["create-pyramid-jpeg"] and not options["create-pyramid"]:
-            assert options["pyramid-depth"] == 0, \
+            assert options["pyramid-depth"] == -1, \
                 "Bad config: Pyramid depth specified, but no 'create-pyramid' setting given."
 
         # fetch data in multiples of mintasks
@@ -444,7 +444,8 @@ class Ingest3DVolume(Workflow):
 
         # determine number of pyramid levels if not specified 
         if options["create-pyramid"] or options["create-pyramid-jpeg"]:
-            if options["pyramid-depth"] == 0:
+            if options["pyramid-depth"] == -1:
+                options["pyramid-depth"] = 0
                 zsize = options["maxslice"] - options["minslice"] + 1
                 while zsize > 512:
                     options["pyramid-depth"] += 1
@@ -609,11 +610,13 @@ class Ingest3DVolume(Workflow):
 
             if not options["disable-original"]:
                 # Write level-0 of the raw data, even if we aren't writing the rest of the pyramid.
-                dataname = dvid_info["dataname"]
+                dataname = datanamelossy = None
+                if options["create-pyramid"]:
+                    dataname = dvid_info["dataname"]
                 if options["create-pyramid-jpeg"]:
                     datanamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME
                 
-                if options["create-pyramid"] and 0 not in options["skipped-pyramid-levels"]:
+                if (dataname or datanamelossy) and 0 not in options["skipped-pyramid-levels"]:
                     self._write_blocks(arraypartition, dataname, datanamelossy) 
 
             if options["create-tiles"] or options["create-tiles-jpeg"]:
