@@ -613,7 +613,7 @@ class Ingest3DVolume(Workflow):
                 if options["create-pyramid-jpeg"]:
                     datanamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME
                 
-                if 0 not in options["skipped-pyramid-levels"]:
+                if options["create-pyramid"] and 0 not in options["skipped-pyramid-levels"]:
                     self._write_blocks(arraypartition, dataname, datanamelossy) 
 
             if options["create-tiles"] or options["create-tiles-jpeg"]:
