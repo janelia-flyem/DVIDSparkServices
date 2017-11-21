@@ -433,14 +433,14 @@ class Ingest3DVolume(Workflow):
                                            0,
                                            block_shape )
 
-        if not options["disable-original"] and 0 not in options["skipped-pyramid-levels"]:
-            update_extents( dvid_info["dvid-server"],
-                            dvid_info["uuid"],
-                            dvid_info["dataname"],
-                            global_box_zyx )
-
-            # Bottom level of pyramid is listed as neuroglancer-compatible
-            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dvid_info["dataname"]])
+            if not options["disable-original"] and 0 not in options["skipped-pyramid-levels"]:
+                update_extents( dvid_info["dvid-server"],
+                                dvid_info["uuid"],
+                                dvid_info["dataname"],
+                                global_box_zyx )
+    
+                # Bottom level of pyramid is listed as neuroglancer-compatible
+                extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dvid_info["dataname"]])
 
         # determine number of pyramid levels if not specified 
         if options["create-pyramid"] or options["create-pyramid-jpeg"]:
