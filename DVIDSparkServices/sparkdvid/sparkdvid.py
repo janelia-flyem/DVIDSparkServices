@@ -25,11 +25,12 @@ import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 import logging
+from networkx.algorithms.shortest_paths import dense
 logger = logging.getLogger(__name__)
 
 from libdvid import SubstackZYX, DVIDException
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol
+from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
@@ -465,6 +466,59 @@ class sparkdvid(object):
         else:
             assert scale == 0, "FIXME: get_gray3D() doesn't support scale yet!"
             return node_service.get_gray3D( instance_name, volume_shape, offset, throttle, compress=False )
+
+
+    @classmethod
+    def get_legacy_sparsevol(cls, server, uuid, instance_name, body_id, scale=0):
+        """
+        Returns the coordinates (Z,Y,X) of all voxels in the given body_id at the given scale.
+        
+        Note: For large bodies, this will be a LOT of coordinates at scale 0.
+        
+        Note: The returned coordinates are native to the requested scale.
+              For instance, if the first Z-coordinate at scale 0 is 128,
+              then at scale 1 it is 64, etc.
+        
+        Note: This function requests the data from DVID in the legacy 'rles' format,
+              which is much less efficient than the newer 'blocks' format
+              (but it's easy enough to parse that we can do it in Python).
+        """
+        import requests
+        if not server.startswith('http://'):
+            server = 'http://' + server
+            
+        r = requests.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol/{body_id}?format=rles&scale={scale}')
+        r.raise_for_status()
+        
+        descriptor = r.content[0]
+        ndim = r.content[1]
+        run_dimension = r.content[2]
+
+        assert descriptor == 0, f"Don't know how to handle this payload. (descriptor: {descriptor})"
+        assert ndim == 3, "Expected XYZ run-lengths"
+        assert run_dimension == 0, "FIXME, we assume the run dimension is X"
+
+        content_as_int32 = np.frombuffer(r.content, np.int32)
+        _voxel_count = content_as_int32[1]
+        run_count = content_as_int32[2]
+        rle_items = content_as_int32[3:].reshape(-1,4)
+
+        assert len(rle_items) == run_count, \
+            f"run_count ({run_count}) doesn't match data array length ({len(rle_items)})"
+
+        rle_starts_xyz = rle_items[:,:3]
+        rle_starts_zyx = rle_starts_xyz[:,::-1]
+        rle_lengths = rle_items[:,3]
+
+        # For now, DVID always returns a voxel_count of 0, so we can't make this assertion.
+        #assert rle_lengths.sum() == _voxel_count,\
+        #    f"Voxel count ({voxel_count}) doesn't match expected sum of run-lengths ({rle_lengths.sum()})"
+
+        dense_coords = runlength_decode_from_lengths(rle_starts_zyx, rle_lengths)
+        assert rle_lengths.sum() == len(dense_coords), \
+            "Got the wrong number of coordinates!"
+        return dense_coords
+        
 
     def get_volume_accessor(self, instance_name, scale=0):
         """
