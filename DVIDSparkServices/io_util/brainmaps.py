@@ -362,7 +362,7 @@ class BrainMapsVolume:
         self._equivalence_mapping = mapping
 
     @classmethod
-    def equivalence_mapping_from_edge_csv(cls, csv_path):
+    def equivalence_mapping_from_edge_csv(cls, csv_path, output_csv_path=None):
         """
         Load and return the equivalence_mapping from the given csv_path of equivalence edges.
         
@@ -372,8 +372,16 @@ class BrainMapsVolume:
             123,456
             123,789
             789,234
+
+        Args:
+            csv_path:
+                Path to a csv file whose first two columns are edge pairs
             
-        Returns: ndarray with two columns representing node and group
+            output_csv_path:
+                (Optional.) If provided, also write the results to a CSV file.
+            
+        Returns:
+            ndarray with two columns representing node and group
 
         Note: The returned array is NOT merely the parsed CSV.
               It has been transformed from equivalence edges to node mappings,
@@ -393,8 +401,12 @@ class BrainMapsVolume:
             edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
 
         groups = BrainMapsVolume.groups_from_edges(edges)
-        mapping = BrainMapsVolume.mapping_from_groups(groups)
-        return mapping
+        mapping_pairs = BrainMapsVolume.mapping_from_groups(groups)
+        
+        if output_csv_path:
+            with open(output_csv_path, 'w') as f:
+                csv.writer(f).writerows(mapping_pairs)
+        return mapping_pairs
 
     @classmethod
     def mapping_from_groups(cls, groups):
