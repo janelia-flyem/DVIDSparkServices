@@ -2,3 +2,4 @@ from .volume_service import VolumeService, VolumeServiceReader, VolumeServiceWri
 from .brainmaps_volume_service import BrainMapsVolumeServiceReader
 from .dvid_volume_service import DvidVolumeServiceReader, DvidVolumeServiceWriter
 from .n5_volume_service import N5VolumeServiceReader
+from .slice_files_volume_service import SliceFilesVolumeServiceReader, SliceFilesVolumeServiceWriter

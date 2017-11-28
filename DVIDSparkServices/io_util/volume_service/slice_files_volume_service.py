@@ -1,72 +1,53 @@
+import os
 import re
 import glob
 
 import numpy as np
-
 from PIL import Image
 
-from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
-from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
-
+from DVIDSparkServices.util import replace_default_entries, box_to_slicing
 from .volume_service import VolumeServiceReader, VolumeServiceWriter
-
 
 class SliceFilesVolumeServiceReader(VolumeServiceReader):
 
-    def __init__(self, volume_config):
-        self._preferred_message_shape_zyx = volume_config["geometry"]["message-block-shape"][::-1]
-        assert self._preferred_message_shape_zyx[0] in (1,-1) and self._preferred_message_shape_zyx[1:] == [-1,-1], \
-            "Preferred message shape for slice fils must be a single Z-slice, and a complete XY plane"
+    class NoSlicesFoundError(RuntimeError): pass
 
+    def __init__(self, volume_config, config_dir):
+        # Convert path to absolute if necessary (and write back to the config)
         slice_fmt = volume_config["slice-files"]["slice-path-format"]
-        slice_xy_offset = volume_config["slice-files"]["slice-xy-offset"]
+        if not slice_fmt.startswith('/'):
+            slice_fmt = os.path.normpath( os.path.join(config_dir, slice_fmt) )
 
-        if '%' in slice_template:
-            raise RuntimeError("Please use python-style string formatting for 'basename': (e.g. zcorr.{:05d}.png)")
-        match = re.match('^(.*)({[^}]*})(.*)$', options["basename"])
-        if not match:
-            raise RuntimeError(f"Unrecognized format string for image basename: {options['basename']}")
+        # Determine complete bounding box
+        default_bounding_box_zyx, dtype = determine_stack_attributes(slice_fmt)
+        bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
+        replace_default_entries(bounding_box_zyx, default_bounding_box_zyx)
 
-        prefix, _index_format, suffix = match.groups()
-        matching_paths = sorted( glob.glob(f"{prefix}*{suffix}") )
-        path_lengths = 
+        # Determine complete preferred "message shape" - one full output slice.
+        output_slice_shape = bounding_box_zyx[1] - bounding_box_zyx[0]
+        preferred_message_shape_zyx = np.array(volume_config["geometry"]["message-block-shape"][::-1])
+        replace_default_entries(preferred_message_shape_zyx, output_slice_shape)
+        assert (preferred_message_shape_zyx == output_slice_shape).all(), \
+            "Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane, "\
+            f"not {preferred_message_shape_zyx}"
 
-        minslice = int( matching_paths[0][len(prefix):-len(suffix)] )
-        maxslice = int( matching_paths[-1][len(prefix):-len(suffix)] )
+        # Store members
+        self._slice_fmt = slice_fmt
+        self._dtype = dtype
+        self._dtype_nbytes = np.dtype(dtype).type().nbytes
+        self._bounding_box_zyx = bounding_box_zyx
+        self._preferred_message_shape_zyx = preferred_message_shape_zyx
 
-        all_slices = glob.glob(slice_fmt.format())
+        # Overwrite config entries that we might have modified
+        volume_config["slice-files"]["slice-path-format"] = slice_fmt
+        volume_config["geometry"]["bounding-box"] = bounding_box_zyx[:,::-1].tolist()
+        volume_config["geometry"]["message-block-shape"] = preferred_message_shape_zyx[::-1].tolist()
 
-        self._bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
-        assert -1 not in self._bounding_box_zyx.flat[:], \
-            "volume_config must specify explicit values for bounding-box"
-        
-        self._server = volume_config["dvid"]["server"]
-        self._uuid = volume_config["dvid"]["uuid"]
-
-        if "segmentation-name" in volume_config["dvid"]:
-            self._instance_name = volume_config["dvid"]["segmentation-name"]
-            self._dtype = np.uint64
-        elif "grayscale-name" in volume_config["dvid"]:
-            self._instance_name = volume_config["dvid"]["grayscale-name"]
-            self._dtype = np.uint8
-            
-        self._dtype_nbytes = np.dtype(self._dtype).type().nbytes
-
-        data_instance = DataInstance(self._server, self._uuid, self._instance_name)
-        self._instance_type = data_instance.datatype
-        self._is_labels = data_instance.is_labels()
-
-        block_shape = get_blocksize(self._server, self._uuid, self._instance_name)
-        self._block_width = block_shape[0]
-        assert block_shape[0] == block_shape[1] == block_shape[2], \
-            "Expected blocks to be cubes."
-
-        config_block_width = volume_config["geometry"]["block-width"]
-        assert config_block_width in (-1, self._block_width), \
-            f"DVID volume block-width ({config_block_width}) from config does not match server metadata ({self._block_width})"
-        
-        # Overwrite config values
-        volume_config["geometry"]["block-width"] = self._block_width
+        # Forbid unsupported config entries
+        assert volume_config["slice-files"]["slice-xy-offset"] == [0,0], \
+            "Non-zero slice-xy-offset is not yet supported"
+        assert volume_config["geometry"]["block-width"] == -1, \
+            "Slice files have no concept of a native block width. Please leave it set to the default (-1)"
 
     @property
     def dtype(self):
@@ -78,35 +59,84 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
 
     @property
     def block_width(self):
-        return self._block_width
+        return -1
     
     @property
     def bounding_box_zyx(self):
         return self._bounding_box_zyx
 
     def get_subvolume(self, box_zyx, scale=0):
-        shape = np.asarray(box_zyx[1]) - box_zyx[0]
-        req_bytes = self._dtype_nbytes * np.prod(box_zyx[1] - box_zyx[0])
-        throttle = (self._resource_manager_client.server_ip == "")
-        with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.get_voxels( self._server, self._uuid, self._instance_name,
-                                         scale, self._instance_type, self._is_labels,
-                                         shape, box_zyx[0],
-                                         throttle=throttle )
+        assert scale == 0, "Slice File reader only supports scale 0"
+        z_offset = box_zyx[0,0]
+        yx_box = box_zyx[:,1:]
+        output = np.ndarray(shape=(box_zyx[1] - box_zyx[0]), dtype=self.dtype)
+        for z in range(*box_zyx[:,0]):
+            slice_path = self._slice_fmt.format(z)
+            slice_data = np.array( Image.open(slice_path).convert("L") )
+            output[z-z_offset] = slice_data[box_to_slicing(*yx_box)]
+        return output
 
-class DvidVolumeServiceWriter(DvidVolumeServiceReader, VolumeServiceWriter):
-    
-    # Two-levels of auto-retry:
-    # 1. Auto-retry up to three time for any reason.
-    # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
-    @auto_retry(2, pause_between_tries=5*60.0, logging_name=__name__,
-                predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
-    @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+class SliceFilesVolumeServiceWriter(VolumeServiceWriter):
+
+    def __init__(self, volume_config, config_dir):
+        pass
+
     def write_subvolume(self, subvolume, offset_zyx, scale):
-        req_bytes = self._dtype_nbytes * np.prod(subvolume.shape)
-        throttle = (self._resource_manager_client.server_ip == "")
-        with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.post_voxels( self._server, self._uuid, self._instance_name,
-                                          scale, self._instance_type, self._is_labels,
-                                          subvolume, offset_zyx,
-                                          throttle=throttle )
+        pass
+
+
+
+def determine_stack_attributes(slice_fmt):
+    """
+    Determine the shape and dtype of a stack of slices that already reside on disk.
+    
+    slice_fmt:
+        Example: '/path/to/slices/z{:05d}-iso.png'
+    
+    Returns:
+        maximal_bounding_box_zyx, dtype
+    """
+    prefix, _index_format, suffix = parse_slice_fmt(slice_fmt)
+
+    matching_paths = sorted( glob.glob(f"{prefix}*{suffix}") )
+    if not matching_paths:
+        raise SliceFilesVolumeServiceReader.NoSlicesFoundError(f"No slice files found to match pattern: {slice_fmt}")
+
+    if (np.array(list(map(len, matching_paths))) != len(matching_paths[0])).all():
+        raise RuntimeError("Image file paths are not all the same length. "
+                           "Slice paths must use 0-padding for all slice indexes, e.g. zcorr.00123.png")
+
+    min_available_index = int( matching_paths[0][len(prefix):-len(suffix)] )
+    max_available_index = int( matching_paths[-1][len(prefix):-len(suffix)] )
+
+    # Note: For simplicity, we read the slice shape from the first *available* slice,
+    # regardless of the first slice we'll actually use. Should be fine.
+    first_slice_path = slice_fmt.format(min_available_index)
+    first_slice = np.array( Image.open(first_slice_path).convert("L") )
+    first_height, first_width = first_slice.shape
+
+    maximal_bounding_box_zyx = [[min_available_index, 0, 0],
+                                [max_available_index+1, first_height, first_width]]
+    
+    return np.array(maximal_bounding_box_zyx), first_slice.dtype
+
+
+def parse_slice_fmt(slice_fmt):
+    """
+    Break up the slice_fmt into a prefix, index_format, and suffix.
+    
+    Example:
+        prefix, index_format, suffix = parse_slice_fmt('/path/to/slices/z-{:05d}-iso.png')
+        assert prefix == '/path/to/slices/z-'
+        assert index_format == '{:05d}'
+        assert suffix == '-iso.png'    
+    """
+    if '%' in slice_fmt:
+        raise RuntimeError("Please use python-style string formatting for 'basename': (e.g. zcorr.{:05d}.png)")
+
+    match = re.match('^(.*)({[^}]*})(.*)$', slice_fmt)
+    if not match:
+        raise RuntimeError(f"Unrecognized format string for image basename: {slice_fmt}")
+
+    prefix, index_format, suffix = match.groups()
+    return prefix, index_format, suffix
