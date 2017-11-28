@@ -46,7 +46,7 @@ GeometrySchema = \
             "items": { "type": "integer" },
             "minItems": 3,
             "maxItems": 3,
-            "default": flow_style( [6400,64,64] )
+            "default": flow_style( [-1,-1,-1] )
         },
 
         "block-width": {

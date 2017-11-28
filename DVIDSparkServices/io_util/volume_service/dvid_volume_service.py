@@ -2,6 +2,7 @@ import numpy as np
 
 from dvid_resource_manager.client import ResourceManagerClient
 
+from DVIDSparkServices.util import replace_default_entries
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
@@ -17,9 +18,9 @@ class DvidVolumeServiceReader(VolumeServiceReader):
         
         self._resource_manager_client = resource_manager_client
         self._bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
-        self._preferred_message_shape_zyx = volume_config["geometry"]["message-block-shape"][::-1]
-        assert -1 not in self._preferred_message_shape_zyx, \
-            "volume_config must specify explicit values for message-block-shape"
+        self._preferred_message_shape_zyx = np.array( volume_config["geometry"]["message-block-shape"][::-1] )
+        replace_default_entries(self._preferred_message_shape_zyx, [64, 64, 6400])
+        
         assert -1 not in self._bounding_box_zyx.flat[:], \
             "volume_config must specify explicit values for bounding-box"
         
