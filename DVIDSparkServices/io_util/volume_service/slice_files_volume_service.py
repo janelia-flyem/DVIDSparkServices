@@ -79,12 +79,67 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
 class SliceFilesVolumeServiceWriter(VolumeServiceWriter):
 
     def __init__(self, volume_config, config_dir):
-        pass
+        # Convert path to absolute if necessary (and write back to the config)
+        slice_fmt = volume_config["slice-files"]["slice-path-format"]
+        if not slice_fmt.startswith('/'):
+            slice_fmt = os.path.normpath( os.path.join(config_dir, slice_fmt) )
 
-    def write_subvolume(self, subvolume, offset_zyx, scale):
-        pass
+        slice_dir = os.path.dirname(slice_fmt)
+        os.makedirs(slice_dir, exist_ok=True)
+
+        bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
+
+        # Determine complete preferred "message shape" - one full output slice.
+        output_slice_shape = bounding_box_zyx[1] - bounding_box_zyx[0]
+        preferred_message_shape_zyx = np.array(volume_config["geometry"]["message-block-shape"][::-1])
+        replace_default_entries(preferred_message_shape_zyx, output_slice_shape)
+        assert (preferred_message_shape_zyx == output_slice_shape).all(), \
+            "Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane, "\
+            f"not {preferred_message_shape_zyx}"
+
+        # Store members
+        self._slice_fmt = slice_fmt
+        self._preferred_message_shape_zyx = preferred_message_shape_zyx
+        self._bounding_box_zyx = bounding_box_zyx
+        
+        # Overwrite config entries that we might have modified
+        volume_config["slice-files"]["slice-path-format"] = slice_fmt
+        volume_config["geometry"]["bounding-box"] = bounding_box_zyx[:,::-1].tolist()
+        volume_config["geometry"]["message-block-shape"] = preferred_message_shape_zyx[::-1].tolist()
+
+        # Forbid unsupported config entries
+        assert volume_config["slice-files"]["slice-xy-offset"] == [0,0], \
+            "Non-zero slice-xy-offset is not yet supported"
+        assert volume_config["geometry"]["block-width"] == -1, \
+            "Slice files have no concept of a native block width. Please leave it set to the default (-1)"
 
 
+    def write_subvolume(self, subvolume, offset_zyx, scale=0):
+        offset_zyx = np.array(offset_zyx)
+        assert scale == 0, "Currently, only writing scale 0 is supported."
+        assert (offset_zyx[1:] == [0,0]).all(), \
+            "Subvolumes must be written in complete slices. Writing partial slices is not supported."
+        
+        for sv_z, z_slice in enumerate(subvolume):
+            z = sv_z + offset_zyx[0]
+            slice_path = self._slice_fmt.format(z)
+            Image.fromarray(z_slice).save(slice_path)
+
+    @property
+    def bounding_box_zyx(self):
+        return self._bounding_box_zyx
+
+    @property
+    def preferred_message_shape(self):
+        return self._preferred_message_shape
+
+    @property
+    def dtype(self):
+        raise NotImplementedError
+    
+    @property
+    def block_width(self):
+        return -1
 
 def determine_stack_attributes(slice_fmt):
     """
@@ -96,7 +151,7 @@ def determine_stack_attributes(slice_fmt):
     Returns:
         maximal_bounding_box_zyx, dtype
     """
-    prefix, _index_format, suffix = parse_slice_fmt(slice_fmt)
+    prefix, _index_format, suffix = split_slice_fmt(slice_fmt)
 
     matching_paths = sorted( glob.glob(f"{prefix}*{suffix}") )
     if not matching_paths:
@@ -121,12 +176,12 @@ def determine_stack_attributes(slice_fmt):
     return np.array(maximal_bounding_box_zyx), first_slice.dtype
 
 
-def parse_slice_fmt(slice_fmt):
+def split_slice_fmt(slice_fmt):
     """
     Break up the slice_fmt into a prefix, index_format, and suffix.
     
     Example:
-        prefix, index_format, suffix = parse_slice_fmt('/path/to/slices/z-{:05d}-iso.png')
+        prefix, index_format, suffix = split_slice_fmt('/path/to/slices/z-{:05d}-iso.png')
         assert prefix == '/path/to/slices/z-'
         assert index_format == '{:05d}'
         assert suffix == '-iso.png'    
