@@ -639,7 +639,7 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
     mesh_bytes = mesh_from_array( combined_mask,
-                                  combined_box,
+                                  combined_box[0],
                                   downsample_factor,
                                   config["mesh-config"]["simplify-ratio"],
                                   config["mesh-config"]["step-size"],
