@@ -65,10 +65,11 @@ class CreateSkeletons(Workflow):
                 "maximum": 1.0,
                 "default": 0.2 # Set to 1.0 to disable.
             },
-            "smoothing-rounds": {
-                "description": "How many rounds of smoothing to apply during marching cubes.",
+            "step-size": {
+                "description": "Passed to skimage.measure.marching_cubes_lewiner()."
+                               "Larger values result in coarser results via faster computation.",
                 "type": "integer",
-                "default": 3
+                "default": 1
             },
             "format": {
                 "description": "Format to save the meshes in. ",
@@ -641,7 +642,7 @@ def generate_mesh(config, body_id, combined_box, combined_mask, downsample_facto
                                   combined_box,
                                   downsample_factor,
                                   config["mesh-config"]["simplify-ratio"],
-                                  config["mesh-config"]["smoothing-rounds"],
+                                  config["mesh-config"]["step-size"],
                                   config["mesh-config"]["format"])
     return body_id, mesh_bytes
 

@@ -19,7 +19,7 @@
     },
     "mesh-config": {
         "simplify-ratio": 0.5,
-        "smoothing-rounds": 3,
+        "step-size": 1,
         "format": "drc"
     },
     "options": {
