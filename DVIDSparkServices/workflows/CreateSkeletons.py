@@ -491,7 +491,8 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
                         config["options"]["downsample-factor"],
                         config["options"]["minimum-segment-size"],
                         config["options"]["max-analysis-volume"],
-                        suppress_zero=True )
+                        suppress_zero=True,
+                        pad=1 ) # mesh generation requires 1-px halo of zeros
 
     return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
