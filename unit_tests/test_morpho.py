@@ -129,11 +129,12 @@ class Test_object_masks_for_labels(unittest.TestCase):
             bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
             bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
             
-            box, mask = masks_dict[label]
+            box, mask, count = masks_dict[label]
             
             assert (np.asarray(box) == (bb_start, bb_stop)).all()
             assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
                 "Incorrect mask for label {}: \n {}".format( label, full_mask )
+            assert count == full_mask[bb_to_slicing(bb_start, bb_stop)].sum()
     
     def test_minimum_object_size(self):
         # Exclude object 4, which is too small
@@ -152,12 +153,13 @@ class Test_object_masks_for_labels(unittest.TestCase):
             bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
             bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
             
-            box, mask = masks_dict[label]
+            box, mask, count = masks_dict[label]
             
             assert (np.asarray(box) == (bb_start, bb_stop)).all()
             assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
                 "Incorrect mask for label {}: \n {}".format( label, full_mask )
-    
+            assert count == full_mask[bb_to_slicing(bb_start, bb_stop)].sum()
+
     def test_always_keep_border_objects(self):
         # Object 4 is too small, but it's kept anyway because it touches the border.
         label_ids_and_masks = object_masks_for_labels( self.segmentation,
@@ -175,11 +177,12 @@ class Test_object_masks_for_labels(unittest.TestCase):
             bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
             bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
             
-            box, mask = masks_dict[label]
+            box, mask, count = masks_dict[label]
             
             assert (np.asarray(box) == (bb_start, bb_stop)).all()
             assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
                 "Incorrect mask for label {}: \n {}".format( label, full_mask )
+            assert count == full_mask[bb_to_slicing(bb_start, bb_stop)].sum()
     
     def test_compressed_output(self):
         label_ids_and_masks = object_masks_for_labels( self.segmentation,
@@ -197,14 +200,15 @@ class Test_object_masks_for_labels(unittest.TestCase):
             bb_start = np.transpose( full_mask.nonzero() ).min(axis=0)
             bb_stop  = np.transpose( full_mask.nonzero() ).max(axis=0) + 1
             
-            box, compressed_mask = masks_dict[label]
+            box, compressed_mask, count = masks_dict[label]
             assert isinstance(compressed_mask, CompressedNumpyArray)
             mask = compressed_mask.deserialize()
             
             assert (np.asarray(box) == (bb_start, bb_stop)).all()
             assert (mask == full_mask[bb_to_slicing(bb_start, bb_stop)]).all(), \
                 "Incorrect mask for label {}: \n {}".format( label, full_mask )
-    
+            assert count == full_mask[bb_to_slicing(bb_start, bb_stop)].sum()
+
 class Test_assemble_masks(unittest.TestCase):
 
     def test_basic(self):
@@ -260,7 +264,7 @@ class Test_assemble_masks(unittest.TestCase):
         
         masks = [ complete_mask[ bb_to_slicing(*box)] for box in boxes ]
 
-        combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=2, minimum_object_size=1 )
+        combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=2, minimum_object_size=1, suppress_zero=False )
 
         expected_downsampled_mask = [[[1,_,_,1,_],
                                       [0,_,_,1,_],
