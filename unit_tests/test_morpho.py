@@ -10,6 +10,7 @@ from numpy_allocation_tracking.decorators import assert_mem_usage_factor
 from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax, object_masks_for_labels, assemble_masks
 from DVIDSparkServices.util import bb_to_slicing
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+from DVIDSparkServices.reconutils.downsample import downsample_box
 
 class TestSplitDisconnectedBodies(unittest.TestCase):
     
@@ -296,5 +297,52 @@ class Test_assemble_masks(unittest.TestCase):
         assert combined_mask.all()
         assert downsample_factor == 3
         
+    def test_with_downsampling_and_pad(self):
+        _ = 0
+        #                  0 1 2 3 4  5 6 7 8 9
+        complete_mask = [[[_,_,_,_,_, _,_,_,_,_], # 0
+                          [_,1,_,_,_, _,1,1,_,_], # 1
+                          [_,1,1,_,_, 1,1,1,_,_], # 2
+                          [_,_,1,_,_, _,_,1,_,_], # 3
+                          [_,_,_,1,_, _,_,1,_,_], # 4
+
+                          [_,_,_,1,1, _,1,1,_,_], # 5
+                          [_,_,_,_,_, 1,1,1,_,_], # 6
+                          [_,_,_,_,_, 1,_,_,1,_], # 7
+                          [_,_,_,_,_, 1,_,_,_,_]]]# 8
+
+        complete_mask = np.asarray(complete_mask, dtype=bool)
+
+        boxes = []
+        boxes.append( ((0,1,1), (1,5,4)) )
+        boxes.append( ((0,1,5), (1,5,8)) )
+        boxes.append( ((0,5,3), (1,6,5)) )
+        boxes.append( ((0,5,5), (1,9,9)) )
+        
+        masks = [ complete_mask[ bb_to_slicing(*box)] for box in boxes ]
+
+        pad = 2
+        combined_bounding_box, combined_mask, downsample_factor = assemble_masks( boxes, masks, downsample_factor=2, minimum_object_size=1, suppress_zero=False, pad=pad )
+
+        expected_downsampled_mask = [[[1,_,_,1,_],
+                                      [0,_,_,1,_],
+                                      [0,1,1,1,_],
+                                      [0,_,1,_,_],
+                                      [0,_,1,_,_]]]
+
+        expected_downsampled_mask = np.pad(expected_downsampled_mask, pad, 'constant', constant_values=0)
+
+        expected_downsampled_mask = np.asarray(expected_downsampled_mask)
+
+        combined_box_without_pad = np.array([(0,1,1), (1,9,9)])
+        padding_in_full_res_space = [(-4, -4, -4), (4, 4, 4)]
+        assert (combined_bounding_box == (combined_box_without_pad + padding_in_full_res_space) ).all()
+        assert (combined_mask == expected_downsampled_mask).all()
+        assert downsample_factor == 2
+
+        downsampled_box = downsample_box(combined_bounding_box, np.array((2,2,2)))
+        assert (combined_mask.shape == (downsampled_box[1] - downsampled_box[0])).all(), \
+            "Output mask shape is not consistent with the combined box"
+
 if __name__ == "__main__":
     unittest.main()

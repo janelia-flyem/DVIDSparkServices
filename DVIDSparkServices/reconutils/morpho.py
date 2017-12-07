@@ -390,7 +390,7 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
     
     return body_ids_and_masks
 
-def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, max_combined_mask_size=1e9, suppress_zero=True ):
+def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, max_combined_mask_size=1e9, suppress_zero=True, pad=0 ):
     """
     Given a list of bounding boxes and corresponding binary mask arrays,
     assemble the superset of those masks in a larger array.
@@ -420,15 +420,24 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
         ("Maximal value downsampling") In the downsampled mask result, output voxels
         will be 1 if *any* of their input voxels were 1 (even of they were outnumbered by 0s).
     
+    pad:
+        If non-zero, leave some padding (a halo of blank voxels) on all sides of the final volume.
+        (This is useful for mesh-generation algorithms, which require a boundary between on/off pixels.)
+        
+        Note: The padding is applied AFTER downsampling, so the returned combined_bounding_box and combined_mask
+              will be expanded by pad*downsample_factor before and after each axis.
+    
     Returns: (combined_bounding_box, combined_mask, downsample_factor)
 
         where:
             combined_bounding_box:
                 the bounding box of the returned mask,
-                in NON-downsampled coordinates: ((z0,y0,x0), (z1,y1,x1))
+                in NON-downsampled coordinates: ((z0,y0,x0), (z1,y1,x1)).
+                Note: If you specified a 'pad', then this will be
+                      reflected in the combined_bounding_box.
             
             combined_mask:
-                the full downsampled combined mask,
+                the full downsampled combined mask, including any padding.
             
             downsample_factor:
                 The chosen downsampling factor if using 'auto' downsampling,
@@ -445,6 +454,9 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
     full_size = np.prod(combined_box[1] - combined_box[0])
     auto_downsample_factor = 1 + int(np.power(full_size / max_combined_mask_size, (1./3)))
     chosen_downsample_factor = max(downsample_factor, auto_downsample_factor)
+
+    # Leave room for padding.
+    combined_box[:] += chosen_downsample_factor * np.array((-pad, pad))[:,None]
 
     block_shape = np.array((chosen_downsample_factor,)*3)
     combined_downsampled_box = downsample_box( combined_box, block_shape )
