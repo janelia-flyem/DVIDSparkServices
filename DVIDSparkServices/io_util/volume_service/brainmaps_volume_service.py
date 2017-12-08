@@ -1,4 +1,5 @@
 import numpy as np
+from jsonschema import validate
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -6,7 +7,46 @@ from DVIDSparkServices.util import replace_default_entries
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
 
-from .volume_service import VolumeServiceReader
+from . import VolumeServiceReader, GeometrySchema
+
+BrainMapsSegmentationServiceSchema = \
+{
+    "description": "Parameters to use Google BrainMaps as a source of voxel data",
+    "type": "object",
+    "required": ["project", "dataset", "volume-id", "change-stack-id"],
+    "default": {},
+    "properties": {
+        "project": {
+            "description": "Project ID",
+            "type": "string",
+        },
+        "dataset": {
+            "description": "Dataset identifier",
+            "type": "string"
+        },
+        "volume-id": {
+            "description": "Volume ID",
+            "type": "string"
+        },
+        "change-stack-id": {
+            "description": "Change Stack ID. Specifies a set of changes to apple on top of the volume\n"
+                           "(e.g. a set of agglomeration steps).",
+            "type": "string",
+            "default": ""
+        }
+    }
+}
+
+BrainMapsVolumeSchema = \
+{
+    "description": "Describes a segmentation volume from BrainMaps.",
+    "type": "object",
+    "default": {},
+    "properties": {
+        "slice-files": BrainMapsSegmentationServiceSchema,
+        "geometry": GeometrySchema
+    }
+}
 
 class BrainMapsVolumeServiceReader(VolumeServiceReader):
     """
@@ -15,6 +55,8 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
     """
 
     def __init__(self, volume_config, resource_manager_client=None):
+        validate(volume_config, BrainMapsVolumeSchema)
+        
         if resource_manager_client is None:
             # Dummy client
             resource_manager_client = ResourceManagerClient("", 0)

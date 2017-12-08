@@ -4,15 +4,62 @@ import glob
 
 import numpy as np
 from PIL import Image
+from jsonschema import validate
+
+from DVIDSparkServices.json_util import flow_style
 
 from DVIDSparkServices.util import replace_default_entries, box_to_slicing
-from .volume_service import VolumeServiceReader, VolumeServiceWriter
+from . import VolumeServiceReader, VolumeServiceWriter, GeometrySchema
+
+
+SliceFilesServiceSchema = \
+{
+    "description": "Parameters specify a source of grayscale data from image slices.",
+    "type": "object",
+
+    "required": ["slice-path-format"],
+
+    "default": {},
+    "properties": {
+        "slice-path-format": {
+            "description": 'String format for image Z-slice paths, using python format-string syntax, \n'
+                           'e.g. "/path/to/slice{:05}.png"  \n'
+                           'Some workflows may also support the prefix "gs://" for gbucket data.',
+            "type": "string",
+            "minLength": 1
+        },
+        "slice-xy-offset": {
+            "description": "The XY-offset indicating where the slices reside within the global input coordinates, \n"
+                           "That is, which global (X,Y) coordinate does pixel (0,0) of each slice correspond to? \n"
+                           "(The Z-offset is presumed to be already encoded within the slice-path-format)",
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 2,
+            "maxItems": 2,
+            "default": flow_style( [0,0] ),
+        }
+    }
+}
+
+SliceFilesVolumeSchema = \
+{
+    "description": "Describes a volume from slice files on disk.",
+    "type": "object",
+    "default": {},
+    "properties": {
+        "slice-files": SliceFilesServiceSchema,
+        "geometry": GeometrySchema
+    }
+}
+
 
 class SliceFilesVolumeServiceReader(VolumeServiceReader):
 
     class NoSlicesFoundError(RuntimeError): pass
 
     def __init__(self, volume_config, config_dir):
+        validate(volume_config, SliceFilesVolumeSchema)
+
         # Convert path to absolute if necessary (and write back to the config)
         slice_fmt = volume_config["slice-files"]["slice-path-format"]
         if not slice_fmt.startswith('/'):

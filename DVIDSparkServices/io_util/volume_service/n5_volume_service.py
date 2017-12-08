@@ -1,16 +1,51 @@
 import os
 
 import numpy as np
+from jsonschema import validate
 
 import z5py
 
 from DVIDSparkServices.util import box_to_slicing
 
-from .volume_service import VolumeServiceReader
+from . import VolumeServiceReader, GeometrySchema
+
+N5ServiceSchema = \
+{
+    "description": "Parameters specify a DVID node",
+    "type": "object",
+    "required": ["path", "dataset-name"],
+    "default": {},
+    
+    "properties": {
+        "path": {
+            "description": "Path to the n5 parent directory, which may contain multiple datasets",
+            "type": "string",
+            "minLength": 1
+        },
+        "dataset-name": {
+            "description": "Name of the volume",
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}
+
+N5VolumeSchema = \
+{
+    "description": "Describes a volume from N5.",
+    "type": "object",
+    "default": {},
+    "properties": {
+        "n5": N5ServiceSchema,
+        "geometry": GeometrySchema
+    }
+}
 
 class N5VolumeServiceReader(VolumeServiceReader):
 
     def __init__(self, volume_config, config_dir):
+        validate(volume_config, N5VolumeSchema)
+        
         # Convert path to absolute if necessary (and write back to the config)
         path = volume_config["n5"]["path"]
         if not path.startswith('/'):

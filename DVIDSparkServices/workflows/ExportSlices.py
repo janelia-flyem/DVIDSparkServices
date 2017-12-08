@@ -16,9 +16,7 @@ from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_p
 from DVIDSparkServices.json_util import flow_style
 from DVIDSparkServices.workflow.workflow import Workflow
 
-from DVIDSparkServices.io_util.volume_service import VolumeService
-
-from .common_schemas import GrayscaleVolumeSchema, SliceFilesVolumeSchema
+from DVIDSparkServices.io_util.volume_service import VolumeService, GrayscaleVolumeSchema, SliceFilesVolumeSchema
 
 logger = logging.getLogger(__name__)
 

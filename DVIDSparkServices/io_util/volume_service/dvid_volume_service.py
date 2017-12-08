@@ -1,5 +1,7 @@
 import numpy as np
 
+from jsonschema import validate
+
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import replace_default_entries
@@ -7,11 +9,82 @@ from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
 
-from .volume_service import VolumeServiceReader, VolumeServiceWriter
+from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter
+
+DvidServiceSchema = \
+{
+    "description": "Parameters specify a DVID node",
+    "type": "object",
+    "required": ["server", "uuid"],
+
+    "default": {},
+    "properties": {
+        "server": {
+            "description": "location of DVID server to READ.",
+            "type": "string",
+        },
+        "uuid": {
+            "description": "version node for READING segmentation",
+            "type": "string"
+        }
+    }
+}
+
+DvidGrayscaleServiceSchema = \
+{
+    "description": "Parameters specify a source of grayscale data from DVID",
+    "type": "object",
+
+    "allOf": [DvidServiceSchema],
+
+    "required": DvidServiceSchema["required"] + ["grayscale-name"],
+    "default": {},
+    "properties": {
+        "grayscale-name": {
+            "description": "The grayscale instance to read/write from/to.\n"
+                           "Instance must be grayscale (uint8blk).",
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}
+
+DvidSegmentationServiceSchema = \
+{
+    "description": "Parameters specify a source of segmentation data from DVID",
+    "type": "object",
+
+    "allOf": [DvidServiceSchema],
+
+    "required": DvidServiceSchema["required"] + ["segmentation-name"],
+    "default": {},
+    "properties": {
+        "segmentation-name": {
+            "description": "The labels instance to read/write from. \n"
+                           "Instance may be either googlevoxels, labelblk, or labelarray.",
+            "type": "string",
+            "minLength": 1
+        }
+    }
+}
+
+DvidGenericVolumeSchema = \
+{
+    "description": "Schema for a generic dvid volume",
+    "type": "object",
+    "default": {},
+    "properties": {
+        "dvid": { "oneOf": [DvidGrayscaleServiceSchema, DvidSegmentationServiceSchema] },
+        "geometry": GeometrySchema
+    }
+}
+
 
 class DvidVolumeServiceReader(VolumeServiceReader):
 
     def __init__(self, volume_config, resource_manager_client=None):
+        validate(volume_config, DvidGenericVolumeSchema)
+        
         if resource_manager_client is None:
             # Dummy client
             resource_manager_client = ResourceManagerClient("", 0)
@@ -23,6 +96,9 @@ class DvidVolumeServiceReader(VolumeServiceReader):
         
         assert -1 not in self._bounding_box_zyx.flat[:], \
             "volume_config must specify explicit values for bounding-box"
+
+        if not volume_config["dvid"]["server"].startswith('http://'):
+            volume_config["dvid"]["server"] = 'http://' + volume_config["dvid"]["server"]
         
         self._server = volume_config["dvid"]["server"]
         self._uuid = volume_config["dvid"]["uuid"]

@@ -4,8 +4,7 @@ import unittest
 import numpy as np
 
 import DVIDSparkServices
-from DVIDSparkServices.io_util.volume_service import SliceFilesVolumeServiceReader, SliceFilesVolumeServiceWriter
-from DVIDSparkServices.workflows.common_schemas import GrayscaleVolumeSchema
+from DVIDSparkServices.io_util.volume_service import SliceFilesVolumeServiceReader, SliceFilesVolumeServiceWriter, GrayscaleVolumeSchema
 
 from DVIDSparkServices.json_util import validate_and_inject_defaults
 from DVIDSparkServices.util import box_to_slicing
