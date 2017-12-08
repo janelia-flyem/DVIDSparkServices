@@ -1,8 +1,6 @@
 {
     "dvid-info": {
-      "source": {
-        "service-type": "dvid",
-        "semantic-type": "segmentation",
+      "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",

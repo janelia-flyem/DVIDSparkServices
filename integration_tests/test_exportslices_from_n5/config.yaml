@@ -7,8 +7,6 @@ input:
 
 output:
   slice-files:
-    service-type: slice-files
-    semantic-type: grayscale
     slice-path-format: './slices/z{:05}.png'
 
 options:

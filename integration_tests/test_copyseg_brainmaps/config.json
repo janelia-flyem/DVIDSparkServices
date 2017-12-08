@@ -1,8 +1,6 @@
 {
     "input": {
-      "source": {
-        "service-type": "brainmaps",
-        "semantic-type": "segmentation",
+      "brainmaps": {
         "project": "274750196357",
         "dataset": "janelia-flyem-cx-flattened-tabs",
         "volume-id": "sec26_seg_v2a",
@@ -16,9 +14,7 @@
     },
 
     "outputs": [{
-      "source": {
-        "service-type": "dvid",
-        "semantic-type": "segmentation",
+      "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID2",
         "segmentation-name": "labels-from-brainmaps"
@@ -40,7 +36,7 @@
         "resource-server": "driver",
         "resource-port": 4000,
 
-    	   "resource-server-config": {
+        "resource-server-config": {
             "read_reqs": 128,
             "read_data": 4000000000,
             "write_reqs": 128,

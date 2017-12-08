@@ -3,9 +3,7 @@
 # It can't contain tab charaecters (\t), though.
 {
     "input": {
-      "source": {
-        "service-type": "dvid",
-        "semantic-type": "segmentation",
+      "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
@@ -19,9 +17,7 @@
     },
 
     "outputs": [{
-      "source": {
-        "service-type": "dvid",
-        "semantic-type": "segmentation",
+      "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID2",
         "segmentation-name": "labels-copy",
