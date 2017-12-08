@@ -62,6 +62,7 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
 
         # Convert path to absolute if necessary (and write back to the config)
         slice_fmt = volume_config["slice-files"]["slice-path-format"]
+        assert not slice_fmt.startswith('gs://'), "FIXME: Support gbuckets"
         if not slice_fmt.startswith('/'):
             slice_fmt = os.path.normpath( os.path.join(config_dir, slice_fmt) )
 
@@ -72,10 +73,11 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
 
         # Determine complete preferred "message shape" - one full output slice.
         output_slice_shape = bounding_box_zyx[1] - bounding_box_zyx[0]
+        output_slice_shape[0] = 1
         preferred_message_shape_zyx = np.array(volume_config["geometry"]["message-block-shape"][::-1])
         replace_default_entries(preferred_message_shape_zyx, output_slice_shape)
         assert (preferred_message_shape_zyx == output_slice_shape).all(), \
-            "Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane, "\
+            f"Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane ({output_slice_shape}), "\
             f"not {preferred_message_shape_zyx}"
 
         # Store members
@@ -126,8 +128,11 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
 class SliceFilesVolumeServiceWriter(VolumeServiceWriter):
 
     def __init__(self, volume_config, config_dir):
+        validate(volume_config, SliceFilesVolumeSchema)
+
         # Convert path to absolute if necessary (and write back to the config)
         slice_fmt = volume_config["slice-files"]["slice-path-format"]
+        assert not slice_fmt.startswith('gs://'), "FIXME: Support gbuckets"
         if not slice_fmt.startswith('/'):
             slice_fmt = os.path.normpath( os.path.join(config_dir, slice_fmt) )
 
@@ -135,13 +140,15 @@ class SliceFilesVolumeServiceWriter(VolumeServiceWriter):
         os.makedirs(slice_dir, exist_ok=True)
 
         bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
+        assert -1 not in bounding_box_zyx.flat[:], "Output bounding box must be completely specified."
 
         # Determine complete preferred "message shape" - one full output slice.
         output_slice_shape = bounding_box_zyx[1] - bounding_box_zyx[0]
+        output_slice_shape[0] = 1
         preferred_message_shape_zyx = np.array(volume_config["geometry"]["message-block-shape"][::-1])
         replace_default_entries(preferred_message_shape_zyx, output_slice_shape)
         assert (preferred_message_shape_zyx == output_slice_shape).all(), \
-            "Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane, "\
+            f"Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane ({output_slice_shape}), "\
             f"not {preferred_message_shape_zyx}"
 
         # Store members
