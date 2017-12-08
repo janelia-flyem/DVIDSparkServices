@@ -1,5 +1,4 @@
 import os
-import csv
 import copy
 import json
 from datetime import datetime
@@ -23,7 +22,6 @@ from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-from DVIDSparkServices.auto_retry import auto_retry
 
 from .common_schemas import SegmentationVolumeSchema
 
@@ -119,9 +117,16 @@ class CreateSkeletons(Workflow):
         },
         "downsample-timeout": {
             "description": "The maximum time to wait for an object to be downsampled before skeletonization. "
-                           "If timeout is exceeded, the an error is logged and the object is skipped.",
+                           "If timeout is exceeded, the an error is logged and the object is skipped."
+                           "IGNORED IF downsample-in-subprocess is False",
             "type": "number",
             "default": 600.0 # 10 minutes max
+        },
+        "downsample-in-subprocess":  {
+            "description": "Collect and downsample each object in a subprocess, to protect against timeouts and failures.\n"
+                           "Must be True for downsample-timeout to have any effect.",
+            "type": "boolean",
+            "default": True
         },
         "analysis-timeout": {
             "description": "The maximum time to wait for an object to be skeletonized or meshified. "
@@ -322,7 +327,7 @@ class CreateSkeletons(Workflow):
         config = self.config_data
         @self.collect_log(lambda _: '_MESH_GENERATION_ERRORS')
         def logged_generate_mesh(arg):
-            return generate_mesh_in_subprocess(config, arg, config["mesh-config"]["use-subprocesses"])
+            return generate_mesh_in_subprocess(config, arg)
         
         #     --> (body_id, swc_contents, error_msg)
         body_ids_and_meshes = large_id_box_mask_factor_err.map( logged_generate_mesh )
@@ -433,11 +438,16 @@ def combine_masks_in_subprocess(config, ids_and_boxes_and_compressed_masks):
 
     body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
 
-    try:
+    if config["options"]["downsample-in-subprocess"]:
         func = execute_in_subprocess(timeout, logger)(combine_masks)
+    else:
+        func = combine_masks
+        
+    try:
         body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor = func(config, body_id, boxes_and_compressed_masks)
         return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor, None)
-    except TimeoutError:
+    
+    except TimeoutError: # fyi: can't be raised unless a subprocessed is used
         boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
 
         total_count = sum(counts)
@@ -605,7 +615,7 @@ def post_swc_to_dvid(config, body_swc_err):
             requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
 
 
-def generate_mesh_in_subprocess(config, id_box_mask_factor_err, use_subprocess):
+def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
     """
     If use_subprocess is True, execute generate_mesh() in a subprocess, and handle TimeoutErrors.
     Otherwise, just call generate_mesh() directly, with the appropriate parameters
@@ -616,22 +626,16 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err, use_subprocess):
 
     body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
 
-    # No subprocess
-    if not use_subprocess:
-        _body_id, mesh_obj = generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor)
+    if config["mesh-config"]["use-subprocesses"]:
+        func = execute_in_subprocess(timeout, logger)(generate_mesh)
+    else:
+        func = generate_mesh
+
+    try:
+        _body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
         return (body_id, mesh_obj, None)
 
-    # Use a subprocess
-    try:
-        # There seems to be an occasional segfault in the marching_cubes code.
-        # Until we find a fix, just retry failed meshes one extra time.
-        @auto_retry(2, pause_between_tries=0.0, logging_name=__name__)
-        def gen_mesh():
-            func = execute_in_subprocess(timeout, logger)(generate_mesh)
-            _body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
-            return (body_id, mesh_obj, None)
-        return gen_mesh()
-    except TimeoutError:
+    except TimeoutError: # fyi: can't be raised unless a subprocessed is used
         err_msg = f"Timeout ({timeout}) while meshifying body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
 
@@ -650,6 +654,7 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err, use_subprocess):
         
         return (body_id, None, err_msg)
 
+
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
     mesh_bytes = mesh_from_array( combined_mask,
                                   combined_box[0],
@@ -658,6 +663,7 @@ def generate_mesh(config, body_id, combined_box, combined_mask, downsample_facto
                                   config["mesh-config"]["step-size"],
                                   config["mesh-config"]["format"])
     return body_id, mesh_bytes
+
 
 def post_mesh_to_dvid(config, body_obj_err):
     """
