@@ -5,7 +5,6 @@ import json
 import logging
 
 import numpy as np
-import vigra
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -16,7 +15,7 @@ from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_p
 from DVIDSparkServices.json_util import flow_style
 from DVIDSparkServices.workflow.workflow import Workflow
 
-from DVIDSparkServices.io_util.volume_service import VolumeService, GrayscaleVolumeSchema, SliceFilesVolumeSchema
+from DVIDSparkServices.io_util.volume_service import VolumeService, GrayscaleVolumeSchema, SliceFilesVolumeSchema, SliceFilesVolumeServiceWriter
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +76,21 @@ class ExportSlices(Workflow):
         """
         Tidy up some config values, and fill in 'auto' values where needed.
         """
-        options = self.config_data["options"]
+        output_config = self.config_data["output"]
         input_geometry = self.config_data["input"]["geometry"]
-        output_specs = self.config_data["output"]["slice-files"]
         output_geometry = self.config_data["output"]["geometry"]
+        options = self.config_data["options"]
+
+        # Output bounding-box must match exactly (or left as auto)
+        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
+        output_bb_zyx = np.array(output_geometry["bounding-box"])[:,::-1]
+        assert ((output_bb_zyx == input_bb_zyx) | (output_bb_zyx == -1)).all(), \
+            "Output bounding box must match the input bounding box exactly. (No translation permitted)."
+
+        # Auto-set the output bounding-box
+        output_geometry["bounding-box"] = copy.deepcopy(input_geometry["bounding-box"])
         
-        assert output_specs["slice-xy-offset"] == [0,0], "Nonzero xy offset is meaningless for outputs."
+        assert output_config["slice-files"]["slice-xy-offset"] == [0,0], "Nonzero xy offset is meaningless for outputs."
         assert output_geometry["message-block-shape"] == [-1, -1, 1], "Output must be Z-slices, and complete XY planes"
 
         if options["slices-per-slab"] == -1:
@@ -93,38 +101,21 @@ class ExportSlices(Workflow):
             threads_per_brick_layer = ((num_threads + brick_depth-1) // brick_depth) # round up
             options["slices-per-slab"] = brick_depth * threads_per_brick_layer
 
-        # Convert relative path to absolute
-        path = output_specs["slice-path-format"]
-        if path.startswith('gs://'):
-            assert False, "FIXME: Support gbuckets"
-        elif not isabs(path):
-            output_specs["slice-path-format"] = self.relpath_to_abspath(path)
-
-        os.makedirs(dirname(output_specs["slice-path-format"]), exist_ok=True)
-
-        # Enforce correct output bounding-box
-        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
-        assert -1 not in input_bb_zyx.flat[:], "Input bounding box must be completely specified."
-
-        output_bb_zyx = np.array(output_geometry["bounding-box"])[:,::-1]
-        ((output_bb_zyx == input_bb_zyx) | (output_bb_zyx == -1)).all(), \
-            "Output bounding box must match the input bounding box exactly. (No translation permitted)."
-        output_geometry["bounding-box"] = copy.deepcopy(input_geometry["bounding-box"])
-        
 
     def execute(self):
         input_config = self.config_data["input"]
-        input_geometry = input_config["geometry"]
-        output_specs = self.config_data["output"]["slice-files"]
+        output_config = self.config_data["output"]
         options = self.config_data["options"]
 
         mgr_client = ResourceManagerClient( options["resource-server"],
                                             options["resource-port"] )
 
+        slice_writer = SliceFilesVolumeServiceWriter(output_config, self.config_dir)
+
         # Data is processed in Z-slabs
         slab_depth = options["slices-per-slab"]
 
-        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
         _, slice_start_y, slice_start_x = input_bb_zyx[0]
 
         slab_shape_zyx = input_bb_zyx[1] - input_bb_zyx[0]
@@ -139,8 +130,8 @@ class ExportSlices(Workflow):
 
         for slab_index, slab_box in enumerate(slab_boxes):
             # Contruct BrickWall from input bricks
-            slab_config = copy.copy(input_config)
-            slab_config["geometry"]["bounding-box"] = slab_box[:, ::-1]
+            slab_config = copy.deepcopy(input_config)
+            slab_config["geometry"]["bounding-box"] = slab_box[:, ::-1].tolist()
             volume_service = VolumeService.create_from_config( slab_config, self.config_dir, mgr_client )
             bricked_slab_wall = BrickWall.from_volume_service(volume_service, self.sc)
             
@@ -156,22 +147,16 @@ class ExportSlices(Workflow):
             bricked_slab_wall.bricks.unpersist()
             del bricked_slab_wall
 
-            def export_slice(brick):
+            def write_slice(brick):
                 assert (brick.physical_box == brick.logical_box).all()
-                assert (brick.physical_box[1,0] - brick.physical_box[0,0]) == 1, "Expected a single slice"
-                z_index = brick.physical_box[0,0]
-                slice_data = vigra.taggedView( brick.volume, 'zyx' )
-                vigra.impex.writeImage(slice_data[0], output_specs["slice-path-format"].format(z_index))
+                slice_writer.write_subvolume(brick.volume, brick.physical_box[0])
 
             # Export to PNG or TIFF, etc. (automatic via slice path extension)
             logger.info(f"Exporting slab {slab_index}/{len(slab_boxes)}", extra={"status": f"Exporting {slab_index}/{len(slab_boxes)}"})
-            rt.foreach( export_slice, sliced_slab_wall.bricks )
+            rt.foreach( write_slice, sliced_slab_wall.bricks )
             
             # Discard slice data
             sliced_slab_wall.bricks.unpersist()
             del sliced_slab_wall
 
         logger.info(f"DONE exporting {len(slab_boxes)} slabs.", extra={'status': "DONE"})
-
-
-
