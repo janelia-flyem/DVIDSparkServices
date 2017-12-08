@@ -77,6 +77,11 @@ class CreateSkeletons(Workflow):
                 "enum": ["obj",    # Wavefront OBJ (.obj)
                          "drc"],   # Draco (compressed) (.drc)
                 "default": "obj"
+            },
+            "use-subprocesses": {
+                "description": "Whether or not to generate meshes in a subprocess, to protect against timeouts and failures.",
+                "type": "boolean",
+                "default": False
             }
         }
     }
@@ -317,7 +322,7 @@ class CreateSkeletons(Workflow):
         config = self.config_data
         @self.collect_log(lambda _: '_MESH_GENERATION_ERRORS')
         def logged_generate_mesh(arg):
-            return generate_mesh_in_subprocess(config, arg)
+            return generate_mesh_in_subprocess(config, arg, config["mesh-config"]["use-subprocesses"])
         
         #     --> (body_id, swc_contents, error_msg)
         body_ids_and_meshes = large_id_box_mask_factor_err.map( logged_generate_mesh )
@@ -600,9 +605,10 @@ def post_swc_to_dvid(config, body_swc_err):
             requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
 
 
-def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
+def generate_mesh_in_subprocess(config, id_box_mask_factor_err, use_subprocess):
     """
-    Execute generate_mesh() in a subprocess, and handle TimeoutErrors.
+    If use_subprocess is True, execute generate_mesh() in a subprocess, and handle TimeoutErrors.
+    Otherwise, just call generate_mesh() directly, with the appropriate parameters
     """
     logger = logging.getLogger(__name__ + '.generate_mesh')
     logger.setLevel(logging.WARN)
@@ -610,6 +616,12 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
     body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
 
+    # No subprocess
+    if not use_subprocess:
+        _body_id, mesh_obj = generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor)
+        return (body_id, mesh_obj, None)
+
+    # Use a subprocess
     try:
         # There seems to be an occasional segfault in the marching_cubes code.
         # Until we find a fix, just retry failed meshes one extra time.
