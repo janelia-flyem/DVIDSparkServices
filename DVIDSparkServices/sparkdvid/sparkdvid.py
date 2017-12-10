@@ -476,7 +476,7 @@ class sparkdvid(object):
         if throttle == "auto":
             throttle = (resource_server == "")
         
-        if instance_type == 'labelarray' and np.array(offset) % 64 == 0 and np.array(subvolume.shape) % 64 == 0:
+        if instance_type == 'labelarray' and (np.array(offset) % 64 == 0).all() and (np.array(subvolume.shape) % 64 == 0).all():
             # Labelarray data can be posted very efficiently if the request is block-aligned
             node_service.put_labelblocks3D( instance_name, subvolume, offset, throttle, scale)
         elif is_labels:
