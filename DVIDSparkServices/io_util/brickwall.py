@@ -1,8 +1,9 @@
 import numpy as np
 
 from DVIDSparkServices import rddtools as rt
+from dvidutils import downsample_labels
 
-from .brick import Grid, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
+from .brick import Brick, Grid, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source, apply_labelmap_to_bricks
 
 class BrickWall:
     """
@@ -24,7 +25,7 @@ class BrickWall:
         Returns: A a new BrickWall, with a new internal RDD for bricks.
         """
         new_logical_boxes_and_bricks = realign_bricks_to_new_grid( new_grid, self.bricks )
-        new_wall = BrickWall( self.bounding_box, self.grid, _bricks=new_logical_boxes_and_bricks.values() )
+        new_wall = BrickWall( self.bounding_box, self.grid, _bricks=rt.values(new_logical_boxes_and_bricks) )
         return new_wall
 
     def fill_missing(self, volume_accessor_func, padding_grid=None):
@@ -47,7 +48,83 @@ class BrickWall:
             return pad_brick_data_from_volume_source(padding_grid, volume_accessor_func, brick)
         
         padded_bricks = rt.map( pad_brick, self.bricks )
-        return padded_bricks
+        new_wall = BrickWall( self.bounding_box, self.grid, _bricks=padded_bricks )
+        return new_wall
+
+    def apply_labelmap(self, labelmap_config, working_dir, unpersist_original=False):
+        """
+        Relabel the bricks in this BrickWall with a labelmap.
+        If the given config specifies not labelmap, then the original is returned.
+    
+        bricks: RDD of Bricks
+        
+        labelmap_config: config dict, adheres to LabelMapSchema
+        
+        working_dir: If labelmap is from a gbucket, it will be downlaoded to working_dir.
+        
+        unpersist_original: If True, unpersist (or replace) the input.
+                            Otherwise, the caller is free to unpersist the returned
+                            BrickWall without affecting the input.
+        
+        Returns:
+            A new BrickWall, with remapped bricks.
+        """
+        remapped_bricks = apply_labelmap_to_bricks(self.bricks, labelmap_config, working_dir, unpersist_original)
+        return BrickWall( self.bounding_box, self.grid, _bricks=remapped_bricks )
+
+    def translate(self, offset_zyx):
+        """
+        Translate all bricks by the given offset.
+        Does not change the brick data, just the logical/physical boxes.
+        
+        Also, translates the bounding box and grid.
+        """
+        def translate_brick(brick):
+            return Brick( brick.logical_box + offset_zyx,
+                          brick.physical_box + offset_zyx,
+                          brick.volume )
+
+        translated_bricks = rt.map( translate_brick, self.bricks )
+        
+        new_bounding_box = self.bounding_box + offset_zyx
+        new_grid = Grid( self.grid.block_shape, self.grid.offset + offset_zyx )
+        return BrickWall( new_bounding_box, new_grid, _bricks=translated_bricks )
+
+    def persist_and_execute(self, description, logger=None):
+        self.bricks = rt.persist_and_execute( self.bricks, description, logger )
+    
+    def unpersist(self):
+        rt.unpersist(self.bricks)
+
+    def label_downsample(self, block_shape):
+        assert block_shape[0] == block_shape[1] == block_shape[2], \
+            "Currently, downsampling must be isotropic"
+
+        factor = block_shape[0]
+        def downsample_brick(brick):
+            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
+            assert (brick.physical_box % factor == 0).all()
+            assert (brick.logical_box % factor == 0).all()
+        
+            # Old: Python downsampling
+            # downsample_3Dlabels(brick.volume)
+        
+            # Newer: Numba downsampling
+            #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
+        
+            # Even Newer: C++ downsampling (note: only works on aligned data.)
+            downsampled_volume = downsample_labels(brick.volume, factor, suppress_zero=True)
+        
+            downsampled_logical_box = brick.logical_box // factor
+            downsampled_physical_box = brick.physical_box // factor
+            
+            return Brick(downsampled_logical_box, downsampled_physical_box, downsampled_volume)
+
+        new_bounding_box = self.bounding_box // factor
+        new_grid = Grid( self.grid.block_shape // factor, self.grid.offset // factor )
+        new_bricks = rt.map( downsample_brick, self.bricks )
+        
+        return BrickWall( new_bounding_box, new_grid, _bricks=new_bricks )
 
     ##
     ## Convenience Constructor

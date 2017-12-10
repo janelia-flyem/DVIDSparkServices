@@ -6,18 +6,17 @@
       "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
-        "segmentation-name": "labels",
-
-        # Mapping adds 100 to every input pixel
-        "apply-labelmap": {
-          "file": "../input_mapping_plus100.csv",
-          "file-type": "label-to-body"
-        },
+        "segmentation-name": "labels"
+      },
+      # Mapping adds 100 to every input pixel
+      "apply-labelmap": {
+        "file": "../input_mapping_plus100.csv",
+        "file-type": "label-to-body"
       },
       "geometry": {
         "bounding-box": [[100, 150, 200], [356, 406, 456]],
         "message-block-shape": [6400, 64, 64],
-        "block-width": 64
+        "block-width": -1
       },
     },
 
@@ -26,13 +25,12 @@
         "dvid": {
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
-          "segmentation-name": "labels-remapped200",
-
-          # Mapping adds 200 input pixels, which were already remapped by +100
-          "apply-labelmap": {
-            "file":  "../output_mapping_plus200.csv",
-            "file-type": "label-to-body"
-          }
+          "segmentation-name": "labels-remapped200"
+        },
+        # Mapping adds 200 input pixels, which were already remapped by +100
+        "apply-labelmap": {
+          "file":  "../output_mapping_plus200.csv",
+          "file-type": "label-to-body"
         },
         "geometry": {
           "bounding-box": [[0, 0, 0], [256, 256, 256]],
@@ -45,13 +43,12 @@
         "dvid": {
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
-          "segmentation-name": "labels-remapped400",
-
-          # Mapping adds 400 input pixels, which were already remapped by +100
-          "apply-labelmap": {
-            "file":  "../output_mapping_plus400.csv",
-            "file-type": "label-to-body"
-          },
+          "segmentation-name": "labels-remapped400"
+        },
+        # Mapping adds 400 input pixels, which were already remapped by +100
+        "apply-labelmap": {
+          "file":  "../output_mapping_plus400.csv",
+          "file-type": "label-to-body"
         },
         "geometry": {
           "bounding-box": [[0, 0, 0], [256, 256, 256]],
@@ -63,14 +60,13 @@
         "dvid": {
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
-          "segmentation-name": "labels-complete-merge",
-
-          # This is an edge-equivalency mapping.
-          # In this mapping, the edges form a giant cycle, resulting in a completely merged volume.
-          "apply-labelmap": {
-            "file":  "../output_totalmerge_edges.csv",
-            "file-type": "equivalence-edges"
-          },
+          "segmentation-name": "labels-complete-merge"
+        },
+        # This is an edge-equivalency mapping.
+        # In this mapping, the edges form a giant cycle, resulting in a completely merged volume.
+        "apply-labelmap": {
+          "file":  "../output_totalmerge_edges.csv",
+          "file-type": "equivalence-edges"
         },
         "geometry": {
           "bounding-box": [[0, 0, 0], [256, 256, 256]],

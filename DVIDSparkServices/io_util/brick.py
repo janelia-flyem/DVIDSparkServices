@@ -1,16 +1,36 @@
-from collections import namedtuple
-from itertools import starmap
+import os
+import csv
+import logging
+import subprocess
+from itertools import starmap, chain
 from functools import partial
 
 import numpy as np
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
 from DVIDSparkServices import rddtools as rt
-from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes
+from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
+from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
 
-# Grid:
-# Describes a blocking scheme, which is simply a grid block shape,
-# and an offset coordinate for the first block in the grid.
-Grid = namedtuple("Grid", "block_shape offset")
+logger = logging.getLogger(__name__)
+
+class Grid:
+    """
+    Describes a blocking scheme, which is simply a grid block shape,
+    and an offset coordinate for the first block in the grid.
+    """
+    def __init__(self, block_shape, offset=(0,0,0)):
+        assert len(block_shape) == len(offset) == 3
+        self.block_shape = np.asarray(block_shape)
+        self.offset = np.asarray(offset)
+        self.modulus_offset = self.offset % block_shape
+
+    def equivalent_to(self, other_grid):
+        """
+        Returns True if the other grid is equivalent to this one, meaning 
+        it has the same block shame and it's offset is the same after modulus.
+        """
+        return (self.block_shape == other_grid.block_shape).all() and \
+               (self.modulus_offset == other_grid.modulus_offset).all()
 
 class Brick:
     """
@@ -173,6 +193,95 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
         overwrite_subvol(padded_volume, halo_box_within_padded, halo_volume)
 
     return Brick( brick.logical_box, padded_box, padded_volume )
+
+
+def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_original=False):
+    """
+    Relabel the bricks with a labelmap.
+    If the given config specifies not labelmap, then the original is returned.
+
+    bricks: RDD of Bricks
+    
+    labelmap_config: config dict, adheres to LabelMapSchema
+    
+    working_dir: If labelmap is from a gbucket, it will be downlaoded to working_dir.
+    
+    unpersist_original: If True, unpersist (or replace) the input.
+                     Otherwise, the caller is free to unpersist the returned
+                     bricks without affecting the input.
+    
+    Returns:
+        remapped_bricks - Already computed and persisted.
+    """
+    path = labelmap_config["file"]
+    if not path:
+        if not unpersist_original:
+            # The caller wants to be sure that the result can be
+            # unpersisted safely without affecting the bricks he passed in,
+            # so we return a *new* RDD, even though it's just a copy of the original.
+            return bricks.map(lambda brick: brick, bricks)
+        return bricks
+
+    # path is [gs://]/path/to/file.csv[.gz]
+
+    # If the file is in a gbucket, download it first (if necessary)
+    if path.startswith('gs://'):
+        filename = path.split('/')[-1]
+        downloaded_path = working_dir + '/' + filename
+        if not os.path.exists(downloaded_path):
+            cmd = f'gsutil -q cp {path} {downloaded_path}'
+            logger.info(cmd)
+            subprocess.check_call(cmd, shell=True)
+        path = downloaded_path
+
+    # Now path is /path/to/file.csv[.gz]
+    
+    if not os.path.exists(path) and os.path.exists(path + '.gz'):
+        path = path + '.gz'
+
+    # If the file is compressed, decompress it
+    if os.path.splitext(path)[1] == '.gz':
+        uncompressed_path = path[:-3] # drop '.gz'
+        if not os.path.exists(uncompressed_path):
+            subprocess.check_call(f"gunzip {path}", shell=True)
+            assert os.path.exists(uncompressed_path), \
+                "Tried to uncompress the labelmap CSV file... where did it go?"
+        path = uncompressed_path # drop '.gz'
+
+    # Now path is /path/to/file.csv
+
+    # Mapping is only loaded into numpy once, on the driver
+    if labelmap_config["file-type"] == "label-to-body":
+        with open(path, 'r') as csv_file:
+            rows = csv.reader(csv_file)
+            all_items = chain.from_iterable(rows)
+            mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
+    elif labelmap_config["file-type"] == "equivalence-edges":
+        mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
+
+        # Export mapping to disk in case anyone wants to view it later
+        output_dir, basename = os.path.split(path)
+        mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
+        if not os.path.exists(mapping_csv_path):
+            with open(mapping_csv_path, 'w') as f:
+                csv.writer(f).writerows(mapping_pairs)
+
+    from dvidutils import LabelMapper
+    def remap_bricks(partition_bricks):
+        domain, codomain = mapping_pairs.transpose()
+        mapper = LabelMapper(domain, codomain)
+        
+        partition_bricks = list(partition_bricks)
+        for brick in partition_bricks:
+            mapper.apply_inplace(brick.volume, allow_unmapped=True)
+        return partition_bricks
+    
+    # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
+    remapped_bricks = bricks.mapPartitions(remap_bricks)
+    persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
+    if unpersist_original:
+        unpersist(bricks)
+    return remapped_bricks
 
 
 def realign_bricks_to_new_grid(new_grid, original_bricks):

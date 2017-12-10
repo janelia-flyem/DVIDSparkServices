@@ -60,41 +60,51 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
         if resource_manager_client is None:
             # Dummy client
             resource_manager_client = ResourceManagerClient("", 0)
-        
-        self._preferred_message_shape_zyx = np.array( volume_config["geometry"]["message-block-shape"][::-1] )
-        replace_default_entries(self._preferred_message_shape_zyx, [64, 64, 6400])
 
-        bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
-        
-        self._bounding_box_zyx = bounding_box_zyx
-        self._resource_manager_client = resource_manager_client
-
-        # Instantiate this outside of get_brainmaps_subvolume,
-        # so it can be shared across an entire partition.
         self._brainmaps_client = BrainMapsVolume( volume_config["brainmaps"]["project"],
                                                   volume_config["brainmaps"]["dataset"],
                                                   volume_config["brainmaps"]["volume-id"],
                                                   volume_config["brainmaps"]["change-stack-id"],
                                                   dtype=np.uint64 )
 
-        assert -1 not in bounding_box_zyx.flat[:], "automatic bounds not supported"
+        block_width = volume_config["geometry"]["block-width"]
+        if block_width == -1:
+            # FIXME: I don't actually know what BrainMap's internal block size is...
+            block_width = 64
+        
+        preferred_message_shape_zyx = np.array( volume_config["geometry"]["message-block-shape"][::-1] )
+        replace_default_entries(preferred_message_shape_zyx, [64, 64, 6400])
+
+        bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
+        replace_default_entries(bounding_box_zyx, self._brainmaps_client.bounding_box)
+
         assert  (bounding_box_zyx[0] >= self._brainmaps_client.bounding_box[0]).all() \
             and (bounding_box_zyx[1] <= self._brainmaps_client.bounding_box[1]).all(), \
             f"Specified bounding box ({bounding_box_zyx.tolist()}) extends outside the "\
-            f"BrainMaps volume geometry ({self._brainmaps_client.bounding_box.tolist()})"
-        
+            f"BrainMaps volume geometry ({self._brainmaps_client.bounding_box.tolist()})"        
+
+        # Store members        
+        self._bounding_box_zyx = bounding_box_zyx
+        self._resource_manager_client = resource_manager_client
+        self._preferred_message_shape_zyx = preferred_message_shape_zyx
+        self._block_width = block_width
+
+        # Overwrite config entries that we might have modified
+        volume_config["geometry"]["block-width"] = self._block_width
+        volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
+        volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
+
     @property
     def dtype(self):
         return self._brainmaps_client.dtype
 
     @property
     def preferred_message_shape(self):
-        return self.brick_shape_zyx
+        return self._preferred_message_shape_zyx
 
     @property
     def block_width(self):
-        # FIXME: I don't actually know what BrainMap's internal block size is...
-        return 64
+        return self._block_width
 
     @property
     def bounding_box_zyx(self):

@@ -1,13 +1,9 @@
-from __future__ import print_function, absolute_import
-from __future__ import division
 import os
-import csv
 import copy
 import json
 import logging
 import subprocess
 import socket
-from itertools import chain
 from functools import partial
 
 import numpy as np
@@ -16,21 +12,15 @@ import h5py
 # Don't import pandas here; import it locally as needed
 #import pandas as pd
 
-
 from dvid_resource_manager.client import ResourceManagerClient
 
-from dvidutils import downsample_labels
-
-from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
-from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
+from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
-from DVIDSparkServices.reconutils.downsample import downsample_labels_3d_suppress_zero
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
-from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume 
-from DVIDSparkServices.auto_retry import auto_retry
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount
 
-from .common_schemas import SegmentationVolumeSchema, SegmentationVolumeListSchema
+from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
+from DVIDSparkServices.io_util.volume_service import VolumeService, SegmentationVolumeSchema, SegmentationVolumeListSchema
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +81,9 @@ class CopySegmentation(Workflow):
             "options" : OptionsSchema
         }
     }
+    
+    Schema["properties"]["input"]["description"] += "\n(Labelmap, if any, is applied post-read)"
+    Schema["properties"]["outputs"]["description"] += "\n(Labelmaps, if any, are applied before writing for each volume.)"
 
     @staticmethod
     def dumpschema():
@@ -103,6 +96,7 @@ class CopySegmentation(Workflow):
     # name of application for DVID queries
     APPNAME = "copysegmentation"
 
+
     def __init__(self, config_filename):
         super(CopySegmentation, self).__init__( config_filename,
                                                 CopySegmentation.dumpschema(),
@@ -114,38 +108,22 @@ class CopySegmentation(Workflow):
         """
         Tidy up some config values.
         """
-        input_source = self.config_data["input"]["source"]
-        input_geometry = self.config_data["input"]["geometry"]
-        
-        assert input_source["service-type"] != "SKIP",\
-            "Not allowed to skip the input!"
-
-        # Delete skipped output_configs
-        for i, cfg in reversed(list(enumerate(self.config_data["outputs"]))):
-            if cfg["source"]["service-type"] == "SKIP":
-                logger.info(f"NOTE: SKIPPING output configuration {i}")
-                del self.config_data["outputs"][i]
-
+        input_config = self.config_data["input"]
         output_configs = self.config_data["outputs"]
-        output_sources = [cfg["source"] for cfg in output_configs]
         
-        for source in [input_source] + output_sources:
-            # Prepend 'http://' to the server if necessary.
-            if "server" in source and not source["server"].startswith('http'):
-                source["server"] = 'http://' + source["server"]
-
+        for volume_config in [input_config] + output_configs:
             # Convert labelmap (if any) to absolute path (relative to config file)
-            labelmap_file = source["apply-labelmap"]["file"]
+            labelmap_file = volume_config["apply-labelmap"]["file"]
             if labelmap_file.startswith('gs://'):
                 # Verify that gsutil is able to see the file before we start doing real work.
                 subprocess.check_output(f'gsutil ls {labelmap_file}', shell=True)
             elif labelmap_file and not os.path.isabs(labelmap_file):
-                source["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
+                volume_config["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
         ##
         ## Check input/output dimensions and grid schemes.
         ##
-        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
 
         first_output_geometry = output_configs[0]["geometry"]
         output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
@@ -174,181 +152,121 @@ class CopySegmentation(Workflow):
             assert (output_block_width == bw).all(), \
                 "For now, all output destinations must use the same bounding box and grid scheme"
 
+            # Create a throw-away writer service, to verify that all
+            # output configs are well-formed before we start the workflow.
+            VolumeService.create_from_config(output_config, self.config_dir)
+
+
     def execute(self):
         options = self.config_data["options"]
-        input_source = self.config_data["input"]["source"]
-        input_geometry = self.config_data["input"]["geometry"]
+        input_config = self.config_data["input"]
         output_configs = self.config_data["outputs"]
+        
+        self.resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
+
+        # Aim for 2 GB RDD partitions
+        GB = 2**30
+        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+        input_service = VolumeService.create_from_config(input_config, self.config_dir, self.resource_mgr_client)
+        input_wall = BrickWall.from_volume_service(input_service, self.sc, target_partition_size_voxels)
 
         # See note in _sanitize_config()
         first_output_geometry = output_configs[0]["geometry"]
 
-        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
         output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
         translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
 
-        input_bricks, bounding_box, _input_grid = self._partition_input()
-        self._create_output_instances_if_necessary(bounding_box)
+        self._create_output_instances_if_necessary()
 
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         options["pyramid-depth"] = self._read_pyramid_depth()
 
         self._log_neuroglancer_links()
 
-        persist_and_execute(input_bricks, f"Reading entire volume", logger)
+        input_wall.persist_and_execute(f"Reading entire volume", logger)
 
         # Apply post-input label map (if any)
-        remapped_input_bricks = self._remap_bricks(input_bricks, input_source["apply-labelmap"], keep_original=False)
-        del input_bricks
+        print(f"labelmap config: type: {type(input_config['apply-labelmap'])} / {repr(input_config['apply-labelmap'])}")
+        remapped_input_wall = input_wall.apply_labelmap( input_config["apply-labelmap"],
+                                                         self.config_dir,
+                                                         unpersist_original=True )
+        del input_wall
 
         # Translate coordinates from input to output
         # (which will leave the bricks in a new, offset grid)
         # This has no effect on the brick volumes themselves.
-        translated_bricks = self._translate_bricks(remapped_input_bricks, translation_offset_zyx)
-        del remapped_input_bricks
+        translated_wall = remapped_input_wall.translate(translation_offset_zyx)
+        del remapped_input_wall
 
         # For now, all output_configs are required to have identical grid alignment settings
         # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
-        aligned_input_bricks = self._consolidate_and_pad(translated_bricks, 0, output_configs[0], align=True, pad=False)
-        del translated_bricks
+        aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, output_configs[0], align=True, pad=False)
+        del translated_wall
 
         for output_config in self.config_data["outputs"]:
             # Apply pre-output label map (if any)
             # Don't delete input, because we need to reuse it for each iteration of this loop
-            remapped_output_bricks = self._remap_bricks(aligned_input_bricks, output_config["source"]["apply-labelmap"], keep_original=True)
+            remapped_output_wall = aligned_input_wall.apply_labelmap( output_config["apply-labelmap"],
+                                                                      self.config_dir,
+                                                                      unpersist_original=False )
 
             # Pad internally to block-align.
-            padded_bricks = self._consolidate_and_pad(remapped_output_bricks, 0, output_config, align=False, pad=True)
-            del remapped_output_bricks
+            padded_wall = self._consolidate_and_pad(remapped_output_wall, 0, output_config, align=False, pad=True)
+            del remapped_output_wall
     
             # Compute body sizes and write to HDF5
-            self._write_body_sizes( padded_bricks, output_config )
+            self._write_body_sizes( padded_wall, output_config )
     
             # Write scale 0 to DVID
-            self._write_bricks( padded_bricks, 0, output_config )
+            self._write_bricks( padded_wall, 0, output_config )
     
             for new_scale in range(1, 1+options["pyramid-depth"]):
                 # Compute downsampled (results in smaller bricks)
-                downsampled_bricks = self._downsample_bricks( padded_bricks, new_scale )
+                downsampled_wall = padded_wall.label_downsample( (2,2,2) )
+                downsampled_wall.persist_and_execute(f"Scale {new_scale}: Downsampling", logger)
+                padded_wall.unpersist()
+                del padded_wall
 
                 # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_bricks = self._consolidate_and_pad( downsampled_bricks, new_scale, output_config )
-                del downsampled_bricks
+                consolidated_wall = self._consolidate_and_pad( downsampled_wall, new_scale, output_config, align=True, pad=True )
+                del downsampled_wall
 
                 # Write to DVID
-                self._write_bricks( consolidated_bricks, new_scale, output_config )
-                padded_bricks = consolidated_bricks
-                del consolidated_bricks
-            del padded_bricks
+                self._write_bricks( consolidated_wall, new_scale, output_config )
+                padded_wall = consolidated_wall
+                del consolidated_wall
+            del padded_wall
 
         logger.info(f"DONE copying segmentation to {len(self.config_data['outputs'])} destinations.")
 
-    def _partition_input(self):
-        """
-        Map the input segmentation
-        volume from DVID into an RDD of (volumePartition, data),
-        using the config's bounding-box setting for the full volume region,
-        using the input 'message-block-shape' as the partition size.
-
-        Returns: (RDD, bounding_box_zyx, partition_shape_zyx)
-            where:
-                - RDD is (volumePartition, data)
-                - bounding box is tuple (start_zyx, stop_zyx)
-                - partition_shape_zyx is a tuple
-            
-        """
-        input_source = self.config_data["input"]["source"]
-        input_geometry = self.config_data["input"]["geometry"]
-        
-        options = self.config_data["options"]
-
-        # repartition to be z=blksize, y=blksize, x=runlength
-        brick_shape_zyx = input_geometry["message-block-shape"][::-1]
-        input_grid = Grid(brick_shape_zyx, (0,0,0))
-        
-        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
-
-        # Aim for 2 GB RDD partitions
-        GB = 2**30
-        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-
-        if input_source["service-type"] == "dvid":
-            sparkdvid_input_context = sparkdvid(self.sc, input_source["server"], input_source["uuid"], self)
-            bricks = sparkdvid_input_context.parallelize_bounding_box( input_source["segmentation-name"],
-                                                                       input_bb_zyx,
-                                                                       input_grid,
-                                                                       target_partition_size_voxels )
-        elif input_source["service-type"] == "brainmaps":
-
-            # Instantiate this outside of get_brainmaps_subvolume,
-            # so it can be shared across an entire partition.
-            vol = BrainMapsVolume( input_source["project"],
-                                   input_source["dataset"],
-                                   input_source["volume-id"],
-                                   input_source["change-stack-id"],
-                                   dtype=np.uint64 )
-
-            assert (input_bb_zyx[0] >= vol.bounding_box[0]).all() and (input_bb_zyx[1] <= vol.bounding_box[1]).all(), \
-                f"Specified bounding box ({input_bb_zyx.tolist()}) extends outside the "\
-                f"BrainMaps volume geometry ({vol.bounding_box.tolist()})"
-
-            # Two-levels of auto-retry:
-            # 1. Auto-retry up to three time for any reason.
-            # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
-            @auto_retry(1, pause_between_tries=5*60.0, logging_name=__name__,
-                        predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
-            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
-            def get_brainmaps_subvolume(box):
-                if not options["resource-server"]:
-                    return vol.get_subvolume(box)
-
-                req_bytes = 8 * np.prod(box[1] - box[0])
-                client = ResourceManagerClient(options["resource-server"], options["resource-port"])
-                with client.access_context('brainmaps', True, 1, req_bytes):
-                    return vol.get_subvolume(box)
-                
-            block_size_voxels = np.prod(input_grid.block_shape)
-            rdd_partition_length = target_partition_size_voxels // block_size_voxels
-
-            bricks = generate_bricks_from_volume_source( input_bb_zyx,
-                                                         input_grid,
-                                                         get_brainmaps_subvolume,
-                                                         self.sc,
-                                                         rdd_partition_length )
-
-            # If we're working with a tiny volume (e.g. testing),
-            # make sure we at least parallelize across all cores.
-            if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
-                bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
-        else:
-            raise RuntimeError(f'Unknown service-type: {input_source["service-type"]}')
-
-        return bricks, input_bb_zyx, input_grid
-
     
-    def _create_output_instances_if_necessary(self, bounding_box):
+    def _create_output_instances_if_necessary(self):
         """
         If it doesn't exist yet, create it first with the user's specified
         pyramid-depth, or with an automatically chosen depth.
         """
         options = self.config_data["options"]
+
         for output_config in self.config_data["outputs"]:
             # Create new segmentation instance first if necessary
-            if not is_datainstance( output_config["source"]["server"],
-                                    output_config["source"]["uuid"],
-                                    output_config["source"]["segmentation-name"] ):
+            if not is_datainstance( output_config["dvid"]["server"],
+                                    output_config["dvid"]["uuid"],
+                                    output_config["dvid"]["segmentation-name"] ):
 
                 depth = options["pyramid-depth"]
                 if depth == -1:
-                    # if no pyramid depth is specified, determine the max
-                    depth = choose_pyramid_depth(bounding_box, 512)
+                    # if no pyramid depth is specified, determine the max, based on bb size.
+                    input_bb_zyx = np.array(self.config_data["input"]["geometry"]["bounding-box"])[:,::-1]
+                    depth = choose_pyramid_depth(input_bb_zyx, 512)
         
                 # create new label array with correct number of pyramid scales
-                create_labelarray( output_config["source"]["server"],
-                                   output_config["source"]["uuid"],
-                                   output_config["source"]["segmentation-name"],
+                create_labelarray( output_config["dvid"]["server"],
+                                   output_config["dvid"]["uuid"],
+                                   output_config["dvid"]["segmentation-name"],
                                    depth,
                                    3*(output_config["geometry"]["block-width"],) )
+
 
     def _log_neuroglancer_links(self):
         """
@@ -356,9 +274,9 @@ class CopySegmentation(Workflow):
         We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
         """
         for index, output_config in enumerate(self.config_data["outputs"]):
-            server = output_config["source"]["server"] # Note: Begins with http://
-            uuid = output_config["source"]["uuid"]
-            instance = output_config["source"]["segmentation-name"]
+            server = output_config["dvid"]["server"] # Note: Begins with http://
+            uuid = output_config["dvid"]["uuid"]
+            instance = output_config["dvid"]["segmentation-name"]
             
             output_box_xyz = np.array(output_config["geometry"]["bounding-box"])
             output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
@@ -384,6 +302,7 @@ class CopySegmentation(Workflow):
             }
             logger.info(f"Neuroglancer link to output {index}: {link_prefix}{json.dumps(link_json)}")
 
+
     def _read_pyramid_depth(self):
         """
         Read the MaxDownresLevel from each output instance we'll be writing to,
@@ -394,7 +313,7 @@ class CopySegmentation(Workflow):
         """
         max_depth = -1
         for output_config in self.config_data["outputs"]:
-            output_source = output_config["source"]
+            output_source = output_config["dvid"]
             options = self.config_data["options"]
     
             node_service = retrieve_node_service( output_source["server"],
@@ -414,109 +333,8 @@ class CopySegmentation(Workflow):
 
         return existing_depth
 
-    def _translate_bricks(self, bricks, offset_zyx):
-        def translate_brick(brick):
-            return Brick( brick.logical_box + offset_zyx,
-                          brick.physical_box + offset_zyx,
-                          brick.volume )
 
-        translated_bricks = bricks.map( translate_brick )
-        return translated_bricks
-
-    def _remap_bricks(self, bricks, labelmap_config, keep_original=False):
-        """
-        Relabel the bricks with a labelmap.
-        If the given config specifies not labelmap, then the original is returned.
-        
-        keep_original: If True, does not unpersist the input, and the caller
-                       is free to unpersist the result without affecting the
-                       original input.
-        """
-        path = labelmap_config["file"]
-        if not path:
-            if keep_original:
-                # The caller wants to be sure that the result can be
-                # unpersisted safely without affecting the bricks he passed in,
-                # so we return a *new* RDD, even though it's just a copy of the original.
-                return bricks.map(lambda brick: brick, bricks)
-            return bricks
-
-        # path is [gs://]/path/to/file.csv[.gz]
-
-        # If the file is in a gbucket, download it first (if necessary)
-        if path.startswith('gs://'):
-            filename = path.split('/')[-1]
-            downloaded_path = self.relpath_to_abspath('.') + '/' + filename
-            if not os.path.exists(downloaded_path):
-                cmd = f'gsutil -q cp {path} {downloaded_path}'
-                logger.info(cmd)
-                subprocess.check_call(cmd, shell=True)
-            path = downloaded_path
-
-        # Now path is /path/to/file.csv[.gz]
-        
-        if not os.path.exists(path) and os.path.exists(path + '.gz'):
-            path = path + '.gz'
-
-        # If the file is compressed, decompress it
-        if os.path.splitext(path)[1] == '.gz':
-            uncompressed_path = path[:-3] # drop '.gz'
-            if not os.path.exists(uncompressed_path):
-                subprocess.check_call(f"gunzip {path}", shell=True)
-                assert os.path.exists(uncompressed_path), "Tried to uncompress the labelmap CSV file... where did it go?"
-            path = uncompressed_path # drop '.gz'
-
-        # Now path is /path/to/file.csv
-
-        # Mapping is only loaded into numpy once, on the driver
-        if labelmap_config["file-type"] == "label-to-body":
-            with open(path, 'r') as csv_file:
-                rows = csv.reader(csv_file)
-                all_items = chain.from_iterable(rows)
-                mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
-        elif labelmap_config["file-type"] == "equivalence-edges":
-            mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
-
-            # Export mapping to disk in case anyone wants to view it later
-            output_dir, basename = os.path.split(path)
-            mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
-            if not os.path.exists(mapping_csv_path):
-                with open(mapping_csv_path, 'w') as f:
-                    csv.writer(f).writerows(mapping_pairs)
-
-        from dvidutils import LabelMapper
-        def remap_bricks(partition_bricks):
-            domain, codomain = mapping_pairs.transpose()
-            mapper = LabelMapper(domain, codomain)
-            
-            partition_bricks = list(partition_bricks)
-            for brick in partition_bricks:
-                mapper.apply_inplace(brick.volume, allow_unmapped=True)
-            return partition_bricks
-        
-        # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
-        remapped_bricks = bricks.mapPartitions(remap_bricks)
-        persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
-        if not keep_original:
-            unpersist(bricks)
-        return remapped_bricks
-
-    def _downsample_bricks(self, bricks, new_scale):
-        """
-        Immediately downsample the given RDD of Bricks by a factor of 2 and persist the results.
-        Also, unpersist the input.
-        """
-        # Downsampling effectively divides grid by half (i.e. 32x32x32)
-        downsampled_bricks = bricks.map(downsample_brick)
-        persist_and_execute(downsampled_bricks, f"Scale {new_scale}: Downsampling", logger)
-        unpersist(bricks)
-        del bricks
-
-        # Bricks are now half-size
-        return downsampled_bricks
-
-
-    def _consolidate_and_pad(self, bricks, scale, output_config, align=True, pad=True):
+    def _consolidate_and_pad(self, input_wall, scale, output_config, align=True, pad=True):
         """
         Consolidate (align), and pad the given RDD of Bricks.
 
@@ -530,58 +348,48 @@ class CopySegmentation(Workflow):
         
         Note: UNPERSISTS the input data and returns the new, downsampled data.
         """
-        output_source = output_config["source"]
-        output_geometry = output_config["geometry"]
-        
-        if not align:
-            realigned_bricks = bricks
+        output_writing_grid = Grid(output_config["geometry"]["message-block-shape"][::-1])
+
+        if not align or output_writing_grid.equivalent_to(input_wall.grid):
+            realigned_wall = input_wall
         else:
             # Consolidate bricks to full-size, aligned blocks (shuffles data)
-            # FIXME: We should skip this if the grids happen to be aligned already.
-            #        This shuffle takes ~15 minutes per tab.
-            output_writing_grid = Grid(output_geometry["message-block-shape"], (0,0,0))
-            realigned_bricks = realign_bricks_to_new_grid( output_writing_grid, bricks ).values()
-            persist_and_execute(realigned_bricks, f"Scale {scale}: Shuffling bricks into alignment", logger)
+            realigned_wall = input_wall.realign_to_new_grid( output_writing_grid )
+            realigned_wall.persist_and_execute(f"Scale {scale}: Shuffling bricks into alignment", logger)
     
             # Discard original
-            unpersist(bricks)
-            del bricks
+            input_wall.unpersist()
         
         if not pad:
-            return realigned_bricks
+            return realigned_wall
 
-        # Pad from previously-existing pyramid data.
-        output_padding_grid = Grid(output_geometry["block-width"], (0,0,0))
+        output_reader = VolumeService.create_from_config(output_config, self.config_dir, self.resource_mgr_client)
 
-        output_context = sparkdvid( self.sc, output_source["server"], output_source["uuid"], self )
-        output_accessor = output_context.get_volume_accessor(output_source["segmentation-name"], scale)
-        padded_bricks = realigned_bricks.map( partial(pad_brick_data_from_volume_source, output_padding_grid, output_accessor) )
-        persist_and_execute(padded_bricks, f"Scale {scale}: Padding", logger)
+        # Pad from previously-existing pyramid data until
+        # we have full storage blocks, e.g. (64,64,64),
+        # but not necessarily full bricks, e.g. (64,64,6400)
+        storage_block_width = output_config["geometry"]["block-width"]
+        output_padding_grid = Grid( (storage_block_width, storage_block_width, storage_block_width), output_writing_grid.offset )
+        output_accessor_func = partial(output_reader.get_subvolume, scale=scale)
+        
+        padded_wall = realigned_wall.fill_missing(output_accessor_func, output_padding_grid)
+        padded_wall.persist_and_execute(f"Scale {scale}: Padding", logger)
 
-        # Discard
-        unpersist(realigned_bricks)
-        del realigned_bricks
+        # Discard old
+        realigned_wall.unpersist()
 
-        return padded_bricks
+        return padded_wall
 
 
-    def _write_bricks(self, bricks, scale, output_config):
+    def _write_bricks(self, brick_wall, scale, output_config):
         """
         Writes partition to specified dvid.
         """
-        appname = self.APPNAME
-
-        server = output_config["source"]["server"]
-        uuid = output_config["source"]["uuid"]
-        dataname = output_config["source"]["segmentation-name"]
+        output_writer = VolumeService.create_from_config(output_config, self.config_dir, self.resource_mgr_client)
+        instance_name = output_config["dvid"]["segmentation-name"]
         block_width = output_config["geometry"]["block-width"]
+        EMPTY_VOXEL = 0
         
-        resource_server = self.resource_server 
-        resource_port = self.resource_port 
-        
-        # default delimiter
-        delimiter = 0
-    
         @self.collect_log(lambda _: socket.gethostname() + '-write-blocks-' + str(scale))
         def write_brick(brick):
             logger = logging.getLogger(__name__)
@@ -589,13 +397,11 @@ class CopySegmentation(Workflow):
             assert (brick.physical_box % block_width == 0).all(), \
                 f"This function assumes each brick's physical data is already block-aligned: {brick}"
             
-            node_service = retrieve_node_service(server, uuid, resource_server, resource_port, appname)
-
             x_size = brick.volume.shape[2]
             # Find all non-zero blocks (and record by block index)
             block_coords = []
             for block_index, block_x in enumerate(range(0, x_size, block_width)):
-                if not (brick.volume[:, :, block_x:block_x+block_width] == delimiter).all():
+                if not (brick.volume[:, :, block_x:block_x+block_width] == EMPTY_VOXEL).all():
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
             # Find *runs* of non-zero blocks
@@ -612,22 +418,21 @@ class CopySegmentation(Workflow):
                 datacrop = brick.volume[:,:,data_x_start:data_x_end].copy()
                 data_offset_zyx = brick.physical_box[0] + (0,0,data_x_start)
 
-                throttle = (resource_server == "" and not server.startswith("http://127.0.0.1"))
                 with Timer() as put_timer:
-                    node_service.put_labelblocks3D( str(dataname), datacrop, data_offset_zyx, throttle, scale)
+                    output_writer.write_subvolume(datacrop, data_offset_zyx, scale)
 
                 # Note: This timing data doesn't reflect ideal throughput, since throttle
                 #       and/or the resource manager muddy the numbers a bit...
                 megavoxels_per_second = datacrop.size / 1e6 / put_timer.seconds
                 logger.info(f"Put block {data_offset_zyx} in {put_timer.seconds:.3f} seconds ({megavoxels_per_second:.1f} Megavoxels/second)")
 
-        logger.info(f"Scale {scale}: Writing bricks to {dataname}...")
+        logger.info(f"Scale {scale}: Writing bricks to {instance_name}...")
         with Timer() as timer:
-            bricks.foreach(write_brick)
-        logger.info(f"Scale {scale}: Writing bricks to {dataname} took {timer.timedelta}")
+            brick_wall.bricks.foreach(write_brick)
+        logger.info(f"Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
 
     
-    def _write_body_sizes( self, bricks, output_config ):
+    def _write_body_sizes( self, brick_wall, output_config ):
         """
         Calculate the size (in voxels) of all label bodies in the volume,
         and write the results to an HDF5 file.
@@ -636,63 +441,14 @@ class CopySegmentation(Workflow):
               for the sake of performance comparisons between the two methods.
               The method used is determined by the ['body-sizes]['method'] option.
         """
-        import pandas as pd
         if not self.config_data["options"]["body-sizes"]["compute"]:
             logger.info("Skipping body size calculation.")
             return
 
-        if self.config_data["options"]["body-sizes"]["method"] == "reduce-by-key":
-            # Reduce using reduceByKey and simply concatenating the results
-            from operator import add
-            def transpose(labels_and_sizes):
-                labels, sizes = labels_and_sizes
-                return np.array( (labels, sizes) ).transpose()
-    
-            def reduce_to_array( pair_list_1, pair_list_2 ):
-                return np.concatenate( (pair_list_1, pair_list_2) )
-    
-            with Timer() as timer:
-                labels_and_sizes = ( bricks.map( lambda br: br.volume )
-                                           .map( nonconsecutive_bincount )
-                                           .flatMap( transpose )
-                                           .reduceByKey( add )
-                                           .map( lambda pair: [pair] )
-                                           .treeReduce( reduce_to_array, depth=4 ) )
-    
-                body_labels, body_sizes = np.transpose( labels_and_sizes )
-            logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
-        
-        else: # Reduce by merging pandas dataframes
-            
-            #@self.collect_log(lambda *_args: 'merge_label_counts')
-            def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
-                labels_A, counts_A = labels_and_counts_A
-                labels_B, counts_B = labels_and_counts_B
-                
-                # Fast path
-                if len(labels_A) == 0:
-                    return (labels_B, counts_B)
-                if len(labels_B) == 0:
-                    return (labels_A, counts_A)
-                
-                with Timer() as timer:
-                    series_A = pd.Series(index=labels_A, data=counts_A)
-                    series_B = pd.Series(index=labels_B, data=counts_B)
-                    combined = series_A.add(series_B, fill_value=0)
-                
-                #logger = logging.getLogger(__name__)
-                #logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
-                #            f" = {len(combined)} took {timer.seconds} seconds")
-    
-                return (combined.index, combined.values.astype(np.uint64))
-
-            logger.info("Computing body sizes...")
-            with Timer() as timer:
-                # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
-                body_labels, body_sizes = ( bricks.map( lambda br: br.volume )
-                                                  .map( nonconsecutive_bincount )
-                                                  .treeReduce( merge_label_counts, depth=4 ) )
-            logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
+        logger.info("Computing body sizes...")
+        with Timer() as timer:
+            body_labels, body_sizes = self._compute_body_sizes(brick_wall)
+        logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
 
         min_size = self.config_data["options"]["body-sizes"]["minimum-size"]
 
@@ -716,7 +472,7 @@ class CopySegmentation(Workflow):
             body_labels = body_labels[sort_indices]
         logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
-        suffix = output_config["source"]["segmentation-name"]
+        suffix = output_config["dvid"]["segmentation-name"]
         output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
         with Timer() as timer:
             logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
@@ -726,22 +482,61 @@ class CopySegmentation(Workflow):
                 f['total_nonzero_voxels'] = nonzero_count
         logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
 
+    def _compute_body_sizes(self, brick_wall):
+        if self.config_data["options"]["body-sizes"]["method"] == "reduce-by-key":
+            body_labels, body_sizes = self._compute_body_sizes_via_reduce_by_key(brick_wall)
+        else:
+            body_labels, body_sizes = self._compute_body_sizes_via_pandas_dataframes(brick_wall)
+        return body_labels, body_sizes
+        
+    def _compute_body_sizes_via_reduce_by_key(self, brick_wall):
+        # Reduce using reduceByKey and simply concatenating the results
+        from operator import add
+        def transpose(labels_and_sizes):
+            labels, sizes = labels_and_sizes
+            return np.array( (labels, sizes) ).transpose()
 
-def downsample_brick(brick):
-    # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
-    assert (brick.physical_box % 2 == 0).all()
-    assert (brick.logical_box % 2 == 0).all()
+        def reduce_to_array( pair_list_1, pair_list_2 ):
+            return np.concatenate( (pair_list_1, pair_list_2) )
 
-    # Old: Python downsampling
-    # downsample_3Dlabels(brick.volume)
+        labels_and_sizes = ( brick_wall.bricks.map( lambda br: br.volume )
+                                              .map( nonconsecutive_bincount )
+                                              .flatMap( transpose )
+                                              .reduceByKey( add )
+                                              .map( lambda pair: [pair] )
+                                              .treeReduce( reduce_to_array, depth=4 ) )
 
-    # Newer: Numba downsampling
-    #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
+        body_labels, body_sizes = np.transpose( labels_and_sizes )
+        return body_labels, body_sizes
+        
+    def _compute_body_sizes_via_pandas_dataframes(self, brick_wall):
+        import pandas as pd
 
-    # Even Newer: C++ downsampling (note: only works on aligned data.)
-    downsampled_volume = downsample_labels(brick.volume, 2, suppress_zero=True)
+        #@self.collect_log(lambda *_args: 'merge_label_counts')
+        def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
+            labels_A, counts_A = labels_and_counts_A
+            labels_B, counts_B = labels_and_counts_B
+            
+            # Fast path
+            if len(labels_A) == 0:
+                return (labels_B, counts_B)
+            if len(labels_B) == 0:
+                return (labels_A, counts_A)
+            
+            series_A = pd.Series(index=labels_A, data=counts_A)
+            series_B = pd.Series(index=labels_B, data=counts_B)
+            combined = series_A.add(series_B, fill_value=0)
+            
+            #logger = logging.getLogger(__name__)
+            #logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
+            #            f" = {len(combined)} took {timer.seconds} seconds")
 
-    downsampled_logical_box = brick.logical_box // 2
-    downsampled_physical_box = brick.physical_box // 2
-    
-    return Brick(downsampled_logical_box, downsampled_physical_box, downsampled_volume)
+            return (combined.index, combined.values.astype(np.uint64))
+
+        # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
+        body_labels, body_sizes = ( brick_wall.bricks.map( lambda br: br.volume )
+                                                     .map( nonconsecutive_bincount )
+                                                     .treeReduce( merge_label_counts, depth=4 ) )
+            
+        return body_labels, body_sizes
+            

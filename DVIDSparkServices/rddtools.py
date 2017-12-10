@@ -2,6 +2,8 @@ from collections import defaultdict
 from itertools import chain
 from functools import reduce
 
+from DVIDSparkServices.util import Timer
+
 try:
     from pyspark.rdd import RDD
     _RDD = RDD
@@ -67,3 +69,37 @@ def foreach(f, iterable):
     else:
         # Force execution
         reduce(lambda *_: None,  builtin_map(f, iterable))
+
+def persist_and_execute(rdd, description, logger=None):
+    """
+    Persist and execute the given RDD or iterable.
+    The persisted RDD is returned (in the case of an iterable, it may not be the original)
+    """
+    if logger:
+        logger.info(f"{description}...")
+
+    with Timer() as timer:
+        if isinstance(rdd, _RDD):
+            from pyspark import StorageLevel
+        
+            rdd.persist(StorageLevel.MEMORY_AND_DISK)
+            count = rdd.count() # force eval
+        else:
+            rdd = list(rdd) # force eval and 'persist' in a new list
+            count = len(rdd)
+    
+    if logger:
+        logger.info(f"{description} (N={count}) took {timer.timedelta}")
+    
+    return rdd
+
+def unpersist(rdd):
+    if isinstance(rdd, _RDD):
+        # PySpark freaks out if you try to unpersist an RDD
+        # that wasn't persisted in the first place
+        if rdd.is_cached:
+            rdd.unpersist()
+    else:
+        # Don't to anything for normal iterables
+        # Caller must delete this collection to free memory.
+        pass

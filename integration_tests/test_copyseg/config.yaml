@@ -12,7 +12,7 @@
       "geometry": {
         "bounding-box": [[100, 150, 200], [356, 406, 456]],
         "message-block-shape": [6400, 64, 64],
-        "block-width": 64
+        "block-width": -1
       }
     },
 

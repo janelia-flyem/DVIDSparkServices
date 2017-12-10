@@ -85,6 +85,9 @@ class DvidVolumeServiceReader(VolumeServiceReader):
     def __init__(self, volume_config, resource_manager_client=None):
         validate(volume_config, DvidGenericVolumeSchema)
         
+        assert 'apply-labelmap' not in volume_config["dvid"].keys(), \
+            "The apply-labelmap section should be parallel to 'dvid' and 'geometry', not nested within the 'dvid' section!"
+        
         if resource_manager_client is None:
             # Dummy client
             resource_manager_client = ResourceManagerClient("", 0)
@@ -125,8 +128,10 @@ class DvidVolumeServiceReader(VolumeServiceReader):
         assert config_block_width in (-1, self._block_width), \
             f"DVID volume block-width ({config_block_width}) from config does not match server metadata ({self._block_width})"
         
-        # Overwrite config values
+        # Overwrite config entries that we might have modified
         volume_config["geometry"]["block-width"] = self._block_width
+        volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
+        volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
 
     @property
     def dtype(self):
