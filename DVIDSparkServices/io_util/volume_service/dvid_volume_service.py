@@ -79,6 +79,17 @@ DvidGenericVolumeSchema = \
     }
 }
 
+DvidSegmentationVolumeSchema = \
+{
+    "description": "Schema for a segmentation dvid volume", # (for when a generic SegmentationVolumeSchema won't suffice)
+    "type": "object",
+    "default": {},
+    "properties": {
+        "dvid": DvidSegmentationServiceSchema,
+        "geometry": GeometrySchema
+    }
+}
+
 
 class DvidVolumeServiceReader(VolumeServiceReader):
 

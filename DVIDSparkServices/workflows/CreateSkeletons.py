@@ -1,5 +1,4 @@
 import os
-import csv
 import copy
 import json
 from datetime import datetime
@@ -14,7 +13,6 @@ from vol2mesh.mesh_from_array import mesh_from_array
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import Timer, persist_and_execute
-from DVIDSparkServices.io_util.brick import Grid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
@@ -24,15 +22,17 @@ from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
-from .common_schemas import SegmentationVolumeSchema
+from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidSegmentationVolumeSchema
 
 from multiprocessing import TimeoutError
+from DVIDSparkServices.io_util.brickwall import BrickWall
+from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 
 logger = logging.getLogger(__name__)
 
 class CreateSkeletons(Workflow):
-    SkeletonDvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
-    SkeletonDvidInfoSchema["properties"]["source"]["properties"].update(
+    SkeletonDvidInfoSchema = copy.deepcopy(DvidSegmentationVolumeSchema)
+    SkeletonDvidInfoSchema["properties"]["dvid"]["properties"].update(
     {
         "skeletons-destination": {
             "description": "Name of key-value instance to store the skeletons. "
@@ -158,42 +158,47 @@ class CreateSkeletons(Workflow):
         
         # create spark dvid context
         self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
-                self.config_data["dvid-info"]["source"]["server"],
-                self.config_data["dvid-info"]["source"]["uuid"], self)
+                self.config_data["dvid-info"]["dvid"]["server"],
+                self.config_data["dvid-info"]["dvid"]["uuid"], self)
 
     
     def _sanitize_config(self):
-        # Prepend 'http://' if necessary.
-        dvid_info = self.config_data['dvid-info']
-        if not dvid_info["source"]['server'].startswith('http'):
-            dvid_info["source"]['server'] = 'http://' + dvid_info["source"]['server']
-
         # Convert failed-mask-dir to absolute path
         failed_skeleton_dir = self.config_data['options']['failed-mask-dir']
         if failed_skeleton_dir and not os.path.isabs(failed_skeleton_dir):
             self.config_data['options']['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
+        dvid_info = self.config_data['dvid-info']
         # Provide default skeletons instance name if needed
-        if not dvid_info["source"]["skeletons-destination"]:
-            dvid_info["source"]["skeletons-destination"] = dvid_info["source"]["segmentation-name"] + '_skeletons'
+        if not dvid_info["dvid"]["skeletons-destination"]:
+            dvid_info["dvid"]["skeletons-destination"] = dvid_info["dvid"]["segmentation-name"] + '_skeletons'
 
         # Provide default meshes instance name if needed
-        if not dvid_info["source"]["meshes-destination"]:
-            dvid_info["source"]["meshes-destination"] = dvid_info["source"]["segmentation-name"]+ '_meshes'
+        if not dvid_info["dvid"]["meshes-destination"]:
+            dvid_info["dvid"]["meshes-destination"] = dvid_info["dvid"]["segmentation-name"]+ '_meshes'
 
     
     def execute(self):
         config = self.config_data
+        options = config["options"]
+        
+        resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
+        volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
+
         self._init_skeletons_instance()
 
-        bricks, _bounding_box_zyx, _input_grid = self._partition_input()
-        persist_and_execute(bricks, "Downloading segmentation", logger)
+        # Aim for 2 GB RDD partitions
+        GB = 2**30
+        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+
+        brick_wall = BrickWall.from_volume_service(volume_service, self.sc, target_partition_size_voxels)
+        brick_wall.persist_and_execute("Downloading segmentation", logger)
         
         # brick -> (body_id, (box, mask, count))
-        body_ids_and_masks = bricks.flatMap( partial(body_masks, config) )
+        body_ids_and_masks = brick_wall.bricks.flatMap( partial(body_masks, config) )
         persist_and_execute(body_ids_and_masks, "Computing brick-local masks", logger)
-        bricks.unpersist()
-        del bricks
+        brick_wall.unpersist()
+        del brick_wall
 
         # In the case of catastrophic merges, some bodies may be too big to handle.
         # Skeletonizing them would probably time out anyway.
@@ -335,53 +340,19 @@ class CreateSkeletons(Workflow):
     def _init_skeletons_instance(self):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
-        if is_node_locked(dvid_info["source"]["server"], dvid_info["source"]["uuid"]):
-            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['source']['server']} / {dvid_info['source']['uuid']}) is locked.")
+        if is_node_locked(dvid_info["dvid"]["server"], dvid_info["dvid"]["uuid"]):
+            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['dvid']['server']} / {dvid_info['dvid']['uuid']}) is locked.")
 
-        node_service = retrieve_node_service( dvid_info["source"]["server"],
-                                              dvid_info["source"]["uuid"],
+        node_service = retrieve_node_service( dvid_info["dvid"]["server"],
+                                              dvid_info["dvid"]["uuid"],
                                               options["resource-server"],
                                               options["resource-port"] )
 
         if "neutube-skeleton" in options["output-types"]:
-            node_service.create_keyvalue(dvid_info["source"]["skeletons-destination"])
+            node_service.create_keyvalue(dvid_info["dvid"]["skeletons-destination"])
 
         if "mesh" in options["output-types"]:
-            node_service.create_keyvalue(dvid_info["source"]["meshes-destination"])
-
-
-    def _partition_input(self):
-        """
-        Map the input segmentation
-        volume from DVID into an RDD of Bricks,
-        using the config's bounding-box setting for the full volume region,
-        using the 'message-block-shape' as the partition size.
-
-        Returns: (RDD, bounding_box_zyx, partition_shape_zyx)
-            where:
-                - RDD is (volumePartition, data)
-                - bounding box is tuple (start_zyx, stop_zyx)
-                - partition_shape_zyx is a tuple
-            
-        """
-        dvid_info = self.config_data["dvid-info"]
-        assert dvid_info["source"]["service-type"] == "dvid", \
-            "Only DVID sources are supported right now."
-
-        # repartition to be z=blksize, y=blksize, x=runlength
-        brick_shape_zyx = dvid_info["geometry"]["message-block-shape"][::-1]
-        input_grid = Grid(brick_shape_zyx, (0,0,0))
-
-        bounding_box_xyz = np.array(dvid_info["geometry"]["bounding-box"])
-        bounding_box_zyx = bounding_box_xyz[:,::-1]
-
-        # Aim for 2 GB RDD partitions
-        target_partition_size_voxels = (2 * 2**30 // np.uint64().nbytes)
-        bricks = self.sparkdvid_context.parallelize_bounding_box( dvid_info["source"]['segmentation-name'],
-                                                                  bounding_box_zyx,
-                                                                  input_grid,
-                                                                  target_partition_size_voxels )
-        return bricks, bounding_box_zyx, input_grid
+            node_service.create_keyvalue(dvid_info["dvid"]["meshes-destination"])
 
 
 def body_masks(config, brick):
@@ -582,9 +553,9 @@ def post_swc_to_dvid(config, body_swc_err):
 
     swc_contents = swc_contents.encode('utf-8')
 
-    dvid_server = config["dvid-info"]["source"]["server"]
-    uuid = config["dvid-info"]["source"]["uuid"]
-    instance = config["dvid-info"]["source"]["skeletons-destination"]
+    dvid_server = config["dvid-info"]["dvid"]["server"]
+    uuid = config["dvid-info"]["dvid"]["uuid"]
+    instance = config["dvid-info"]["dvid"]["skeletons-destination"]
 
     if not config["options"]["resource-server"]:
         # No throttling.
@@ -653,9 +624,9 @@ def post_mesh_to_dvid(config, body_obj_err):
     if mesh_obj is None or err is not None:
         return
 
-    dvid_server = config["dvid-info"]["source"]["server"]
-    uuid = config["dvid-info"]["source"]["uuid"]
-    instance = config["dvid-info"]["source"]["meshes-destination"]
+    dvid_server = config["dvid-info"]["dvid"]["server"]
+    uuid = config["dvid-info"]["dvid"]["uuid"]
+    instance = config["dvid-info"]["dvid"]["meshes-destination"]
     info = {"format": config["mesh-config"]["format"]}
 
     def post_mesh():
