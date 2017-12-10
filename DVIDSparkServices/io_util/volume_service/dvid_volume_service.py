@@ -4,6 +4,8 @@ from jsonschema import validate
 
 from dvid_resource_manager.client import ResourceManagerClient
 
+from libdvid import DVIDException
+
 from DVIDSparkServices.util import replace_default_entries
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
@@ -126,19 +128,35 @@ class DvidVolumeServiceReader(VolumeServiceReader):
             
         self._dtype_nbytes = np.dtype(self._dtype).type().nbytes
 
-        data_instance = DataInstance(self._server, self._uuid, self._instance_name)
-        self._instance_type = data_instance.datatype
-        self._is_labels = data_instance.is_labels()
-
-        block_shape = get_blocksize(self._server, self._uuid, self._instance_name)
-        self._block_width = block_shape[0]
-        assert block_shape[0] == block_shape[1] == block_shape[2], \
-            "Expected blocks to be cubes."
+        try:
+            data_instance = DataInstance(self._server, self._uuid, self._instance_name)
+            self._instance_type = data_instance.datatype
+            self._is_labels = data_instance.is_labels()
+        except ValueError:
+            # Instance doesn't exist yet
+            if "segmentation-name" in volume_config["dvid"]:
+                self._instance_type = 'labelarray'
+                self._is_labels = True
+            else:
+                self._instance_type = 'uint8blk'
+                self._is_labels = False
 
         config_block_width = volume_config["geometry"]["block-width"]
-        assert config_block_width in (-1, self._block_width), \
-            f"DVID volume block-width ({config_block_width}) from config does not match server metadata ({self._block_width})"
+
+        try:
+            block_shape = get_blocksize(self._server, self._uuid, self._instance_name)
+            assert block_shape[0] == block_shape[1] == block_shape[2], \
+                "Expected blocks to be cubes."
+            block_width = block_shape[0]
+        except DVIDException:
+            block_width = config_block_width
+
+        assert config_block_width in (-1, block_width), \
+            f"DVID volume block-width ({config_block_width}) from config does not match server metadata ({block_width})"
         
+        # Store members
+        self._block_width = block_width
+
         # Overwrite config entries that we might have modified
         volume_config["geometry"]["block-width"] = self._block_width
         volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
