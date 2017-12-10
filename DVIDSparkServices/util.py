@@ -277,6 +277,17 @@ def boxlist_to_json( bounds_list, indent=0 ):
 
     return str(buf.getvalue())
 
+def replace_default_entries(array, default_array, marker=-1):
+    """
+    Overwrite all entries in array that match the given
+    marker with the corresponding entry in default_array.
+    """
+    default_array = np.asarray(default_array)
+    assert isinstance(array, np.ndarray)
+    assert array.shape == default_array.shape
+    array[:] = np.where(array == marker, default_array, array)
+    
+
 def mkdir_p(path):
     """
     Like the bash command: mkdir -p

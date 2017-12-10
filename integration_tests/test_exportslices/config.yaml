@@ -1,0 +1,25 @@
+input:
+  dvid:
+    server: '127.0.0.1:8000'
+    uuid: 'UUID1'
+    grayscale-name: 'grayscale'
+  geometry:
+    bounding-box: [[0,0,0], [256,256,256]]
+
+output:
+  slice-files:
+    slice-path-format: './slices/z{:05}.png'
+
+options:
+  slices-per-slab: -1
+
+  resource-server: ''
+  resource-port: 0
+  resource-server-config: {}
+
+  log-collector-port: 0
+  log-collector-directory: ''
+
+  spark-config:
+    spark.task.cpus: 1
+    spark.task.maxFailures: 1

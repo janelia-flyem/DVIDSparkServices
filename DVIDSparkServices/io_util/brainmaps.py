@@ -366,13 +366,15 @@ class BrainMapsVolume:
         """
         Load and return the equivalence_mapping from the given csv_path of equivalence edges.
         
-        The CSV files should have no header row and just two columns.
         Each row represents an edge. For example:
         
             123,456
             123,789
             789,234
-
+            
+        The CSV file may optionally contain a header row.
+        Also, it may contain more than two columns, but only the first two columns are used.
+        
         Args:
             csv_path:
                 Path to a csv file whose first two columns are edge pairs
@@ -387,6 +389,28 @@ class BrainMapsVolume:
               It has been transformed from equivalence edges to node mappings,
               via a connected components step.
         """
+        edges = BrainMapsVolume.load_edge_csv(csv_path)
+        groups = BrainMapsVolume.groups_from_edges(edges)
+        mapping = BrainMapsVolume.mapping_from_groups(groups)
+        return mapping
+
+    @classmethod
+    def load_edge_csv(cls, csv_path):
+        """
+        Load and return the given edge list CSV file as a numpy array.
+        
+        Each row represents an edge. For example:
+        
+            123,456
+            123,789
+            789,234
+        
+        The CSV file may optionally contain a header row.
+        Also, it may contain more than two columns, but only the first two columns are used.
+        
+        Returns:
+            ndarray with shape (N,2)
+        """
         with open(csv_path, 'r') as csv_file:
             # Is there a header?
             has_header = csv.Sniffer().has_header(csv_file.read(1024))
@@ -400,13 +424,13 @@ class BrainMapsVolume:
             all_items = chain.from_iterable( (row[0], row[1]) for row in rows )
             edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
 
-        groups = BrainMapsVolume.groups_from_edges(edges)
-        mapping_pairs = BrainMapsVolume.mapping_from_groups(groups)
-        
-        if output_csv_path:
-            with open(output_csv_path, 'w') as f:
+        return edges
+
+    @classmethod
+    def equivalence_mapping_to_csv(cls, mapping_pairs, output_path):
+        if not os.path.exists(output_path):
+            with open(output_path, 'w') as f:
                 csv.writer(f).writerows(mapping_pairs)
-        return mapping_pairs
 
     @classmethod
     def mapping_from_groups(cls, groups):
@@ -462,7 +486,6 @@ class BrainMapsVolume:
         edges_flat = np.fromiter(chain(firsts, seconds), np.uint64, 2*num_edges)
         edges = edges_flat.reshape((2,-1)).transpose()
         return edges
-
 
 def fetch_json(http, url, body=None):
     """

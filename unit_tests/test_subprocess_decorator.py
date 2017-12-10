@@ -1,4 +1,5 @@
 import sys
+import time
 import ctypes
 import unittest
 from collections import defaultdict
@@ -26,6 +27,10 @@ def c_sleep():
     C.sleep(3)
 
 def generate_segfault():
+    print("Segfaulting soon..." )
+    time.sleep(0.5)
+    print("Segfaulting NOW", end="" ) # Make sure unconsumed stream data doesn't cause problems for the logger.
+
     ctypes.string_at(0) # BOOM!
 
 class MessageCollector(logging.StreamHandler):
@@ -48,7 +53,7 @@ class TestSubprocessDecorator(unittest.TestCase):
       
         try:        
             result = execute_in_subprocess(1.0, logger)(_test_helper)(1,2,0)
-            assert result == 1+2+0, "Wrong result: {}".format(result)
+            assert result == 1+2+0, f"Wrong result: {result}"
             assert handler.collected_messages['INFO'] == ['1', '0']
             assert handler.collected_messages['ERROR'] == ['2']
 

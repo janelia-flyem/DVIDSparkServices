@@ -1,24 +1,36 @@
-from collections import namedtuple, defaultdict
-from itertools import chain, starmap
+import os
+import csv
+import logging
+import subprocess
+from itertools import starmap, chain
 from functools import partial
 
 import numpy as np
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
+from DVIDSparkServices import rddtools as rt
+from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
+from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
 
-# See adaptor functions _map(), _flat_map(), etc. (below)
-try:
-    from pyspark.rdd import RDD
-    _RDD = RDD
-except ImportError:
-    import warnings
-    warnings.warn("PySpark is not available.")
-    class _RDD: pass
+logger = logging.getLogger(__name__)
 
-# Grid:
-# Describes a blocking scheme, which is simply a grid block shape,
-# and an offset coordinate for the first block in the grid.
-Grid = namedtuple("Grid", "block_shape offset")
+class Grid:
+    """
+    Describes a blocking scheme, which is simply a grid block shape,
+    and an offset coordinate for the first block in the grid.
+    """
+    def __init__(self, block_shape, offset=(0,0,0)):
+        assert len(block_shape) == len(offset) == 3
+        self.block_shape = np.asarray(block_shape)
+        self.offset = np.asarray(offset)
+        self.modulus_offset = self.offset % block_shape
 
+    def equivalent_to(self, other_grid):
+        """
+        Returns True if the other grid is equivalent to this one, meaning 
+        it has the same block shame and it's offset is the same after modulus.
+        """
+        return (self.block_shape == other_grid.block_shape).all() and \
+               (self.modulus_offset == other_grid.modulus_offset).all()
 
 class Brick:
     """
@@ -84,12 +96,22 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
     # Use map_partitions instead of map(), to be explicit about
     # the fact that the function is re-used within each partition.
     def make_bricks( logical_and_physical_boxes ):
+        logical_and_physical_boxes = list(logical_and_physical_boxes)
+        if not logical_and_physical_boxes:
+            return []
         logical_boxes, physical_boxes = zip( *logical_and_physical_boxes )
         volumes = map( volume_accessor_func, physical_boxes )
         return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
     
-    return _map_partitions( make_bricks, logical_and_physical_boxes )
+    bricks = rt.map_partitions( make_bricks, logical_and_physical_boxes )
 
+    if sc:
+        # If we're working with a tiny volume (e.g. testing),
+        # make sure we at least parallelize across all cores.
+        if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
+            bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+
+    return bricks
 
 def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick ):
     """
@@ -99,6 +121,16 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
     Note: padding_grid need not be identical to the grid the Brick was created with,
           but it must divide evenly into that grid. 
 
+    For instance, if padding_grid happens to be the same as the brick's own native grid,
+    then the phyiscal_box is expanded to align perfectly with the logical_box on all sides: 
+    
+        +-------------+      +-------------+
+        | physical |  |      |     same    |
+        |__________|  |      |   physical  |
+        |             |  --> |     and     |
+        |   logical   |      |   logical   |
+        |_____________|      |_____________|
+    
     Args:
         brick: Brick
         padding_grid: Grid
@@ -163,6 +195,95 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
     return Brick( brick.logical_box, padded_box, padded_volume )
 
 
+def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_original=False):
+    """
+    Relabel the bricks with a labelmap.
+    If the given config specifies not labelmap, then the original is returned.
+
+    bricks: RDD of Bricks
+    
+    labelmap_config: config dict, adheres to LabelMapSchema
+    
+    working_dir: If labelmap is from a gbucket, it will be downlaoded to working_dir.
+    
+    unpersist_original: If True, unpersist (or replace) the input.
+                     Otherwise, the caller is free to unpersist the returned
+                     bricks without affecting the input.
+    
+    Returns:
+        remapped_bricks - Already computed and persisted.
+    """
+    path = labelmap_config["file"]
+    if not path:
+        if not unpersist_original:
+            # The caller wants to be sure that the result can be
+            # unpersisted safely without affecting the bricks he passed in,
+            # so we return a *new* RDD, even though it's just a copy of the original.
+            return bricks.map(lambda brick: brick, bricks)
+        return bricks
+
+    # path is [gs://]/path/to/file.csv[.gz]
+
+    # If the file is in a gbucket, download it first (if necessary)
+    if path.startswith('gs://'):
+        filename = path.split('/')[-1]
+        downloaded_path = working_dir + '/' + filename
+        if not os.path.exists(downloaded_path):
+            cmd = f'gsutil -q cp {path} {downloaded_path}'
+            logger.info(cmd)
+            subprocess.check_call(cmd, shell=True)
+        path = downloaded_path
+
+    # Now path is /path/to/file.csv[.gz]
+    
+    if not os.path.exists(path) and os.path.exists(path + '.gz'):
+        path = path + '.gz'
+
+    # If the file is compressed, decompress it
+    if os.path.splitext(path)[1] == '.gz':
+        uncompressed_path = path[:-3] # drop '.gz'
+        if not os.path.exists(uncompressed_path):
+            subprocess.check_call(f"gunzip {path}", shell=True)
+            assert os.path.exists(uncompressed_path), \
+                "Tried to uncompress the labelmap CSV file... where did it go?"
+        path = uncompressed_path # drop '.gz'
+
+    # Now path is /path/to/file.csv
+
+    # Mapping is only loaded into numpy once, on the driver
+    if labelmap_config["file-type"] == "label-to-body":
+        with open(path, 'r') as csv_file:
+            rows = csv.reader(csv_file)
+            all_items = chain.from_iterable(rows)
+            mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
+    elif labelmap_config["file-type"] == "equivalence-edges":
+        mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
+
+        # Export mapping to disk in case anyone wants to view it later
+        output_dir, basename = os.path.split(path)
+        mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
+        if not os.path.exists(mapping_csv_path):
+            with open(mapping_csv_path, 'w') as f:
+                csv.writer(f).writerows(mapping_pairs)
+
+    from dvidutils import LabelMapper
+    def remap_bricks(partition_bricks):
+        domain, codomain = mapping_pairs.transpose()
+        mapper = LabelMapper(domain, codomain)
+        
+        partition_bricks = list(partition_bricks)
+        for brick in partition_bricks:
+            mapper.apply_inplace(brick.volume, allow_unmapped=True)
+        return partition_bricks
+    
+    # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
+    remapped_bricks = bricks.mapPartitions(remap_bricks)
+    persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
+    if unpersist_original:
+        unpersist(bricks)
+    return remapped_bricks
+
+
 def realign_bricks_to_new_grid(new_grid, original_bricks):
     """
     Given a list/RDD of Bricks which are tiled over some original grid,
@@ -177,13 +298,13 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
     """
     # For each original brick, split it up according
     # to the new logical box destinations it will map to.
-    new_logical_boxes_and_brick_fragments = _flat_map( partial(split_brick, new_grid), original_bricks )
+    new_logical_boxes_and_brick_fragments = rt.flat_map( partial(split_brick, new_grid), original_bricks )
 
     # Group fragments according to their new homes
-    grouped_brick_fragments = _group_by_key( new_logical_boxes_and_brick_fragments )
+    grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
-    new_logical_boxes_and_bricks = _map_values(assemble_brick_fragments, grouped_brick_fragments)
+    new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)
     
     return new_logical_boxes_and_bricks
 
@@ -326,49 +447,6 @@ def clipped_boxes_from_grid(bounding_box, grid):
     Returned boxes that would intersect the edge of the bounding_box are clipped so as not
     to extend beyond the bounding_box.
     """
-    for box in boxes_from_grid(bounding_box, grid.block_shape, grid.offset):
+    for box in boxes_from_grid(bounding_box, grid):
         yield box_intersection(box, bounding_box)
 
-
-#
-# Functions for working with either PySpark RDDs or ordinary Python iterables.
-#
-def _map(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.map(f)
-    else:
-        return map(f, iterable)
-
-def _flat_map(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.flatMap(f)
-    else:
-        return chain(*map(f, iterable))
-
-def _map_partitions(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.mapPartitions(f, preservesPartitioning=True)
-    else:
-        # In the pure-python case, there's only one 'partition'.
-        return f(iterable)
-
-def _map_values(f, iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.mapValues(f)
-    else:
-        return ( (k,f(v)) for (k,v) in iterable )
-
-def _values(iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.values()
-    else:
-        return ( v for (k,v) in iterable )
-
-def _group_by_key(iterable):
-    if isinstance(iterable, _RDD):
-        return iterable.groupByKey()
-    else:
-        partitions = defaultdict(lambda: [])
-        for k,v in iterable:
-            partitions[k].append(v)
-        return partitions.items()

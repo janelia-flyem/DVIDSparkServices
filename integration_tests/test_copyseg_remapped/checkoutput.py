@@ -14,18 +14,18 @@ assert len(configs) == 1, "Why does the temp_dir have more than one config.* fil
 with open(configs[0], 'r') as f:
     config = yaml.load(f)
 
-input_service = DVIDNodeService(str(config['input']['server']), str(config['input']['uuid']))
-input_name = config['input']['segmentation-name']
-input_bb_xyz = config['input']['bounding-box']
+input_service = DVIDNodeService(str(config['input']['dvid']['server']), str(config['input']['dvid']['uuid']))
+input_name = config['input']['dvid']['segmentation-name']
+input_bb_xyz = config['input']['geometry']['bounding-box']
 input_bb_zyx = np.array(input_bb_xyz)[:,::-1]
 input_shape = input_bb_zyx[1] - input_bb_zyx[0]
 
 input_volume = input_service.get_labels3D(input_name, input_shape, input_bb_zyx[0])
 
 def get_output_vol(index):
-    output_service = DVIDNodeService(str(config['outputs'][index]['server']), str(config['outputs'][index]['uuid']))
-    output_name = config['outputs'][index]['segmentation-name']
-    output_bb_xyz = config['outputs'][index]['bounding-box']
+    output_service = DVIDNodeService(str(config['outputs'][index]['dvid']['server']), str(config['outputs'][index]['dvid']['uuid']))
+    output_name = config['outputs'][index]['dvid']['segmentation-name']
+    output_bb_xyz = config['outputs'][index]['geometry']['bounding-box']
     output_bb_zyx = np.array(output_bb_xyz)[:,::-1]
     output_shape = output_bb_zyx[1] - output_bb_zyx[0]
     
@@ -36,6 +36,8 @@ output_vols = list(map(get_output_vol, range(3)))
 
 # The mappings in this test amount to adding 100+200 (input_mapping + output_mapping) to every value
 if not (input_volume + 300 == output_vols[0]).all():
+    np.save(dirpath + '/temp_data/output_zero_expected.npy', input_volume + 300)
+    np.save(dirpath + '/temp_data/output_zero.npy', output_vols[0])
     print("DEBUG: FAIL: output volume 0 does not correspond to remapped input volume!")
     sys.exit(1)
 

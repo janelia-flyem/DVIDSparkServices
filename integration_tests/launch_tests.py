@@ -109,6 +109,33 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     print("Finished test: ", test_name, " in ", finish-start, " seconds")
     return correct
 
+def init_test_files(test_dir):
+    # Create N5 grayscale test data
+    z5_vol_path = test_dir + '/resources/volume-256.n5'
+    if not os.path.exists(z5_vol_path):
+        print(f"Writing N5 test data: {z5_vol_path}")
+        with open(test_dir + '/resources/grayscale-256-256-256-uint8.bin', 'rb') as raw_f:
+            grayscale = np.frombuffer(raw_f.read(), dtype=np.uint8).reshape((256,256,256))
+        
+        import z5py
+        f = z5py.File(z5_vol_path, use_zarr_format=False)
+        ds = f.create_dataset('grayscale', dtype='uint8', shape=(256,256,256), chunks=(64,64,64), compressor='raw')
+        ds[:] = grayscale
+        assert (ds[:] == grayscale).all(), "z5py appears broken..."
+
+    # Create PNG stack grayscale test data
+    slice_files_dir = test_dir + '/resources/volume-256-pngs'
+    if not os.path.exists(slice_files_dir):
+        print(f"Writing slice-file test data: {slice_files_dir}")
+        os.makedirs(slice_files_dir, exist_ok=True)
+        with open(test_dir + '/resources/grayscale-256-256-256-uint8.bin', 'rb') as raw_f:
+            grayscale = np.frombuffer(raw_f.read(), dtype=np.uint8).reshape((256,256,256))
+
+        grayscale = vigra.taggedView(grayscale, 'zyx')
+        for z, z_slice in enumerate(grayscale):
+            vigra.impex.writeImage(z_slice, f"{slice_files_dir}/{z:05d}.png")
+        
+
 def init_dvid_database(test_dir, reuse_last=False):
     uuid_file = test_dir + '/uuid-cache.txt'
     if reuse_last:
@@ -287,6 +314,8 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     #####  run tests ####
 
     tests = OrderedDict()
+    tests["test_exportslices"] = "ExportSlices"
+    tests["test_exportslices_from_n5"] = "ExportSlices"
     tests["test_copyseg"] = "CopySegmentation"
     tests["test_copyseg_brainmaps"] = "CopySegmentation"
     tests["test_copyseg_remapped"] = "CopySegmentation"
@@ -351,5 +380,6 @@ if __name__ == "__main__":
 
     # It is assumed that this script lives in the integration_tests directory
     test_dir = os.path.split(__file__)[0]
+    init_test_files(test_dir)
     uuid1, uuid2 = init_dvid_database(test_dir, args.reuse_uuids)
     run_tests(test_dir, uuid1, uuid2, args.selected_tests, args.stop_after_fail)

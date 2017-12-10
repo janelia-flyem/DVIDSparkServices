@@ -27,6 +27,8 @@ def pseudo_json_to_data(pseudo_json):
     pseudo_json = pseudo_json.replace('%22', "'")
     pseudo_json = pseudo_json.replace('%7B', '{')
     pseudo_json = pseudo_json.replace('%7D', '}')
+    pseudo_json = pseudo_json.replace('%5B', '[')
+    pseudo_json = pseudo_json.replace('%5D', ']')
 
     # Make the text valid json by replacing single-quotes
     # with double-quotes and underscores with commas.    
@@ -35,9 +37,13 @@ def pseudo_json_to_data(pseudo_json):
     
     # But underscores within strings should not have been replaced,
     # so change those ones back as we load the json data.
-    data = json.loads(pseudo_json, object_hook=replace_commas)
-    
-    return data
+    try:
+        data = json.loads(pseudo_json, object_hook=replace_commas)
+    except:
+        sys.stderr.write(f"Couldn't parse JSON:\n{pseudo_json}")
+        raise
+    else:
+        return data
 
 def main():
     link = sys.stdin.read()
