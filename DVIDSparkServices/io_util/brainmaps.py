@@ -392,6 +392,10 @@ class BrainMapsVolume:
         edges = BrainMapsVolume.load_edge_csv(csv_path)
         groups = BrainMapsVolume.groups_from_edges(edges)
         mapping = BrainMapsVolume.mapping_from_groups(groups)
+        
+        if output_csv_path:
+            BrainMapsVolume.equivalence_mapping_to_csv(mapping, output_csv_path)
+            
         return mapping
 
     @classmethod
