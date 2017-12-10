@@ -83,8 +83,8 @@
             "minimum-size": 10
         },
         
-        "resource-server": "",
-        "resource-port": 0,
+        "resource-server": "driver",
+        "resource-port": 4000,
 
         "resource-server-config": {
             "read_reqs": 128,

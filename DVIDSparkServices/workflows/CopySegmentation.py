@@ -17,7 +17,8 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount,\
+    replace_default_entries
 
 from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
 from DVIDSparkServices.io_util.volume_service import VolumeService, SegmentationVolumeSchema, SegmentationVolumeListSchema
@@ -110,6 +111,10 @@ class CopySegmentation(Workflow):
         """
         input_config = self.config_data["input"]
         output_configs = self.config_data["outputs"]
+
+        # Verify that the input config can be loaded,
+        # and overwrite 'auto' values with real parameters.
+        VolumeService.create_from_config(input_config, self.config_dir)
         
         for volume_config in [input_config] + output_configs:
             # Convert labelmap (if any) to absolute path (relative to config file)
@@ -124,11 +129,15 @@ class CopySegmentation(Workflow):
         ## Check input/output dimensions and grid schemes.
         ##
         input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
+        logger.info(f"Input bounding box (xyz) is: {input_config['geometry']['bounding-box']}")
 
         first_output_geometry = output_configs[0]["geometry"]
         output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
         output_brick_shape = np.array(first_output_geometry["message-block-shape"])
         output_block_width = np.array(first_output_geometry["block-width"])
+
+        # Replace 'auto' dimensions with input bounding box
+        replace_default_entries(output_bb_zyx, input_bb_zyx)
 
         assert not any(np.array(output_brick_shape) % first_output_geometry["block-width"]), \
             "Output message-block-shape should be a multiple of the block size in all dimensions."
@@ -139,13 +148,18 @@ class CopySegmentation(Workflow):
         #       to simplify the execute() function.
         #       (We avoid re-translating and re-downsampling the input data for every new output.)
         #       The only way in which the outputs may differ is their label mapping data.
-        for output_config in output_configs:
+        for i, output_config in enumerate(output_configs):
             output_geometry = output_config["geometry"]
-            bb = np.array(output_geometry["bounding-box"])[:,::-1]
+
+            bb_zyx = np.array(output_geometry["bounding-box"])[:,::-1]
             bs = output_geometry["message-block-shape"]
             bw = output_geometry["block-width"]
-            
-            assert (output_bb_zyx == bb).all(), \
+
+            # Replace 'auto' dimensions with input bounding box
+            replace_default_entries(bb_zyx, input_bb_zyx)
+            output_geometry["bounding-box"] = bb_zyx[:,::-1].tolist()
+
+            assert (output_bb_zyx == bb_zyx).all(), \
                 "For now, all output destinations must use the same bounding box and grid scheme"
             assert (output_brick_shape == bs).all(), \
                 "For now, all output destinations must use the same bounding box and grid scheme"
@@ -155,6 +169,7 @@ class CopySegmentation(Workflow):
             # Create a throw-away writer service, to verify that all
             # output configs are well-formed before we start the workflow.
             VolumeService.create_from_config(output_config, self.config_dir)
+            logger.info(f"Output {i} bounding box (xyz) is: {output_geometry['bounding-box']}")
 
 
     def execute(self):

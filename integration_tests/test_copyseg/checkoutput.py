@@ -20,17 +20,19 @@ input_shape = input_bb_zyx[1] - input_bb_zyx[0]
 
 input_volume = input_service.get_labels3D(input_name, input_shape, input_bb_zyx[0])
 
-output_service = DVIDNodeService(str(config['outputs'][0]['dvid']['server']), str(config['outputs'][0]['dvid']['uuid']))
-output_name = config['outputs'][0]['dvid']['segmentation-name']
-output_bb_xyz = config['outputs'][0]['geometry']['bounding-box']
-output_bb_zyx = np.array(output_bb_xyz)[:,::-1]
-output_shape = output_bb_zyx[1] - output_bb_zyx[0]
+for index in range(len(config['outputs'])):
+    output_service = DVIDNodeService( str(config['outputs'][index]['dvid']['server']),
+                                      str(config['outputs'][index]['dvid']['uuid']))
+    output_name = config['outputs'][index]['dvid']['segmentation-name']
+    output_bb_xyz = config['outputs'][index]['geometry']['bounding-box']
+    output_bb_zyx = np.array(output_bb_xyz)[:,::-1]
+    output_shape = output_bb_zyx[1] - output_bb_zyx[0]
+    
+    output_volume = output_service.get_labels3D(output_name, output_shape, output_bb_zyx[0])
+    
+    if not (input_volume == output_volume).all():
+        print(f"DEBUG: FAIL: output volume {index} does not correspond to input volume!")
+        sys.exit(1)
 
-output_volume = output_service.get_labels3D(output_name, output_shape, output_bb_zyx[0])
-
-if not (input_volume == output_volume).all():
-    print("DEBUG: FAIL: output volume does not correspond to input volume!")
-    sys.exit(1)
-else:
-    print("DEBUG: CopySegmentation test passed.")
-    sys.exit(0)
+print("DEBUG: CopySegmentation test passed.")
+sys.exit(0)
