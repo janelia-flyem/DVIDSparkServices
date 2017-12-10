@@ -301,10 +301,6 @@ class Ingest3DVolume(Workflow):
         Calls default init and sets option variables
         """
         super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
-        
-        # Note: We call _sanitize_config is not called here, because
-        #       logging isn't fully initialized yet. 
-        #       It's called in execute()
 
     def _sanitize_config(self):
         """

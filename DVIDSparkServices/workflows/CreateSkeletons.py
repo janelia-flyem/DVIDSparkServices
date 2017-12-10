@@ -167,14 +167,7 @@ class CreateSkeletons(Workflow):
 
     def __init__(self, config_filename):
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
-        self._sanitize_config()
         
-        # create spark dvid context
-        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
-                self.config_data["dvid-info"]["dvid"]["server"],
-                self.config_data["dvid-info"]["dvid"]["uuid"], self)
-
-    
     def _sanitize_config(self):
         # Convert failed-mask-dir to absolute path
         failed_skeleton_dir = self.config_data['options']['failed-mask-dir']
@@ -192,6 +185,8 @@ class CreateSkeletons(Workflow):
 
     
     def execute(self):
+        self._sanitize_config()
+
         config = self.config_data
         options = config["options"]
         

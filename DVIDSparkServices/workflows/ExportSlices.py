@@ -70,7 +70,6 @@ class ExportSlices(Workflow):
 
     def __init__(self, config_filename):
         super().__init__( config_filename, ExportSlices.dumpschema(), "Export Slices" )
-        self._sanitize_config()
 
     def _sanitize_config(self):
         """
@@ -103,6 +102,8 @@ class ExportSlices(Workflow):
 
 
     def execute(self):
+        self._sanitize_config()
+
         input_config = self.config_data["input"]
         output_config = self.config_data["output"]
         options = self.config_data["options"]

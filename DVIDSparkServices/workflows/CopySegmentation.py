@@ -102,8 +102,6 @@ class CopySegmentation(Workflow):
         super(CopySegmentation, self).__init__( config_filename,
                                                 CopySegmentation.dumpschema(),
                                                 "Copy Segmentation" )
-        self._sanitize_config()
-
 
     def _sanitize_config(self):
         """
@@ -173,6 +171,8 @@ class CopySegmentation(Workflow):
 
 
     def execute(self):
+        self._sanitize_config()
+
         options = self.config_data["options"]
         input_config = self.config_data["input"]
         output_configs = self.config_data["outputs"]
