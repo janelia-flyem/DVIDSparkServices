@@ -320,7 +320,7 @@ class CreateSkeletons(Workflow):
 
         # Write
         with Timer() as timer:
-            body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, config) )
+            body_ids_and_skeletons.foreachPartition( partial(post_swcs_to_dvid, config) )
         logger.info(f"Writing skeletons to DVID took {timer.seconds}")
 
 
@@ -339,9 +339,8 @@ class CreateSkeletons(Workflow):
         for error in errors:
             logger.error(error)
 
-        # Write
         with Timer() as timer:
-            body_ids_and_meshes.foreach( partial(post_mesh_to_dvid, config) )
+            body_ids_and_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
         logger.info(f"Writing meshes to DVID took {timer.seconds}")
 
 
@@ -545,41 +544,36 @@ def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
     return (body_id, swc_contents) # No error
 
 
-def post_swc_to_dvid(config, body_swc_err):
+def post_swcs_to_dvid(config, items):
     """
-    Send the given SWC as a key/value pair to DVID.
+    Send the given SWC files as key/value pairs to DVID.
     
     Args:
-        body_swc_err: tuple (body_id, swc_text, error_text)
-                      If swc_text is None or error_text is NOT None, then nothing is posted.
-                      (We could have filtered out such items upstream, but it's convenient to just handle it here.)
+        config: The CreateSkeletons workflow config data
     
-    TODO: There is a tiny bit of extra overhead here due to the fact
-          that we are creating a new requests.Session() and ResourceManagerClient
-          for every SWC we write.
-          If we want, we could refactor this to be used with mapPartitions(),
-          which would allow those objects to be initialized only once per partition,
-          and then shared for all SWCs in the partition.
+        items: list-of-tuples (body_id, swc_text, error_text)
+               If swc_text is None or error_text is NOT None, then nothing is posted.
+               (We could have filtered out such items upstream, but it's convenient to just handle it here.)
     """
-    body_id, swc_contents, err = body_swc_err
-    if swc_contents is None or err is not None:
-        return
+    # Re-use session for connection pooling.
+    session = requests.Session()
 
-    swc_contents = swc_contents.encode('utf-8')
+    # Re-use resource manager client connections, too.
+    # (If resource-server is empty, this will return a "dummy client")    
+    resource_client = ResourceManagerClient( config["options"]["resource-server"],
+                                             config["options"]["resource-port"] )
 
     dvid_server = config["dvid-info"]["dvid"]["server"]
     uuid = config["dvid-info"]["dvid"]["uuid"]
     instance = config["dvid-info"]["dvid"]["skeletons-destination"]
 
-    if not config["options"]["resource-server"]:
-        # No throttling.
-        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
-    else:
-        resource_client = ResourceManagerClient( config["options"]["resource-server"],
-                                                 config["options"]["resource-port"] )
+    for (body_id, swc_contents, err) in items:
+        if swc_contents is None or err is not None:
+            continue
     
+        swc_contents = swc_contents.encode('utf-8')
         with resource_client.access_context(dvid_server, False, 1, len(swc_contents)):
-            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
+            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
 
 
 def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
@@ -632,33 +626,36 @@ def generate_mesh(config, body_id, combined_box, combined_mask, downsample_facto
     return body_id, mesh_bytes
 
 
-def post_mesh_to_dvid(config, body_obj_err):
+def post_meshes_to_dvid(config, items):
     """
-    Send the given mesh .obj (or .drc) as a key/value pair to DVID.
+    Send the given meshes (either .obj or .drc) as key/value pairs to DVID.
     
     Args:
-        body_swc_err: tuple (body_id, swc_text, error_text)
-                      If swc_text is None or error_text is NOT None, then nothing is posted.
+        config: The CreateSkeletons workflow config data
+            
+        items: tuple (body_id, mesh_data, error_text)
+                      If mesh_data is None or error_text is NOT None, then nothing is posted.
                       (We could have filtered out such items upstream, but it's convenient to just handle it here.)
+
+        session: A requests.Session object to re-use for posting data.                      
     """
-    body_id, mesh_obj, err = body_obj_err
-    if mesh_obj is None or err is not None:
-        return
+    # Re-use session for connection pooling.
+    session = requests.Session()
+
+    # Re-use resource manager client connections, too.
+    # (If resource-server is empty, this will return a "dummy client")    
+    resource_client = ResourceManagerClient( config["options"]["resource-server"],
+                                             config["options"]["resource-port"] )
 
     dvid_server = config["dvid-info"]["dvid"]["server"]
     uuid = config["dvid-info"]["dvid"]["uuid"]
     instance = config["dvid-info"]["dvid"]["meshes-destination"]
     info = {"format": config["mesh-config"]["format"]}
 
-    def post_mesh():
-        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_obj)
-        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
+    for (body_id, mesh_data, err) in items:
+        if mesh_data is None or err is not None:
+            continue
 
-    if config["options"]["resource-server"]:
-        # Throttle with resource manager
-        resource_client = ResourceManagerClient( config["options"]["resource-server"], config["options"]["resource-port"] )
-        with resource_client.access_context(dvid_server, False, 2, len(mesh_obj)):
-            post_mesh()
-    else:
-        # No throttle
-        post_mesh()
+        with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
+            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
+            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
