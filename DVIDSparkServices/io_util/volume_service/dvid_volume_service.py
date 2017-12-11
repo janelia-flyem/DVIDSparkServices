@@ -102,6 +102,41 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             "The apply-labelmap section should be parallel to 'dvid' and 'geometry', not nested within the 'dvid' section!"
 
         ##
+        ## server, uuid
+        ##
+        if not volume_config["dvid"]["server"].startswith('http://'):
+            volume_config["dvid"]["server"] = 'http://' + volume_config["dvid"]["server"]
+        
+        self._server = volume_config["dvid"]["server"]
+        self._uuid = volume_config["dvid"]["uuid"]
+
+        ##
+        ## instance, dtype, etc.
+        ##
+
+        if "segmentation-name" in volume_config["dvid"]:
+            self._instance_name = volume_config["dvid"]["segmentation-name"]
+            self._dtype = np.uint64
+        elif "grayscale-name" in volume_config["dvid"]:
+            self._instance_name = volume_config["dvid"]["grayscale-name"]
+            self._dtype = np.uint8
+            
+        self._dtype_nbytes = np.dtype(self._dtype).type().nbytes
+
+        try:
+            data_instance = DataInstance(self._server, self._uuid, self._instance_name)
+            self._instance_type = data_instance.datatype
+            self._is_labels = data_instance.is_labels()
+        except ValueError:
+            # Instance doesn't exist yet -- we are going to create it.
+            if "segmentation-name" in volume_config["dvid"]:
+                self._instance_type = 'labelarray'
+                self._is_labels = True
+            else:
+                self._instance_type = 'uint8blk'
+                self._is_labels = False
+
+        ##
         ## Block width
         ##
         config_block_width = volume_config["geometry"]["block-width"]
@@ -133,37 +168,6 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         ##
         preferred_message_shape_zyx = np.array( volume_config["geometry"]["message-block-shape"][::-1] )
         replace_default_entries(preferred_message_shape_zyx, [block_width, block_width, 100*block_width])
-
-        ##
-        ## server, uuid, dtype, etc.
-        ##
-        if not volume_config["dvid"]["server"].startswith('http://'):
-            volume_config["dvid"]["server"] = 'http://' + volume_config["dvid"]["server"]
-        
-        self._server = volume_config["dvid"]["server"]
-        self._uuid = volume_config["dvid"]["uuid"]
-
-        if "segmentation-name" in volume_config["dvid"]:
-            self._instance_name = volume_config["dvid"]["segmentation-name"]
-            self._dtype = np.uint64
-        elif "grayscale-name" in volume_config["dvid"]:
-            self._instance_name = volume_config["dvid"]["grayscale-name"]
-            self._dtype = np.uint8
-            
-        self._dtype_nbytes = np.dtype(self._dtype).type().nbytes
-
-        try:
-            data_instance = DataInstance(self._server, self._uuid, self._instance_name)
-            self._instance_type = data_instance.datatype
-            self._is_labels = data_instance.is_labels()
-        except ValueError:
-            # Instance doesn't exist yet -- we are going to create it.
-            if "segmentation-name" in volume_config["dvid"]:
-                self._instance_type = 'labelarray'
-                self._is_labels = True
-            else:
-                self._instance_type = 'uint8blk'
-                self._is_labels = False
 
         ##
         ## resource_manager_client
