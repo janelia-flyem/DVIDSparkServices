@@ -18,7 +18,7 @@ class VolumeService(metaclass=ABCMeta):
 
     @classmethod
     def create_from_config( cls, volume_config, config_dir, resource_manager_client=None ):
-        from .dvid_volume_service import DvidVolumeServiceWriter
+        from .dvid_volume_service import DvidVolumeService
         from .brainmaps_volume_service import BrainMapsVolumeServiceReader
         from .n5_volume_service import N5VolumeServiceReader
         from .slice_files_volume_service import SliceFilesVolumeServiceReader
@@ -30,7 +30,7 @@ class VolumeService(metaclass=ABCMeta):
             raise RuntimeError(f"Unsupported service (or too many specified): {service_keys}")
         
         if "dvid" in volume_config:
-            return DvidVolumeServiceWriter( volume_config, resource_manager_client )
+            return DvidVolumeService( volume_config, resource_manager_client )
         if "brainmaps" in volume_config:
             return BrainMapsVolumeServiceReader( volume_config, resource_manager_client )
         if "n5" in volume_config:

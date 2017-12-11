@@ -93,26 +93,50 @@ DvidSegmentationVolumeSchema = \
 }
 
 
-class DvidVolumeServiceReader(VolumeServiceReader):
+class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
 
     def __init__(self, volume_config, resource_manager_client=None):
         validate(volume_config, DvidGenericVolumeSchema)
         
         assert 'apply-labelmap' not in volume_config["dvid"].keys(), \
             "The apply-labelmap section should be parallel to 'dvid' and 'geometry', not nested within the 'dvid' section!"
-        
-        if resource_manager_client is None:
-            # Dummy client
-            resource_manager_client = ResourceManagerClient("", 0)
-        
-        self._resource_manager_client = resource_manager_client
-        self._bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
-        self._preferred_message_shape_zyx = np.array( volume_config["geometry"]["message-block-shape"][::-1] )
-        replace_default_entries(self._preferred_message_shape_zyx, [64, 64, 6400])
-        
-        assert -1 not in self._bounding_box_zyx.flat[:], \
+
+        ##
+        ## Block width
+        ##
+        config_block_width = volume_config["geometry"]["block-width"]
+
+        try:
+            block_shape = get_blocksize(self._server, self._uuid, self._instance_name)
+            assert block_shape[0] == block_shape[1] == block_shape[2], \
+                "Expected blocks to be cubes."
+            block_width = block_shape[0]
+        except DVIDException:
+            block_width = config_block_width
+
+        if block_width == -1:
+            # No block-width specified; choose default
+            block_width = 64
+
+        assert config_block_width in (-1, block_width), \
+            f"DVID volume block-width ({config_block_width}) from config does not match server metadata ({block_width})"
+
+        ##
+        ## bounding-box
+        ##
+        bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
+        assert -1 not in bounding_box_zyx.flat[:], \
             "volume_config must specify explicit values for bounding-box"
 
+        ##
+        ## message-block-shape
+        ##
+        preferred_message_shape_zyx = np.array( volume_config["geometry"]["message-block-shape"][::-1] )
+        replace_default_entries(preferred_message_shape_zyx, [block_width, block_width, 100*block_width])
+
+        ##
+        ## server, uuid, dtype, etc.
+        ##
         if not volume_config["dvid"]["server"].startswith('http://'):
             volume_config["dvid"]["server"] = 'http://' + volume_config["dvid"]["server"]
         
@@ -133,7 +157,7 @@ class DvidVolumeServiceReader(VolumeServiceReader):
             self._instance_type = data_instance.datatype
             self._is_labels = data_instance.is_labels()
         except ValueError:
-            # Instance doesn't exist yet
+            # Instance doesn't exist yet -- we are going to create it.
             if "segmentation-name" in volume_config["dvid"]:
                 self._instance_type = 'labelarray'
                 self._is_labels = True
@@ -141,23 +165,24 @@ class DvidVolumeServiceReader(VolumeServiceReader):
                 self._instance_type = 'uint8blk'
                 self._is_labels = False
 
-        config_block_width = volume_config["geometry"]["block-width"]
-
-        try:
-            block_shape = get_blocksize(self._server, self._uuid, self._instance_name)
-            assert block_shape[0] == block_shape[1] == block_shape[2], \
-                "Expected blocks to be cubes."
-            block_width = block_shape[0]
-        except DVIDException:
-            block_width = config_block_width
-
-        assert config_block_width in (-1, block_width), \
-            f"DVID volume block-width ({config_block_width}) from config does not match server metadata ({block_width})"
+        ##
+        ## resource_manager_client
+        ##
+        if resource_manager_client is None:
+            # Dummy client
+            resource_manager_client = ResourceManagerClient("", 0)
         
-        # Store members
+        ##
+        ## Store members
+        ##
+        self._resource_manager_client = resource_manager_client
         self._block_width = block_width
+        self._bounding_box_zyx = bounding_box_zyx
+        self._preferred_message_shape_zyx = preferred_message_shape_zyx
 
-        # Overwrite config entries that we might have modified
+        ##
+        ## Overwrite config entries that we might have modified
+        ##
         volume_config["geometry"]["block-width"] = self._block_width
         volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
         volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
@@ -194,8 +219,6 @@ class DvidVolumeServiceReader(VolumeServiceReader):
                                          shape, box_zyx[0],
                                          throttle=throttle )
 
-class DvidVolumeServiceWriter(DvidVolumeServiceReader, VolumeServiceWriter):
-    
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.
     # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
