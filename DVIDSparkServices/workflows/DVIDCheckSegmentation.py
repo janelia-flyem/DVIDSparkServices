@@ -59,8 +59,6 @@ class DVIDCheckSegmentation(Workflow):
         super(DVIDCheckSegmentation, self).__init__( config_filename,
                                                 DVIDCheckSegmentation.dumpschema(),
                                                 "Check DVID Segmentation" )
-        self._sanitize_config()
-
 
     def _sanitize_config(self):
         """
@@ -78,6 +76,8 @@ class DVIDCheckSegmentation(Workflow):
 
         
     def execute(self):
+        self._sanitize_config()
+
         # hard coding block size that is 64
         # (TODO: make dynamic)
         BLKSIZE = 64

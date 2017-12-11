@@ -1,13 +1,15 @@
 {
     "dvid-info": {
-        "service-type": "dvid",
+      "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
-        "bounding-box": [[0,0,0], [256,256,256]],
-        "message-block-shape": [6400,64,64],
-
         "skeletons-destination": "labels_skeletons"
+      },
+      "geometry": {
+        "bounding-box": [[0,0,0], [256,256,256]],
+        "message-block-shape": [6400,64,64]
+      }
     },
     "skeleton-config": {
         "downsampleInterval": [0, 0, 0],
@@ -19,7 +21,7 @@
     },
     "mesh-config": {
         "simplify-ratio": 0.5,
-        "smoothing-rounds": 3,
+        "step-size": 1,
         "format": "drc"
     },
     "options": {
@@ -27,6 +29,16 @@
         "downsample-factor": 2,
         "minimum-segment-size": 10000,
         "max-analysis-volume": 1e9,
+
+        "resource-server": "driver",
+        "resource-port": 4000,
+
+        "resource-server-config": {
+            "read_reqs": 128,
+            "read_data": 4000000000,
+            "write_reqs": 128,
+            "write_data": 4000000000
+        },
         
         "downsample-timeout": 10.0,
         "analysis-timeout": 10.0,

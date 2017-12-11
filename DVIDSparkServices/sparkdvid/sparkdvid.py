@@ -25,11 +25,12 @@ import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 import logging
+from networkx.algorithms.shortest_paths import dense
 logger = logging.getLogger(__name__)
 
 from libdvid import SubstackZYX, DVIDException
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol
+from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
@@ -265,7 +266,7 @@ class sparkdvid(object):
         # If we're working with a tiny volume (e.g. testing),
         # make sure we at least parallelize across all cores.
         if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
-            bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+            bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
 
         return bricks
 
@@ -440,12 +441,11 @@ class sparkdvid(object):
     def get_voxels( cls, server, uuid, instance_name, scale,
                     instance_type, is_labels,
                     volume_shape, offset,
-                    resource_server, resource_port):
-        # extract labels 64
-        # retrieve data from box start position considering border
-        # Note: libdvid uses zyx order for python functions
+                    resource_server="", resource_port=0, throttle="auto"):
+
         node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
-        throttle = (resource_server == "")
+        if throttle == "auto":
+            throttle = (resource_server == "")
         
         if instance_type == 'labelarray':
             # Labelarray data can be fetched very efficiently if the request is block-aligned
@@ -465,6 +465,81 @@ class sparkdvid(object):
         else:
             assert scale == 0, "FIXME: get_gray3D() doesn't support scale yet!"
             return node_service.get_gray3D( instance_name, volume_shape, offset, throttle, compress=False )
+
+    @classmethod
+    def post_voxels( cls, server, uuid, instance_name, scale,
+                     instance_type, is_labels,
+                     subvolume, offset,
+                     resource_server="", resource_port=0, throttle="auto"):
+
+        node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+
+        if throttle == "auto":
+            throttle = (resource_server == "")
+        
+        if instance_type == 'labelarray' and (np.array(offset) % 64 == 0).all() and (np.array(subvolume.shape) % 64 == 0).all():
+            # Labelarray data can be posted very efficiently if the request is block-aligned
+            node_service.put_labelblocks3D( instance_name, subvolume, offset, throttle, scale)
+        elif is_labels:
+            assert scale == 0, "FIXME: put_labels3D() doesn't support scale yet!"
+            # labelblk (or non-aligned labelarray) must be posted the old-fashioned way
+            node_service.put_labels3D( instance_name, subvolume, offset, throttle)
+        else:
+            assert scale == 0, "FIXME: put_gray3D() doesn't support scale yet!"
+            node_service.put_gray3D( instance_name, subvolume, offset, throttle)
+
+
+    @classmethod
+    def get_legacy_sparsevol(cls, server, uuid, instance_name, body_id, scale=0):
+        """
+        Returns the coordinates (Z,Y,X) of all voxels in the given body_id at the given scale.
+        
+        Note: For large bodies, this will be a LOT of coordinates at scale 0.
+        
+        Note: The returned coordinates are native to the requested scale.
+              For instance, if the first Z-coordinate at scale 0 is 128,
+              then at scale 1 it is 64, etc.
+        
+        Note: This function requests the data from DVID in the legacy 'rles' format,
+              which is much less efficient than the newer 'blocks' format
+              (but it's easy enough to parse that we can do it in Python).
+        """
+        import requests
+        if not server.startswith('http://'):
+            server = 'http://' + server
+            
+        r = requests.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol/{body_id}?format=rles&scale={scale}')
+        r.raise_for_status()
+        
+        descriptor = r.content[0]
+        ndim = r.content[1]
+        run_dimension = r.content[2]
+
+        assert descriptor == 0, f"Don't know how to handle this payload. (descriptor: {descriptor})"
+        assert ndim == 3, "Expected XYZ run-lengths"
+        assert run_dimension == 0, "FIXME, we assume the run dimension is X"
+
+        content_as_int32 = np.frombuffer(r.content, np.int32)
+        _voxel_count = content_as_int32[1]
+        run_count = content_as_int32[2]
+        rle_items = content_as_int32[3:].reshape(-1,4)
+
+        assert len(rle_items) == run_count, \
+            f"run_count ({run_count}) doesn't match data array length ({len(rle_items)})"
+
+        rle_starts_xyz = rle_items[:,:3]
+        rle_starts_zyx = rle_starts_xyz[:,::-1]
+        rle_lengths = rle_items[:,3]
+
+        # For now, DVID always returns a voxel_count of 0, so we can't make this assertion.
+        #assert rle_lengths.sum() == _voxel_count,\
+        #    f"Voxel count ({voxel_count}) doesn't match expected sum of run-lengths ({rle_lengths.sum()})"
+
+        dense_coords = runlength_decode_from_lengths(rle_starts_zyx, rle_lengths)
+        assert rle_lengths.sum() == len(dense_coords), \
+            "Got the wrong number of coordinates!"
+        return dense_coords
+        
 
     def get_volume_accessor(self, instance_name, scale=0):
         """

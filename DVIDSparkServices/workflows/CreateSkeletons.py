@@ -1,5 +1,4 @@
 import os
-import csv
 import copy
 import json
 from datetime import datetime
@@ -14,7 +13,6 @@ from vol2mesh.mesh_from_array import mesh_from_array
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import Timer, persist_and_execute
-from DVIDSparkServices.io_util.brick import Grid
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
@@ -24,15 +22,17 @@ from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
-from .common_schemas import SegmentationVolumeSchema
+from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidSegmentationVolumeSchema
 
 from multiprocessing import TimeoutError
+from DVIDSparkServices.io_util.brickwall import BrickWall
+from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 
 logger = logging.getLogger(__name__)
 
 class CreateSkeletons(Workflow):
-    SkeletonDvidInfoSchema = copy.deepcopy(SegmentationVolumeSchema)
-    SkeletonDvidInfoSchema["properties"].update(
+    SkeletonDvidInfoSchema = copy.deepcopy(DvidSegmentationVolumeSchema)
+    SkeletonDvidInfoSchema["properties"]["dvid"]["properties"].update(
     {
         "skeletons-destination": {
             "description": "Name of key-value instance to store the skeletons. "
@@ -64,10 +64,11 @@ class CreateSkeletons(Workflow):
                 "maximum": 1.0,
                 "default": 0.2 # Set to 1.0 to disable.
             },
-            "smoothing-rounds": {
-                "description": "How many rounds of smoothing to apply during marching cubes.",
+            "step-size": {
+                "description": "Passed to skimage.measure.marching_cubes_lewiner()."
+                               "Larger values result in coarser results via faster computation.",
                 "type": "integer",
-                "default": 3
+                "default": 1
             },
             "format": {
                 "description": "Format to save the meshes in. ",
@@ -75,6 +76,11 @@ class CreateSkeletons(Workflow):
                 "enum": ["obj",    # Wavefront OBJ (.obj)
                          "drc"],   # Draco (compressed) (.drc)
                 "default": "obj"
+            },
+            "use-subprocesses": {
+                "description": "Whether or not to generate meshes in a subprocess, to protect against timeouts and failures.",
+                "type": "boolean",
+                "default": False
             }
         }
     }
@@ -112,9 +118,16 @@ class CreateSkeletons(Workflow):
         },
         "downsample-timeout": {
             "description": "The maximum time to wait for an object to be downsampled before skeletonization. "
-                           "If timeout is exceeded, the an error is logged and the object is skipped.",
+                           "If timeout is exceeded, the an error is logged and the object is skipped."
+                           "IGNORED IF downsample-in-subprocess is False",
             "type": "number",
             "default": 600.0 # 10 minutes max
+        },
+        "downsample-in-subprocess":  {
+            "description": "Collect and downsample each object in a subprocess, to protect against timeouts and failures.\n"
+                           "Must be True for downsample-timeout to have any effect.",
+            "type": "boolean",
+            "default": True
         },
         "analysis-timeout": {
             "description": "The maximum time to wait for an object to be skeletonized or meshified. "
@@ -154,46 +167,46 @@ class CreateSkeletons(Workflow):
 
     def __init__(self, config_filename):
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
-        self._sanitize_config()
         
-        # create spark dvid context
-        self.sparkdvid_context = sparkdvid.sparkdvid(self.sc,
-                self.config_data["dvid-info"]["server"],
-                self.config_data["dvid-info"]["uuid"], self)
-
-    
     def _sanitize_config(self):
-        # Prepend 'http://' if necessary.
-        dvid_info = self.config_data['dvid-info']
-        if not dvid_info['server'].startswith('http'):
-            dvid_info['server'] = 'http://' + dvid_info['server']
-
         # Convert failed-mask-dir to absolute path
         failed_skeleton_dir = self.config_data['options']['failed-mask-dir']
         if failed_skeleton_dir and not os.path.isabs(failed_skeleton_dir):
             self.config_data['options']['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
+        dvid_info = self.config_data['dvid-info']
         # Provide default skeletons instance name if needed
-        if not dvid_info["skeletons-destination"]:
-            dvid_info["skeletons-destination"] = dvid_info["segmentation-name"]+ '_skeletons'
+        if not dvid_info["dvid"]["skeletons-destination"]:
+            dvid_info["dvid"]["skeletons-destination"] = dvid_info["dvid"]["segmentation-name"] + '_skeletons'
 
         # Provide default meshes instance name if needed
-        if not dvid_info["meshes-destination"]:
-            dvid_info["meshes-destination"] = dvid_info["segmentation-name"]+ '_meshes'
+        if not dvid_info["dvid"]["meshes-destination"]:
+            dvid_info["dvid"]["meshes-destination"] = dvid_info["dvid"]["segmentation-name"]+ '_meshes'
 
     
     def execute(self):
+        self._sanitize_config()
+
         config = self.config_data
+        options = config["options"]
+        
+        resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
+        volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
+
         self._init_skeletons_instance()
 
-        bricks, _bounding_box_zyx, _input_grid = self._partition_input()
-        persist_and_execute(bricks, "Downloading segmentation", logger)
+        # Aim for 2 GB RDD partitions
+        GB = 2**30
+        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+
+        brick_wall = BrickWall.from_volume_service(volume_service, self.sc, target_partition_size_voxels)
+        brick_wall.persist_and_execute("Downloading segmentation", logger)
         
         # brick -> (body_id, (box, mask, count))
-        body_ids_and_masks = bricks.flatMap( partial(body_masks, config) )
+        body_ids_and_masks = brick_wall.bricks.flatMap( partial(body_masks, config) )
         persist_and_execute(body_ids_and_masks, "Computing brick-local masks", logger)
-        bricks.unpersist()
-        del bricks
+        brick_wall.unpersist()
+        del brick_wall
 
         # In the case of catastrophic merges, some bodies may be too big to handle.
         # Skeletonizing them would probably time out anyway.
@@ -335,53 +348,19 @@ class CreateSkeletons(Workflow):
     def _init_skeletons_instance(self):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
-        if is_node_locked(dvid_info["server"], dvid_info["uuid"]):
-            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['server']} / {dvid_info['uuid']}) is locked.")
+        if is_node_locked(dvid_info["dvid"]["server"], dvid_info["dvid"]["uuid"]):
+            raise RuntimeError(f"Can't write skeletons/meshes: The node you specified ({dvid_info['dvid']['server']} / {dvid_info['dvid']['uuid']}) is locked.")
 
-        node_service = retrieve_node_service( dvid_info["server"],
-                                              dvid_info["uuid"],
+        node_service = retrieve_node_service( dvid_info["dvid"]["server"],
+                                              dvid_info["dvid"]["uuid"],
                                               options["resource-server"],
                                               options["resource-port"] )
 
         if "neutube-skeleton" in options["output-types"]:
-            node_service.create_keyvalue(dvid_info["skeletons-destination"])
+            node_service.create_keyvalue(dvid_info["dvid"]["skeletons-destination"])
 
         if "mesh" in options["output-types"]:
-            node_service.create_keyvalue(dvid_info["meshes-destination"])
-
-
-    def _partition_input(self):
-        """
-        Map the input segmentation
-        volume from DVID into an RDD of Bricks,
-        using the config's bounding-box setting for the full volume region,
-        using the 'message-block-shape' as the partition size.
-
-        Returns: (RDD, bounding_box_zyx, partition_shape_zyx)
-            where:
-                - RDD is (volumePartition, data)
-                - bounding box is tuple (start_zyx, stop_zyx)
-                - partition_shape_zyx is a tuple
-            
-        """
-        dvid_info = self.config_data["dvid-info"]
-        assert dvid_info["service-type"] == "dvid", \
-            "Only DVID sources are supported right now."
-
-        # repartition to be z=blksize, y=blksize, x=runlength
-        brick_shape_zyx = dvid_info["message-block-shape"][::-1]
-        input_grid = Grid(brick_shape_zyx, (0,0,0))
-
-        bounding_box_xyz = np.array(dvid_info["bounding-box"])
-        bounding_box_zyx = bounding_box_xyz[:,::-1]
-
-        # Aim for 2 GB RDD partitions
-        target_partition_size_voxels = (2 * 2**30 // np.uint64().nbytes)
-        bricks = self.sparkdvid_context.parallelize_bounding_box( dvid_info['segmentation-name'],
-                                                                  bounding_box_zyx,
-                                                                  input_grid,
-                                                                  target_partition_size_voxels )
-        return bricks, bounding_box_zyx, input_grid
+            node_service.create_keyvalue(dvid_info["dvid"]["meshes-destination"])
 
 
 def body_masks(config, brick):
@@ -426,11 +405,16 @@ def combine_masks_in_subprocess(config, ids_and_boxes_and_compressed_masks):
 
     body_id, boxes_and_compressed_masks = ids_and_boxes_and_compressed_masks
 
-    try:
+    if config["options"]["downsample-in-subprocess"]:
         func = execute_in_subprocess(timeout, logger)(combine_masks)
+    else:
+        func = combine_masks
+        
+    try:
         body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor = func(config, body_id, boxes_and_compressed_masks)
         return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor, None)
-    except TimeoutError:
+    
+    except TimeoutError: # fyi: can't be raised unless a subprocessed is used
         boxes, _compressed_masks, counts = zip(*boxes_and_compressed_masks)
 
         total_count = sum(counts)
@@ -489,7 +473,8 @@ def combine_masks(config, body_id, boxes_and_compressed_masks ):
                         config["options"]["downsample-factor"],
                         config["options"]["minimum-segment-size"],
                         config["options"]["max-analysis-volume"],
-                        suppress_zero=True )
+                        suppress_zero=True,
+                        pad=1 ) # mesh generation requires 1-px halo of zeros
 
     return (body_id, combined_box, combined_mask_downsampled, chosen_downsample_factor)
 
@@ -582,9 +567,9 @@ def post_swc_to_dvid(config, body_swc_err):
 
     swc_contents = swc_contents.encode('utf-8')
 
-    dvid_server = config["dvid-info"]["server"]
-    uuid = config["dvid-info"]["uuid"]
-    instance = config["dvid-info"]["skeletons-destination"]
+    dvid_server = config["dvid-info"]["dvid"]["server"]
+    uuid = config["dvid-info"]["dvid"]["uuid"]
+    instance = config["dvid-info"]["dvid"]["skeletons-destination"]
 
     if not config["options"]["resource-server"]:
         # No throttling.
@@ -599,7 +584,8 @@ def post_swc_to_dvid(config, body_swc_err):
 
 def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
     """
-    Execute generate_mesh() in a subprocess, and handle TimeoutErrors.
+    If use_subprocess is True, execute generate_mesh() in a subprocess, and handle TimeoutErrors.
+    Otherwise, just call generate_mesh() directly, with the appropriate parameters
     """
     logger = logging.getLogger(__name__ + '.generate_mesh')
     logger.setLevel(logging.WARN)
@@ -607,11 +593,16 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
     body_id, combined_box, combined_mask, downsample_factor, _err_msg = id_box_mask_factor_err
 
-    try:
+    if config["mesh-config"]["use-subprocesses"]:
         func = execute_in_subprocess(timeout, logger)(generate_mesh)
-        body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
+    else:
+        func = generate_mesh
+
+    try:
+        _body_id, mesh_obj = func(config, body_id, combined_box, combined_mask, downsample_factor)
         return (body_id, mesh_obj, None)
-    except TimeoutError:
+
+    except TimeoutError: # fyi: can't be raised unless a subprocessed is used
         err_msg = f"Timeout ({timeout}) while meshifying body: id={body_id} box={combined_box.tolist()}"     
         logger.error(err_msg)
 
@@ -633,12 +624,13 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
     mesh_bytes = mesh_from_array( combined_mask,
-                                  combined_box,
+                                  combined_box[0],
                                   downsample_factor,
                                   config["mesh-config"]["simplify-ratio"],
-                                  config["mesh-config"]["smoothing-rounds"],
+                                  config["mesh-config"]["step-size"],
                                   config["mesh-config"]["format"])
     return body_id, mesh_bytes
+
 
 def post_mesh_to_dvid(config, body_obj_err):
     """
@@ -653,9 +645,9 @@ def post_mesh_to_dvid(config, body_obj_err):
     if mesh_obj is None or err is not None:
         return
 
-    dvid_server = config["dvid-info"]["server"]
-    uuid = config["dvid-info"]["uuid"]
-    instance = config["dvid-info"]["meshes-destination"]
+    dvid_server = config["dvid-info"]["dvid"]["server"]
+    uuid = config["dvid-info"]["dvid"]["uuid"]
+    instance = config["dvid-info"]["dvid"]["meshes-destination"]
     info = {"format": config["mesh-config"]["format"]}
 
     def post_mesh():

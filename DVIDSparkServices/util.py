@@ -277,6 +277,17 @@ def boxlist_to_json( bounds_list, indent=0 ):
 
     return str(buf.getvalue())
 
+def replace_default_entries(array, default_array, marker=-1):
+    """
+    Overwrite all entries in array that match the given
+    marker with the corresponding entry in default_array.
+    """
+    default_array = np.asarray(default_array)
+    assert isinstance(array, np.ndarray)
+    assert array.shape == default_array.shape
+    array[:] = np.where(array == marker, default_array, array)
+    
+
 def mkdir_p(path):
     """
     Like the bash command: mkdir -p
@@ -576,6 +587,76 @@ def _runlength_encode(coord_list_zyx):
     # Return as 2D array
     runs = np.array(runs).reshape((-1,4))
     return runs[1:, :] # omit dummy row (see above)
+
+@jit(nopython=True)
+def runlength_decode_from_ranges(rle_array_zyx):
+    """
+    Given an array of run-length encodings in the form:
+        
+        [[Z,Y,X1,X2],
+         [Z,Y,X1,X2],
+         [Z,Y,X1,X2],
+         ...
+        ]
+        
+    Return an array of coordinates of the form:
+
+        [[Z,Y,X],
+         [Z,Y,X],
+         [Z,Y,X],
+         ...
+        ]
+
+    Note: The interval [X1,X2] is INCLUSIVE, following DVID conventions, not Python conventions.
+    """
+    # Numba doesn't allow us to use empty lists at all,
+    # so we have to initialize this list with a dummy row,
+    # which we'll omit in the return value
+    coords = [0,0,0]
+    for i in range(len(rle_array_zyx)):
+        (z, y, x1, x2) = rle_array_zyx[i]
+        for x in range(x1,x2+1):
+            coords += [z,y,x]
+    coords = np.array(coords).reshape((-1,3))
+    return coords[1:, :] # omit dummy row (see above)
+
+@jit(nopython=True)
+def runlength_decode_from_lengths(rle_start_coords_zyx, rle_lengths):
+    """
+    Given a 2D array of coordinates and a 1D array of runlengths, i.e.:
+        
+        [[Z,Y,X], [Z,Y,X], [Z,Y,X],...]
+
+        and 
+        
+        [Length, Length, Length,...]
+
+    Return an array of coordinates of the form:
+
+        [[Z,Y,X],
+         [Z,Y,X],
+         [Z,Y,X],
+         ...
+        ]
+    
+    In which every run-length has been expanded into a run
+    of consecutive coordinates in the result.
+    That is, result.shape == (rle_lengths.sum(), 3)
+    
+    NOTE: The "runs" are expanded along the X AXIS.
+    """
+    # Numba doesn't allow us to use empty lists at all,
+    # so we have to initialize this list with a dummy row,
+    # which we'll omit in the return value
+    coords = [0,0,0]
+    for i in range(len(rle_start_coords_zyx)):
+        (z, y, x) = rle_start_coords_zyx[i]
+        length = rle_lengths[i]
+        for x in range(x,x+length):
+            coords += [z,y,x]
+
+    coords = np.array(coords).reshape((-1,3))
+    return coords[1:, :] # omit dummy row (see above)
 
 
 def blockwise_boxes( bounding_box, block_shape ):

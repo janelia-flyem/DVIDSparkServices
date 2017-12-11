@@ -249,9 +249,9 @@ class Ingest3DVolume(Workflow):
             "default": True
         },
         "pyramid-depth": {
-            "description": "Number of pyramid levels to generate (0 means choose automatically)",
+            "description": "Number of pyramid levels to generate (-1 means choose automatically)",
             "type": "integer",
-            "default": 0
+            "default": -1
         },
         "skipped-pyramid-levels": {
             "description": "List of pyramid levels to skip writing to DVID.  (They will still be computed, but not written.)",
@@ -301,10 +301,6 @@ class Ingest3DVolume(Workflow):
         Calls default init and sets option variables
         """
         super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
-        
-        # Note: We call _sanitize_config is not called here, because
-        #       logging isn't fully initialized yet. 
-        #       It's called in execute()
 
     def _sanitize_config(self):
         """
@@ -327,7 +323,7 @@ class Ingest3DVolume(Workflow):
             assert not options["create-pyramid-jpeg"], "Bad config: Can't create tiles for label data."
 
         if not options["create-pyramid-jpeg"] and not options["create-pyramid"]:
-            assert options["pyramid-depth"] == 0, \
+            assert options["pyramid-depth"] == -1, \
                 "Bad config: Pyramid depth specified, but no 'create-pyramid' setting given."
 
         # fetch data in multiples of mintasks
@@ -408,42 +404,44 @@ class Ingest3DVolume(Workflow):
 
         global_box_zyx[1] = global_box_zyx[0] + volume_shape
 
-        if is_datainstance( dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"] ):
-            logger.info("'{dataname}' already exists, skipping creation".format(**dvid_info) )
-        else:
-            # create data instance and disable dvidmask
-            # !! assume if data instance exists and mask is set that all pyramid
-            # !! also exits, meaning the mask should be used. 
-            options["has-dvidmask"] = False
-            if options["disable-original"]:
-                logger.info("Not creating '{dataname}' due to 'disable-original' config setting".format(**dvid_info) )
-            elif 0 in options["skipped-pyramid-levels"]:
-                logger.info("Not creating '{dataname}' due to 'skipped-pyramid-levels' config setting".format(**dvid_info) )
+        if options["create-pyramid"]:
+            if is_datainstance( dvid_info["dvid-server"], dvid_info["uuid"], dvid_info["dataname"] ):
+                logger.info("'{dataname}' already exists, skipping creation".format(**dvid_info) )
             else:
-                if options["is-rawarray"]:
-                    create_rawarray8( dvid_info["dvid-server"],
-                                      dvid_info["uuid"],
-                                      dvid_info["dataname"],
-                                      block_shape )
+                # create data instance and disable dvidmask
+                # !! assume if data instance exists and mask is set that all pyramid
+                # !! also exits, meaning the mask should be used. 
+                options["has-dvidmask"] = False
+                if options["disable-original"]:
+                    logger.info("Not creating '{dataname}' due to 'disable-original' config setting".format(**dvid_info) )
+                elif 0 in options["skipped-pyramid-levels"]:
+                    logger.info("Not creating '{dataname}' due to 'skipped-pyramid-levels' config setting".format(**dvid_info) )
                 else:
-                    create_labelarray( dvid_info["dvid-server"],
-                                       dvid_info["uuid"],
-                                       dvid_info["dataname"],
-                                       0,
-                                       block_shape )
+                    if options["is-rawarray"]:
+                        create_rawarray8( dvid_info["dvid-server"],
+                                          dvid_info["uuid"],
+                                          dvid_info["dataname"],
+                                          block_shape )
+                    else:
+                        create_labelarray( dvid_info["dvid-server"],
+                                           dvid_info["uuid"],
+                                           dvid_info["dataname"],
+                                           0,
+                                           block_shape )
 
-        if not options["disable-original"] and 0 not in options["skipped-pyramid-levels"]:
-            update_extents( dvid_info["dvid-server"],
-                            dvid_info["uuid"],
-                            dvid_info["dataname"],
-                            global_box_zyx )
-
-            # Bottom level of pyramid is listed as neuroglancer-compatible
-            extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dvid_info["dataname"]])
+            if not options["disable-original"] and 0 not in options["skipped-pyramid-levels"]:
+                update_extents( dvid_info["dvid-server"],
+                                dvid_info["uuid"],
+                                dvid_info["dataname"],
+                                global_box_zyx )
+    
+                # Bottom level of pyramid is listed as neuroglancer-compatible
+                extend_list_value(dvid_info["dvid-server"], dvid_info["uuid"], '.meta', 'neuroglancer', [dvid_info["dataname"]])
 
         # determine number of pyramid levels if not specified 
         if options["create-pyramid"] or options["create-pyramid-jpeg"]:
-            if options["pyramid-depth"] == 0:
+            if options["pyramid-depth"] == -1:
+                options["pyramid-depth"] = 0
                 zsize = options["maxslice"] - options["minslice"] + 1
                 while zsize > 512:
                     options["pyramid-depth"] += 1
@@ -608,11 +606,13 @@ class Ingest3DVolume(Workflow):
 
             if not options["disable-original"]:
                 # Write level-0 of the raw data, even if we aren't writing the rest of the pyramid.
-                dataname = dvid_info["dataname"]
+                dataname = datanamelossy = None
+                if options["create-pyramid"]:
+                    dataname = dvid_info["dataname"]
                 if options["create-pyramid-jpeg"]:
                     datanamelossy = dvid_info["dataname"] + self.JPEGPYRAMID_NAME
                 
-                if 0 not in options["skipped-pyramid-levels"]:
+                if (dataname or datanamelossy) and 0 not in options["skipped-pyramid-levels"]:
                     self._write_blocks(arraypartition, dataname, datanamelossy) 
 
             if options["create-tiles"] or options["create-tiles-jpeg"]:

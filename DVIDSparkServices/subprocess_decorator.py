@@ -9,6 +9,7 @@ import threading
 from functools import partial
 from contextlib import contextmanager
 from multiprocessing import Pool, TimeoutError, Pipe
+from multiprocessing.pool import TERMINATE
 
 import ctypes
 from ctypes.util import find_library
@@ -18,6 +19,7 @@ try:
 except OSError:
     libc = ctypes.cdll.LoadLibrary(find_library('c'))
 
+_failed_pools = []
 
 def execute_in_subprocess(timeout=None, stream_logger=None):
     """
@@ -126,9 +128,14 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
 
             try:
                 return future.get(timeout)
-            except TimeoutError:
+            except TimeoutError as ex:
+
+                record_logging_thread.stop_and_join()
+                if stream_logger:
+                    stdout_logging_thread.stop_and_join()
+                    stderr_logging_thread.stop_and_join()
+
                 try:
-                    # We timed out.
                     # Kill the child process and make sure it's REALLY dead
                     # Don't use pool._pool[0].terminate() or .kill() because that can hang...
                     os.kill(child_pid, signal.SIGTERM)
@@ -137,22 +144,30 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                     os.waitpid(child_pid, 0)
                 except Exception:
                     pass
-                raise
+
+                # Prevent the Pool's normal termination logic from executing during pool cleanup
+                # (It hangs if the child is already dead.)
+                # (Yes, this is some seriously hacky stuff to workaround a bug in multiprocessing.Pool.)
+                pool._terminate = None # Delete Finalize object
+                pool._worker_handler._state = TERMINATE
+
+                raise ex
             else:
                 # These are already invalid if the process was killed due to timeout.
                 os.close(stdout_from_child)
                 os.close(stderr_from_child)
-                
-            finally:
-                pool.terminate()
-                pool.close()
-                pool.join()
-                del pool
 
                 record_logging_thread.stop_and_join()
                 if stream_logger:
-                    stdout_logging_thread.join()
-                    stderr_logging_thread.join()
+                    stdout_logging_thread.stop_and_join()
+                    stderr_logging_thread.stop_and_join()
+
+                # Ideally, we would terminate() the pool after both successful and failed runs,
+                # but for some reason the pool.terminate() hangs if we've already killed the child.
+                # So don't call terminate() in the finally section, below.
+                pool.terminate()
+
+                del pool
 
         return wrapper
     return decorator
@@ -287,8 +302,11 @@ class _ChildLogEchoThread(threading.Thread):
     def run(self):
         while not self.__stop:
             if self.__connection.poll(0.1):
-                record = self.__connection.recv()
-                logging.getLogger(record.name).handle(record)
+                try:
+                    record = self.__connection.recv()
+                    logging.getLogger(record.name).handle(record)
+                except EOFError:
+                    break
 
     def stop_and_join(self):
         self.__stop = True
@@ -307,6 +325,14 @@ class _ChildStreamLoggingThread(threading.Thread):
         self.level = level
         self.__fd = pipe_from_child_fd
         self.frame_info = frame_info
+
+    def stop_and_join(self):
+        try:
+            self.__fd.close()
+        except:
+            pass
+
+        self.join()
 
     def run(self):
         with os.fdopen(self.__fd, 'r') as f:

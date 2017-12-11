@@ -14,16 +14,19 @@ from jsonschema import ValidationError
 import json
 import uuid
 import socket
+import getpass
+from io import StringIO
 
 # ruamel.yaml supports YAML 1.2, which has
 # slightly better compatibility with json.
 from ruamel.yaml import YAML
-yaml = YAML(typ='safe')
+yaml = YAML(typ='rt')
+yaml.default_flow_style = False
 
 from quilted.filelock import FileLock
 from DVIDSparkServices import cleanup_faulthandler
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
-from DVIDSparkServices.json_util import validate_and_inject_defaults
+from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
 import logging
@@ -60,8 +63,8 @@ class Workflow(object):
         "properties": {
             ## RESOURCE SERVER
             "resource-server": {
-                "description": "If provided, workflows MAY use this resource server to coordinate competing requests from worker nodes. "
-                               "Set to the IP address of the (already-running) resource server, or use the special word 'driver' "
+                "description": "If provided, workflows MAY use this resource server to coordinate competing requests from worker nodes. \n"
+                               "Set to the IP address of the (already-running) resource server, or use the special word 'driver' \n"
                                "to automatically start a new resource server on the driver node.",
                 "type": "string",
                 "default": ""
@@ -94,7 +97,7 @@ class Workflow(object):
                         "default": []
                     },
                     "launch-delay": {
-                        "description": "By default, wait for the script to complete before continuing."
+                        "description": "By default, wait for the script to complete before continuing.\n"
                                        "Otherwise, launch the script asynchronously and then pause for N seconds before continuing.",
                         "type": "integer",
                         "default": -1 # default: blocking execution
@@ -104,7 +107,7 @@ class Workflow(object):
                         "default": "/tmp"
                     },
                     "also-run-on-driver": {
-                        "description": "Also run this initialization script on the driver machine.",
+                        "description": "Also run this initialization script on the driver machine.\n",
                         "type": "boolean",
                         "default": False
                     }
@@ -113,7 +116,8 @@ class Workflow(object):
 
             ## LOG SERVER
             "log-collector-port": {
-                "description": "If provided, a server process will be launched on the driver node to collect certain log messages from worker nodes.",
+                "description": "If provided, a server process will be launched on the \n"
+                               "driver node to collect certain log messages from worker nodes.",
                 "type": "integer",
                 "default": 0
             },
@@ -144,7 +148,8 @@ class Workflow(object):
             },
 
             "debug": {
-                "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
+                "description": "Enable certain debugging functionality.\n"
+                               "Mandatory for integration tests.",
                 "type": "boolean",
                 "default": False
             }
@@ -161,7 +166,10 @@ class Workflow(object):
 
         """
 
+        if not jsonfile.startswith('http'):
+            jsonfile = os.path.abspath(jsonfile)
         self.config_path = jsonfile
+
         self.config_data = None
         schema_data = json.loads(schema)
 
@@ -247,9 +255,15 @@ class Workflow(object):
         assert not self.config_path.startswith("http"), \
             "Can't convert relpath ({}) to abspath, since config comers from an http endpoint ({})".format(relpath, self.config_path)
 
-        config_dir = os.path.dirname( os.path.normpath(self.config_path) )
-        relpath = os.path.normpath( os.path.join(config_dir, relpath) )
-        return relpath
+        abspath = os.path.normpath( os.path.join(self.config_dir, relpath) )
+        return abspath
+
+    @property
+    def config_dir(self):
+        """
+        Return the directory that contains our config file.
+        """
+        return os.path.dirname( os.path.normpath(self.config_path) )
 
     def _init_logcollector_config(self):
         """
@@ -391,7 +405,10 @@ class Workflow(object):
             return None
 
         if self.config_data["options"]["resource-server-config"]:
-            server_config_path = '/tmp/driver-resource-server-config.json'
+            tmpdir = f"/tmp/{getpass.getuser()}"
+            os.makedirs(tmpdir, exist_ok=True)
+
+            server_config_path = f'{tmpdir}/driver-resource-server-config.json'
             with open(server_config_path, 'w') as f:
                 json.dump(self.config_data["options"]["resource-server-config"], f)
             config_arg = '--config-file={}'.format(server_config_path)
@@ -574,8 +591,25 @@ class Workflow(object):
 
 
     # make this an explicit abstract method ??
-    @staticmethod
-    def dumpschema():
+    @classmethod
+    def dumpschema(cls):
         """Children must provide their own json specification"""
 
         raise WorkflowError("Derived class must provide a schema")
+
+    @classmethod
+    def schema(cls):
+        return json.loads( cls.dumpschema() )
+
+    @classmethod
+    def default_config(cls, syntax="json"):
+        assert syntax in ("json", "yaml", "yaml-with-comments")
+        schema = cls.schema()
+        output_stream = StringIO()
+        if syntax == "json":
+            default_instance = inject_defaults( {}, schema )
+            json.dump( default_instance, output_stream, indent=4 )
+        else:
+            default_instance = inject_defaults( {}, schema, (syntax == "yaml-with-comments"), 2 )
+            yaml.dump(default_instance, output_stream )
+        return output_stream.getvalue()
