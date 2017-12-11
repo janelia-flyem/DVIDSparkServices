@@ -131,16 +131,18 @@ class rand_stat(StatType):
         if self.segstats.disable_subvolumes:
             return summarystats
 
-        # generate subvolume stats
-        for name, val1 in self.fmergebest.items():
-            sumstat = {"name": "S-BEST-FM-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
-            sumstat["description"] = "Best False Merge Rand for a Subvolume. Subvolume=%d" % val1[1]
-            summarystats.append(sumstat)
+        # ignore some stats if sparse mode
+        if not self.segstats.enable_sparse:
+            # generate subvolume stats
+            for name, val1 in self.fmergebest.items():
+                sumstat = {"name": "S-BEST-FM-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
+                sumstat["description"] = "Best False Merge Rand for a Subvolume. Subvolume=%d" % val1[1]
+                summarystats.append(sumstat)
 
-        for name, val1 in self.fmergeworst.items():
-            sumstat = {"name": "S-WRST-FM-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
-            sumstat["description"] = "Worst False Merge Rand for a Subvolume. Subvolume=%d" % val1[1]
-            summarystats.append(sumstat)
+            for name, val1 in self.fmergeworst.items():
+                sumstat = {"name": "S-WRST-FM-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
+                sumstat["description"] = "Worst False Merge Rand for a Subvolume. Subvolume=%d" % val1[1]
+                summarystats.append(sumstat)
 
         for name, val1 in self.fsplitbest.items():
             sumstat = {"name": "S-BEST-FS-RD", "higher-better": True, "typename": name, "val": round(val1[0], 4)}
@@ -152,10 +154,12 @@ class rand_stat(StatType):
             sumstat["description"] = "Worst False Split Rand for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
-        for name, val1 in self.fmergefsplitave.items():
-            sumstat = {"name": "S-AVE-RD", "higher-better": True, "typename": name, "val": round(2*(val1[0]*val1[1])/(val1[0]+val1[1]), 4)}
-            sumstat["description"] = "Average Substack Rand"
-            summarystats.append(sumstat)
+        # ignore some stats if sparse mode
+        if not self.segstats.enable_sparse:
+            for name, val1 in self.fmergefsplitave.items():
+                sumstat = {"name": "S-AVE-RD", "higher-better": True, "typename": name, "val": round(2*(val1[0]*val1[1])/(val1[0]+val1[1]), 4)}
+                sumstat["description"] = "Average Substack Rand"
+                summarystats.append(sumstat)
 
         return summarystats
 
@@ -164,13 +168,15 @@ class rand_stat(StatType):
         fmerge, fsplit = self._calculate_rand(gotable, sotable, disablefilter)
         name = gotable.get_name()
 
-        sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": round(2*fmerge*fsplit/(fmerge+fsplit), 4)}
-        sumstat["description"] = "Rand"
-        summarystats.append(sumstat)
+        # ignore some stats if sparse mode
+        if not self.segstats.enable_sparse:
+            sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": round(2*fmerge*fsplit/(fmerge+fsplit), 4)}
+            sumstat["description"] = "Rand"
+            summarystats.append(sumstat)
 
-        sumstat = {"name": "FM-RD", "higher-better": True, "typename": name, "val": round(fmerge, 4)}
-        sumstat["description"] = "False Merge Rand"
-        summarystats.append(sumstat)
+            sumstat = {"name": "FM-RD", "higher-better": True, "typename": name, "val": round(fmerge, 4)}
+            sumstat["description"] = "False Merge Rand"
+            summarystats.append(sumstat)
 
         sumstat = {"name": "FS-RD", "higher-better": True, "typename": name, "val": round(fsplit, 4)}
         sumstat["description"] = "False Split Rand"
@@ -195,6 +201,11 @@ class rand_stat(StatType):
         
         # examine fragmentation of gt (fsplit=oversegmentation)
         for (gtbody, overlapset) in gtoverlap.overlap_map.items():
+            # if sparse mode, ignore non gt bodies
+            if self.segstats.enable_sparse:
+                if gtbody not in self.segstats.important_bodies:
+                    continue
+            
             if self._get_body_volume(overlapset) < body_threshold:
                 # ignore as if it never existed
                 ignore_bodies.add(gtbody)

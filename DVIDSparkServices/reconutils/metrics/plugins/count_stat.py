@@ -245,6 +245,11 @@ class count_stat(StatType):
         segbodies = 0
         ignorebodies = set()
         for (gtbody, overlapset) in gotable.overlap_map.items():
+            # ignore body in sparse mode
+            if self.segstats.enable_sparse:
+                if gtbody not in self.segstats.important_bodies:
+                    ignorebodies.add(gtbody)
+                    continue
             if self._get_body_volume(overlapset) >= body_threshold:
                 gtbodies += 1
             else:
@@ -253,7 +258,7 @@ class count_stat(StatType):
         for (segbody, overlapset) in sotable.overlap_map.items():
             # filter is only applied to GT (as if bodies don't exist)
             # if a body no longer has volume, we can safely ignore
-            if self._get_body_volume(overlapset, ignorebodies) >= 0:
+            if self._get_body_volume(overlapset, ignorebodies) > 0:
                 segbodies += 1 
 
         # a larger/smaller value is not obviously better or worse
@@ -292,7 +297,12 @@ class count_stat(StatType):
             count += localcount
 
             # ignore small bodies if ignorebodies is not already set
+            # ignore bodies in sparse mode as well
             if ignorebodies is None:
+                if self.segstats.enable_sparse:
+                    if body not in self.segstats.important_bodies:
+                        ignorebodies_temp.add(body)
+                        continue
                 if localcount < body_threshold:
                     ignorebodies_temp.add(body)
                     continue
@@ -316,6 +326,11 @@ class count_stat(StatType):
             important_segbodies = {}
             # hungarian matching would probably be overkill
             for gt, overlapset in gotable.overlap_map.items():
+                # ignore body in sparse mode
+                if self.segstats.enable_sparse:
+                    if gt not in self.segstats.important_bodies:
+                        continue
+                
                 total = 0
                 max_id = 0
                 max_val = 0
@@ -381,6 +396,8 @@ class count_stat(StatType):
                 maxoverlap = 0
                 if body in important_segbodies:
                     maxoverlap = important_segbodies[body]
+                else:
+                    continue
 
                 if maxoverlap > best_size:
                     best_size = maxoverlap

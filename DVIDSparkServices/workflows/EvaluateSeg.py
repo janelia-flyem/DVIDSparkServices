@@ -135,6 +135,11 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "boolean",
           "default": false 
         },
+        "enable-sparse": {
+          "description": "Set flag ground truth is restricted to the set of specified bodies.",
+          "type": "boolean",
+          "default": false 
+        },
         "disable-subvolumes": {
           "description": "disables subvolume stats.  This could be useful if working with smaller volumes where such information is unnecessary.  It could also save memory / computation.",
           "type": "boolean",
@@ -209,28 +214,34 @@ class EvaluateSeg(DVIDWorkflow):
         # filter bodies if there is a body list from GT
         important_bodies = self.config_data["options"]["important-bodies"]
 
-        def filter_bodies(label_pairs):
-            from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
-            import numpy
+        if self.config_data["options"]["enable-sparse"]:
+            # if sparse mode is enable there should be a body list
+            assert (len(important_bodies) > 0)
+        else:
+            # should only filter bodies for non-sparse mode
+            # if the bodies densely cover the volume
+            def filter_bodies(label_pairs):
+                from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
+                import numpy
 
-            subvolume, labelgtc, label2c = label_pairs
+                subvolume, labelgtc, label2c = label_pairs
 
-            # extract numpy arrays
-            labelgt = labelgtc.deserialize()
-            
-            # filter bodies from gt
-            bodylist = numpy.unique(labelgt)
-            intersecting_bodies = set(bodylist).intersection(set(important_bodies))
-            mask = numpy.zeros(labelgt.shape)
-            for body in intersecting_bodies:
-                mask[labelgt==body] = 1
-            labelgt[mask==0] = 0
+                # extract numpy arrays
+                labelgt = labelgtc.deserialize()
+                
+                # filter bodies from gt
+                bodylist = numpy.unique(labelgt)
+                intersecting_bodies = set(bodylist).intersection(set(important_bodies))
+                mask = numpy.zeros(labelgt.shape)
+                for body in intersecting_bodies:
+                    mask[labelgt==body] = 1
+                labelgt[mask==0] = 0
 
-            # compress results
-            return (subvolume, CompressedNumpyArray(labelgt), label2c)
-       
-        if len(important_bodies) > 0:
-            lpairs = lpairs.mapValues(filter_bodies)
+                # compress results
+                return (subvolume, CompressedNumpyArray(labelgt), label2c)
+           
+            if len(important_bodies) > 0:
+                lpairs = lpairs.mapValues(filter_bodies)
 
         def _split_disjoint_labels(label_pairs):
             """Helper function: map subvolumes so disconnected bodies are different labels.

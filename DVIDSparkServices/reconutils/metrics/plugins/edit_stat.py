@@ -53,7 +53,7 @@ class edit_stat(StatType):
         
             # prune large bodies
             ignore_bodies = set()
-            for (gtbody, overlapset) in gotable.overlap_map.items():
+            for (gtbody, overlapset) in gotable.overlap_map.items(): 
                 if self._get_body_volume(overlapset) < body_threshold:
                     # ignore as if it never existed
                     ignore_bodies.add(gtbody)
@@ -68,6 +68,12 @@ class edit_stat(StatType):
                     if body2 in ignore_bodies:
                         continue
                     target += overlap
+
+                    # if sparse, still check if another body owns but don't count toward total
+                    if self.segstats.enable_sparse:
+                        if body2 not in self.segstats.important_bodies:
+                            target -= overlap
+                            body2 = 0 # map everything to the dummy body
                     if overlap > max_val:
                         max_val = overlap
                         max_id = body2
@@ -82,6 +88,12 @@ class edit_stat(StatType):
             for body, overlapset in gotable.overlap_map.items():
                 if body in ignore_bodies:
                     continue
+
+                # only look at sparse bodies
+                if self.segstats.enable_sparse:
+                    if body not in self.segstats.important_bodies:
+                        continue
+
                 temp_merge = []
                 for body2, overlap in overlapset:
                     # doesn't own body

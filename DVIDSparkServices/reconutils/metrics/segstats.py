@@ -7,7 +7,7 @@ It provides functionality to hold stats for a given volume and top-level
 functionality to combine volume stats together.
 """
 class SubvolumeStats(object):
-    def __init__(self, subvolume, voxelfilter=1000, ptfilter=10, num_displaybodies=100, nogt=False, selfcompare=False):
+    def __init__(self, subvolume, voxelfilter=1000, ptfilter=10, num_displaybodies=100, nogt=False, selfcompare=False, enable_sparse=False, important_bodies=None):
         # TODO: support for skeletons
         self.subvolumes = [subvolume]
         self.disable_subvolumes = False 
@@ -25,6 +25,8 @@ class SubvolumeStats(object):
         self.num_displaybodies = num_displaybodies
         self.nogt = nogt
         self.selfcompare = selfcompare
+        self.enable_sparse = enable_sparse
+        self.important_bodies = set(important_bodies)
     
     def compute_subvolume(self):
         """Performs metric computation for each stat and saves relevant state.

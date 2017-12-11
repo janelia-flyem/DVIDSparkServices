@@ -140,7 +140,6 @@ class vi_stat(StatType):
             sumstat["description"] = "Best False Merge VI for a Subvolume. Subvolume=%d" % val1[1]
             summarystats.append(sumstat)
 
-
         for name, val1 in self.fmergeworst.items():
             sumstat = {"name": "S-WRST-FM-VI", "higher-better": False, "typename": name, "val": round(val1[0], 4)}
             sumstat["description"] = "Worst False Merge VI for a Subvolume. Subvolume=%d" % val1[1]
@@ -239,6 +238,10 @@ class vi_stat(StatType):
                 # ignore as if it never existed
                 ignore_bodies.add(gtbody)
                 continue
+            # ignore bodies in sparse mode 
+            if self.segstats.enable_sparse:
+                if gtbody not in self.segstats.important_bodies:
+                    continue
 
             vi_unnorm, total, dummy = self._body_vi(overlapset)
             fsplit_bodies[gtbody] = vi_unnorm
@@ -259,7 +262,8 @@ class vi_stat(StatType):
             fmerge_vi += vi_unnorm
 
             for key, val in gtcontribs.items():
-                perbody[key] += val
+                if key in perbody:
+                    perbody[key] += val
         
         # TODO !! Add per body
         if glb_total == 0:
@@ -270,12 +274,18 @@ class vi_stat(StatType):
         
         for key, val in fmerge_bodies.items():
             fmerge_bodies[key] = round(val / float(glb_total),4)
-        
+       
+        # calculate total vi normalized by filtered bodies in sparse bmde
+        totalvi_perbody = 0
         for key, val in perbody.items():
             perbody[key] = round(val / float(glb_total),4)
+            totalvi_perbody += val
 
-
-        return round(fmerge_vi / float(glb_total),4), round(fsplit_vi / float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
+        if self.segstats.enable_sparse:
+            # use re-normlized vi for sparse mode
+            return round((totalvi_perbody - fsplit_vi) / float(glb_total), 4), round(fsplit_vi / float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
+        else:
+            return round(fmerge_vi / float(glb_total),4), round(fsplit_vi / float(glb_total),4), fmerge_bodies, fsplit_bodies, perbody 
 
 
     def _body_vi(self, overlapset):
@@ -322,6 +332,9 @@ class vi_stat(StatType):
                 total += overlap
             if total < body_threshold:
                 continue
+            if self.segstats.enable_sparse:
+                if body not in self.segstats.important_bodies:
+                    continue
             fsplit = fsplit_bodies[body]
             vitot = vi_bodies[body]
 
@@ -342,6 +355,7 @@ class vi_stat(StatType):
         worst_fmerge_body = 0
 
         # stats for worst vi and worst fsplit
+        
         bodystat3 = {"typename": gtoverlap.get_name(), "name": "Test Frag", "largest2smallest": True, "isgt": False}
         bodies3 = []
         
@@ -390,7 +404,10 @@ class vi_stat(StatType):
             bodystat2["bodies"] = dbodies2
             bodystat3["bodies"] = dbodies3
             bodystats.append(bodystat2)
-            bodystats.append(bodystat3)
+        
+            # disable body stats for false merge for sparse
+            if not self.segstats.enable_sparse:
+                bodystats.append(bodystat3)
         
         # body summary stats
         if summarystats is not None:
@@ -404,8 +421,10 @@ class vi_stat(StatType):
             sumstat["description"] = "Worst body fragmentation VI. GT body ID = %d" % worst_fsplit_body
             summarystats.append(sumstat)
 
-            sumstat = {"name": "B-WRST-TEST-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_fmerge, 4)}
-            sumstat["description"] = "Worst body fragmentation VI. Test body ID = %d" % worst_fmerge_body
-            summarystats.append(sumstat)
+            # disable body stats for false merge for sparse
+            if not self.segstats.enable_sparse:
+                sumstat = {"name": "B-WRST-TEST-FR", "higher-better": False, "typename": gtoverlap.get_name(), "val": round(worst_fmerge, 4)}
+                sumstat["description"] = "Worst body fragmentation VI. Test body ID = %d" % worst_fmerge_body
+                summarystats.append(sumstat)
  
 

@@ -116,6 +116,9 @@ class connectivity_stat(StatType):
         # find important bodies
         for b1, overlapset in table.items():
             # filter smalll bodies (do not consider)
+            if self.segstats.enable_sparse:
+                if b1 not in self.segstats.important_bodies:
+                    continue
             total = self._get_body_volume(overlapset)
             if total < threshold:
                 continue 
