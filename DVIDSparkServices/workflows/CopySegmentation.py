@@ -351,27 +351,32 @@ class CopySegmentation(Workflow):
 
     def _consolidate_and_pad(self, input_wall, scale, output_config, align=True, pad=True):
         """
-        Consolidate (align), and pad the given RDD of Bricks.
+        Consolidate (align), and pad the given BrickWall
 
-        scale: The pyramid scale of the data.
-        
-        output_config: The config settings for the output volume to align to and pad from
-        
-        align: If False, skip the alignment step. (Only use this if the bricks are already aligned.)
-        
-        pad: If False, skip the padding step
-        
         Note: UNPERSISTS the input data and returns the new, downsampled data.
+
+        Args:
+            scale: The pyramid scale of the data.
+            
+            output_config: The config settings for the output volume to align to and pad from
+            
+            align: If False, skip the alignment step.
+                  (Only use this if the bricks are already aligned.)
+            
+            pad: If False, skip the padding step
+        
+        Returns a pre-executed and persisted BrickWall.
         """
         output_writing_grid = Grid(output_config["geometry"]["message-block-shape"][::-1])
 
         if not align or output_writing_grid.equivalent_to(input_wall.grid):
             realigned_wall = input_wall
+            realigned_wall.persist_and_execute(f"Scale {scale}: Persisting pre-aligned bricks", logger)
         else:
             # Consolidate bricks to full-size, aligned blocks (shuffles data)
             realigned_wall = input_wall.realign_to_new_grid( output_writing_grid )
             realigned_wall.persist_and_execute(f"Scale {scale}: Shuffling bricks into alignment", logger)
-    
+
             # Discard original
             input_wall.unpersist()
         
