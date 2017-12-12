@@ -8,7 +8,7 @@ from libdvid import DVIDException
 
 from DVIDSparkServices.util import replace_default_entries
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
 
 from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter
@@ -175,7 +175,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         if resource_manager_client is None:
             # Dummy client
             resource_manager_client = ResourceManagerClient("", 0)
-        
+
         ##
         ## Store members
         ##
@@ -184,12 +184,23 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         self._bounding_box_zyx = bounding_box_zyx
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
 
+        # Memoized in the node_service property.
+        self._node_service = None
+
         ##
         ## Overwrite config entries that we might have modified
         ##
         volume_config["geometry"]["block-width"] = self._block_width
         volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
         volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
+
+    @property
+    def node_service(self):
+        if self._node_service is None:
+            # We don't pass the resource manager details here
+            # because we use the resource manager from python.
+            self._node_service = retrieve_node_service(self._server, self._uuid, "", "")
+        return self._node_service
 
     @property
     def dtype(self):
@@ -221,7 +232,8 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             return sparkdvid.get_voxels( self._server, self._uuid, self._instance_name,
                                          scale, self._instance_type, self._is_labels,
                                          shape, box_zyx[0],
-                                         throttle=throttle )
+                                         throttle=throttle,
+                                         node_service=self.node_service )
 
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.
@@ -236,4 +248,15 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             return sparkdvid.post_voxels( self._server, self._uuid, self._instance_name,
                                           scale, self._instance_type, self._is_labels,
                                           subvolume, offset_zyx,
-                                          throttle=throttle )
+                                          throttle=throttle,
+                                          node_service=self.node_service )
+
+    def __getstate__(self):
+        """
+        Pickle representation.
+        """
+        d = self.__dict__.copy()
+        # Don't attempt to pickle the DVIDNodeService (it isn't pickleable).
+        # Instead, set it to None so it will be lazily regenerated after unpickling.
+        d['_node_service'] = None
+        return d
