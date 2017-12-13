@@ -1,5 +1,3 @@
-import os
-from os.path import isabs, dirname
 import copy
 import json
 import logging
@@ -11,7 +9,8 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
 from DVIDSparkServices.io_util.brickwall import BrickWall
-from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_per_worker
+from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_per_worker,\
+    replace_default_entries
 from DVIDSparkServices.json_util import flow_style
 from DVIDSparkServices.workflow.workflow import Workflow
 
@@ -75,9 +74,16 @@ class ExportSlices(Workflow):
         """
         Tidy up some config values, and fill in 'auto' values where needed.
         """
+        input_config = self.config_data["input"]
         output_config = self.config_data["output"]
-        input_geometry = self.config_data["input"]["geometry"]
-        output_geometry = self.config_data["output"]["geometry"]
+
+        # Initialize dummy input/output services, just to overwrite 'auto' config values as needed.
+        VolumeService.create_from_config( input_config, self.config_dir )
+        replace_default_entries(output_config["geometry"]["bounding-box"], input_config["geometry"]["bounding-box"])
+        SliceFilesVolumeServiceWriter( output_config, self.config_dir )
+
+        input_geometry = input_config["geometry"]
+        output_geometry = output_config["geometry"]
         options = self.config_data["options"]
 
         # Output bounding-box must match exactly (or left as auto)
@@ -90,12 +96,12 @@ class ExportSlices(Workflow):
         output_geometry["bounding-box"] = copy.deepcopy(input_geometry["bounding-box"])
         
         assert output_config["slice-files"]["slice-xy-offset"] == [0,0], "Nonzero xy offset is meaningless for outputs."
-        assert output_geometry["message-block-shape"] == [-1, -1, 1], "Output must be Z-slices, and complete XY planes"
 
         if options["slices-per-slab"] == -1:
             # Auto-choose a depth that keeps all threads busy with at least one slice
             brick_shape_zyx = input_geometry["message-block-shape"][::-1]
             brick_depth = brick_shape_zyx[0]
+            assert brick_depth != -1
             num_threads = num_worker_nodes() * cpus_per_worker()
             threads_per_brick_layer = ((num_threads + brick_depth-1) // brick_depth) # round up
             options["slices-per-slab"] = brick_depth * threads_per_brick_layer
@@ -129,23 +135,24 @@ class ExportSlices(Workflow):
         slab_grid = Grid(slab_shape_zyx, (0, slice_start_y, slice_start_x))
         slab_boxes = list(clipped_boxes_from_grid(input_bb_zyx, slab_grid))
 
-        for slab_index, slab_box in enumerate(slab_boxes):
+        for slab_index, slab_box_zyx in enumerate(slab_boxes):
             # Contruct BrickWall from input bricks
             slab_config = copy.deepcopy(input_config)
-            slab_config["geometry"]["bounding-box"] = slab_box[:, ::-1].tolist()
+            slab_box_xyz = slab_box_zyx[:, ::-1].tolist()
+            slab_config["geometry"]["bounding-box"] = slab_box_xyz
             volume_service = VolumeService.create_from_config( slab_config, self.config_dir, mgr_client )
             bricked_slab_wall = BrickWall.from_volume_service(volume_service, self.sc)
-            
+
             # Force download
-            persist_and_execute(bricked_slab_wall.bricks, f"Downloading slab {slab_index}/{len(slab_boxes)} bricks", logger)
+            bricked_slab_wall.persist_and_execute(f"Downloading slab {slab_index}/{len(slab_boxes)}: {slab_box_xyz}", logger)
             
             # Remap to slice-sized "bricks"
-            sliced_grid = Grid(slice_shape_zyx, offset=slab_box[0])
+            sliced_grid = Grid(slice_shape_zyx, offset=slab_box_zyx[0])
             sliced_slab_wall = bricked_slab_wall.realign_to_new_grid( sliced_grid )
-            persist_and_execute(sliced_slab_wall.bricks, f"Assembling slab {slab_index}/{len(slab_boxes)} slices", logger)
+            sliced_slab_wall.persist_and_execute(f"Assembling slab {slab_index}/{len(slab_boxes)} slices", logger)
 
             # Discard original bricks
-            bricked_slab_wall.bricks.unpersist()
+            bricked_slab_wall.unpersist()
             del bricked_slab_wall
 
             def write_slice(brick):
@@ -157,7 +164,7 @@ class ExportSlices(Workflow):
             rt.foreach( write_slice, sliced_slab_wall.bricks )
             
             # Discard slice data
-            sliced_slab_wall.bricks.unpersist()
+            sliced_slab_wall.unpersist()
             del sliced_slab_wall
 
         logger.info(f"DONE exporting {len(slab_boxes)} slabs.", extra={'status': "DONE"})
