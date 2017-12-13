@@ -282,11 +282,17 @@ def replace_default_entries(array, default_array, marker=-1):
     Overwrite all entries in array that match the given
     marker with the corresponding entry in default_array.
     """
+    new_array = np.array(array)
     default_array = np.asarray(default_array)
-    assert isinstance(array, np.ndarray)
-    assert array.shape == default_array.shape
-    array[:] = np.where(array == marker, default_array, array)
+    assert new_array.shape == default_array.shape
+    new_array[:] = np.where(new_array == marker, default_array, new_array)
     
+    if isinstance(array, np.ndarray):
+        array[:] = new_array
+    elif isinstance(array, list):
+        array[:] = new_array.tolist()
+    else:
+        raise RuntimeError("This function supports arrays and lists, nothing else.")
 
 def mkdir_p(path):
     """
