@@ -5,7 +5,7 @@ from jsonschema import validate
 
 import z5py
 
-from DVIDSparkServices.util import box_to_slicing
+from DVIDSparkServices.util import box_to_slicing, replace_default_entries
 
 from . import VolumeServiceReader, GeometrySchema
 
@@ -63,16 +63,17 @@ class N5VolumeServiceReader(VolumeServiceReader):
 
         # Replace -1's in the message-block-shape with the corresponding chunk_shape dimensions.
         preferred_message_shape_zyx = np.array(volume_config["geometry"]["message-block-shape"][::-1])
+        replace_default_entries(preferred_message_shape_zyx, chunk_shape)
         missing_shape_dims = (preferred_message_shape_zyx == -1)
         preferred_message_shape_zyx[missing_shape_dims] = chunk_shape[missing_shape_dims]
         assert not (preferred_message_shape_zyx % chunk_shape).any(), \
             f"Expected message-block-shape ({preferred_message_shape_zyx}) to be a multiple of the chunk shape ({preferred_message_shape_zyx})"
 
         if chunk_shape[0] == chunk_shape[1] == chunk_shape[2]:
-            self._block_width = chunk_shape[0]
+            block_width = int(chunk_shape[0])
         else:
             # The notion of 'block-width' doesn't really make sense if the chunks aren't cubes.
-            self._block_width = None
+            block_width = -1
         
         auto_bb = np.array([(0,0,0), self.n5_dataset.shape])
 
@@ -84,8 +85,15 @@ class N5VolumeServiceReader(VolumeServiceReader):
         missing_bounds = (bounding_box_zyx == -1)
         bounding_box_zyx[missing_bounds] = auto_bb[missing_bounds]
 
+        # Store members
         self._bounding_box_zyx = bounding_box_zyx
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
+        self._block_width = block_width
+
+        # Overwrite config entries that we might have modified
+        volume_config["geometry"]["block-width"] = self._block_width
+        volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
+        volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
 
     @property
     def dtype(self):
