@@ -219,7 +219,7 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
             # The caller wants to be sure that the result can be
             # unpersisted safely without affecting the bricks he passed in,
             # so we return a *new* RDD, even though it's just a copy of the original.
-            return bricks.map(lambda brick: brick, bricks)
+            return rt.map( lambda brick: brick, bricks )
         return bricks
 
     # path is [gs://]/path/to/file.csv[.gz]
@@ -277,7 +277,7 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
         return partition_bricks
     
     # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
-    remapped_bricks = bricks.mapPartitions(remap_bricks)
+    remapped_bricks = rt.map_partitions( remap_bricks, bricks )
     persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
     if unpersist_original:
         unpersist(bricks)
