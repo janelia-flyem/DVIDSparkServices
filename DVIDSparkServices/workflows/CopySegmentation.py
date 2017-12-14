@@ -86,10 +86,6 @@ class CopySegmentation(Workflow):
     Schema["properties"]["input"]["description"] += "\n(Labelmap, if any, is applied post-read)"
     Schema["properties"]["outputs"]["description"] += "\n(Labelmaps, if any, are applied before writing for each volume.)"
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(CopySegmentation.Schema)
-
     @classmethod
     def schema(cls):
         return CopySegmentation.Schema
@@ -100,7 +96,7 @@ class CopySegmentation(Workflow):
 
     def __init__(self, config_filename):
         super(CopySegmentation, self).__init__( config_filename,
-                                                CopySegmentation.dumpschema(),
+                                                CopySegmentation.schema(),
                                                 "Copy Segmentation" )
 
     def _sanitize_config(self):

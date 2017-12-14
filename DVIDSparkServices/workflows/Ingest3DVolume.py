@@ -282,9 +282,9 @@ class Ingest3DVolume(Workflow):
       }
     }
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(Ingest3DVolume.Schema)
+    @classmethod
+    def schema(cls):
+        return Ingest3DVolume.Schema
 
 
     # name of application for DVID queries
@@ -300,7 +300,7 @@ class Ingest3DVolume(Workflow):
 
         Calls default init and sets option variables
         """
-        super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.dumpschema(), "Ingest 3D Volume")
+        super(Ingest3DVolume, self).__init__(config_filename, Ingest3DVolume.schema(), "Ingest 3D Volume")
 
     def _sanitize_config(self):
         """

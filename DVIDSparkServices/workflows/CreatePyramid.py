@@ -4,7 +4,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 
 class CreatePyramid(DVIDWorkflow):
     # schema for ingesting creating image pyramid 
-    Schema = """
+    Schema = \
 { "$schema": "http://json-schema.org/schema#",
   "title": "Tool to Create DVID block pyramid for DVID volume",
   "type": "object",
@@ -55,14 +55,17 @@ class CreatePyramid(DVIDWorkflow):
     }
   }
 }
-    """
+
+    @classmethod
+    def schema(cls):
+        return CreatePyramid.Schema
     
     # name of application for DVID queries
     APPNAME = "createpyramid"
     
     # calls the default initializer
     def __init__(self, config_filename):
-        super(CreatePyramid, self).__init__(config_filename, self.Schema, "Create Pyramid")
+        super(CreatePyramid, self).__init__(config_filename, self.schema(), "Create Pyramid")
 
     # creates tiles for dataset loaded as grayscale blocks
     def execute(self):
@@ -293,10 +296,6 @@ class CreatePyramid(DVIDWorkflow):
             xspan = (xspan-1) // 2
             yspan = (yspan-1) // 2
             zspan = (zspan-1) // 2
-
-    @staticmethod
-    def dumpschema():
-        return CreatePyramid.Schema
 
 
 

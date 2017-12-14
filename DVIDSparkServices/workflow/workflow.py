@@ -161,7 +161,7 @@ class Workflow(object):
 
         Args:
             jsonfile (dict): json config data for workflow
-            schema (dict): json schema for workflow
+            schema (dict): json schema for workflow (already loaded as dict)
             appname (str): name of the spark application
 
         """
@@ -169,9 +169,7 @@ class Workflow(object):
         if not jsonfile.startswith('http'):
             jsonfile = os.path.abspath(jsonfile)
         self.config_path = jsonfile
-
         self.config_data = None
-        schema_data = json.loads(schema)
 
         try:
             ext = os.path.splitext(jsonfile)[1]
@@ -188,7 +186,7 @@ class Workflow(object):
 
         # validate JSON
         try:
-            validate_and_inject_defaults(self.config_data, schema_data)
+            validate_and_inject_defaults(self.config_data, schema)
         except ValidationError as e:
             raise WorkflowError("Validation error: ", str(e))
 
@@ -590,16 +588,9 @@ class Workflow(object):
         raise WorkflowError("No execution function provided")
 
 
-    # make this an explicit abstract method ??
-    @classmethod
-    def dumpschema(cls):
-        """Children must provide their own json specification"""
-
-        raise WorkflowError("Derived class must provide a schema")
-
     @classmethod
     def schema(cls):
-        return json.loads( cls.dumpschema() )
+        raise NotImplementedError
 
     @classmethod
     def default_config(cls, syntax="json"):

@@ -5,7 +5,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 
 class CreateTiles2(DVIDWorkflow):
     # schema for ingesting grayscale
-    Schema = """
+    Schema = \
 { "$schema": "http://json-schema.org/schema#",
   "title": "Tool to Create DVID blocks from image slices",
   "type": "object",
@@ -64,13 +64,16 @@ class CreateTiles2(DVIDWorkflow):
   },
   "required" : ["minslice", "maxslice", "basename"]
 }
-    """
+
+    @classmethod
+    def schema(cls):
+        return CreateTiles2.Schema
 
     APPNAME = "createtiles2"
 
     # calls the default initializer
     def __init__(self, config_filename):
-        super(CreateTiles2, self).__init__(config_filename, self.Schema, "Create Tiles2")
+        super(CreateTiles2, self).__init__(config_filename, self.schema(), "Create Tiles2")
 
     # creates tiles for dataset loaded as grayscale blocks
     def execute(self):
@@ -198,10 +201,6 @@ class CreateTiles2(DVIDWorkflow):
                         buf.close()
 
         npy_images.foreach(writeimagepyramid)
-
-    @staticmethod
-    def dumpschema():
-        return CreateTiles2.Schema
 
 
 

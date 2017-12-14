@@ -48,16 +48,16 @@ class DVIDCheckSegmentation(Workflow):
         }
     }
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(DVIDCheckSegmentation.Schema)
+    @classmethod
+    def schema(cls):
+        return DVIDCheckSegmentation.Schema
 
     # name of application for DVID queries
     APPNAME = "dvidchecksegmentation"
 
     def __init__(self, config_filename):
         super(DVIDCheckSegmentation, self).__init__( config_filename,
-                                                DVIDCheckSegmentation.dumpschema(),
+                                                DVIDCheckSegmentation.schema(),
                                                 "Check DVID Segmentation" )
 
     def _sanitize_config(self):

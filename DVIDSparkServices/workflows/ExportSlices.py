@@ -57,10 +57,6 @@ class ExportSlices(Workflow):
 
 
     @classmethod
-    def dumpschema(cls):
-        return json.dumps(ExportSlices.Schema)
-
-    @classmethod
     def schema(cls):
         return ExportSlices.Schema
 
@@ -68,7 +64,7 @@ class ExportSlices(Workflow):
     APPNAME = "ExportSlices".lower()
 
     def __init__(self, config_filename):
-        super().__init__( config_filename, ExportSlices.dumpschema(), "Export Slices" )
+        super().__init__( config_filename, ExportSlices.schema(), "Export Slices" )
 
     def _sanitize_config(self):
         """

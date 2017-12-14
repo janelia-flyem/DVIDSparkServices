@@ -1,12 +1,11 @@
 """Framework for large-scale connected components over an ROI."""
 from __future__ import print_function, absolute_import
 from __future__ import division
-import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 
 class ConnectedComponents(DVIDWorkflow):
     # schema for creating segmentation
-    Schema = textwrap.dedent("""\
+    Schema = \
     {
       "$schema": "http://json-schema.org/schema#",
       "title": "Service to create connected components from segmentation",
@@ -43,7 +42,7 @@ class ConnectedComponents(DVIDWorkflow):
             }
           },
           "required": ["dvid-server", "uuid", "roi", "segmentation", "newsegmentation"],
-          "additionalProperties": false
+          "additionalProperties": False
         },
         "options" : {
           "type": "object",
@@ -56,14 +55,17 @@ class ConnectedComponents(DVIDWorkflow):
             "debug": {
               "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
               "type": "boolean",
-              "default": false
+              "default": False
             }
           },
-          "additionalProperties": true
+          "additionalProperties": True
         }
       }
     }
-    """)
+
+    @classmethod
+    def schema(cls):
+        return ConnectedComponents.Schema
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -73,7 +75,7 @@ class ConnectedComponents(DVIDWorkflow):
 
     def __init__(self, config_filename):
         # ?! set number of cpus per task to 2 (make dynamic?)
-        super(ConnectedComponents, self).__init__(config_filename, self.Schema, "ConnectedComponents")
+        super(ConnectedComponents, self).__init__(config_filename, self.schema(), "ConnectedComponents")
 
 
     # (stitch): => flatmap to boundary, id, cropped labels => reduce to common boundaries maps
@@ -158,7 +160,3 @@ class ConnectedComponents(DVIDWorkflow):
         self.sparkdvid_context.foreach_write_labels3d(self.config_data["dvid-info"]["newsegmentation"], mapped_seg_chunks)
         self.workflow_entry_exit_printer.write_data("Wrote DVID labels") # write to logger after spark job
 
-
-    @staticmethod
-    def dumpschema():
-        return ConnectedComponents.Schema

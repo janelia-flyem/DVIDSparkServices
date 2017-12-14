@@ -17,7 +17,6 @@ from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
-from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
@@ -161,12 +160,12 @@ class CreateSkeletons(Workflow):
       }
     }
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(CreateSkeletons.Schema)
+    @classmethod
+    def schema(cls):
+        return CreateSkeletons.Schema
 
     def __init__(self, config_filename):
-        super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
+        super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.schema(), "CreateSkeletons")
         
     def _sanitize_config(self):
         # Convert failed-mask-dir to absolute path

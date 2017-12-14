@@ -53,7 +53,7 @@ def main():
 
     # print the json schema for the given workflow
     if args.dump_schema:
-        print(workflow_cls.dumpschema())
+        print(json.dumps(workflow_cls.schema(), indent=2))
         return
 
     if args.dump_default_json:

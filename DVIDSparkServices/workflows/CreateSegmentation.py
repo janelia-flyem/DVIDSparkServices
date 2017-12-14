@@ -174,9 +174,9 @@ class CreateSegmentation(DVIDWorkflow):
           }
      }
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(CreateSegmentation.Schema)
+    @classmethod
+    def schema(cls):
+        return CreateSegmentation.Schema
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -186,7 +186,7 @@ class CreateSegmentation(DVIDWorkflow):
 
     def __init__(self, config_filename):
         # ?! set number of cpus per task to 2 (make dynamic?)
-        super(CreateSegmentation, self).__init__(config_filename, CreateSegmentation.dumpschema(), "Create segmentation")
+        super(CreateSegmentation, self).__init__(config_filename, CreateSegmentation.schema(), "Create segmentation")
 
     # (stitch): => flatmap to boundary, id, cropped labels => reduce to common boundaries maps
     # => flatmap substack and boundary mappings => take ROI max id collect, join offsets with boundary

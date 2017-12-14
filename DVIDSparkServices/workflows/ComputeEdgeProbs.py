@@ -10,7 +10,6 @@ weight as affinity is pushed to either DVID labelgraph or to disk.
 """
 from __future__ import print_function, absolute_import
 from __future__ import division
-import textwrap
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 import DVIDSparkServices
 from functools import partial
@@ -21,7 +20,7 @@ from DVIDSparkServices.util import NumpyConvertingEncoder
 
 class ComputeEdgeProbs(DVIDWorkflow):
     # schema for creating segmentation
-    Schema = textwrap.dedent("""\
+    Schema = \
     {
       "$schema": "http://json-schema.org/schema#",
       "title": "Service to compute affinity between image segments given grayscale data and labels",
@@ -62,7 +61,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
             }
           },
           "required": ["dvid-server", "uuid", "roi", "grayscale", "segmentation-name", "graph-name"],
-          "additionalProperties": false
+          "additionalProperties": False
         },
         "options" : {
           "type": "object",
@@ -108,19 +107,22 @@ class ComputeEdgeProbs(DVIDWorkflow):
             "checkpoint": {
               "description": "Reuse previous edge features computed",
               "type": "boolean",
-              "default": false
+              "default": False
             },
             "debug": {
               "description": "Enable certain debugging functionality.  Mandatory for integration tests.",
               "type": "boolean",
-              "default": false
+              "default": False
             }
           },
           "required": ["predict-voxels", "segment-classifier"]
         }
       }
     }
-    """)
+
+    @classmethod
+    def schema(cls):
+        return ComputeEdgeProbs.Schema
 
     # assume blocks are 32x32x32
     blocksize = 32
@@ -131,7 +133,7 @@ class ComputeEdgeProbs(DVIDWorkflow):
     contextbuffer = 20
 
     def __init__(self, config_filename):
-        super(ComputeEdgeProbs, self).__init__(config_filename, self.Schema, "ComputeEdgeProbs")
+        super(ComputeEdgeProbs, self).__init__(config_filename, self.schema(), "ComputeEdgeProbs")
 
     def execute(self):
         # TODO: handle 64 bit segmentation
@@ -460,7 +462,3 @@ class ComputeEdgeProbs(DVIDWorkflow):
             npgraph["edge_list"] = edgelist
             fout = open(filename, 'w')
             fout.write(json.dumps(npgraph, cls=NumpyConvertingEncoder))
-
-    @staticmethod
-    def dumpschema():
-        return ComputeEdgeProbs.Schema

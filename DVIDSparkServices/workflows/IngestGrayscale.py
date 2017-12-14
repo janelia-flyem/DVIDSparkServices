@@ -5,7 +5,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 
 class IngestGrayscale(Workflow):
     # schema for ingesting grayscale
-    Schema = """
+    Schema = \
 { "$schema": "http://json-schema.org/schema#",
   "title": "Tool to Create DVID blocks from image slices",
   "type": "object",
@@ -91,20 +91,23 @@ class IngestGrayscale(Workflow):
           "default": 1
         }
       },
-      "additionalProperties": true,
+      "additionalProperties": True,
       "default" : {}
     }
   },
   "required" : ["minslice", "maxslice", "basename"]
 }
-    """
+
+    @classmethod
+    def schema(cls):
+        return IngestGrayscale.Schema
 
     # name of application for DVID queries
     APPNAME = "blockingest"
 
     # calls the default initializer
     def __init__(self, config_filename):
-        super(IngestGrayscale, self).__init__(config_filename, self.Schema, "Ingest Grayscale")
+        super(IngestGrayscale, self).__init__(config_filename, self.schema(), "Ingest Grayscale")
         
         # block size default
         self.BLKSIZE = self.config_data["options"]["blocksize"]
@@ -382,10 +385,4 @@ class IngestGrayscale(Workflow):
             if not server.startswith("http://"):
                 server = "http://" + server
             requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
-
-    @staticmethod
-    def dumpschema():
-        return IngestGrayscale.Schema
-
-
 

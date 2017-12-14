@@ -7,7 +7,7 @@ from DVIDSparkServices.util import NumpyConvertingEncoder
 
 class EvaluateSeg(DVIDWorkflow):
     # schema for evaluating segmentation
-    Schema = """
+    Schema = \
 { "$schema": "http://json-schema.org/schema#",
   "title": "Tool to Create DVID blocks from image slices",
   "type": "object",
@@ -40,7 +40,7 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "array",
           "items": { "type": "string", "minLength": 2 },
           "minItems": 0,
-          "uniqueItems": true
+          "uniqueItems": True
         },
         "stats-location": {
           "description": "Location of final results (JSON file) stored on DVID.  If there are already results present at that name, a unique number will be appended to the file name",
@@ -89,12 +89,12 @@ class EvaluateSeg(DVIDWorkflow):
                 "description": "custom parameters for metric.",
                 "type" : "object",
                 "default" : {},
-                "additionalProperties": true
+                "additionalProperties": True
               }
             }
           },
           "minItems": 0,
-          "uniqueItems": true,
+          "uniqueItems": True,
           "default": [{"name": "rand"}, {"name": "vi"}, {"name": "count"}, {"name": "connectivity"}, {"name": "edit"}]
         },
         "body-threshold": {
@@ -127,23 +127,23 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "array",
           "items": {"type": "number"},
           "minItems": 0,
-          "uniqueItems": true,
+          "uniqueItems": True,
           "default": []
         },
         "no-gt": {
           "description": "Set flag if neither volume is ground truth.",
           "type": "boolean",
-          "default": false 
+          "default": False 
         },
         "enable-sparse": {
           "description": "Set flag ground truth is restricted to the set of specified bodies.",
           "type": "boolean",
-          "default": false 
+          "default": False 
         },
         "disable-subvolumes": {
           "description": "disables subvolume stats.  This could be useful if working with smaller volumes where such information is unnecessary.  It could also save memory / computation.",
           "type": "boolean",
-          "default": false 
+          "default": False 
         },
         "user-name": {
           "description": "Name of person submitting the job",
@@ -154,7 +154,11 @@ class EvaluateSeg(DVIDWorkflow):
     }
   }
 }
-"""
+
+
+    @classmethod
+    def schema(cls):
+        return EvaluateSeg.Schema
 
     # TODO:!! GT cut-off/list should probably be added
     # directly at the GT itself to indicate completeness.  Could also
@@ -169,7 +173,7 @@ class EvaluateSeg(DVIDWorkflow):
     writelocation = "seg-metrics"
 
     def __init__(self, config_filename):
-        super(EvaluateSeg, self).__init__(config_filename, self.Schema, "Evaluate Segmentation")
+        super(EvaluateSeg, self).__init__(config_filename, self.schema(), "Evaluate Segmentation")
    
     def execute(self):
         # imports here so that schema can be retrieved without installation
@@ -340,7 +344,3 @@ class EvaluateSeg(DVIDWorkflow):
         node_service.create_keyvalue(self.writelocation)
         node_service.put(self.writelocation, fileloc, json.dumps(stats, cls=NumpyConvertingEncoder).encode('utf-8'))
 
-
-    @staticmethod
-    def dumpschema():
-        return EvaluateSeg.Schema

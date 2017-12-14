@@ -201,6 +201,11 @@ if __name__ == "__main__":
                     "inner-object-2": {
                         "description": "This is an inner object integer",
                         "type": "integer"
+                    },
+                    "inner-list": {
+                        "description": "This is a list, and the default should be shown in flow-style",
+                        "type": "array",
+                        "default": flow_style([1,2,3])
                     }
                 },
                 "default": {} # <-- MUST PROVIDE DEFAULT OBJECT
@@ -212,7 +217,7 @@ if __name__ == "__main__":
     
     obj1 = {}
     DefaultValidatingDraft4Validator(schema).validate(obj1)
-    assert obj1 == {'outer-object': {'inner-object': 'INNER-DEFAULT'}}
+    assert obj1 == {'outer-object': {'inner-object': 'INNER-DEFAULT', "inner-list": [1,2,3]}}
     assert obj1['outer-object'].from_default
 
     print("obj1:")
