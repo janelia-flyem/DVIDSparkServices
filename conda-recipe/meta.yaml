@@ -54,6 +54,7 @@ requirements:
     - ruamel.yaml >=0.15.34 # Required for YAML 1.2 support (pyyaml supports 1.1)
     - z5py
     - google-cloud-storage
+    - tblib
     
     # Needed for brainmaps support:
     - httplib2
