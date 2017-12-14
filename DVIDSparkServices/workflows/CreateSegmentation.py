@@ -70,7 +70,8 @@ class CreateSegmentation(DVIDWorkflow):
      }
 
     OptionsSchema = copy.copy(DVIDWorkflow.OptionsSchema)
-    OptionsSchema["required"] += ["stitch-algorithm"]
+    required = OptionsSchema.setdefault("required", [])
+    required += ["stitch-algorithm"]
     OptionsSchema["properties"].update(
     {
         "segmentor": {

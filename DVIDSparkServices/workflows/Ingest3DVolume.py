@@ -208,20 +208,10 @@ class Ingest3DVolume(Workflow):
         "offset": {
           "description": "Offset (x,y,z) for loading data (z will be added to the minslice specified)",
           "type": "array",
-          "items": [
-            { 
-              "type": "integer",
-              "default": 0
-            },
-            { 
-              "type": "integer",
-              "default": 0
-            },
-            { 
-              "type": "integer",
-              "default": 0
-            }
-          ]
+            "minItems": 3,
+            "maxItems": 3,
+          "items": { "type": "integer" },
+          "default": [0,0,0]
         },
         "blockwritelimit": {
            "description": "Maximum number of blocks written per task request (0=no limit)",
@@ -254,7 +244,8 @@ class Ingest3DVolume(Workflow):
             "default": -1
         },
         "skipped-pyramid-levels": {
-            "description": "List of pyramid levels to skip writing to DVID.  (They will still be computed, but not written.)",
+            "description": "List of pyramid levels to skip writing to DVID.\n"
+                           "(They will still be computed, but not written.)",
             "type": "array",
             "items": { "type": "integer" },
             "minItems": 0,

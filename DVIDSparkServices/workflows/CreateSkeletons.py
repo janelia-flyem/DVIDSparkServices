@@ -34,16 +34,16 @@ class CreateSkeletons(Workflow):
     SkeletonDvidInfoSchema["properties"]["dvid"]["properties"].update(
     {
         "skeletons-destination": {
-            "description": "Name of key-value instance to store the skeletons. "
-                           "By convention, this should usually be {segmentation-name}_skeletons, "
-                           "which will be used by default if you don't provide this setting.",
+            "description": "Name of key-value instance to store the skeletons. \n"
+                           "By convention, this should usually be {segmentation-name}_skeletons, \n"
+                           "which will be used by default if you don't provide this setting.\n",
             "type": "string",
             "default": ""
         },
         "meshes-destination": {
-            "description": "Name of key-value instance to store the meshes. "
-                           "By convention, this should usually be {segmentation-name}_meshes, "
-                           "which will be used by default if you don't provide this setting.",
+            "description": "Name of key-value instance to store the meshes. \n"
+                           "By convention, this should usually be {segmentation-name}_meshes, \n"
+                           "which will be used by default if you don't provide this setting.\n",
             "type": "string",
             "default": ""
         }
@@ -52,20 +52,21 @@ class CreateSkeletons(Workflow):
     MeshGenerationSchema = \
     {
         "type": "object",
+        "description": "Mesh generation settings",
         "default": {},
         "properties": {
             "simplify-ratio": {
-                "description": "Mesh simplification aims to reduce the number of "
-                               "mesh vertices in the mesh to a fraction of the original mesh. "
-                               "This ratio is the fraction to aim for.  To disable simplification, use 1.0.",
+                "description": "Mesh simplification aims to reduce the number of \n"
+                               "mesh vertices in the mesh to a fraction of the original mesh. \n"
+                               "This ratio is the fraction to aim for.  To disable simplification, use 1.0.\n",
                 "type": "number",
                 "minimum": 0.0000001,
                 "maximum": 1.0,
                 "default": 0.2 # Set to 1.0 to disable.
             },
             "step-size": {
-                "description": "Passed to skimage.measure.marching_cubes_lewiner()."
-                               "Larger values result in coarser results via faster computation.",
+                "description": "Passed to skimage.measure.marching_cubes_lewiner().\n"
+                               "Larger values result in coarser results via faster computation.\n",
                 "type": "integer",
                 "default": 1
             },
@@ -77,7 +78,8 @@ class CreateSkeletons(Workflow):
                 "default": "obj"
             },
             "use-subprocesses": {
-                "description": "Whether or not to generate meshes in a subprocess, to protect against timeouts and failures.",
+                "description": "Whether or not to generate meshes in a subprocess, \n"
+                               "to protect against timeouts and failures.\n",
                 "type": "boolean",
                 "default": False
             }
@@ -102,45 +104,47 @@ class CreateSkeletons(Workflow):
             "default": 1e6
         },
         "downsample-factor": {
-            "description": "Minimum factor by which to downsample bodies before skeletonization. "
-                           "NOTE: If the object is larger than max-analysis-volume, even after "
-                           "downsampling, then it will be downsampled even further before skeletonization. "
-                           "The comments in the generated SWC file will indicate the final-downsample-factor.",
+            "description": "Minimum factor by which to downsample bodies before skeletonization. \n"
+                           "NOTE: If the object is larger than max-analysis-volume, even after \n"
+                           "downsampling, then it will be downsampled even further before skeletonization. \n"
+                           "The comments in the generated SWC file will indicate the final-downsample-factor. \n",
             "type": "integer",
             "default": 1
         },
         "max-analysis-volume": {
-            "description": "The above downsample-factor will be overridden if the body would still "
-                           "be too large to skeletonize, as defined by this setting.",
+            "description": "The above downsample-factor will be overridden if the body would still \n"
+                           "be too large to skeletonize, as defined by this setting.\n",
             "type": "number",
             "default": 1e9 # 1 GB max
         },
         "downsample-timeout": {
-            "description": "The maximum time to wait for an object to be downsampled before skeletonization. "
-                           "If timeout is exceeded, the an error is logged and the object is skipped."
-                           "IGNORED IF downsample-in-subprocess is False",
+            "description": "The maximum time to wait for an object to be downsampled before skeletonization. \n"
+                           "If timeout is exceeded, the an error is logged and the object is skipped.\n"
+                           "IGNORED IF downsample-in-subprocess is False\n",
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
         "downsample-in-subprocess":  {
             "description": "Collect and downsample each object in a subprocess, to protect against timeouts and failures.\n"
-                           "Must be True for downsample-timeout to have any effect.",
+                           "Must be True for downsample-timeout to have any effect.\n",
             "type": "boolean",
             "default": True
         },
         "analysis-timeout": {
-            "description": "The maximum time to wait for an object to be skeletonized or meshified. "
-                           "If timeout is exceeded, the an error is logged and the object is skipped.",
+            "description": "The maximum time to wait for an object to be skeletonized or meshified. \n"
+                           "If timeout is exceeded, the an error is logged and the object is skipped.\n",
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
         "failed-mask-dir": {
-            "description": "Volumes that fail to skeletonize (due to timeout) will be written out as h5 files to this directory.",
+            "description": "Volumes that fail to skeletonize (due to timeout) will \n"
+                           "be written out as h5 files to this directory.",
             "type": "string",
             "default": "./failed-masks"
         },
         "write-mask-stats":  {
-            "description": "Debugging feature.  Writes a CSV file containing information about the body masks computed during the job.",
+            "description": "Debugging feature.  Writes a CSV file containing \n"
+                           "information about the body masks computed during the job.",
             "type": "boolean",
             "default": False
         }

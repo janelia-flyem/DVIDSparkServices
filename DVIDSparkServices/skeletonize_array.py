@@ -85,6 +85,7 @@ SkeletonConfigSchema = \
   #"$schema": "http://json-schema.org/schema#",
   #"title": "Skeletonization config file",
   "type": "object",
+  "description": "Skeletonization settings passed directly to the neutube library",
   "default": {},
   "properties": {
     "downsampleInterval": {

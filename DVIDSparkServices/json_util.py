@@ -122,7 +122,10 @@ def extend_with_default_without_validation(validator_class, include_yaml_comment
                     instance[property] = "{{NO_DEFAULT}}"
 
             if include_yaml_comments and "description" in subschema:
-                instance.yaml_set_comment_before_after_key(property, '\n' + subschema["description"], instance.key_indent)
+                comment = '\n' + subschema["description"]
+                if comment[-1] == '\n':
+                    comment = comment[:-1]
+                instance.yaml_set_comment_before_after_key(property, comment, instance.key_indent)
 
         for _error in validate_properties(validator, properties, instance, schema):
             # Ignore validation errors

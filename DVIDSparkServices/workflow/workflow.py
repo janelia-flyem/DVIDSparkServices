@@ -57,6 +57,7 @@ class Workflow(object):
     OptionsSchema = \
     {
         "type": "object",
+        "description": "Options",
         "default": {},
         "additionalProperties": True,
 
