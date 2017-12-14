@@ -11,7 +11,6 @@ from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_per_worker,\
     replace_default_entries
-from DVIDSparkServices.json_util import flow_style
 from DVIDSparkServices.workflow.workflow import Workflow
 
 from DVIDSparkServices.io_util.volume_service import VolumeService, GrayscaleVolumeSchema, SliceFilesVolumeSchema, SliceFilesVolumeServiceWriter
@@ -49,11 +48,11 @@ class ExportSlices(Workflow):
     # Adjust defaults for this workflow in particular
     Schema["properties"]["output"]\
             ["properties"]["geometry"]\
-              ["properties"]["message-block-shape"]["default"] = flow_style([-1, -1, 1])
+              ["properties"]["message-block-shape"]["default"] = [-1, -1, 1]
 
     Schema["properties"]["output"]\
             ["properties"]["geometry"]\
-              ["properties"]["bounding-box"]["default"] = flow_style([[-1, -1, -1], [-1, -1, -1]])
+              ["properties"]["bounding-box"]["default"] = [[-1, -1, -1], [-1, -1, -1]]
 
 
     @classmethod

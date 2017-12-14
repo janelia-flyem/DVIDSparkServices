@@ -88,6 +88,19 @@ def extend_with_default_without_validation(validator_class, include_yaml_comment
                 continue
             if "default" in subschema:
                 default = copy.deepcopy(subschema["default"])
+                
+                if isinstance(default, list):
+                    try:
+                        # Lists of numbers should use 'flow style'
+                        # and so should lists-of-lists of numbers
+                        # (e.g. bounding boxes like [[0,0,0],[1,2,3]])
+                        if ( subschema["items"]["type"] in ("integer", "number") or
+                             ( subschema["items"]["type"] == "array" and 
+                               subschema["items"]["items"]["type"] in ("integer", "number") ) ):
+                            default = flow_style(default)
+                    except KeyError:
+                        pass
+                
                 if include_yaml_comments and isinstance(default, dict):
                     default = CommentedMap(default)
                     # To keep track of the current indentation level,
@@ -203,9 +216,10 @@ if __name__ == "__main__":
                         "type": "integer"
                     },
                     "inner-list": {
-                        "description": "This is a list, and the default should be shown in flow-style",
+                        "description": "This is a list, and the default YAML style should be shown in flow-style",
                         "type": "array",
-                        "default": flow_style([1,2,3])
+                        "items": { "type": "integer" }, # <-- Must set "type": "integer" for flow style to be applied in YAML dumps
+                        "default": [1,2,3]
                     }
                 },
                 "default": {} # <-- MUST PROVIDE DEFAULT OBJECT
