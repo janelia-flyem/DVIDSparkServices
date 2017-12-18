@@ -1,5 +1,4 @@
 import copy
-import json
 import logging
 
 import numpy as np
@@ -9,8 +8,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
 from DVIDSparkServices.io_util.brickwall import BrickWall
-from DVIDSparkServices.util import persist_and_execute, num_worker_nodes, cpus_per_worker,\
-    replace_default_entries
+from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries
 from DVIDSparkServices.workflow.workflow import Workflow
 
 from DVIDSparkServices.io_util.volume_service import VolumeService, GrayscaleVolumeSchema, SliceFilesVolumeSchema, SliceFilesVolumeServiceWriter
@@ -108,6 +106,8 @@ class ExportSlices(Workflow):
         input_config = self.config_data["input"]
         output_config = self.config_data["output"]
         options = self.config_data["options"]
+
+        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
 
         mgr_client = ResourceManagerClient( options["resource-server"],
                                             options["resource-port"] )
