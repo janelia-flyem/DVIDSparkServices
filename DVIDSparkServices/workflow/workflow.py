@@ -24,6 +24,9 @@ yaml = YAML(typ='rt')
 yaml.default_flow_style = False
 
 from quilted.filelock import FileLock
+
+from dvid_resource_manager.server import DEFAULT_CONFIG as DEFAULT_RESOURCE_MANAGER_CONFIG
+
 from DVIDSparkServices import cleanup_faulthandler
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
 from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults
@@ -77,7 +80,7 @@ class Workflow(object):
             },
             "resource-server-config": {
                 "type": "object",
-                "default": {},
+                "default": DEFAULT_RESOURCE_MANAGER_CONFIG,
                 "additionalProperties": True
             },
 
