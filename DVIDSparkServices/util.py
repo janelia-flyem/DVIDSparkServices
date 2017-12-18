@@ -290,7 +290,14 @@ def replace_default_entries(array, default_array, marker=-1):
     if isinstance(array, np.ndarray):
         array[:] = new_array
     elif isinstance(array, list):
-        array[:] = new_array.tolist()
+        # Slicewise assignment is broken for Ruamel sequences,
+        # which are often passed to this function.
+        # array[:] = new_array.list() # <-- broken
+        # https://bitbucket.org/ruamel/yaml/issues/176/commentedseq-does-not-support-slice
+        #
+        # Use one-by-one item assignment instead:
+        for i,val in enumerate(new_array.tolist()):
+            array[i] = val
     else:
         raise RuntimeError("This function supports arrays and lists, nothing else.")
 
