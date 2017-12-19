@@ -1,3 +1,4 @@
+
 """Defines class for compressing/decompressing numpy arrays.
 
 Some numpy datasets are very large but sparse in label information.
@@ -25,6 +26,7 @@ else:
 import numpy as np
 import lz4
 import logging
+import warnings
 
 def activate_compressed_numpy_pickling():
     """
@@ -59,6 +61,7 @@ class CompressedNumpyArray(object):
     def __init__(self, numpy_array):
         """Serializes and compresses the numpy array with LZ4"""
         
+        self.raw_buffer = None # only used if we can't compress
         self.serialized_subarrays = []
         if numpy_array.flags['F_CONTIGUOUS']:
             self.layout = 'F'
@@ -71,13 +74,24 @@ class CompressedNumpyArray(object):
         self.dtype = numpy_array.dtype
         self.shape = numpy_array.shape
 
-        # For 1D or 0D arrays, serialize everything in one buffer.
         if numpy_array.ndim <= 1:
-            self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
+            slice_bytes = numpy_array.nbytes
         else:
-            # For ND arrays, serialize each slice independently, to ease RAM usage
-            for subarray in numpy_array:
-                self.serialized_subarrays.append( self.serialize_subarray(subarray) )
+            slice_bytes = numpy_array[0].nbytes
+        
+        if slice_bytes > CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE:
+            warnings.warn("Array is too large to compress -- not compressing.")
+            if not numpy_array.flags['C_CONTIGUOUS']:
+                numpy_array = numpy_array.copy(order='C')
+            self.raw_buffer = bytearray(numpy_array)
+        else:
+            # For 1D or 0D arrays, serialize everything in one buffer.
+            if numpy_array.ndim <= 1:
+                self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
+            else:
+                # For ND arrays, serialize each slice independently, to ease RAM usage
+                for subarray in numpy_array:
+                    self.serialized_subarrays.append( self.serialize_subarray(subarray) )
 
     @property
     def compressed_nbytes(self):
@@ -94,22 +108,26 @@ class CompressedNumpyArray(object):
         # Buffers larger than 1 GB would overflow
         # We could fix this by slicing each slice into smaller pieces...
         assert subarray.nbytes <= cls.MAX_LZ4_BUFFER_SIZE, \
-            "FIXME: This class doesn't support arrays whose slices are each > 1 GB"
+            "FIXME: This class doesn't support compression of arrays whose slices are each > 1 GB"
         
         return lz4.compress( subarray )
         
     def deserialize(self):
         """Extract the numpy array"""
-        numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
-        
-        # See serialization of 1D and 0D arrays, above.
-        if numpy_array.ndim <= 1:
-            buf = lz4.uncompress(self.serialized_subarrays[0])
-            numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
+        if self.raw_buffer is not None:
+            # Compression was not used.
+            numpy_array = np.frombuffer(self.raw_buffer, dtype=self.dtype).reshape(self.shape)
         else:
-            for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
-                buf = lz4.uncompress(serialized_subarray)
-                subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
+            numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
+            
+            # See serialization of 1D and 0D arrays, above.
+            if numpy_array.ndim <= 1:
+                buf = lz4.uncompress(self.serialized_subarrays[0])
+                numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
+            else:
+                for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
+                    buf = lz4.uncompress(serialized_subarray)
+                    subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
          
         if self.layout == 'F':
             numpy_array = numpy_array.transpose()
