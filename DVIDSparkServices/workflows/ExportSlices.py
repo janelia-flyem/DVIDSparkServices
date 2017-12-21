@@ -8,7 +8,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
 from DVIDSparkServices.io_util.brickwall import BrickWall
-from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries
+from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries, Timer
 from DVIDSparkServices.workflow.workflow import Workflow
 
 from DVIDSparkServices.io_util.volume_service import VolumeService, GrayscaleVolumeSchema, SliceFilesVolumeSchema, SliceFilesVolumeServiceWriter
@@ -155,8 +155,11 @@ class ExportSlices(Workflow):
                 slice_writer.write_subvolume(brick.volume, brick.physical_box[0])
 
             # Export to PNG or TIFF, etc. (automatic via slice path extension)
-            logger.info(f"Exporting slab {slab_index}/{len(slab_boxes)}", extra={"status": f"Exporting {slab_index}/{len(slab_boxes)}"})
-            rt.foreach( write_slice, sliced_slab_wall.bricks )
+            with Timer() as timer:
+                logger.info(f"Exporting slab {slab_index}/{len(slab_boxes)}", extra={"status": f"Exporting {slab_index}/{len(slab_boxes)}"})
+                rt.foreach( write_slice, sliced_slab_wall.bricks )
+            logger.info(f"Exporting slab {slab_index}/{len(slab_boxes)} took {timer.timedelta}",
+                        extra={"status": f"Done: {slab_index}/{len(slab_boxes)}"})
             
             # Discard slice data
             sliced_slab_wall.unpersist()
