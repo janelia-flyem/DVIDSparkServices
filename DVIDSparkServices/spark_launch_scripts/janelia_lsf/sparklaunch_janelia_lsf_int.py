@@ -154,7 +154,7 @@ def main():
             try:
                 subprocess.check_output('bkill {}'.format(MASTER_BJOB_ID), shell=True)
             except subprocess.CalledProcessError as ex:
-                print(f"Failed to kill Spark Cluster: '{ex.output}' (Exit code {ex.returncode})")
+                print(f"Failed to kill Spark Cluster: '{ex.output.decode()}' (Exit code {ex.returncode})")
 
         if args.email_on_exit:
             send_exit_email(args.workflow_name, workflow_proc.returncode, duration, args.config_or_callback_address)
