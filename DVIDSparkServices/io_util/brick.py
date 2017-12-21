@@ -87,7 +87,8 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
 
     if sc:
         num_rdd_partitions = None
-        if rdd_partition_length:
+        if rdd_partition_length is not None:
+            rdd_partition_length = max(1, rdd_partition_length)
             logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 

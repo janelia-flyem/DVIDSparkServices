@@ -135,8 +135,13 @@ class ExportSlices(Workflow):
             slab_config = copy.deepcopy(input_config)
             slab_box_xyz = slab_box_zyx[:, ::-1].tolist()
             slab_config["geometry"]["bounding-box"] = slab_box_xyz
+
+            num_threads = num_worker_nodes() * cpus_per_worker()
+            slab_voxels = np.prod(slab_box_zyx[1] - slab_box_zyx[0])
+            voxels_per_thread = slab_voxels / num_threads
+
             volume_service = VolumeService.create_from_config( slab_config, self.config_dir, mgr_client )
-            bricked_slab_wall = BrickWall.from_volume_service(volume_service, self.sc)
+            bricked_slab_wall = BrickWall.from_volume_service(volume_service, self.sc, voxels_per_thread / 2)
 
             # Force download
             bricked_slab_wall.persist_and_execute(f"Downloading slab {slab_index}/{len(slab_boxes)}: {slab_box_xyz}", logger)
