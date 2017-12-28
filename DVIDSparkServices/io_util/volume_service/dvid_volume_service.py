@@ -47,6 +47,14 @@ DvidGrayscaleServiceSchema = \
                            "Instance must be grayscale (uint8blk).",
             "type": "string",
             "minLength": 1
+        },
+        "compression": {
+            "description": "What type of compression is used to store this instance.\n"
+                           "(Only used when the instance is created for the first time.)\n"
+                           "Choices: 'raw' and 'jpeg'.\n",
+            "type": "string",
+            "enum": ["raw", "jpeg"],
+            "default": "raw"
         }
     }
 }
@@ -228,8 +236,15 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         shape = np.asarray(box_zyx[1]) - box_zyx[0]
         req_bytes = self._dtype_nbytes * np.prod(box_zyx[1] - box_zyx[0])
         throttle = (self._resource_manager_client.server_ip == "")
+
+        instance_name = self._instance_name
+        if self._instance_type == 'uint8blk' and scale > 0:
+            # Grayscale multi-scale is achieved via multiple instances
+            instance_name = f"{instance_name}_{scale}"
+            scale = 0
+
         with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.get_voxels( self._server, self._uuid, self._instance_name,
+            return sparkdvid.get_voxels( self._server, self._uuid, instance_name,
                                          scale, self._instance_type, self._is_labels,
                                          shape, box_zyx[0],
                                          throttle=throttle,
@@ -244,8 +259,15 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     def write_subvolume(self, subvolume, offset_zyx, scale):
         req_bytes = self._dtype_nbytes * np.prod(subvolume.shape)
         throttle = (self._resource_manager_client.server_ip == "")
+        
+        instance_name = self._instance_name
+        if self._instance_type == 'uint8blk' and scale > 0:
+            # Grayscale multi-scale is achieved via multiple instances
+            instance_name = f"{instance_name}_{scale}"
+            scale = 0
+
         with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.post_voxels( self._server, self._uuid, self._instance_name,
+            return sparkdvid.post_voxels( self._server, self._uuid, instance_name,
                                           scale, self._instance_type, self._is_labels,
                                           subvolume, offset_zyx,
                                           throttle=throttle,

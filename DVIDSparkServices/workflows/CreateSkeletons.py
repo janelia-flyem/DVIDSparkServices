@@ -202,7 +202,7 @@ class CreateSkeletons(Workflow):
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
 
-        brick_wall = BrickWall.from_volume_service(volume_service, self.sc, target_partition_size_voxels)
+        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels)
         brick_wall.persist_and_execute("Downloading segmentation", logger)
         
         # brick -> (body_id, (box, mask, count))

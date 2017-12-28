@@ -179,7 +179,7 @@ class CopySegmentation(Workflow):
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
         input_service = VolumeService.create_from_config(input_config, self.config_dir, self.resource_mgr_client)
-        input_wall = BrickWall.from_volume_service(input_service, self.sc, target_partition_size_voxels)
+        input_wall = BrickWall.from_volume_service(input_service, 0, None, self.sc, target_partition_size_voxels)
 
         # See note in _sanitize_config()
         first_output_geometry = output_configs[0]["geometry"]

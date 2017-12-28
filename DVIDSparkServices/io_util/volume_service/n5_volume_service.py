@@ -56,9 +56,9 @@ class N5VolumeServiceReader(VolumeServiceReader):
         self._dataset_name = volume_config["n5"]["dataset-name"]
 
         self._n5_file = None
-        self._n5_dataset = None
+        self._n5_datasets = {}
         
-        chunk_shape = np.array(self.n5_dataset.chunks)
+        chunk_shape = np.array(self.n5_dataset(0).chunks)
         assert len(chunk_shape) == 3
 
         # Replace -1's in the message-block-shape with the corresponding chunk_shape dimensions.
@@ -75,7 +75,7 @@ class N5VolumeServiceReader(VolumeServiceReader):
             # The notion of 'block-width' doesn't really make sense if the chunks aren't cubes.
             block_width = -1
         
-        auto_bb = np.array([(0,0,0), self.n5_dataset.shape])
+        auto_bb = np.array([(0,0,0), self.n5_dataset(0).shape])
 
         bounding_box_zyx = np.array(volume_config["geometry"]["bounding-box"])[:,::-1]
         assert (auto_bb[1] >= bounding_box_zyx[1]).all(), \
@@ -113,18 +113,23 @@ class N5VolumeServiceReader(VolumeServiceReader):
 
     def get_subvolume(self, box_zyx, scale=0):
         box_zyx = np.asarray(box_zyx)
-        assert scale == 0, "For now, only scale 0 is supported."
-        return self.n5_dataset[box_to_slicing(*box_zyx.tolist())]
+        return self.n5_dataset(scale)[box_to_slicing(*box_zyx.tolist())]
 
-
-    @property
-    def n5_dataset(self):
+    def n5_dataset(self, scale):
         # This member is memoized because that makes it
         # easier to support pickling/unpickling.
-        if self._n5_dataset is None:
+        if self._n5_file is None:
             self._n5_file = z5py.File(self._path)
-            self._n5_dataset = self._n5_file[self._dataset_name]
-        return self._n5_dataset
+        
+        if scale not in self._n5_datasets:
+            if scale == 0:
+                name = self._dataset_name
+            else:
+                assert self._dataset_name[-1] == '0', "The N5 dataset does not appear to be a multi-resolution dataset."
+                name = self._dataset_name[:-1] + f'{scale}'
+            self._n5_datasets[scale] = self._n5_file[name]
+
+        return self._n5_datasets[scale]
 
     def __getstate__(self):
         """
@@ -134,5 +139,5 @@ class N5VolumeServiceReader(VolumeServiceReader):
         # Don't attempt to pickle the underlying C++ objects
         # Instead, set them to None so it will be lazily regenerated after unpickling.
         d['_n5_file'] = None
-        d['_n5_dataset'] = None
+        d['_n5_datasets'] = {}
         return d

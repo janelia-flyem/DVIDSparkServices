@@ -22,7 +22,7 @@ class TestN5VolumeService(unittest.TestCase):
         cls.VOLUME_CONFIG = {
           "n5": {
             "path": TEST_VOLUME_N5,
-            "dataset-name": "grayscale"
+            "dataset-name": "s0"
           }
         }
         
@@ -47,6 +47,14 @@ class TestN5VolumeService(unittest.TestCase):
             f"Wrong shape: Expected {slab_from_raw.shape}, Got {slab_from_n5.shape}"
         assert (slab_from_n5 == slab_from_raw).all()
 
+    def test_multiscale(self):
+        reader = N5VolumeServiceReader(self.VOLUME_CONFIG, os.getcwd())
+        assert (reader.bounding_box_zyx == [(0,0,0), (256,256,256)]).all()
+        
+        full_from_n5 = reader.get_subvolume(reader.bounding_box_zyx // 4, 2)
+        
+        assert (full_from_n5.shape == np.array(self.RAW_VOLUME_DATA.shape) // 4).all()
+        assert (full_from_n5 == self.RAW_VOLUME_DATA[::4, ::4, ::4]).all()
 
 if __name__ == "__main__":
     unittest.main()

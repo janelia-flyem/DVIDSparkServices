@@ -1,6 +1,7 @@
 import numpy as np
 
 from DVIDSparkServices import rddtools as rt
+from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker
 from dvidutils import downsample_labels
 
 from .brick import Brick, Grid, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source, apply_labelmap_to_bricks
@@ -137,11 +138,25 @@ class BrickWall:
     ##
 
     @classmethod
-    def from_volume_service(cls, volume_service, sc=None, target_partition_size_voxels=None):
+    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None):
         grid = Grid(volume_service.preferred_message_shape, (0,0,0))
-        return BrickWall( volume_service.bounding_box_zyx,
+        
+        downsampled_box = bounding_box_zyx
+        if downsampled_box is None:
+            full_box = volume_service.bounding_box_zyx
+            downsampled_box = np.zeros((2,3), dtype=int)
+            downsampled_box[0] = full_box[0] // 2**scale # round down
+            
+            # Proper downsampled bounding-box would round up here...
+            #downsampled_box[1] = (full_box[1] + 2**scale - 1) // 2**scale
+            
+            # ...but some some services probably don't do that, so we'll
+            # round down to avoid out-of-bounds errors for higher scales. 
+            downsampled_box[1] = full_box[1] // 2**scale
+
+        return BrickWall( downsampled_box,
                           grid,
-                          volume_service.get_subvolume,
+                          lambda box: volume_service.get_subvolume(box, scale),
                           sc,
                           target_partition_size_voxels )
 
@@ -184,7 +199,13 @@ class BrickWall:
         else:
             assert volume_accessor_func is not None
             rdd_partition_length = None
-            if target_partition_size_voxels:
-                block_size_voxels = np.prod(grid.block_shape)
-                rdd_partition_length = target_partition_size_voxels // block_size_voxels
+            if target_partition_size_voxels is None:
+                num_threads = num_worker_nodes() * cpus_per_worker()
+                total_voxels = np.prod(bounding_box[1] - bounding_box[0])
+                voxels_per_thread = total_voxels / num_threads
+                target_partition_size_voxels = (voxels_per_thread // 2) # Arbitrarily aim for 2 partitions per thread
+
+            block_size_voxels = np.prod(grid.block_shape)
+            rdd_partition_length = target_partition_size_voxels // block_size_voxels
+
             self.bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length)

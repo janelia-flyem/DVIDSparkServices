@@ -1,0 +1,116 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_convertgray/temp_data/logs', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_convertgray/temp_data/logs
+INFO [2017-12-27 22:00:52,306] workflow Started logserver on 192.168.1.152:3000
+INFO [2017-12-27 22:00:52,308] workflow Starting resource manager on the driver (192.168.1.152)
+INFO [2017-12-27 22:00:52,323] workflow Started resource manager
+Convert Grayscale Volume: Started [2017-12-27 22:00:52]
+INFO [2017-12-27 22:00:52,341] metadata Creating uint8blk instance: 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5
+INFO [2017-12-27 22:00:52,348] metadata Updating extents for 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5
+DEBUG [2017-12-27 22:00:52,357] metadata Read extents: {"Base": {"TypeName": "uint8blk", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "TypeVersion": "0.2", "DataUUID": "1c28ce01708f4d21bf0c1f98f79f5d5a", "Name": "grayscale-from-n5", "RepoUUID": "5f37af5dbc294b0fade596f10b604ba4", "Compression": "LZ4 compression, level -1", "Checksum": "No checksum", "Syncs": [], "Versioned": true}, "Extended": {"Values": [{"DataType": "uint8", "Label": "uint8"}], "Interpolable": true, "BlockSize": [64, 64, 64], "VoxelSize": [8, 8, 8], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": null, "MaxPoint": null, "MinIndex": null, "MaxIndex": null, "Background": 0}, "Extents": {"MinPoint": null, "MaxPoint": null}}
+DEBUG [2017-12-27 22:00:52,359] metadata Posting new extents: {"MinPoint": [0, 0, 0], "MaxPoint": [255, 255, 255]}
+INFO [2017-12-27 22:00:52,368] metadata Creating uint8blk instance: 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5_1
+INFO [2017-12-27 22:00:52,371] metadata Updating extents for 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5_1
+DEBUG [2017-12-27 22:00:52,375] metadata Read extents: {"Base": {"TypeName": "uint8blk", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "TypeVersion": "0.2", "DataUUID": "241cbcd3a1d74688be380219014e4262", "Name": "grayscale-from-n5_1", "RepoUUID": "5f37af5dbc294b0fade596f10b604ba4", "Compression": "LZ4 compression, level -1", "Checksum": "No checksum", "Syncs": [], "Versioned": true}, "Extended": {"Values": [{"DataType": "uint8", "Label": "uint8"}], "Interpolable": true, "BlockSize": [64, 64, 64], "VoxelSize": [8, 8, 8], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": null, "MaxPoint": null, "MinIndex": null, "MaxIndex": null, "Background": 0}, "Extents": {"MinPoint": null, "MaxPoint": null}}
+DEBUG [2017-12-27 22:00:52,378] metadata Posting new extents: {"MinPoint": [0, 0, 0], "MaxPoint": [127, 127, 127]}
+INFO [2017-12-27 22:00:52,385] metadata Creating uint8blk instance: 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5_2
+INFO [2017-12-27 22:00:52,388] metadata Updating extents for 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5_2
+DEBUG [2017-12-27 22:00:52,393] metadata Read extents: {"Base": {"TypeName": "uint8blk", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "TypeVersion": "0.2", "DataUUID": "c743e6bcb6b54a30b4cd89a57f3c3678", "Name": "grayscale-from-n5_2", "RepoUUID": "5f37af5dbc294b0fade596f10b604ba4", "Compression": "LZ4 compression, level -1", "Checksum": "No checksum", "Syncs": [], "Versioned": true}, "Extended": {"Values": [{"DataType": "uint8", "Label": "uint8"}], "Interpolable": true, "BlockSize": [64, 64, 64], "VoxelSize": [8, 8, 8], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": null, "MaxPoint": null, "MinIndex": null, "MaxIndex": null, "Background": 0}, "Extents": {"MinPoint": null, "MaxPoint": null}}
+DEBUG [2017-12-27 22:00:52,396] metadata Posting new extents: {"MinPoint": [0, 0, 0], "MaxPoint": [63, 63, 63]}
+INFO [2017-12-27 22:00:52,403] metadata Creating uint8blk instance: 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5_3
+INFO [2017-12-27 22:00:52,406] metadata Updating extents for 5f37af5dbc294b0fade596f10b604ba4/grayscale-from-n5_3
+DEBUG [2017-12-27 22:00:52,410] metadata Read extents: {"Base": {"TypeName": "uint8blk", "TypeURL": "github.com/janelia-flyem/dvid/datatype/imageblk/uint8.go", "TypeVersion": "0.2", "DataUUID": "201cf2defefc43b0b3effd5683d065cb", "Name": "grayscale-from-n5_3", "RepoUUID": "5f37af5dbc294b0fade596f10b604ba4", "Compression": "LZ4 compression, level -1", "Checksum": "No checksum", "Syncs": [], "Versioned": true}, "Extended": {"Values": [{"DataType": "uint8", "Label": "uint8"}], "Interpolable": true, "BlockSize": [64, 64, 64], "VoxelSize": [8, 8, 8], "VoxelUnits": ["nanometers", "nanometers", "nanometers"], "MinPoint": null, "MaxPoint": null, "MinIndex": null, "MaxIndex": null, "Background": 0}, "Extents": {"MinPoint": null, "MaxPoint": null}}
+DEBUG [2017-12-27 22:00:52,413] metadata Posting new extents: {"MinPoint": [0, 0, 0], "MaxPoint": [31, 31, 31]}
+DEBUG [2017-12-27 22:00:52,424] metadata Updating '.meta/neuroglancer' list from: [] to: ['grayscale-from-n5']
+INFO [2017-12-27 22:01:06,733] workflow Ran reload_meta on 1 nodes: {'bergs-lm3': None}
+INFO [2017-12-27 22:01:06,742] ConvertGrayscaleVolume Output bounding box: [[0, 0, 0], [256, 256, 256]]
+INFO [2017-12-27 22:01:06,753] rddtools Downloading slab 0/4: [[  0   0   0]
+ [256 256  64]]...
+INFO [2017-12-27 22:01:09,334] rddtools Downloading slab 0/4: [[  0   0   0]
+ [256 256  64]] (N=16) took 0:00:02.578852
+INFO [2017-12-27 22:01:09,369] rddtools Assembling slab 0/4 slices...
+INFO [2017-12-27 22:01:10,043] rddtools Assembling slab 0/4 slices (N=4) took 0:00:00.670092
+INFO [2017-12-27 22:01:10,063] ConvertGrayscaleVolume Exporting slab 0/4
+INFO [2017-12-27 22:01:10,391] ConvertGrayscaleVolume Exporting slab 0/4 took 0:00:00.327404
+INFO [2017-12-27 22:01:10,411] rddtools Downloading slab 1/4: [[  0   0  64]
+ [256 256 128]]...
+INFO [2017-12-27 22:01:10,861] rddtools Downloading slab 1/4: [[  0   0  64]
+ [256 256 128]] (N=16) took 0:00:00.447116
+INFO [2017-12-27 22:01:10,883] rddtools Assembling slab 1/4 slices...
+INFO [2017-12-27 22:01:11,537] rddtools Assembling slab 1/4 slices (N=4) took 0:00:00.650844
+INFO [2017-12-27 22:01:11,542] ConvertGrayscaleVolume Exporting slab 1/4
+INFO [2017-12-27 22:01:11,746] ConvertGrayscaleVolume Exporting slab 1/4 took 0:00:00.204069
+INFO [2017-12-27 22:01:11,762] rddtools Downloading slab 2/4: [[  0   0 128]
+ [256 256 192]]...
+INFO [2017-12-27 22:01:12,108] rddtools Downloading slab 2/4: [[  0   0 128]
+ [256 256 192]] (N=16) took 0:00:00.343234
+INFO [2017-12-27 22:01:12,132] rddtools Assembling slab 2/4 slices...
+INFO [2017-12-27 22:01:12,701] rddtools Assembling slab 2/4 slices (N=4) took 0:00:00.565366
+INFO [2017-12-27 22:01:12,706] ConvertGrayscaleVolume Exporting slab 2/4
+INFO [2017-12-27 22:01:12,882] ConvertGrayscaleVolume Exporting slab 2/4 took 0:00:00.176819
+INFO [2017-12-27 22:01:12,899] rddtools Downloading slab 3/4: [[  0   0 192]
+ [256 256 256]]...
+INFO [2017-12-27 22:01:13,217] rddtools Downloading slab 3/4: [[  0   0 192]
+ [256 256 256]] (N=16) took 0:00:00.314878
+INFO [2017-12-27 22:01:13,240] rddtools Assembling slab 3/4 slices...
+INFO [2017-12-27 22:01:13,866] rddtools Assembling slab 3/4 slices (N=4) took 0:00:00.622418
+INFO [2017-12-27 22:01:13,876] ConvertGrayscaleVolume Exporting slab 3/4
+INFO [2017-12-27 22:01:14,194] ConvertGrayscaleVolume Exporting slab 3/4 took 0:00:00.318511
+INFO [2017-12-27 22:01:14,199] ConvertGrayscaleVolume Done exporting 4 slabs for scale 0.
+INFO [2017-12-27 22:01:14,224] rddtools Downloading slab 0/2: [[  0   0   0]
+ [128 128  64]]...
+INFO [2017-12-27 22:01:14,465] rddtools Downloading slab 0/2: [[  0   0   0]
+ [128 128  64]] (N=4) took 0:00:00.238836
+INFO [2017-12-27 22:01:14,481] rddtools Assembling slab 0/2 slices...
+INFO [2017-12-27 22:01:15,073] rddtools Assembling slab 0/2 slices (N=2) took 0:00:00.589562
+INFO [2017-12-27 22:01:15,078] ConvertGrayscaleVolume Exporting slab 0/2
+INFO [2017-12-27 22:01:15,260] ConvertGrayscaleVolume Exporting slab 0/2 took 0:00:00.181867
+INFO [2017-12-27 22:01:15,288] rddtools Downloading slab 1/2: [[  0   0  64]
+ [128 128 128]]...
+INFO [2017-12-27 22:01:15,509] rddtools Downloading slab 1/2: [[  0   0  64]
+ [128 128 128]] (N=4) took 0:00:00.217607
+INFO [2017-12-27 22:01:15,528] rddtools Assembling slab 1/2 slices...
+INFO [2017-12-27 22:01:16,082] rddtools Assembling slab 1/2 slices (N=2) took 0:00:00.551230
+INFO [2017-12-27 22:01:16,088] ConvertGrayscaleVolume Exporting slab 1/2
+INFO [2017-12-27 22:01:16,319] ConvertGrayscaleVolume Exporting slab 1/2 took 0:00:00.230552
+INFO [2017-12-27 22:01:16,323] ConvertGrayscaleVolume Done exporting 2 slabs for scale 1.
+INFO [2017-12-27 22:01:16,352] rddtools Downloading slab 0/1: [[ 0  0  0]
+ [64 64 64]]...
+INFO [2017-12-27 22:01:16,587] rddtools Downloading slab 0/1: [[ 0  0  0]
+ [64 64 64]] (N=1) took 0:00:00.232298
+INFO [2017-12-27 22:01:16,605] rddtools Assembling slab 0/1 slices...
+INFO [2017-12-27 22:01:17,143] rddtools Assembling slab 0/1 slices (N=1) took 0:00:00.536146
+INFO [2017-12-27 22:01:17,148] ConvertGrayscaleVolume Exporting slab 0/1
+INFO [2017-12-27 22:01:17,344] ConvertGrayscaleVolume Exporting slab 0/1 took 0:00:00.196721
+INFO [2017-12-27 22:01:17,348] ConvertGrayscaleVolume Done exporting 1 slabs for scale 2.
+INFO [2017-12-27 22:01:17,367] rddtools Downloading slab 0/1: [[ 0  0  0]
+ [32 32 32]]...
+INFO [2017-12-27 22:01:17,556] rddtools Downloading slab 0/1: [[ 0  0  0]
+ [32 32 32]] (N=1) took 0:00:00.185625
+INFO [2017-12-27 22:01:17,575] rddtools Assembling slab 0/1 slices...
+INFO [2017-12-27 22:01:18,208] rddtools Assembling slab 0/1 slices (N=1) took 0:00:00.627303
+INFO [2017-12-27 22:01:18,213] ConvertGrayscaleVolume Exporting slab 0/1
+INFO [2017-12-27 22:01:18,627] ConvertGrayscaleVolume Exporting slab 0/1 took 0:00:00.414450
+INFO [2017-12-27 22:01:18,641] ConvertGrayscaleVolume Done exporting 1 slabs for scale 3.
+INFO [2017-12-27 22:01:18,644] ConvertGrayscaleVolume DONE exporting 3 scales
+Convert Grayscale Volume: Finished [2017-12-27 22:01:18]
+INFO [2017-12-27 22:01:18,647] workflow No worker init processes to kill
+INFO [2017-12-27 22:01:18,652] workflow No driver init process to kill
+INFO [2017-12-27 22:01:18,657] workflow Terminating resource manager (PID 83256)
+Resource manager killed via external signal: KeyboardInterrupt
+INFO [2017-12-27 22:01:20,664] util Successfully interrupted process 83256
+INFO [2017-12-27 22:01:20,669] util Interrupted process was: /miniforge/envs/flyem-forge/bin/python /miniforge/envs/flyem-forge/bin/dvid_resource_manager 4000
+INFO [2017-12-27 22:01:20,691] workflow Terminating logserver (PID 83255)
+Log server killed via external signal: SystemExit
+Traceback (most recent call last):
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 193, in _run_module_as_main
+    "__main__", mod_spec)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 85, in _run_code
+    exec(code, run_globals)
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 259, in <module>
+    close_all()
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 164, in close_all
+    f.close()
+KeyboardInterrupt
+INFO [2017-12-27 22:01:22,698] util Successfully interrupted process 83255
+INFO [2017-12-27 22:01:22,698] util Interrupted process was: /miniforge/envs/flyem-forge/bin/python -m logcollector.logserver --log-dir=/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_convertgray/temp_data/logs --port=3000

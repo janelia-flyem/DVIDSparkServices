@@ -32,7 +32,7 @@ class ExportSlices(Workflow):
     Schema = \
     {
         "$schema": "http://json-schema.org/schema#",
-        "title": "Service to load raw and label data into DVID",
+        "title": "Service to export a set of grayscale slices into a 3D volume",
         "type": "object",
         "additionalProperties": False,
         "required": ["input", "output"],
@@ -42,16 +42,6 @@ class ExportSlices(Workflow):
             "options" : OptionsSchema
         }
     }
-    
-    # Adjust defaults for this workflow in particular
-    Schema["properties"]["output"]\
-            ["properties"]["geometry"]\
-              ["properties"]["message-block-shape"]["default"] = [-1, -1, 1]
-
-    Schema["properties"]["output"]\
-            ["properties"]["geometry"]\
-              ["properties"]["bounding-box"]["default"] = [[-1, -1, -1], [-1, -1, -1]]
-
 
     @classmethod
     def schema(cls):
@@ -69,15 +59,14 @@ class ExportSlices(Workflow):
         """
         input_config = self.config_data["input"]
         output_config = self.config_data["output"]
+        input_geometry = input_config["geometry"]
+        output_geometry = output_config["geometry"]
+        options = self.config_data["options"]
 
         # Initialize dummy input/output services, just to overwrite 'auto' config values as needed.
         VolumeService.create_from_config( input_config, self.config_dir )
         replace_default_entries(output_config["geometry"]["bounding-box"], input_config["geometry"]["bounding-box"])
         SliceFilesVolumeServiceWriter( output_config, self.config_dir )
-
-        input_geometry = input_config["geometry"]
-        output_geometry = output_config["geometry"]
-        options = self.config_data["options"]
 
         # Output bounding-box must match exactly (or left as auto)
         input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
@@ -85,9 +74,6 @@ class ExportSlices(Workflow):
         assert ((output_bb_zyx == input_bb_zyx) | (output_bb_zyx == -1)).all(), \
             "Output bounding box must match the input bounding box exactly. (No translation permitted)."
 
-        # Auto-set the output bounding-box
-        output_geometry["bounding-box"] = copy.deepcopy(input_geometry["bounding-box"])
-        
         assert output_config["slice-files"]["slice-xy-offset"] == [0,0], "Nonzero xy offset is meaningless for outputs."
 
         if options["slices-per-slab"] == -1:
@@ -109,8 +95,7 @@ class ExportSlices(Workflow):
 
         logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
 
-        mgr_client = ResourceManagerClient( options["resource-server"],
-                                            options["resource-port"] )
+        mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
 
         slice_writer = SliceFilesVolumeServiceWriter(output_config, self.config_dir)
 
@@ -132,19 +117,15 @@ class ExportSlices(Workflow):
 
         for slab_index, slab_box_zyx in enumerate(slab_boxes):
             # Contruct BrickWall from input bricks
-            slab_config = copy.deepcopy(input_config)
-            slab_box_xyz = slab_box_zyx[:, ::-1].tolist()
-            slab_config["geometry"]["bounding-box"] = slab_box_xyz
-
             num_threads = num_worker_nodes() * cpus_per_worker()
             slab_voxels = np.prod(slab_box_zyx[1] - slab_box_zyx[0])
             voxels_per_thread = slab_voxels / num_threads
 
-            volume_service = VolumeService.create_from_config( slab_config, self.config_dir, mgr_client )
-            bricked_slab_wall = BrickWall.from_volume_service(volume_service, self.sc, voxels_per_thread / 2)
+            volume_service = VolumeService.create_from_config( input_config, self.config_dir, mgr_client )
+            bricked_slab_wall = BrickWall.from_volume_service(volume_service, 0, slab_box_zyx, self.sc, voxels_per_thread / 2)
 
             # Force download
-            bricked_slab_wall.persist_and_execute(f"Downloading slab {slab_index}/{len(slab_boxes)}: {slab_box_xyz}", logger)
+            bricked_slab_wall.persist_and_execute(f"Downloading slab {slab_index}/{len(slab_boxes)}: {slab_box_zyx[:,::-1]}", logger)
             
             # Remap to slice-sized "bricks"
             sliced_grid = Grid(slice_shape_zyx, offset=slab_box_zyx[0])
