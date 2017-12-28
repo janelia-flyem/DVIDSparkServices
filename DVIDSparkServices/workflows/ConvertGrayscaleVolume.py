@@ -11,7 +11,7 @@ from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries, Timer, box_to_slicing
 from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
 from DVIDSparkServices.io_util.brickwall import BrickWall
-from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema
+from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema, TransposedVolumeService
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, Compression,
                                               extend_list_value, update_extents, reload_server_metadata )
@@ -42,6 +42,14 @@ class ConvertGrayscaleVolume(Workflow):
             ##
             ## NO DEFAULT: Must choose!
             #"default": -1
+        },
+        "transpose-axes": {
+            "description": "How to transpose/rotate the input volume before writing it out.",
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 3,
+            "maxItems": 3,
+            "default": TransposedVolumeService.NO_TRANSPOSE
         }
     })
 
@@ -82,6 +90,9 @@ class ConvertGrayscaleVolume(Workflow):
 
         self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
         self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
+
+        if options["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE:
+            self.input_service = TransposedVolumeService( self.input_service, options["transpose-axes"] )
 
         replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
         self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
@@ -130,7 +141,7 @@ class ConvertGrayscaleVolume(Workflow):
         full_output_box_zyx = np.array(output_config["geometry"]["bounding-box"])[:, ::-1]
 
         for scale in range(max_scale+1):
-            scaled_output_box_zyx = (full_output_box_zyx + 2**scale - 1) // (2**scale) # round up
+            scaled_output_box_zyx = full_output_box_zyx // 2**scale # round down
     
             if scale == 0:
                 scaled_instance_name = instance_name

@@ -15,6 +15,7 @@ output:
 options:
   max-pyramid-scale: 3
   slab-depth: 64
+  transpose-axes: ['z', 'x', '1-y'] # XY_CLOCKWISE_90
 
   resource-server: 'driver'
   resource-port: 4000
