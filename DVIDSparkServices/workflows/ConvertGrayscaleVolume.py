@@ -14,7 +14,7 @@ from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, Compression,
-                                              extend_list_value, update_extents, reload_server_metadata ) 
+                                              extend_list_value, update_extents, reload_server_metadata )
 
 logger = logging.getLogger(__name__)
 
@@ -62,40 +62,54 @@ class ConvertGrayscaleVolume(Workflow):
     def schema(cls):
         return ConvertGrayscaleVolume.Schema
 
+
     # name of application for DVID queries
     APPNAME = "ConvertGrayscaleVolume".lower()
+
 
     def __init__(self, config_filename):
         super().__init__( config_filename, ConvertGrayscaleVolume.schema(), "Convert Grayscale Volume" )
 
 
-    def _sanitize_config(self):
+    def _init_services(self):
         """
-        Tidy up some config values, and fill in 'auto' values where needed.
+        Initialize the input and output services,
+        and fill in 'auto' config values as needed.
         """
         input_config = self.config_data["input"]
         output_config = self.config_data["output"]
         options = self.config_data["options"]
 
-        # Initialize dummy input/output services, just to overwrite 'auto' config values as needed.
-        VolumeService.create_from_config( input_config, self.config_dir )
-        replace_default_entries(output_config["geometry"]["bounding-box"], input_config["geometry"]["bounding-box"])
-        output_service = VolumeService.create_from_config( output_config, self.config_dir )
-        assert isinstance( output_service, VolumeServiceWriter )
+        self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
+        self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
 
-        brick_depth = output_service.preferred_message_shape[0]
+        replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
+        self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
+        assert isinstance( self.output_service, VolumeServiceWriter )
+
+        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
+
+
+    def _validate_config(self):
+        """
+        Validate config values.
+        """
+        options = self.config_data["options"]
+
+        brick_depth = self.output_service.preferred_message_shape[0]
         assert options["slab-depth"] % brick_depth == 0, \
             f'slab-depth ({options["slab-depth"]}) is not a multiple of the output brick shape ({brick_depth})'
 
         # Output bounding-box must match exactly (or left as auto)
-        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
-        output_bb_zyx = np.array(output_config["geometry"]["bounding-box"])[:,::-1]
+        input_bb_zyx = self.input_service.bounding_box_zyx
+        output_bb_zyx = self.output_service.bounding_box_zyx
         assert ((output_bb_zyx == input_bb_zyx) | (output_bb_zyx == -1)).all(), \
             "Output bounding box must match the input bounding box exactly. (No translation permitted)."
 
+
     def _prepare_output(self):
         """
-        Create DVID data instances (for multi-scale) and update metadata as needed.
+        Create DVID data instances (including multi-scale) and update metadata.
         """
         output_config = self.config_data["output"]
         max_scale = self.config_data["options"]["max-pyramid-scale"]
@@ -143,18 +157,12 @@ class ConvertGrayscaleVolume(Workflow):
 
 
     def execute(self):
-        self._sanitize_config()
+        self._init_services()
+        self._validate_config()
         self._prepare_output()
         
-        input_config = self.config_data["input"]
-        output_config = self.config_data["output"]
         options = self.config_data["options"]
-
-        self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
-        self.output_service = VolumeService.create_from_config( output_config, self.config_dir )
-
-        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
-        input_bb_zyx = np.array( input_config["geometry"]["bounding-box"] )[:,::-1]
+        input_bb_zyx = self.input_service.bounding_box_zyx
 
         num_scales = options["max-pyramid-scale"]
         for scale in range(num_scales+1):
@@ -170,7 +178,7 @@ class ConvertGrayscaleVolume(Workflow):
 
             # Data is processed in Z-slabs
             # Auto-choose a depth that keeps all threads busy with at least one output brick
-            output_brick_shape_zyx = input_config["geometry"]["message-block-shape"][::-1]
+            output_brick_shape_zyx = self.output_service.preferred_message_shape
             output_brick_depth = output_brick_shape_zyx[0]
             assert output_brick_depth != -1
             
@@ -188,15 +196,12 @@ class ConvertGrayscaleVolume(Workflow):
 
 
     def _convert_slab(self, scale, slab_box_zyx, slab_index, num_slabs):
-        input_config = self.config_data["input"]
-
         # Contruct BrickWall from input bricks
         num_threads = num_worker_nodes() * cpus_per_worker()
         slab_voxels = np.prod(slab_box_zyx[1] - slab_box_zyx[0])
         voxels_per_thread = slab_voxels // num_threads
 
-        volume_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
-        bricked_slab_wall = BrickWall.from_volume_service(volume_service, scale, slab_box_zyx, self.sc, voxels_per_thread // 2)
+        bricked_slab_wall = BrickWall.from_volume_service(self.input_service, scale, slab_box_zyx, self.sc, voxels_per_thread // 2)
 
         # Force download
         bricked_slab_wall.persist_and_execute(f"Downloading slab {slab_index}/{num_slabs}: {slab_box_zyx[:,::-1]}", logger)

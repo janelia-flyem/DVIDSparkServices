@@ -97,7 +97,7 @@ class N5VolumeServiceReader(VolumeServiceReader):
 
     @property
     def dtype(self):
-        return self._dtype
+        return self.n5_dataset(0).dtype
 
     @property
     def preferred_message_shape(self):
