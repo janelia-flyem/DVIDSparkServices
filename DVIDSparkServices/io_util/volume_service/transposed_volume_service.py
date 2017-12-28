@@ -99,5 +99,8 @@ class TransposedVolumeService(VolumeServiceReader):
         data = self.original_volume_service.get_subvolume(orig_box, scale)
         data = data.transpose(self.transpose_order)
         data = data[inversion_slices]
+
+        # Force contiguous so caller doesn't have to worry about it.
+        data = np.ascontiguousarray(data)
         return data
 

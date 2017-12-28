@@ -44,6 +44,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         
         full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
         assert (full_transposed == full_from_n5).all()
+        assert full_transposed.flags.c_contiguous
 
         # Now transpose x and y (reflect across diagonal line at y=x)
         transposed_reader = TransposedVolumeService(n5_reader, ['z', 'x', 'y'])
@@ -54,6 +55,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         
         full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
         assert (full_transposed == full_from_n5.transpose(0, 2, 1)).all()
+        assert full_transposed.flags.c_contiguous
 
         # Invert x and y (but don't transpose)
         # Equivalent to 180 degree rotation
@@ -65,6 +67,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         
         full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
         assert (full_transposed == full_from_n5[:,::-1, ::-1]).all()
+        assert full_transposed.flags.c_contiguous
 
         # XY 90 degree rotation, clockwise about the Z axis
         transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.XY_CLOCKWISE_90)
@@ -75,6 +78,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         
         full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
         assert (full_transposed == full_from_n5[:, ::-1, :].transpose(0,2,1)).all()
+        assert full_transposed.flags.c_contiguous
         
         # Check the corners of the first plane: should be rotated clockwise
         z_slice_n5 = full_from_n5[0]
@@ -88,6 +92,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         box = [[10,20,30], [20, 40, 60]]
         subvol_transposed = transposed_reader.get_subvolume(box)
         assert (subvol_transposed == full_transposed[box_to_slicing(*box)]).all()
+        assert subvol_transposed.flags.c_contiguous
 
         # XZ degree rotation, clockwise about the Y axis
         transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.XZ_CLOCKWISE_90)
@@ -98,6 +103,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         
         full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
         assert (full_transposed == full_from_n5[::-1, :, :].transpose(2,1,0)).all()
+        assert full_transposed.flags.c_contiguous
         
         # Check the corners of the first plane: should be rotated clockwise
         y_slice_n5 = full_from_n5[:, 0, :]
@@ -116,6 +122,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         
         full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
         assert (full_transposed == full_from_n5[::-1, :, :].transpose(1,0,2)).all()
+        assert full_transposed.flags.c_contiguous
         
         # Check the corners of the first plane: should be rotated clockwise
         x_slice_n5 = full_from_n5[:, :, 0]
