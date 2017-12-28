@@ -268,5 +268,6 @@ def write_brick(output_service, scale, brick):
     nonzero_start = (0, 0, block_width*first_nonzero_block)
     nonzero_stop = ( brick.volume.shape[0:2] + (block_width*(last_nonzero_block+1),) )
     nonzero_subvol = brick.volume[box_to_slicing(nonzero_start, nonzero_stop)]
+    nonzero_subvol = np.asarray(nonzero_subvol, order='C')
 
     output_service.write_subvolume(nonzero_subvol, brick.physical_box[0] + nonzero_start, scale)

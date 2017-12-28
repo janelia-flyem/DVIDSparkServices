@@ -101,6 +101,6 @@ class TransposedVolumeService(VolumeServiceReader):
         data = data[inversion_slices]
 
         # Force contiguous so caller doesn't have to worry about it.
-        data = np.ascontiguousarray(data)
+        data = np.asarray(data, order='C')
         return data
 
