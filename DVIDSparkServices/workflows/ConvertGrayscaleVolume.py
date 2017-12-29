@@ -44,7 +44,9 @@ class ConvertGrayscaleVolume(Workflow):
             #"default": -1
         },
         "transpose-axes": {
-            "description": "How to transpose/rotate the input volume before writing it out.",
+            "description": "How to transpose/rotate the input volume before writing it out.\n"
+                           "Note: This setting is specified in ZYX order.\n"
+                           "      The default (['z', 'y', 'x']) is 'no-op'.",
             "type": "array",
             "items": { "type": "string" },
             "minItems": 3,
@@ -222,8 +224,8 @@ class ConvertGrayscaleVolume(Workflow):
         output_slab_wall = bricked_slab_wall.realign_to_new_grid( output_grid )
         
         padding_grid = Grid( 3*(self.output_service.block_width,), output_grid.offset )
-        padded_slab_wall = output_slab_wall.fill_missing(lambda box: 0, padding_grid)
-        padded_slab_wall.persist_and_execute(f"Assembling slab {slab_index}/{num_slabs} slices", logger)
+        padded_slab_wall = output_slab_wall.fill_missing(lambda _box: 0, padding_grid)
+        padded_slab_wall.persist_and_execute(f"Assembling slab {slab_index}/{num_slabs} bricks", logger)
 
         # Discard original bricks
         bricked_slab_wall.unpersist()

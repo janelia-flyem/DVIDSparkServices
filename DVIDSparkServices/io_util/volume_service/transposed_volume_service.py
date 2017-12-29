@@ -14,17 +14,17 @@ class TransposedVolumeService(VolumeServiceReader):
     # Rotations in the XY-plane, about the Z axis
     XY_CLOCKWISE_90 = ['z', 'x', '1-y']
     XY_COUNTERCLOCKWISE_90 = ['z', '1-x', 'y']
-    XY_ROTATE_180 = ['z', '1-x', '1-y']
+    XY_ROTATE_180 = ['z', '1-y', '1-x']
 
     # Rotations in the XZ-plane, about the Y axis
     XZ_CLOCKWISE_90 = ['x', 'y', '1-z']
     XZ_COUNTERCLOCKWISE_90 = ['1-x', 'y', 'z']
-    XZ_ROTATE_180 = ['1-x', 'y', '1-z']
+    XZ_ROTATE_180 = ['1-z' 'y', '1-x']
 
     # Rotations in the YZ-plane, about the X axis
     YZ_CLOCKWISE_90 = ['y', '1-z', 'x']
     YZ_COUNTERCLOCKWISE_90 = ['1-y', 'z', 'x']
-    YZ_ROTATE_180 = ['1-y', '1-z', 'x']
+    YZ_ROTATE_180 = ['1-z', '1-y', 'x']
 
     # No-op transpose; identity
     NO_TRANSPOSE = ['z', 'y', 'x']
