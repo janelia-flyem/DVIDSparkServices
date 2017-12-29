@@ -32,9 +32,9 @@ output_uuid = config['output']['dvid']['uuid']
 output_instance = config['output']['dvid']['grayscale-name']
 
 ns = DVIDNodeService(output_server, output_uuid)
-output_volume = ns.get_gray3D(output_instance, input_shape, input_bb_zyx[0])
 
 # output was rotated 90 degrees (see config)
+output_volume = ns.get_gray3D(output_instance, input_shape[((0,2,1),)], input_bb_zyx[0, (0,2,1)])
 assert (output_volume == input_volume[:, ::-1, :].transpose(0,2,1)).all()
 
 print("DEBUG: ExportSlices test passed.")

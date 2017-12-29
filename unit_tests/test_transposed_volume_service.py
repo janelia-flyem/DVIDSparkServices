@@ -17,11 +17,15 @@ class TestTransposedVolumeService(unittest.TestCase):
     def setUpClass(cls):
         with open(TEST_VOLUME_RAW, 'rb') as f_raw:
             cls.RAW_VOLUME_DATA = np.frombuffer(f_raw.read(), dtype=np.uint8).reshape((256,256,256))
+            cls.RAW_VOLUME_DATA = cls.RAW_VOLUME_DATA[:256, :200, :100]
 
         cls.VOLUME_CONFIG = {
           "n5": {
             "path": TEST_VOLUME_N5,
             "dataset-name": "s0"
+          },
+          "geometry": {
+              "bounding-box": [[0,0,0], [100,200,256]]
           }
         }
         
@@ -30,7 +34,7 @@ class TestTransposedVolumeService(unittest.TestCase):
     def test_full_volume(self):
         # First, N5 alone
         n5_reader = N5VolumeServiceReader(self.VOLUME_CONFIG, os.getcwd())
-        assert (n5_reader.bounding_box_zyx == [(0,0,0), (256,256,256)]).all()
+        assert (n5_reader.bounding_box_zyx == [(0,0,0), (256,200,100)]).all()
         full_from_n5 = n5_reader.get_subvolume(n5_reader.bounding_box_zyx)
         assert full_from_n5.shape == self.RAW_VOLUME_DATA.shape
         assert (full_from_n5 == self.RAW_VOLUME_DATA).all()
@@ -71,8 +75,8 @@ class TestTransposedVolumeService(unittest.TestCase):
 
         # XY 90 degree rotation, clockwise about the Z axis
         transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.XY_CLOCKWISE_90)
-        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx).all()
-        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape).all()
+        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx[:, (0,2,1)]).all()
+        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape[((0,2,1),)]).all()
         assert transposed_reader.block_width == n5_reader.block_width
         assert transposed_reader.dtype == n5_reader.dtype
         
@@ -96,8 +100,8 @@ class TestTransposedVolumeService(unittest.TestCase):
 
         # XZ degree rotation, clockwise about the Y axis
         transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.XZ_CLOCKWISE_90)
-        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx).all()
-        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape).all()
+        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx[:, (2,1,0)]).all()
+        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape[((2,1,0),)]).all()
         assert transposed_reader.block_width == n5_reader.block_width
         assert transposed_reader.dtype == n5_reader.dtype
         
@@ -115,8 +119,8 @@ class TestTransposedVolumeService(unittest.TestCase):
 
         # YZ degree rotation, clockwise about the X axis
         transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.YZ_CLOCKWISE_90)
-        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx).all()
-        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape).all()
+        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx[:, (1,0,2)]).all()
+        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape[((1,0,2),)]).all()
         assert transposed_reader.block_width == n5_reader.block_width
         assert transposed_reader.dtype == n5_reader.dtype
         
@@ -131,6 +135,33 @@ class TestTransposedVolumeService(unittest.TestCase):
         assert x_slice_n5[0,-1] == x_slice_transposed[-1,-1]
         assert x_slice_n5[-1,-1] == x_slice_transposed[-1,0]
         assert x_slice_n5[-1,0] == x_slice_transposed[0,0]
+
+        # Multiple rotations (the hemibrain N5 -> DVID transform)
+        transposed_reader = TransposedVolumeService(n5_reader, ['y', 'x', '1-z'])
+        assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx[:, (1,2,0)]).all()
+        assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape[((1,2,0),)]).all()
+        assert transposed_reader.block_width == n5_reader.block_width
+        assert transposed_reader.dtype == n5_reader.dtype
+        
+        full_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx)
+        assert (full_transposed == full_from_n5[::-1, :, :].transpose(1,2,0)).all()
+        assert full_transposed.flags.c_contiguous
+
+    def test_multiscale(self):
+        SCALE = 2
+        n5_reader = N5VolumeServiceReader(self.VOLUME_CONFIG, os.getcwd())
+
+        # No transpose
+        transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.NO_TRANSPOSE)
+        from_n5 = n5_reader.get_subvolume(n5_reader.bounding_box_zyx // 2**SCALE, SCALE)
+        from_transposed = transposed_reader.get_subvolume(n5_reader.bounding_box_zyx // 2**SCALE, SCALE)
+        assert (from_transposed == from_n5).all() 
+
+        # XZ degree rotation, clockwise about the Y axis
+        transposed_reader = TransposedVolumeService(n5_reader, TransposedVolumeService.XY_CLOCKWISE_90)
+        from_n5 = n5_reader.get_subvolume(n5_reader.bounding_box_zyx // 2**SCALE, SCALE)
+        from_transposed = transposed_reader.get_subvolume(transposed_reader.bounding_box_zyx // 2**SCALE, SCALE)
+        assert (from_transposed == from_n5[:,::-1,:].transpose(0,2,1)).all() 
 
 if __name__ == "__main__":
     unittest.main()

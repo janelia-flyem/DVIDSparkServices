@@ -3,7 +3,7 @@ input:
     path: ../../resources/volume-256.n5 # Relative to ./temp_data
     dataset-name: s0
   geometry:
-    bounding-box: [[0,0,0], [256,256,256]]
+    bounding-box: [[0,0,0], [256,200,100]]
 
 output:
   dvid:
