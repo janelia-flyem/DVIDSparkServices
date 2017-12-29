@@ -83,8 +83,7 @@ class TransposedVolumeService(VolumeServiceReader):
         orig_stop = [new_stop[i] for i in self.rev_transpose_order]
         
         orig_box = np.array([orig_start, orig_stop])
-        orig_bb = self.original_volume_service.bounding_box_zyx
-        orig_bb //= 2**scale
+        orig_bb = self.original_volume_service.bounding_box_zyx // 2**scale
         
         for i, inverted_name in enumerate(['1-z', '1-y', '1-x']):
             if inverted_name in self.new_axis_order:
