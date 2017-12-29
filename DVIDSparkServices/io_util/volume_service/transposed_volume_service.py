@@ -39,8 +39,8 @@ class TransposedVolumeService(VolumeServiceReader):
         
         self.axis_names = [ a[-1] for a in new_axis_order ]
         assert set(self.axis_names) == set(['z', 'y', 'x'])
-        self.transpose_order = ['zyx'.index(a) for a in self.axis_names] # where to find the new axis in the old order
-        self.rev_transpose_order = [self.axis_names.index(a) for a in 'zyx'] # where to find the original axis in the new order
+        self.transpose_order = tuple('zyx'.index(a) for a in self.axis_names) # where to find the new axis in the old order
+        self.rev_transpose_order = tuple(self.axis_names.index(a) for a in 'zyx') # where to find the original axis in the new order
         self.axis_inversions = [a.startswith('1-') for a in new_axis_order]
 
         for i, (new, orig) in enumerate( zip(new_axis_order, 'zyx') ):
@@ -58,31 +58,19 @@ class TransposedVolumeService(VolumeServiceReader):
 
     @property
     def preferred_message_shape(self):
-        orig = self.original_volume_service.preferred_message_shape
-        return np.array([orig[i] for i in self.transpose_order])
+        return self.original_volume_service.preferred_message_shape[(self.transpose_order,)]
 
     @property
     def bounding_box_zyx(self):
-        orig_start = self.original_volume_service.bounding_box_zyx[0]
-        orig_stop = self.original_volume_service.bounding_box_zyx[1]
-
-        start = np.array([orig_start[i] for i in self.transpose_order])
-        stop = np.array([orig_stop[i] for i in self.transpose_order])
-
-        return np.array([start, stop])
+        return self.original_volume_service.bounding_box_zyx[:, self.transpose_order]
 
     def get_subvolume(self, new_box_zyx, scale=0):
         """
         Extract the subvolume, specified in new (transposed) coordinates from the
         original volume service, then transpose the result accordingly before returning it.
         """
-        new_start = new_box_zyx[0]
-        new_stop = new_box_zyx[1]
-        
-        orig_start = [new_start[i] for i in self.rev_transpose_order]        
-        orig_stop = [new_stop[i] for i in self.rev_transpose_order]
-        
-        orig_box = np.array([orig_start, orig_stop])
+        new_box_zyx = np.asarray(new_box_zyx)
+        orig_box = new_box_zyx[:, self.rev_transpose_order]
         orig_bb = self.original_volume_service.bounding_box_zyx // 2**scale
         
         for i, inverted_name in enumerate(['1-z', '1-y', '1-x']):
