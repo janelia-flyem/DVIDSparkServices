@@ -200,7 +200,11 @@ class BrickWall:
             assert volume_accessor_func is not None
             rdd_partition_length = None
             if target_partition_size_voxels is None:
-                num_threads = num_worker_nodes() * cpus_per_worker()
+                if sc:
+                    num_threads = num_worker_nodes() * cpus_per_worker()
+                else:
+                    # See RDDtools -- for now, non-spark pseudo-RDDs are just a single partition.
+                    num_threads = 1
                 total_voxels = np.prod(bounding_box[1] - bounding_box[0])
                 voxels_per_thread = total_voxels / num_threads
                 target_partition_size_voxels = (voxels_per_thread // 2) # Arbitrarily aim for 2 partitions per thread
