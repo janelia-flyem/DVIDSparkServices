@@ -7,7 +7,7 @@ class TransposedVolumeService(VolumeServiceReader):
     Wraps an existing VolumeServiceReader and presents
     a transposed or rotated view of it.
     
-    (Techinically, this is an example of the so-called
+    (Technically, this is an example of the so-called
     "decorator" GoF pattern.)
     """
     
