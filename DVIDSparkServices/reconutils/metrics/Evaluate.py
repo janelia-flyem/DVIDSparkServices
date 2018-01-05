@@ -46,6 +46,7 @@ class Evaluate(object):
         self.point_threshold = config["options"]["point-threshold"]
         self.no_gt = config["options"]["no-gt"]
         self.enable_sparse = config["options"]["enable-sparse"]
+        self.subvolume_threshold = config["options"]["subvolume-threshold"]
         self.important_bodies = config["options"]["important-bodies"]
         self.num_displaybodies = config["options"]["num-displaybodies"]
         self.selfcompare = False
@@ -192,11 +193,26 @@ class Evaluate(object):
             for (metric, config) in self.metrics:
                 stats.add_stat(metric(**config))
 
-            # ?! disable if only one substack ?? -- maybe still good for viewer
+            # ignore subvolume below threshold
+            # (still collects stats but disables on reduce and adds flag to summary print)
+            if self.subvolume_threshold > 0:
+                # grab 'size' of volume (body count for sparse mode)
+                currsize = 0
+                for (gt, seg, overlap) in overlaps12:
+                    if self.enable_sparse:
+                        if gt in self.important_bodies:
+                            currsize += 1
+                    else:
+                        currsize += overlap
+                if not self.enable_sparse:
+                    currsize = currsize / float(stackgt.size) * 100
+                
+                if self.subvolume_threshold < currsize:
+                    stats.ignore_subvolume = True
 
             self._load_subvolume_stats(stats, overlaps12, overlaps21,
                     comptype, labelgt_map, label2_map)
-            
+           
             # keep volumes for subsequent point queries
             return (stats, labelgt_map, label2_map,
                     labelgt.astype(numpy.uint64),

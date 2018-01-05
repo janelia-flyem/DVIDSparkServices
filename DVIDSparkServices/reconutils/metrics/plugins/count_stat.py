@@ -44,6 +44,13 @@ class count_stat(StatType):
         """Combine subvolume stats.
         """
 
+        # reduce not needed if subvol stats unused
+        if self.ignore_subvolume:
+            self.subsvol_hist_stats = stat.subvol_hist_stats
+            return
+        if stat.ignore_subvolume:
+            return
+
         # combine subvolume hist state for each overlap
         for onum, gotable in enumerate(self.segstats.gt_overlaps):
             if gotable.get_comparison_type() not in self.supported_types:

@@ -11,6 +11,7 @@ class SubvolumeStats(object):
         # TODO: support for skeletons
         self.subvolumes = [subvolume]
         self.disable_subvolumes = False 
+        self.ignore_subvolume = self.disable_subvolumes
 
         # contains "rand", "vi", etc for substack
         self.subvolume_stats = []
@@ -27,7 +28,7 @@ class SubvolumeStats(object):
         self.selfcompare = selfcompare
         self.enable_sparse = enable_sparse
         self.important_bodies = set(important_bodies)
-    
+
     def compute_subvolume(self):
         """Performs metric computation for each stat and saves relevant state.
 
@@ -50,11 +51,14 @@ class SubvolumeStats(object):
         assert len(self.subvolumes) == 1
         assert not self.disable_subvolumes
 
-
         # not all stats will support subvolume stats
         subvolumestats = []
         for stat in self.subvolume_stats:
             subvolumestats.extend(stat.write_subvolume_stats())
+
+        # set flag to ignore by default in viewer
+        for res in subvolumestats:
+            res["ignore"] = self.ignore_subvolume
 
         return subvolumestats
 
@@ -89,7 +93,6 @@ class SubvolumeStats(object):
     def merge_stats(self, subvolume):
         assert(len(self.seg_overlaps) == len(subvolume.seg_overlaps))
         assert(len(self.gt_overlaps) == len(subvolume.gt_overlaps))
-
         for iter1 in range(0, len(self.gt_overlaps)):
             self.gt_overlaps[iter1].combine_tables(subvolume.gt_overlaps[iter1])           
         for iter1 in range(0, len(self.seg_overlaps)):
@@ -101,6 +104,10 @@ class SubvolumeStats(object):
             self.subvolume_stats[iter1].reduce_subvolume(subvolume.subvolume_stats[iter1])
         
         self.subvolumes.extend(subvolume.subvolumes)
+        
+        # enable subvolume computation if one of the internal subvolumes is enabled
+        if self.ignore_subvolume:
+            self.ignore_subvolume = subvolume.ignore_subvolume
 
     def add_gt_overlap(self, table):
         self.gt_overlaps.append(table)

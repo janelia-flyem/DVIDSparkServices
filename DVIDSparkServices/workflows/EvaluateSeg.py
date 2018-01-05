@@ -112,6 +112,11 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "integer",
           "default": 100
         },
+        "subvolume-threshold": {
+          "description": "Filter to decide which percent of subvolume must have GT data (if sparse mode, indicates minimum number of bodies for a subvolume)",
+          "type": "integer",
+          "default": 0
+        },
         "chunk-size": {
           "description": "size of subvolumes to be processed",
           "type": "integer",

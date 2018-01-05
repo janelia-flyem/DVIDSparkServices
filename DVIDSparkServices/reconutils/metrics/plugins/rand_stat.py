@@ -60,6 +60,17 @@ class rand_stat(StatType):
         if self.segstats.selfcompare:
             return
 
+        # use sum stats from other volume
+        if self.segstats.ignore_subvolume:
+            self.fmergebest = stat.fmergebest
+            self.fmergeworst = stat.fmergeworst
+            self.fsplitbest = stat.fsplitbest
+            self.fsplitworst = stat.fsplitworst
+            self.fmergefsplitave = stat.fmergefsplitave
+            return
+        if stat.ignore_subvolume:
+            return
+
         for name, val1 in self.fmergebest.items():
             val2 = stat.fmergebest[name]
             if val2[0] > val1[0]:
