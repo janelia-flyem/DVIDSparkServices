@@ -45,10 +45,10 @@ class count_stat(StatType):
         """
 
         # reduce not needed if subvol stats unused
-        if self.ignore_subvolume:
+        if self.segstats.ignore_subvolume:
             self.subsvol_hist_stats = stat.subvol_hist_stats
             return
-        if stat.ignore_subvolume:
+        if stat.segstats.ignore_subvolume:
             return
 
         # combine subvolume hist state for each overlap

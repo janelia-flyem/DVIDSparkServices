@@ -52,7 +52,7 @@ class DVIDWorkflow(Workflow):
 
         # separate schema to enforce "server" and "uuid" for all calls
         try:
-            validate(self.config_data, json.loads(self.DVIDSchema))
+            validate(self.config_data, self.DVIDSchema)
         except ValidationError as e:
             raise WorkflowError("DVID validation error: ", e.what())
 

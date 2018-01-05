@@ -68,7 +68,7 @@ class rand_stat(StatType):
             self.fsplitworst = stat.fsplitworst
             self.fmergefsplitave = stat.fmergefsplitave
             return
-        if stat.ignore_subvolume:
+        if stat.segstats.ignore_subvolume:
             return
 
         for name, val1 in self.fmergebest.items():
