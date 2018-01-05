@@ -68,6 +68,23 @@ class TestCompressedNumpyArray(object):
 
         assert (uncompressed == original).all()
 
+    def test_huge_slices(self):
+        """
+        The current implementation of CompressedNumpyArray just doesn't compress huge arrays.
+        Instead, it just captures them as-is.
+        """
+        orig_max_size = CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE
+
+        try:
+            CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE = 1000
+            original = np.zeros((10+CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE,1,1), dtype=np.uint8)
+            
+            serialized = CompressedNumpyArray( original )
+            deserialized = serialized.deserialize()
+            assert (original == deserialized).all()
+        finally:
+            CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE = orig_max_size
+
 if __name__ == "__main__":
     import sys
     import nose

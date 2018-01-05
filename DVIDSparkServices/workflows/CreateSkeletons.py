@@ -17,7 +17,6 @@ from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
-from DVIDSparkServices.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
@@ -35,16 +34,16 @@ class CreateSkeletons(Workflow):
     SkeletonDvidInfoSchema["properties"]["dvid"]["properties"].update(
     {
         "skeletons-destination": {
-            "description": "Name of key-value instance to store the skeletons. "
-                           "By convention, this should usually be {segmentation-name}_skeletons, "
-                           "which will be used by default if you don't provide this setting.",
+            "description": "Name of key-value instance to store the skeletons. \n"
+                           "By convention, this should usually be {segmentation-name}_skeletons, \n"
+                           "which will be used by default if you don't provide this setting.\n",
             "type": "string",
             "default": ""
         },
         "meshes-destination": {
-            "description": "Name of key-value instance to store the meshes. "
-                           "By convention, this should usually be {segmentation-name}_meshes, "
-                           "which will be used by default if you don't provide this setting.",
+            "description": "Name of key-value instance to store the meshes. \n"
+                           "By convention, this should usually be {segmentation-name}_meshes, \n"
+                           "which will be used by default if you don't provide this setting.\n",
             "type": "string",
             "default": ""
         }
@@ -53,20 +52,21 @@ class CreateSkeletons(Workflow):
     MeshGenerationSchema = \
     {
         "type": "object",
+        "description": "Mesh generation settings",
         "default": {},
         "properties": {
             "simplify-ratio": {
-                "description": "Mesh simplification aims to reduce the number of "
-                               "mesh vertices in the mesh to a fraction of the original mesh. "
-                               "This ratio is the fraction to aim for.  To disable simplification, use 1.0.",
+                "description": "Mesh simplification aims to reduce the number of \n"
+                               "mesh vertices in the mesh to a fraction of the original mesh. \n"
+                               "This ratio is the fraction to aim for.  To disable simplification, use 1.0.\n",
                 "type": "number",
                 "minimum": 0.0000001,
                 "maximum": 1.0,
                 "default": 0.2 # Set to 1.0 to disable.
             },
             "step-size": {
-                "description": "Passed to skimage.measure.marching_cubes_lewiner()."
-                               "Larger values result in coarser results via faster computation.",
+                "description": "Passed to skimage.measure.marching_cubes_lewiner().\n"
+                               "Larger values result in coarser results via faster computation.\n",
                 "type": "integer",
                 "default": 1
             },
@@ -78,7 +78,8 @@ class CreateSkeletons(Workflow):
                 "default": "obj"
             },
             "use-subprocesses": {
-                "description": "Whether or not to generate meshes in a subprocess, to protect against timeouts and failures.",
+                "description": "Whether or not to generate meshes in a subprocess, \n"
+                               "to protect against timeouts and failures.\n",
                 "type": "boolean",
                 "default": False
             }
@@ -103,45 +104,47 @@ class CreateSkeletons(Workflow):
             "default": 1e6
         },
         "downsample-factor": {
-            "description": "Minimum factor by which to downsample bodies before skeletonization. "
-                           "NOTE: If the object is larger than max-analysis-volume, even after "
-                           "downsampling, then it will be downsampled even further before skeletonization. "
-                           "The comments in the generated SWC file will indicate the final-downsample-factor.",
+            "description": "Minimum factor by which to downsample bodies before skeletonization. \n"
+                           "NOTE: If the object is larger than max-analysis-volume, even after \n"
+                           "downsampling, then it will be downsampled even further before skeletonization. \n"
+                           "The comments in the generated SWC file will indicate the final-downsample-factor. \n",
             "type": "integer",
             "default": 1
         },
         "max-analysis-volume": {
-            "description": "The above downsample-factor will be overridden if the body would still "
-                           "be too large to skeletonize, as defined by this setting.",
+            "description": "The above downsample-factor will be overridden if the body would still \n"
+                           "be too large to skeletonize, as defined by this setting.\n",
             "type": "number",
             "default": 1e9 # 1 GB max
         },
         "downsample-timeout": {
-            "description": "The maximum time to wait for an object to be downsampled before skeletonization. "
-                           "If timeout is exceeded, the an error is logged and the object is skipped."
-                           "IGNORED IF downsample-in-subprocess is False",
+            "description": "The maximum time to wait for an object to be downsampled before skeletonization. \n"
+                           "If timeout is exceeded, the an error is logged and the object is skipped.\n"
+                           "IGNORED IF downsample-in-subprocess is False\n",
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
         "downsample-in-subprocess":  {
             "description": "Collect and downsample each object in a subprocess, to protect against timeouts and failures.\n"
-                           "Must be True for downsample-timeout to have any effect.",
+                           "Must be True for downsample-timeout to have any effect.\n",
             "type": "boolean",
             "default": True
         },
         "analysis-timeout": {
-            "description": "The maximum time to wait for an object to be skeletonized or meshified. "
-                           "If timeout is exceeded, the an error is logged and the object is skipped.",
+            "description": "The maximum time to wait for an object to be skeletonized or meshified. \n"
+                           "If timeout is exceeded, the an error is logged and the object is skipped.\n",
             "type": "number",
             "default": 600.0 # 10 minutes max
         },
         "failed-mask-dir": {
-            "description": "Volumes that fail to skeletonize (due to timeout) will be written out as h5 files to this directory.",
+            "description": "Volumes that fail to skeletonize (due to timeout) will \n"
+                           "be written out as h5 files to this directory.",
             "type": "string",
             "default": "./failed-masks"
         },
         "write-mask-stats":  {
-            "description": "Debugging feature.  Writes a CSV file containing information about the body masks computed during the job.",
+            "description": "Debugging feature.  Writes a CSV file containing \n"
+                           "information about the body masks computed during the job.",
             "type": "boolean",
             "default": False
         }
@@ -161,12 +164,12 @@ class CreateSkeletons(Workflow):
       }
     }
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(CreateSkeletons.Schema)
+    @classmethod
+    def schema(cls):
+        return CreateSkeletons.Schema
 
     def __init__(self, config_filename):
-        super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.dumpschema(), "CreateSkeletons")
+        super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.schema(), "CreateSkeletons")
         
     def _sanitize_config(self):
         # Convert failed-mask-dir to absolute path
@@ -199,7 +202,7 @@ class CreateSkeletons(Workflow):
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
 
-        brick_wall = BrickWall.from_volume_service(volume_service, self.sc, target_partition_size_voxels)
+        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels)
         brick_wall.persist_and_execute("Downloading segmentation", logger)
         
         # brick -> (body_id, (box, mask, count))
@@ -285,8 +288,9 @@ class CreateSkeletons(Workflow):
         if not bad_body_ids and not self.config_data["options"]["write-mask-stats"]:
             return set()
 
-        logger.warn(f"Warning: {len(bad_body_ids)} bodies were too large to aggregate,"
-                    f" and will be skipped: {list(bad_body_ids)}")
+        if bad_body_ids:
+            logger.warn(f"Warning: {len(bad_body_ids)} bodies were too large to aggregate,"
+                        f" and will be skipped: {list(bad_body_ids)}")
 
         # Write the body block statistics to a file.
         csv_path = self.relpath_to_abspath('.') + '/mask-stats.csv'
@@ -320,7 +324,7 @@ class CreateSkeletons(Workflow):
 
         # Write
         with Timer() as timer:
-            body_ids_and_skeletons.foreach( partial(post_swc_to_dvid, config) )
+            body_ids_and_skeletons.foreachPartition( partial(post_swcs_to_dvid, config) )
         logger.info(f"Writing skeletons to DVID took {timer.seconds}")
 
 
@@ -339,9 +343,8 @@ class CreateSkeletons(Workflow):
         for error in errors:
             logger.error(error)
 
-        # Write
         with Timer() as timer:
-            body_ids_and_meshes.foreach( partial(post_mesh_to_dvid, config) )
+            body_ids_and_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
         logger.info(f"Writing meshes to DVID took {timer.seconds}")
 
 
@@ -545,41 +548,36 @@ def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
     return (body_id, swc_contents) # No error
 
 
-def post_swc_to_dvid(config, body_swc_err):
+def post_swcs_to_dvid(config, items):
     """
-    Send the given SWC as a key/value pair to DVID.
+    Send the given SWC files as key/value pairs to DVID.
     
     Args:
-        body_swc_err: tuple (body_id, swc_text, error_text)
-                      If swc_text is None or error_text is NOT None, then nothing is posted.
-                      (We could have filtered out such items upstream, but it's convenient to just handle it here.)
+        config: The CreateSkeletons workflow config data
     
-    TODO: There is a tiny bit of extra overhead here due to the fact
-          that we are creating a new requests.Session() and ResourceManagerClient
-          for every SWC we write.
-          If we want, we could refactor this to be used with mapPartitions(),
-          which would allow those objects to be initialized only once per partition,
-          and then shared for all SWCs in the partition.
+        items: list-of-tuples (body_id, swc_text, error_text)
+               If swc_text is None or error_text is NOT None, then nothing is posted.
+               (We could have filtered out such items upstream, but it's convenient to just handle it here.)
     """
-    body_id, swc_contents, err = body_swc_err
-    if swc_contents is None or err is not None:
-        return
+    # Re-use session for connection pooling.
+    session = requests.Session()
 
-    swc_contents = swc_contents.encode('utf-8')
+    # Re-use resource manager client connections, too.
+    # (If resource-server is empty, this will return a "dummy client")    
+    resource_client = ResourceManagerClient( config["options"]["resource-server"],
+                                             config["options"]["resource-port"] )
 
     dvid_server = config["dvid-info"]["dvid"]["server"]
     uuid = config["dvid-info"]["dvid"]["uuid"]
     instance = config["dvid-info"]["dvid"]["skeletons-destination"]
 
-    if not config["options"]["resource-server"]:
-        # No throttling.
-        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
-    else:
-        resource_client = ResourceManagerClient( config["options"]["resource-server"],
-                                                 config["options"]["resource-port"] )
+    for (body_id, swc_contents, err) in items:
+        if swc_contents is None or err is not None:
+            continue
     
+        swc_contents = swc_contents.encode('utf-8')
         with resource_client.access_context(dvid_server, False, 1, len(swc_contents)):
-            requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
+            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
 
 
 def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
@@ -632,33 +630,36 @@ def generate_mesh(config, body_id, combined_box, combined_mask, downsample_facto
     return body_id, mesh_bytes
 
 
-def post_mesh_to_dvid(config, body_obj_err):
+def post_meshes_to_dvid(config, items):
     """
-    Send the given mesh .obj (or .drc) as a key/value pair to DVID.
+    Send the given meshes (either .obj or .drc) as key/value pairs to DVID.
     
     Args:
-        body_swc_err: tuple (body_id, swc_text, error_text)
-                      If swc_text is None or error_text is NOT None, then nothing is posted.
+        config: The CreateSkeletons workflow config data
+            
+        items: tuple (body_id, mesh_data, error_text)
+                      If mesh_data is None or error_text is NOT None, then nothing is posted.
                       (We could have filtered out such items upstream, but it's convenient to just handle it here.)
+
+        session: A requests.Session object to re-use for posting data.                      
     """
-    body_id, mesh_obj, err = body_obj_err
-    if mesh_obj is None or err is not None:
-        return
+    # Re-use session for connection pooling.
+    session = requests.Session()
+
+    # Re-use resource manager client connections, too.
+    # (If resource-server is empty, this will return a "dummy client")    
+    resource_client = ResourceManagerClient( config["options"]["resource-server"],
+                                             config["options"]["resource-port"] )
 
     dvid_server = config["dvid-info"]["dvid"]["server"]
     uuid = config["dvid-info"]["dvid"]["uuid"]
     instance = config["dvid-info"]["dvid"]["meshes-destination"]
     info = {"format": config["mesh-config"]["format"]}
 
-    def post_mesh():
-        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_obj)
-        requests.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
+    for (body_id, mesh_data, err) in items:
+        if mesh_data is None or err is not None:
+            continue
 
-    if config["options"]["resource-server"]:
-        # Throttle with resource manager
-        resource_client = ResourceManagerClient( config["options"]["resource-server"], config["options"]["resource-port"] )
-        with resource_client.access_context(dvid_server, False, 2, len(mesh_obj)):
-            post_mesh()
-    else:
-        # No throttle
-        post_mesh()
+        with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
+            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
+            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)

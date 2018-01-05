@@ -88,6 +88,19 @@ def extend_with_default_without_validation(validator_class, include_yaml_comment
                 continue
             if "default" in subschema:
                 default = copy.deepcopy(subschema["default"])
+                
+                if isinstance(default, list):
+                    try:
+                        # Lists of numbers should use 'flow style'
+                        # and so should lists-of-lists of numbers
+                        # (e.g. bounding boxes like [[0,0,0],[1,2,3]])
+                        if ( subschema["items"]["type"] in ("integer", "number") or
+                             ( subschema["items"]["type"] == "array" and 
+                               subschema["items"]["items"]["type"] in ("integer", "number") ) ):
+                            default = flow_style(default)
+                    except KeyError:
+                        pass
+                
                 if include_yaml_comments and isinstance(default, dict):
                     default = CommentedMap(default)
                     # To keep track of the current indentation level,
@@ -109,7 +122,10 @@ def extend_with_default_without_validation(validator_class, include_yaml_comment
                     instance[property] = "{{NO_DEFAULT}}"
 
             if include_yaml_comments and "description" in subschema:
-                instance.yaml_set_comment_before_after_key(property, '\n' + subschema["description"], instance.key_indent)
+                comment = '\n' + subschema["description"]
+                if comment[-1] == '\n':
+                    comment = comment[:-1]
+                instance.yaml_set_comment_before_after_key(property, comment, instance.key_indent)
 
         for _error in validate_properties(validator, properties, instance, schema):
             # Ignore validation errors
@@ -201,6 +217,12 @@ if __name__ == "__main__":
                     "inner-object-2": {
                         "description": "This is an inner object integer",
                         "type": "integer"
+                    },
+                    "inner-list": {
+                        "description": "This is a list, and the default YAML style should be shown in flow-style",
+                        "type": "array",
+                        "items": { "type": "integer" }, # <-- Must set "type": "integer" for flow style to be applied in YAML dumps
+                        "default": [1,2,3]
                     }
                 },
                 "default": {} # <-- MUST PROVIDE DEFAULT OBJECT
@@ -212,7 +234,7 @@ if __name__ == "__main__":
     
     obj1 = {}
     DefaultValidatingDraft4Validator(schema).validate(obj1)
-    assert obj1 == {'outer-object': {'inner-object': 'INNER-DEFAULT'}}
+    assert obj1 == {'outer-object': {'inner-object': 'INNER-DEFAULT', "inner-list": [1,2,3]}}
     assert obj1['outer-object'].from_default
 
     print("obj1:")

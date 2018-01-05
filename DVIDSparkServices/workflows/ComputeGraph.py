@@ -4,7 +4,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 
 class ComputeGraph(DVIDWorkflow):
     # schema for building graph
-    Schema = """
+    Schema = \
 { "$schema": "http://json-schema.org/schema#",
   "title": "Tool to Create DVID blocks from image slices",
   "type": "object",
@@ -54,12 +54,15 @@ class ComputeGraph(DVIDWorkflow):
     }
   }
 }
-"""
+
+    @classmethod
+    def schema(cls):
+        return ComputeGraph.Schema
 
     chunksize = 256
 
     def __init__(self, config_filename):
-        super(ComputeGraph, self).__init__(config_filename, self.Schema, "Compute Graph")
+        super(ComputeGraph, self).__init__(config_filename, self.schema(), "Compute Graph")
 
     # build graph by dividing into mostly disjoint chunks and computing the number
     # of voxels and overlap between them
@@ -120,6 +123,3 @@ class ComputeGraph(DVIDWorkflow):
 
         graph_elements_red.unpersist()
 
-    @staticmethod
-    def dumpschema():
-        return ComputeGraph.Schema

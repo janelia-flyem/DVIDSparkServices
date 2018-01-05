@@ -1,5 +1,3 @@
-from DVIDSparkServices.json_util import flow_style
-
 # Terms:
 # - Service: Arbitrary source (or sink) of voxels, with no defined bounding box or access pattern
 # - Geometry: Bounding box, access pattern, scale
@@ -18,7 +16,7 @@ BoundingBoxSchema = \
         "minItems": 3,
         "maxItems": 3
     },
-    "default": flow_style( [[-1,-1,-1], [-1,-1,-1]] )
+    "default": [[-1,-1,-1], [-1,-1,-1]]
 }
 
 GeometrySchema = \
@@ -27,16 +25,6 @@ GeometrySchema = \
     "type": "object",
     "default": {},
     "properties": {
-        "default_scale": {
-            "description": "The pyramid scale at which the data should be accessed: \n"
-                           "0: full-res; \n"
-                           "1: downsample-by-2; \n"
-                           "2: downsample-by-4; etc. \n",
-            "type": "integer",
-            "minimum": 0,
-            "default": 0
-        },
-
         "bounding-box": BoundingBoxSchema,
 
         "message-block-shape": {
@@ -46,7 +34,7 @@ GeometrySchema = \
             "items": { "type": "integer" },
             "minItems": 3,
             "maxItems": 3,
-            "default": flow_style( [-1,-1,-1] )
+            "default": [-1,-1,-1]
         },
 
         "block-width": {

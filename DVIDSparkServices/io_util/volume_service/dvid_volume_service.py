@@ -8,7 +8,7 @@ from libdvid import DVIDException
 
 from DVIDSparkServices.util import replace_default_entries
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
 
 from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter
@@ -47,6 +47,14 @@ DvidGrayscaleServiceSchema = \
                            "Instance must be grayscale (uint8blk).",
             "type": "string",
             "minLength": 1
+        },
+        "compression": {
+            "description": "What type of compression is used to store this instance.\n"
+                           "(Only used when the instance is created for the first time.)\n"
+                           "Choices: 'raw' and 'jpeg'.\n",
+            "type": "string",
+            "enum": ["raw", "jpeg"],
+            "default": "raw"
         }
     }
 }
@@ -175,7 +183,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         if resource_manager_client is None:
             # Dummy client
             resource_manager_client = ResourceManagerClient("", 0)
-        
+
         ##
         ## Store members
         ##
@@ -184,12 +192,23 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         self._bounding_box_zyx = bounding_box_zyx
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
 
+        # Memoized in the node_service property.
+        self._node_service = None
+
         ##
         ## Overwrite config entries that we might have modified
         ##
         volume_config["geometry"]["block-width"] = self._block_width
         volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
         volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
+
+    @property
+    def node_service(self):
+        if self._node_service is None:
+            # We don't pass the resource manager details here
+            # because we use the resource manager from python.
+            self._node_service = retrieve_node_service(self._server, self._uuid, "", "")
+        return self._node_service
 
     @property
     def dtype(self):
@@ -217,11 +236,19 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         shape = np.asarray(box_zyx[1]) - box_zyx[0]
         req_bytes = self._dtype_nbytes * np.prod(box_zyx[1] - box_zyx[0])
         throttle = (self._resource_manager_client.server_ip == "")
+
+        instance_name = self._instance_name
+        if self._instance_type == 'uint8blk' and scale > 0:
+            # Grayscale multi-scale is achieved via multiple instances
+            instance_name = f"{instance_name}_{scale}"
+            scale = 0
+
         with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.get_voxels( self._server, self._uuid, self._instance_name,
+            return sparkdvid.get_voxels( self._server, self._uuid, instance_name,
                                          scale, self._instance_type, self._is_labels,
                                          shape, box_zyx[0],
-                                         throttle=throttle )
+                                         throttle=throttle,
+                                         node_service=self.node_service )
 
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.
@@ -232,8 +259,26 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     def write_subvolume(self, subvolume, offset_zyx, scale):
         req_bytes = self._dtype_nbytes * np.prod(subvolume.shape)
         throttle = (self._resource_manager_client.server_ip == "")
+        
+        instance_name = self._instance_name
+        if self._instance_type == 'uint8blk' and scale > 0:
+            # Grayscale multi-scale is achieved via multiple instances
+            instance_name = f"{instance_name}_{scale}"
+            scale = 0
+
         with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.post_voxels( self._server, self._uuid, self._instance_name,
+            return sparkdvid.post_voxels( self._server, self._uuid, instance_name,
                                           scale, self._instance_type, self._is_labels,
                                           subvolume, offset_zyx,
-                                          throttle=throttle )
+                                          throttle=throttle,
+                                          node_service=self.node_service )
+
+    def __getstate__(self):
+        """
+        Pickle representation.
+        """
+        d = self.__dict__.copy()
+        # Don't attempt to pickle the DVIDNodeService (it isn't pickleable).
+        # Instead, set it to None so it will be lazily regenerated after unpickling.
+        d['_node_service'] = None
+        return d

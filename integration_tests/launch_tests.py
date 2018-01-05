@@ -109,6 +109,7 @@ def run_test(test_name, plugin, test_dir, uuid1, uuid2):
     print("Finished test: ", test_name, " in ", finish-start, " seconds")
     return correct
 
+
 def init_test_files(test_dir):
     # Create N5 grayscale test data
     z5_vol_path = test_dir + '/resources/volume-256.n5'
@@ -119,9 +120,30 @@ def init_test_files(test_dir):
         
         import z5py
         f = z5py.File(z5_vol_path, use_zarr_format=False)
-        ds = f.create_dataset('grayscale', dtype='uint8', shape=(256,256,256), chunks=(64,64,64), compressor='raw')
+        ds = f.create_dataset('grayscale', dtype='uint8', shape=grayscale.shape, chunks=(64,64,64), compressor='raw')
         ds[:] = grayscale
         assert (ds[:] == grayscale).all(), "z5py appears broken..."
+        
+        # Add some more scales
+        s0 = grayscale
+        ds0 = f.create_dataset('s0', dtype='uint8', shape=s0.shape, chunks=(64,64,64), compressor='raw')
+        ds0[:] = s0
+        assert (ds0[:] == grayscale).all(), "z5py appears broken..."
+
+        s1 = grayscale[::2, ::2, ::2].copy('C')
+        ds1 = f.create_dataset('s1', dtype='uint8', shape=s1.shape, chunks=(64,64,64), compressor='raw')
+        ds1[:] = s1
+        assert (ds1[:] == s1).all(), "z5py appears broken..."
+        
+        s2 = grayscale[::4, ::4, ::4].copy('C')
+        ds2 = f.create_dataset('s2', dtype='uint8', shape=s2.shape, chunks=(32,32,32), compressor='raw')
+        ds2[:] = s2
+        assert (ds2[:] == s2).all(), "z5py appears broken..."
+
+        s3 = grayscale[::8, ::8, ::8].copy('C')
+        ds3 = f.create_dataset('s3', dtype='uint8', shape=s3.shape, chunks=(32,32,32), compressor='raw')
+        ds3[:] = s3
+        assert (ds3[:] == s3).all(), "z5py appears broken..."
 
     # Create PNG stack grayscale test data
     slice_files_dir = test_dir + '/resources/volume-256-pngs'
@@ -316,6 +338,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests = OrderedDict()
     tests["test_exportslices"] = "ExportSlices"
     tests["test_exportslices_from_n5"] = "ExportSlices"
+    tests["test_convertgray"] = "ConvertGrayscaleVolume"
     tests["test_copyseg"] = "CopySegmentation"
     tests["test_copyseg_brainmaps"] = "CopySegmentation"
     tests["test_copyseg_remapped"] = "CopySegmentation"

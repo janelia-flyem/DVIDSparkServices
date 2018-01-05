@@ -87,7 +87,8 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
 
     if sc:
         num_rdd_partitions = None
-        if rdd_partition_length:
+        if rdd_partition_length is not None:
+            rdd_partition_length = max(1, rdd_partition_length)
             logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
@@ -219,8 +220,29 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
             # The caller wants to be sure that the result can be
             # unpersisted safely without affecting the bricks he passed in,
             # so we return a *new* RDD, even though it's just a copy of the original.
-            return bricks.map(lambda brick: brick, bricks)
+            return rt.map( lambda brick: brick, bricks )
         return bricks
+
+    mapping_pairs = load_labelmap(labelmap_config, working_dir)
+    remapped_bricks = apply_label_mapping(bricks, mapping_pairs)
+
+    if unpersist_original:
+        unpersist(bricks)
+
+    return remapped_bricks
+
+def load_labelmap(labelmap_config, working_dir):
+    """
+    Load a labelmap file as specified in the given labelmap_config,
+    which must conform to LabelMapSchema.
+    
+    If the labelmapfile exists on gbuckets, it will be downloaded first.
+    If it is gzip-compressed, it will be unpacked.
+    
+    The final downloaded/uncompressed file will be saved into working_dir,
+    and the final path will be overwritten in the labelmap_config.
+    """
+    path = labelmap_config["file"]
 
     # path is [gs://]/path/to/file.csv[.gz]
 
@@ -249,6 +271,8 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
         path = uncompressed_path # drop '.gz'
 
     # Now path is /path/to/file.csv
+    # Overwrite the final downloaded/upacked location
+    labelmap_config['file'] = path
 
     # Mapping is only loaded into numpy once, on the driver
     if labelmap_config["file-type"] == "label-to-body":
@@ -266,6 +290,24 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
             with open(mapping_csv_path, 'w') as f:
                 csv.writer(f).writerows(mapping_pairs)
 
+    return mapping_pairs
+
+def apply_label_mapping(bricks, mapping_pairs):
+    """
+    Given an RDD of bricks (of label data) and a pre-loaded labelmap in
+    mapping_pairs [[orig,new],[orig,new],...],
+    apply the mapping to the bricks.
+    
+    bricks:
+        RDD of Bricks containing label volumes
+    
+    mapping_pairs:
+        Mapping as returned by load_labelmap.
+        An ndarray of the form:
+            [[orig,new],
+             [orig,new],
+             ... ],
+    """
     from dvidutils import LabelMapper
     def remap_bricks(partition_bricks):
         domain, codomain = mapping_pairs.transpose()
@@ -277,10 +319,8 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
         return partition_bricks
     
     # Use mapPartitions (instead of map) so LabelMapper can be constructed just once per partition
-    remapped_bricks = bricks.mapPartitions(remap_bricks)
+    remapped_bricks = rt.map_partitions( remap_bricks, bricks )
     persist_and_execute(remapped_bricks, f"Remapping bricks", logger)
-    if unpersist_original:
-        unpersist(bricks)
     return remapped_bricks
 
 

@@ -6,8 +6,6 @@ import numpy as np
 from PIL import Image
 from jsonschema import validate
 
-from DVIDSparkServices.json_util import flow_style
-
 from DVIDSparkServices.util import replace_default_entries, box_to_slicing
 from . import VolumeServiceReader, VolumeServiceWriter, GeometrySchema
 
@@ -36,7 +34,7 @@ SliceFilesServiceSchema = \
             "items": { "type": "integer" },
             "minItems": 2,
             "maxItems": 2,
-            "default": flow_style( [0,0] ),
+            "default": [0,0],
         }
     }
 }

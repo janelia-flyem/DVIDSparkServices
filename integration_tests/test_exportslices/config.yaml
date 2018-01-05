@@ -13,12 +13,12 @@ output:
 options:
   slices-per-slab: -1
 
-  resource-server: ''
-  resource-port: 0
+  resource-server: 'driver'
+  resource-port: 5000
   resource-server-config: {}
 
-  log-collector-port: 0
-  log-collector-directory: ''
+  log-collector-port: 3000
+  log-collector-directory: '/tmp/'
 
   spark-config:
     spark.task.cpus: 1

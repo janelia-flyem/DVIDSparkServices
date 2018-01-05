@@ -26,7 +26,7 @@ from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute, NumpyConvertingEncoder
 from DVIDSparkServices.auto_retry import auto_retry
 
-from .common_schemas import SegmentationVolumeSchema
+from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidSegmentationVolumeSchema
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ class DVIDCheckSegmentation(Workflow):
         "additionalProperties": False,
         "required": ["input", "output"],
         "properties": {
-            "input": SegmentationVolumeSchema,       # Labelmap, if any, is applied post-read
+            "input": DvidSegmentationVolumeSchema,
             "output": {
                 "description": "Location of debug output file",
                 "type": "string"
@@ -48,16 +48,16 @@ class DVIDCheckSegmentation(Workflow):
         }
     }
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(DVIDCheckSegmentation.Schema)
+    @classmethod
+    def schema(cls):
+        return DVIDCheckSegmentation.Schema
 
     # name of application for DVID queries
     APPNAME = "dvidchecksegmentation"
 
     def __init__(self, config_filename):
         super(DVIDCheckSegmentation, self).__init__( config_filename,
-                                                DVIDCheckSegmentation.dumpschema(),
+                                                DVIDCheckSegmentation.schema(),
                                                 "Check DVID Segmentation" )
 
     def _sanitize_config(self):
@@ -85,7 +85,7 @@ class DVIDCheckSegmentation(Workflow):
         input_config = self.config_data["input"]
         options = self.config_data["options"]
 
-        input_bb_zyx = np.array(input_config["bounding-box"])[:,::-1]
+        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
         input_bricks, bounding_box, _input_grid = self._partition_input()
 
 
@@ -157,11 +157,11 @@ class DVIDCheckSegmentation(Workflow):
     
         # TODO extract indices in separate step to measure fetch time
         # fetch indices for provided block and produce list of [body, bad ids]
-        server = input_config["server"]
-        uuid = input_config["uuid"]
+        server = input_config["dvid"]["server"]
+        uuid = input_config["dvid"]["uuid"]
         resource_server = self.resource_server
         resource_port = self.resource_port
-        labelname = input_config["segmentation-name"]
+        labelname = input_config["dvid"]["segmentation-name"]
         appname = self.APPNAME
 
         def findindexerrors(bodies):

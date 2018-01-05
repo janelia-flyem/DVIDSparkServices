@@ -45,6 +45,10 @@ def main():
         print(json.dumps(workflow_names, indent=4))
         return
 
+    if not args.workflow:
+        print("Error: Please specify a workflow name", file=sys.stderr)
+        sys.exit(1)
+
     # import plugin and grab class
     # assume plugin name and class name are the same
     module_name = "DVIDSparkServices.workflows." + args.workflow
@@ -53,7 +57,7 @@ def main():
 
     # print the json schema for the given workflow
     if args.dump_schema:
-        print(workflow_cls.dumpschema())
+        print(json.dumps(workflow_cls.schema(), indent=2))
         return
 
     if args.dump_default_json:

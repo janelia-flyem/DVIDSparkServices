@@ -21,7 +21,7 @@ class DVIDWorkflow(Workflow):
     """
 
     # must specify server and uuid
-    DVIDSchema = """
+    DVIDSchema = \
 { "$schema": "http://json-schema.org/schema#",
   "title": "Basic DVID Workflow Interface",
   "type": "object",
@@ -45,7 +45,6 @@ class DVIDWorkflow(Workflow):
     }
   }
 }
-    """
    
     # calls base initializer and verifies own schema
     def __init__(self, jsonfile, schema, appname):
@@ -76,8 +75,8 @@ class DVIDWorkflow(Workflow):
 
 
     # just dumps specific DVID schema
-    @staticmethod
-    def dumpschema():
+    @classmethod
+    def schema(cls):
         return DVIDWorkflow.DVIDSchema 
 
 

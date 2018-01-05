@@ -441,9 +441,11 @@ class sparkdvid(object):
     def get_voxels( cls, server, uuid, instance_name, scale,
                     instance_type, is_labels,
                     volume_shape, offset,
-                    resource_server="", resource_port=0, throttle="auto"):
+                    resource_server="", resource_port=0, throttle="auto", node_service=None):
 
-        node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+        if node_service is None:
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+
         if throttle == "auto":
             throttle = (resource_server == "")
         
@@ -470,9 +472,10 @@ class sparkdvid(object):
     def post_voxels( cls, server, uuid, instance_name, scale,
                      instance_type, is_labels,
                      subvolume, offset,
-                     resource_server="", resource_port=0, throttle="auto"):
+                     resource_server="", resource_port=0, throttle="auto", node_service=None):
 
-        node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
+        if node_service is None:
+            node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
 
         if throttle == "auto":
             throttle = (resource_server == "")

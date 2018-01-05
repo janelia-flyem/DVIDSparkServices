@@ -24,6 +24,9 @@ yaml = YAML(typ='rt')
 yaml.default_flow_style = False
 
 from quilted.filelock import FileLock
+
+from dvid_resource_manager.server import DEFAULT_CONFIG as DEFAULT_RESOURCE_MANAGER_CONFIG
+
 from DVIDSparkServices import cleanup_faulthandler
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
 from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults
@@ -57,6 +60,7 @@ class Workflow(object):
     OptionsSchema = \
     {
         "type": "object",
+        "description": "Options",
         "default": {},
         "additionalProperties": True,
 
@@ -76,7 +80,7 @@ class Workflow(object):
             },
             "resource-server-config": {
                 "type": "object",
-                "default": {},
+                "default": DEFAULT_RESOURCE_MANAGER_CONFIG,
                 "additionalProperties": True
             },
 
@@ -161,7 +165,7 @@ class Workflow(object):
 
         Args:
             jsonfile (dict): json config data for workflow
-            schema (dict): json schema for workflow
+            schema (dict): json schema for workflow (already loaded as dict)
             appname (str): name of the spark application
 
         """
@@ -169,9 +173,7 @@ class Workflow(object):
         if not jsonfile.startswith('http'):
             jsonfile = os.path.abspath(jsonfile)
         self.config_path = jsonfile
-
         self.config_data = None
-        schema_data = json.loads(schema)
 
         try:
             ext = os.path.splitext(jsonfile)[1]
@@ -188,7 +190,7 @@ class Workflow(object):
 
         # validate JSON
         try:
-            validate_and_inject_defaults(self.config_data, schema_data)
+            validate_and_inject_defaults(self.config_data, schema)
         except ValidationError as e:
             raise WorkflowError("Validation error: ", str(e))
 
@@ -590,16 +592,9 @@ class Workflow(object):
         raise WorkflowError("No execution function provided")
 
 
-    # make this an explicit abstract method ??
-    @classmethod
-    def dumpschema(cls):
-        """Children must provide their own json specification"""
-
-        raise WorkflowError("Derived class must provide a schema")
-
     @classmethod
     def schema(cls):
-        return json.loads( cls.dumpschema() )
+        raise NotImplementedError
 
     @classmethod
     def default_config(cls, syntax="json"):

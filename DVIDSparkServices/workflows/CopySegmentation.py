@@ -86,10 +86,6 @@ class CopySegmentation(Workflow):
     Schema["properties"]["input"]["description"] += "\n(Labelmap, if any, is applied post-read)"
     Schema["properties"]["outputs"]["description"] += "\n(Labelmaps, if any, are applied before writing for each volume.)"
 
-    @staticmethod
-    def dumpschema():
-        return json.dumps(CopySegmentation.Schema)
-
     @classmethod
     def schema(cls):
         return CopySegmentation.Schema
@@ -100,7 +96,7 @@ class CopySegmentation(Workflow):
 
     def __init__(self, config_filename):
         super(CopySegmentation, self).__init__( config_filename,
-                                                CopySegmentation.dumpschema(),
+                                                CopySegmentation.schema(),
                                                 "Copy Segmentation" )
 
     def _sanitize_config(self):
@@ -183,7 +179,7 @@ class CopySegmentation(Workflow):
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
         input_service = VolumeService.create_from_config(input_config, self.config_dir, self.resource_mgr_client)
-        input_wall = BrickWall.from_volume_service(input_service, self.sc, target_partition_size_voxels)
+        input_wall = BrickWall.from_volume_service(input_service, 0, None, self.sc, target_partition_size_voxels)
 
         # See note in _sanitize_config()
         first_output_geometry = output_configs[0]["geometry"]
@@ -351,27 +347,32 @@ class CopySegmentation(Workflow):
 
     def _consolidate_and_pad(self, input_wall, scale, output_config, align=True, pad=True):
         """
-        Consolidate (align), and pad the given RDD of Bricks.
+        Consolidate (align), and pad the given BrickWall
 
-        scale: The pyramid scale of the data.
-        
-        output_config: The config settings for the output volume to align to and pad from
-        
-        align: If False, skip the alignment step. (Only use this if the bricks are already aligned.)
-        
-        pad: If False, skip the padding step
-        
         Note: UNPERSISTS the input data and returns the new, downsampled data.
+
+        Args:
+            scale: The pyramid scale of the data.
+            
+            output_config: The config settings for the output volume to align to and pad from
+            
+            align: If False, skip the alignment step.
+                  (Only use this if the bricks are already aligned.)
+            
+            pad: If False, skip the padding step
+        
+        Returns a pre-executed and persisted BrickWall.
         """
         output_writing_grid = Grid(output_config["geometry"]["message-block-shape"][::-1])
 
         if not align or output_writing_grid.equivalent_to(input_wall.grid):
             realigned_wall = input_wall
+            realigned_wall.persist_and_execute(f"Scale {scale}: Persisting pre-aligned bricks", logger)
         else:
             # Consolidate bricks to full-size, aligned blocks (shuffles data)
             realigned_wall = input_wall.realign_to_new_grid( output_writing_grid )
             realigned_wall.persist_and_execute(f"Scale {scale}: Shuffling bricks into alignment", logger)
-    
+
             # Discard original
             input_wall.unpersist()
         
