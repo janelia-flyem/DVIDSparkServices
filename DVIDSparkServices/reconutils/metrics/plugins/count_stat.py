@@ -46,7 +46,7 @@ class count_stat(StatType):
 
         # reduce not needed if subvol stats unused
         if self.segstats.ignore_subvolume:
-            self.subsvol_hist_stats = stat.subvol_hist_stats
+            self.subsvol_hist_stats = stat.subsvol_hist_stats
             return
         if stat.segstats.ignore_subvolume:
             return

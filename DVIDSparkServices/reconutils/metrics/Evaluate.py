@@ -205,9 +205,9 @@ class Evaluate(object):
                     else:
                         currsize += overlap
                 if not self.enable_sparse:
-                    currsize = currsize / float(stackgt.size) * 100
+                    currsize = currsize / float(labelgt.size) * 100
                 
-                if self.subvolume_threshold < currsize:
+                if self.subvolume_threshold > currsize:
                     stats.ignore_subvolume = True
 
             self._load_subvolume_stats(stats, overlaps12, overlaps21,
