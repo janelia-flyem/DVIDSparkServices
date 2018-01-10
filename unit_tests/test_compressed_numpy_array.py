@@ -85,6 +85,47 @@ class TestCompressedNumpyArray(object):
         finally:
             CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE = orig_max_size
 
+    def test_uint64_blocks(self):
+        """
+        CompressedNumpyArray uses special compression for labels (uint64),
+        as long as they are aligned to 64px sizes.
+        """
+        original = np.random.random((128,128,128)).astype(np.uint64)
+        assert original.flags['C_CONTIGUOUS']
+
+        # RAM is allocated for the compressed buffers, but there should be only small numpy array allocations
+        # (Each block must be copied once to a C-contiguous buffer when it is compressed.)
+        factor = (64.**3 / 128.**3) * 1.01 # 1% fudge-factor
+        compress = assert_mem_usage_factor(factor)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        # No new numpy arrays needed for deserialization except for the resut itself.        
+        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)        
+        uncompressed = uncompress()
+
+        assert uncompressed.flags['C_CONTIGUOUS']
+        assert (uncompressed == original).all()
+
+    def test_uint64_nonblocks(self):
+        """
+        CompressedNumpyArray uses special compression for labels (uint64),
+        but it isn't enabled for non-block-aligned data.
+        In that case, the ordinary lz4 compression ought to work, though.
+        """
+        original = np.random.random((100,100,100)).astype(np.uint64) # Not 64px block-aligned
+        assert original.flags['C_CONTIGUOUS']
+
+        # RAM is allocated for the lz4 buffers, but there should be 0.0 numpy array allocations
+        compress = assert_mem_usage_factor(0.0)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        # No new numpy arrays needed for deserialization except for the resut itself.        
+        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)        
+        uncompressed = uncompress()
+
+        assert uncompressed.flags['C_CONTIGUOUS']
+        assert (uncompressed == original).all()
+
 if __name__ == "__main__":
     import sys
     import nose

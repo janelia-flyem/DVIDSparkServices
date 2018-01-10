@@ -28,6 +28,11 @@ import lz4
 import logging
 import warnings
 
+from skimage.util import view_as_blocks
+
+# Special compression for labels (uint64)
+from libdvid import encode_label_block, decode_label_block
+
 def activate_compressed_numpy_pickling():
     """
     Override the default pickle representation for numpy arrays.
@@ -62,6 +67,8 @@ class CompressedNumpyArray(object):
         """Serializes and compresses the numpy array with LZ4"""
         
         self.raw_buffer = None # only used if we can't compress
+        self.compressed_label_blocks = None # only used for label arrays of suitable shape
+        
         self.serialized_subarrays = []
         if numpy_array.flags['F_CONTIGUOUS']:
             self.layout = 'F'
@@ -74,24 +81,29 @@ class CompressedNumpyArray(object):
         self.dtype = numpy_array.dtype
         self.shape = numpy_array.shape
 
-        if numpy_array.ndim <= 1:
-            slice_bytes = numpy_array.nbytes
+        # TODO: Also support compression of bool arrays via the special DVID binary compression
+        if self.is_label_blocks(numpy_array):
+            self.compressed_label_blocks = serialize_uint64_blocks(numpy_array)
         else:
-            slice_bytes = numpy_array[0].nbytes
-        
-        if slice_bytes > CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE:
-            warnings.warn("Array is too large to compress -- not compressing.")
-            if not numpy_array.flags['C_CONTIGUOUS']:
-                numpy_array = numpy_array.copy(order='C')
-            self.raw_buffer = bytearray(numpy_array)
-        else:
-            # For 1D or 0D arrays, serialize everything in one buffer.
+
             if numpy_array.ndim <= 1:
-                self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
+                slice_bytes = numpy_array.nbytes
             else:
-                # For ND arrays, serialize each slice independently, to ease RAM usage
-                for subarray in numpy_array:
-                    self.serialized_subarrays.append( self.serialize_subarray(subarray) )
+                slice_bytes = numpy_array[0].nbytes
+            
+            if slice_bytes > CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE:
+                warnings.warn("Array is too large to compress -- not compressing.")
+                if not numpy_array.flags['C_CONTIGUOUS']:
+                    numpy_array = numpy_array.copy(order='C')
+                self.raw_buffer = bytearray(numpy_array)
+            else:
+                # For 1D or 0D arrays, serialize everything in one buffer.
+                if numpy_array.ndim <= 1:
+                    self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
+                else:
+                    # For ND arrays, serialize each slice independently, to ease RAM usage
+                    for subarray in numpy_array:
+                        self.serialized_subarrays.append( self.serialize_subarray(subarray) )
 
     @property
     def compressed_nbytes(self):
@@ -111,12 +123,15 @@ class CompressedNumpyArray(object):
             "FIXME: This class doesn't support compression of arrays whose slices are each > 1 GB"
         
         return lz4.compress( subarray )
-        
+
     def deserialize(self):
         """Extract the numpy array"""
         if self.raw_buffer is not None:
             # Compression was not used.
             numpy_array = np.frombuffer(self.raw_buffer, dtype=self.dtype).reshape(self.shape)
+        elif self.compressed_label_blocks is not None:
+            # label compression was used.
+            numpy_array = deserialize_uint64_blocks(self.compressed_label_blocks, self.shape)
         else:
             numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
             
@@ -128,12 +143,56 @@ class CompressedNumpyArray(object):
                 for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
                     buf = lz4.uncompress(serialized_subarray)
                     subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
-         
+
         if self.layout == 'F':
             numpy_array = numpy_array.transpose()
 
         return numpy_array
+
+    @classmethod
+    def is_label_blocks(cls, volume):
+        return volume.dtype == np.uint64 and \
+               volume.ndim == 3 and \
+               (np.array(volume.shape) % 64 == 0).all()
+
+def serialize_uint64_blocks(volume):
+    """
+    Compress and serialize a volume of uint64.
     
+    Preconditions:
+      - volume.dtype == np.uint64
+      - volume.ndim == 3
+      - volume.shape is divisible by 64
+    
+    Returns compressed_blocks, where the blocks are a flat list, in scan-order
+    """
+    assert volume.dtype == np.uint64
+    assert volume.ndim == 3
+    assert (np.array(volume.shape) % 64 == 0).all()
+    
+    block_view = view_as_blocks( volume, (64,64,64) )
+    compressed_blocks = []
+    for zi, yi, xi in np.ndindex(*block_view.shape[:3]):
+        block = block_view[zi,yi,xi].copy('C')
+        compressed_blocks.append( encode_label_block(block) )
+        del block
+    
+    return compressed_blocks
+
+def deserialize_uint64_blocks(compressed_blocks, shape):
+    """
+    Reconstitute a volume that was serialized with serialize_uint64_blocks(), above.
+    """
+    volume = np.ndarray(shape, dtype=np.uint64)
+    block_view = view_as_blocks( volume, (64,64,64) )
+    
+    for bi, (zi, yi, xi) in enumerate(np.ndindex(*block_view.shape[:3])):
+        block = decode_label_block( compressed_blocks[bi] )
+        block_view[zi,yi,xi] = block
+    
+    return volume
+        
+
 def reduce_ndarray_compressed(a):
     """
     Custom 'reduce' function to override np.ndarray.__reduce__() during pickle saving.
