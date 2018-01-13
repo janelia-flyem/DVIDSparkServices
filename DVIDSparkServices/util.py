@@ -104,7 +104,7 @@ class NumpyConvertingEncoder(json.JSONEncoder):
 
 @contextlib.contextmanager
 def Timer():
-    result = _TimerResult
+    result = _TimerResult()
     start = time.time()
     yield result
     result.seconds = time.time() - start
