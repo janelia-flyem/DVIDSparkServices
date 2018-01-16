@@ -375,8 +375,9 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
         max_coord = acc['Coord<Maximum >'][label].astype(int)
         box_local = np.array((min_coord, 1+max_coord))
         
-        mask = (consecutive_seg[bb_to_slicing(*box_local)] == label).view(np.uint8)
+        mask = (consecutive_seg[bb_to_slicing(*box_local)] == label)
         if compress_masks:
+            assert mask.dtype == np.bool # CompressedNumpyArray has special support for boolean masks.
             mask = CompressedNumpyArray(mask)
 
         body_id = consecutive_to_bodies[label]
@@ -462,7 +463,7 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
     combined_downsampled_box = downsample_box( combined_box, block_shape )
     combined_downsampled_box_shape = combined_downsampled_box[1] - combined_downsampled_box[0]
 
-    combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.uint8 )
+    combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.bool )
 
     if suppress_zero:
         downsample_func = downsample_binary_3d_suppress_zero

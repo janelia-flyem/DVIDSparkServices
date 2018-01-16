@@ -149,7 +149,7 @@ def make_skeletonizer(config={}):
 
 def skeletonize_array(binary_zyx, config={}):
     assert binary_zyx.ndim == 3
-    binary_zyx = binary_zyx.astype(np.uint8, copy=False)
+    binary_zyx = binary_zyx.astype(np.bool, copy=False).view(np.uint8)
     skeletonizer = make_skeletonizer(config)
     skeletonizer._print()
     
