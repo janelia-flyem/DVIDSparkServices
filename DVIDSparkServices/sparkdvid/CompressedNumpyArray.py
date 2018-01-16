@@ -31,7 +31,7 @@ import warnings
 from skimage.util import view_as_blocks
 
 # Special compression for labels (uint64)
-from libdvid import encode_label_block, decode_label_block
+from libdvid import encode_label_block, decode_label_block, encode_mask_array, decode_mask_array
 
 def activate_compressed_numpy_pickling():
     """
@@ -68,6 +68,7 @@ class CompressedNumpyArray(object):
         
         self.raw_buffer = None # only used if we can't compress
         self.compressed_label_blocks = None # only used for label arrays of suitable shape
+        self.compressed_mask_array = None # only used for binary masks
         
         self.serialized_subarrays = []
         if numpy_array.flags['F_CONTIGUOUS']:
@@ -84,6 +85,8 @@ class CompressedNumpyArray(object):
         # TODO: Also support compression of bool arrays via the special DVID binary compression
         if self.is_label_blocks(numpy_array):
             self.compressed_label_blocks = serialize_uint64_blocks(numpy_array)
+        elif self.dtype == np.bool:
+            self.compressed_mask_array = encode_mask_array(numpy_array)
         else:
 
             if numpy_array.ndim <= 1:
@@ -132,6 +135,9 @@ class CompressedNumpyArray(object):
         elif self.compressed_label_blocks is not None:
             # label compression was used.
             numpy_array = deserialize_uint64_blocks(self.compressed_label_blocks, self.shape)
+        elif self.compressed_mask_array is not None:
+            numpy_array, _, _ = decode_mask_array(self.compressed_mask_array, self.shape)
+            numpy_array = np.asarray(numpy_array, order='C')
         else:
             numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
             

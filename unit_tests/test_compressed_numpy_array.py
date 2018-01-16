@@ -119,8 +119,25 @@ class TestCompressedNumpyArray(object):
         compress = assert_mem_usage_factor(0.0)(CompressedNumpyArray)
         compressed = compress( original )
 
-        # No new numpy arrays needed for deserialization except for the resut itself.        
-        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)        
+        # No new numpy arrays needed for deserialization except for the resut itself. 
+        uncompress = assert_mem_usage_factor(3.0, comparison_input_arg=original)(compressed.deserialize)        
+        uncompressed = uncompress()
+
+        assert (uncompressed == original).all()
+
+    def test_boolean_nonblocks(self):
+        """
+        CompressedNumpyArray uses special compression for binary images (bool).
+        """
+        original = np.random.randint(0, 1, (100,100,100), np.bool)
+        assert original.flags['C_CONTIGUOUS']
+
+        # Some copying is required, especially for non-block aligned data.
+        compress = assert_mem_usage_factor(3.0)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        # Some copying is required, especially for non-block aligned data.
+        uncompress = assert_mem_usage_factor(5.0, comparison_input_arg=original)(compressed.deserialize)
         uncompressed = uncompress()
 
         assert uncompressed.flags['C_CONTIGUOUS']
