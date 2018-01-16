@@ -62,7 +62,7 @@ class TestCompressedNumpyArray(object):
         compress = assert_mem_usage_factor(0.0)(CompressedNumpyArray)
         compressed = compress( original )
 
-        # No new numpy arrays needed for deserialization except for the resut itself.
+        # No new numpy arrays needed for deserialization except for the result itself.
         uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)
         uncompressed = uncompress()
 
@@ -90,7 +90,7 @@ class TestCompressedNumpyArray(object):
         CompressedNumpyArray uses special compression for labels (uint64),
         as long as they are aligned to 64px sizes.
         """
-        original = np.random.random((128,128,128)).astype(np.uint64)
+        original = np.random.randint(1, 100, (128,128,128), np.uint64)
         assert original.flags['C_CONTIGUOUS']
 
         # RAM is allocated for the compressed buffers, but there should be only small numpy array allocations
@@ -99,8 +99,9 @@ class TestCompressedNumpyArray(object):
         compress = assert_mem_usage_factor(factor)(CompressedNumpyArray)
         compressed = compress( original )
 
-        # No new numpy arrays needed for deserialization except for the resut itself.        
-        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)        
+        # No new numpy arrays needed for deserialization except for the result itself.
+        # (Though there are some copies on the C++ side, not reflected here.)
+        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)
         uncompressed = uncompress()
 
         assert uncompressed.flags['C_CONTIGUOUS']
@@ -108,18 +109,16 @@ class TestCompressedNumpyArray(object):
 
     def test_uint64_nonblocks(self):
         """
-        CompressedNumpyArray uses special compression for labels (uint64),
-        but it isn't enabled for non-block-aligned data.
-        In that case, the ordinary lz4 compression ought to work, though.
+        CompressedNumpyArray uses special compression for labels (uint64).
+        It handles non-aligned data in a somewhat clumsy way, so the RAM requirements are higher.
         """
-        original = np.random.random((100,100,100)).astype(np.uint64) # Not 64px block-aligned
+        original = np.random.randint(1, 100, (100,100,100), np.uint64) # Not 64px block-aligned
         assert original.flags['C_CONTIGUOUS']
 
-        # RAM is allocated for the lz4 buffers, but there should be 0.0 numpy array allocations
-        compress = assert_mem_usage_factor(0.0)(CompressedNumpyArray)
+        # Copies are needed.
+        compress = assert_mem_usage_factor(3.0)(CompressedNumpyArray)
         compressed = compress( original )
 
-        # No new numpy arrays needed for deserialization except for the resut itself. 
         uncompress = assert_mem_usage_factor(3.0, comparison_input_arg=original)(compressed.deserialize)        
         uncompressed = uncompress()
 
@@ -142,6 +141,7 @@ class TestCompressedNumpyArray(object):
 
         assert uncompressed.flags['C_CONTIGUOUS']
         assert (uncompressed == original).all()
+
 
 if __name__ == "__main__":
     import sys
