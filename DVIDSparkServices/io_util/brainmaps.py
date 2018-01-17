@@ -18,7 +18,7 @@ BRAINMAPS_BASE_URL = f'https://brainmaps.googleapis.com/{BRAINMAPS_API_VERSION}'
 
 
 class BrainMapsVolume:
-    def __init__(self, project, dataset, volume_id, change_stack_id="", dtype=None, skip_checks=False):
+    def __init__(self, project, dataset, volume_id, change_stack_id="", dtype=None, skip_checks=False, use_gzip=True):
         """
         Utility for accessing subvolumes of a BrainMaps volume.
         Instances of this class are pickleable, but they will have to re-authenticate after unpickling.
@@ -48,6 +48,7 @@ class BrainMapsVolume:
         self.change_stack_id = change_stack_id
         self.skip_checks = skip_checks
         self._dtype = None # Assigned *after* check below.
+        self.use_gzip = use_gzip
 
         # These members are lazily computed/memoized.
         self._http = None
@@ -97,7 +98,9 @@ class BrainMapsVolume:
         Convenience constructor.
         Construct from FlyEM JSON config data.
         """
-        return BrainMapsVolume(d["project"], d["dataset"], d["volume-id"], d["change-stack-id"])
+        if 'use-gzip' not in d:
+            d["use-gzip"] = True
+        return BrainMapsVolume(d["project"], d["dataset"], d["volume-id"], d["change-stack-id"], use_gzip=d["use-gzip"])
 
 
     def flyem_source_info(self, as_str=False):
@@ -126,7 +129,7 @@ class BrainMapsVolume:
         return '\n'.join(json_lines)
 
 
-    def get_subvolume(self, box, scale=0):
+    def get_subvolume(self, box_zyx, scale=0):
         """
         Fetch a subvolume from the remote BrainMaps volume.
         
@@ -137,9 +140,9 @@ class BrainMapsVolume:
         Returns:
             volume (ndarray), where volume.shape = (stop - start)
         """
-        box = np.asarray(box)
-        corner_zyx = box[0]
-        shape_zyx = box[1] - box[0]
+        box_zyx = np.asarray(box_zyx)
+        corner_zyx = box_zyx[0]
+        shape_zyx = box_zyx[1] - box_zyx[0]
         
         corner_xyz = corner_zyx[::-1]
         shape_xyz = shape_zyx[::-1]
@@ -152,7 +155,7 @@ class BrainMapsVolume:
                                          shape_xyz,
                                          scale,
                                          self.change_stack_id,
-                                         subvol_format='RAW_SNAPPY' )
+                                         self.use_gzip )
 
         volume_buffer = snappy.decompress(snappy_data)
         volume = np.frombuffer(volume_buffer, dtype=self.dtype).reshape(shape_zyx)
@@ -520,7 +523,7 @@ def fetch_json(http, url, body=None):
     return json.loads(content)
 
 
-def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", subvol_format='RAW_SNAPPY'):
+def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", use_gzip=True):
     """
     Returns raw subvolume data (not decompressed).
     
@@ -536,13 +539,21 @@ def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, s
             'size': ','.join(str(x) for x in size_xyz),
             'scale': scale
         },
-        'subvolumeFormat': subvol_format
+        'subvolumeFormat': 'RAW_SNAPPY'
     }
 
     if change_stack_id:
         params["changeSpec"] = { "changeStackId": change_stack_id }
+
+    if use_gzip:
+        # GZIP is enabled by default in httplib2; but let's be explicit.
+        headers = { 'accept-encoding': 'gzip' }
+        response, content = http.request(url, "POST", headers=headers, body=json.dumps(params).encode('utf-8'))
+    else:
+        # GZIP is enabled by default in httplib2; this is the only way to disable it.
+        headers = { 'accept-encoding': 'FAKE' }
+        response, content = http.request(url, "POST", headers=headers, body=json.dumps(params).encode('utf-8'))
     
-    response, content = http.request(url, "POST", body=json.dumps(params).encode('utf-8'))
     if response['status'] != '200':
         raise RuntimeError(f"Bad response ({response['status']}):\n{content.decode('utf-8')}")
     return content
