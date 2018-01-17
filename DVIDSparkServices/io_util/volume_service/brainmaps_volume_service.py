@@ -83,11 +83,14 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
             f"Specified bounding box ({bounding_box_zyx.tolist()}) extends outside the "\
             f"BrainMaps volume geometry ({self._brainmaps_client.bounding_box.tolist()})"        
 
-        # Store members        
+        available_scales = list(volume_config["geometry"]["available-scales"])
+
+        # Store members
         self._bounding_box_zyx = bounding_box_zyx
         self._resource_manager_client = resource_manager_client
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
         self._block_width = block_width
+        self._available_scales = available_scales
 
         # Overwrite config entries that we might have modified
         volume_config["geometry"]["block-width"] = self._block_width
@@ -109,6 +112,10 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
     @property
     def bounding_box_zyx(self):
         return self._bounding_box_zyx
+
+    @property
+    def available_scales(self):
+        return self._available_scales
 
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.

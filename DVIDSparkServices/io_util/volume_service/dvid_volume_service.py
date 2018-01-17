@@ -178,6 +178,11 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         replace_default_entries(preferred_message_shape_zyx, [block_width, block_width, 100*block_width])
 
         ##
+        ## available-scales
+        ##
+        available_scales = list(volume_config["geometry"]["available-scales"])
+
+        ##
         ## resource_manager_client
         ##
         if resource_manager_client is None:
@@ -191,6 +196,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         self._block_width = block_width
         self._bounding_box_zyx = bounding_box_zyx
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
+        self._available_scales = available_scales
 
         # Memoized in the node_service property.
         self._node_service = None
@@ -201,6 +207,10 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         volume_config["geometry"]["block-width"] = self._block_width
         volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
         volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
+
+        # TODO: Check the server for available scales and overwrite in the config?
+        #volume_config["geometry"]["available-scales"] = [0]
+
 
     @property
     def node_service(self):
@@ -225,6 +235,10 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     @property
     def bounding_box_zyx(self):
         return self._bounding_box_zyx
+
+    @property
+    def available_scales(self):
+        return self._available_scales
 
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.

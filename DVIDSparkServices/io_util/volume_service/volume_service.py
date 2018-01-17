@@ -59,6 +59,10 @@ class VolumeServiceReader(VolumeService):
     def bounding_box_zyx(self):
         raise NotImplementedError
 
+    @abstractproperty
+    def available_scales(self):
+        raise NotImplementedError
+
     @abstractmethod
     def get_subvolume(self, box_zyx, scale=0):
         raise NotImplementedError

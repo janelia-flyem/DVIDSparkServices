@@ -30,6 +30,10 @@ class TransposedVolumeService(VolumeServiceReader):
     NO_TRANSPOSE = ['z', 'y', 'x']
 
     def __init__(self, original_volume_service, new_axis_order=NO_TRANSPOSE):
+        """
+        Note: new_axis_order should be provided in [z,y,x] order
+              (e.g. see NO_TRANSPOSE above).
+        """
         self.original_volume_service = original_volume_service
         self.new_axis_order = new_axis_order
 
@@ -63,6 +67,10 @@ class TransposedVolumeService(VolumeServiceReader):
     @property
     def bounding_box_zyx(self):
         return self.original_volume_service.bounding_box_zyx[:, self.transpose_order]
+
+    @property
+    def available_scales(self):
+        raise self.original_volume_service.available_scales
 
     def get_subvolume(self, new_box_zyx, scale=0):
         """
