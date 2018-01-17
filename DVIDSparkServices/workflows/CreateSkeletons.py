@@ -519,6 +519,11 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
 def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor):
     (combined_box_start, _combined_box_stop) = combined_box
 
+    # FIXME: This is just for generating skeletons from pre-downsampled data.
+    HACK_FACTOR = 2
+    downsample_factor *= HACK_FACTOR
+    combined_box_start *= HACK_FACTOR
+
     with Timer() as timer:
         # FIXME: Should the skeleton-config be tweaked in any way based on the downsample_factor??
         tree = skeletonize_array(combined_mask, config["skeleton-config"])
@@ -621,6 +626,11 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
 
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
+    # FIXME: This is just for generating meshes from pre-downsampled data.
+    HACK_FACTOR = 2
+    downsample_factor *= HACK_FACTOR
+    combined_box *= HACK_FACTOR
+
     mesh_bytes = mesh_from_array( combined_mask,
                                   combined_box[0],
                                   downsample_factor,
