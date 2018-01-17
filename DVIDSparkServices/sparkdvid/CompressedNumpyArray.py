@@ -125,6 +125,13 @@ class CompressedNumpyArray(object):
 
     @property
     def compressed_nbytes(self):
+        if self.raw_buffer is not None:
+            return len(self.raw_buffer)
+        if self.compressed_label_blocks is not None:
+            return len(self.compressed_label_blocks)
+        if self.compressed_mask_array is not None:
+            return len(self.compressed_mask_array)
+
         nbytes = 0
         for buf in self.serialized_subarrays:
             nbytes += len(buf)
