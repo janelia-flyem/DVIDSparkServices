@@ -33,6 +33,11 @@ BrainMapsSegmentationServiceSchema = \
                            "(e.g. a set of agglomeration steps).",
             "type": "string",
             "default": ""
+        },
+        "use-gzip": {
+            "description": "Whether or not to use gzip transfer encoding (on top of the snappy compression)",
+            "type": "boolean",
+            "default": True
         }
     }
 }
@@ -65,7 +70,8 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
                                                   volume_config["brainmaps"]["dataset"],
                                                   volume_config["brainmaps"]["volume-id"],
                                                   volume_config["brainmaps"]["change-stack-id"],
-                                                  dtype=np.uint64 )
+                                                  dtype=np.uint64,
+                                                  use_gzip=volume_config["brainmaps"]["use-gzip"] )
 
         block_width = volume_config["geometry"]["block-width"]
         if block_width == -1:
