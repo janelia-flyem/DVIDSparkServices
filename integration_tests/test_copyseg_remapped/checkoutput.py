@@ -6,7 +6,11 @@ from itertools import chain
 import numpy as np
 from libdvid import DVIDNodeService
 
-dirpath = '/magnetic/workspace/DVIDSparkServices/integration_tests/test_copyseg_remapped'
+dirpath = sys.argv[1]
+
+#import os
+#import DVIDSparkServices
+#dirpath = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/test_copyseg_remapped'
 
 configs = glob.glob(dirpath + "/temp_data/config.*")
 assert len(configs) == 1, "Why does the temp_dir have more than one config.* file?"
