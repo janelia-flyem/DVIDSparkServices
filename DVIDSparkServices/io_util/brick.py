@@ -315,6 +315,11 @@ def apply_label_mapping(bricks, mapping_pairs):
         
         partition_bricks = list(partition_bricks)
         for brick in partition_bricks:
+            # TODO: Apparently LabelMapper can't handle non-contiguous arrays right now.
+            #       (It yields incorrect results)
+            #       Check to see if this is still a problem in the latest version of xtensor-python.
+            brick.volume = np.asarray( brick.volume, order='C' )
+            
             mapper.apply_inplace(brick.volume, allow_unmapped=True)
         return partition_bricks
     
