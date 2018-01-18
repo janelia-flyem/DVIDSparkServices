@@ -7,6 +7,6 @@ from .dvid_volume_service import DvidVolumeService, DvidGrayscaleServiceSchema, 
 from .n5_volume_service import N5VolumeServiceReader, N5ServiceSchema
 from .slice_files_volume_service import SliceFilesVolumeServiceReader, SliceFilesVolumeServiceWriter, SliceFilesServiceSchema, SliceFilesVolumeSchema
 from .transposed_volume_service import TransposedVolumeService, NewAxisOrderSchema
-from .scaled_volume_service import ScaledVolumeService
+from .scaled_volume_service import ScaledVolumeService, RescaleLevelSchema
 
 from .generic_schemas.volumes import GrayscaleVolumeSchema, SegmentationVolumeSchema, SegmentationVolumeListSchema

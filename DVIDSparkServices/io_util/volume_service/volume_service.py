@@ -29,7 +29,7 @@ class VolumeService(metaclass=ABCMeta):
         if len(service_keys) != 1:
             raise RuntimeError(f"Unsupported service (or too many specified): {service_keys}")
         
-        
+        # Choose base service
         if "dvid" in volume_config:
             service = DvidVolumeService( volume_config, resource_manager_client )
         elif "brainmaps" in volume_config:
@@ -41,9 +41,15 @@ class VolumeService(metaclass=ABCMeta):
         else:
             raise RuntimeError( "Unknown service type." )
 
+        # Wrap with transpose service
         from . import TransposedVolumeService
-        if "transpose-axes" in volume_config and volume_config["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE:
+        if ("transpose-axes" in volume_config) and (volume_config["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE):
             service = TransposedVolumeService(service, volume_config["transpose-axes"])
+
+        # Wrap with scaled service
+        from . import ScaledVolumeService
+        if ("rescale-level" in volume_config) and (volume_config["rescale-level"] != 0):
+            service = ScaledVolumeService(service, volume_config["rescale-level"])
 
         return service
 

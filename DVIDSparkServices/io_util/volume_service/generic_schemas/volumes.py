@@ -1,6 +1,6 @@
 from .. import ( DvidGrayscaleServiceSchema, SliceFilesServiceSchema, N5ServiceSchema, 
                  DvidSegmentationServiceSchema, BrainMapsSegmentationServiceSchema, 
-                 NewAxisOrderSchema )
+                 NewAxisOrderSchema, RescaleLevelSchema )
 
 from .geometry import GeometrySchema
 
@@ -26,7 +26,8 @@ GrayscaleVolumeSchema = \
     ],
     "properties": {
         "geometry": GeometrySchema,
-        "transpose-axes": NewAxisOrderSchema
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema
     }
 }
 
@@ -71,7 +72,8 @@ SegmentationVolumeSchema = \
     "properties": {
         "apply-labelmap": LabelMapSchema,
         "geometry": GeometrySchema,
-        "transpose-axes": NewAxisOrderSchema
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema
     }
 }
 
