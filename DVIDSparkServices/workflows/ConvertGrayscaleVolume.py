@@ -101,9 +101,6 @@ class ConvertGrayscaleVolume(Workflow):
         self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
         self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
 
-        if options["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE:
-            self.input_service = TransposedVolumeService( self.input_service, options["transpose-axes"] )
-
         replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
         self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
         assert isinstance( self.output_service, VolumeServiceWriter )

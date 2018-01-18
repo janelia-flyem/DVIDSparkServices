@@ -29,16 +29,23 @@ class VolumeService(metaclass=ABCMeta):
         if len(service_keys) != 1:
             raise RuntimeError(f"Unsupported service (or too many specified): {service_keys}")
         
+        
         if "dvid" in volume_config:
-            return DvidVolumeService( volume_config, resource_manager_client )
-        if "brainmaps" in volume_config:
-            return BrainMapsVolumeServiceReader( volume_config, resource_manager_client )
-        if "n5" in volume_config:
-            return N5VolumeServiceReader( volume_config, config_dir )
-        if "slice-files" in volume_config:
-            return SliceFilesVolumeServiceReader( volume_config )
-    
-        assert False, "Shouldn't get here."
+            service = DvidVolumeService( volume_config, resource_manager_client )
+        elif "brainmaps" in volume_config:
+            service = BrainMapsVolumeServiceReader( volume_config, resource_manager_client )
+        elif "n5" in volume_config:
+            service = N5VolumeServiceReader( volume_config, config_dir )
+        elif "slice-files" in volume_config:
+            service = SliceFilesVolumeServiceReader( volume_config )
+        else:
+            raise RuntimeError( "Unknown service type." )
+
+        from . import TransposedVolumeService
+        if "transpose-axes" in volume_config and volume_config["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE:
+            service = TransposedVolumeService(service, volume_config["transpose-axes"])
+
+        return service
 
     @classmethod
     def _remove_default_service_configs(cls, volume_config):
