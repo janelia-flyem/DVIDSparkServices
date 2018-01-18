@@ -38,7 +38,7 @@ class ExportSlices(Workflow):
         "required": ["input", "output"],
         "properties": {
             "input": GrayscaleVolumeSchema,
-            "output": copy.deepcopy(SliceFilesVolumeSchema),
+            "output": SliceFilesVolumeSchema,
             "options" : OptionsSchema
         }
     }
@@ -53,24 +53,33 @@ class ExportSlices(Workflow):
     def __init__(self, config_filename):
         super().__init__( config_filename, ExportSlices.schema(), "Export Slices" )
 
+    def _init_services(self):
+        input_config = self.config_data["input"]
+        output_config = self.config_data["output"]
+        options = self.config_data["options"]
+
+        self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
+        self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
+
+        # Auto-set output size, if necessary.
+        replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:,::-1])
+        self.output_service = SliceFilesVolumeServiceWriter( output_config, self.config_dir )
+
+
     def _sanitize_config(self):
         """
         Tidy up some config values, and fill in 'auto' values where needed.
         """
         input_config = self.config_data["input"]
         output_config = self.config_data["output"]
-        input_geometry = input_config["geometry"]
-        output_geometry = output_config["geometry"]
         options = self.config_data["options"]
 
         # Initialize dummy input/output services, just to overwrite 'auto' config values as needed.
         VolumeService.create_from_config( input_config, self.config_dir )
-        replace_default_entries(output_config["geometry"]["bounding-box"], input_config["geometry"]["bounding-box"])
-        SliceFilesVolumeServiceWriter( output_config, self.config_dir )
 
         # Output bounding-box must match exactly (or left as auto)
-        input_bb_zyx = np.array(input_geometry["bounding-box"])[:,::-1]
-        output_bb_zyx = np.array(output_geometry["bounding-box"])[:,::-1]
+        input_bb_zyx = self.input_service.bounding_box_zyx
+        output_bb_zyx = self.output_service.bounding_box_zyx
         assert ((output_bb_zyx == input_bb_zyx) | (output_bb_zyx == -1)).all(), \
             "Output bounding box must match the input bounding box exactly. (No translation permitted)."
 
@@ -78,7 +87,7 @@ class ExportSlices(Workflow):
 
         if options["slices-per-slab"] == -1:
             # Auto-choose a depth that keeps all threads busy with at least one slice
-            brick_shape_zyx = input_geometry["message-block-shape"][::-1]
+            brick_shape_zyx = self.input_service.preferred_message_shape
             brick_depth = brick_shape_zyx[0]
             assert brick_depth != -1
             num_threads = num_worker_nodes() * cpus_per_worker()
@@ -87,22 +96,18 @@ class ExportSlices(Workflow):
 
 
     def execute(self):
+        self._init_services()
         self._sanitize_config()
 
-        input_config = self.config_data["input"]
-        output_config = self.config_data["output"]
         options = self.config_data["options"]
 
-        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
-
-        mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
-
-        slice_writer = SliceFilesVolumeServiceWriter(output_config, self.config_dir)
+        output_service = self.output_service
+        logger.info(f"Output bounding box: {output_service.bounding_box_zyx[:,::-1]}")
 
         # Data is processed in Z-slabs
         slab_depth = options["slices-per-slab"]
 
-        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
+        input_bb_zyx = self.input_service.bounding_box_zyx
         _, slice_start_y, slice_start_x = input_bb_zyx[0]
 
         slab_shape_zyx = input_bb_zyx[1] - input_bb_zyx[0]
@@ -121,8 +126,7 @@ class ExportSlices(Workflow):
             slab_voxels = np.prod(slab_box_zyx[1] - slab_box_zyx[0])
             voxels_per_thread = slab_voxels / num_threads
 
-            volume_service = VolumeService.create_from_config( input_config, self.config_dir, mgr_client )
-            bricked_slab_wall = BrickWall.from_volume_service(volume_service, 0, slab_box_zyx, self.sc, voxels_per_thread / 2)
+            bricked_slab_wall = BrickWall.from_volume_service(self.input_service, 0, slab_box_zyx, self.sc, voxels_per_thread / 2)
 
             # Force download
             bricked_slab_wall.persist_and_execute(f"Downloading slab {slab_index}/{len(slab_boxes)}: {slab_box_zyx[:,::-1]}", logger)
@@ -138,7 +142,7 @@ class ExportSlices(Workflow):
 
             def write_slice(brick):
                 assert (brick.physical_box == brick.logical_box).all()
-                slice_writer.write_subvolume(brick.volume, brick.physical_box[0])
+                output_service.write_subvolume(brick.volume, brick.physical_box[0])
 
             # Export to PNG or TIFF, etc. (automatic via slice path extension)
             with Timer() as timer:
