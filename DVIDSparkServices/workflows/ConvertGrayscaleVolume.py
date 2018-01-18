@@ -53,8 +53,8 @@ class ConvertGrayscaleVolume(Workflow):
         },
         "transpose-axes": {
             "description": "How to transpose/rotate the input volume before writing it out.\n"
-                           "Note: This setting is specified in ZYX order.\n"
-                           "      The default (['z', 'y', 'x']) is 'no-op'.",
+                           "Note: This setting is specified in XYZ order.\n"
+                           "      The default (['x', 'y', 'z']) is 'no-op'.",
             "type": "array",
             "items": { "type": "string" },
             "minItems": 3,

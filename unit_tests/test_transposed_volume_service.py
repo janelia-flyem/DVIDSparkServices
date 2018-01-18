@@ -40,7 +40,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         assert (full_from_n5 == self.RAW_VOLUME_DATA).all()
 
         # Now use transposed reader, but with identity transposition
-        transposed_reader = TransposedVolumeService(n5_reader, ['z', 'y', 'x'])
+        transposed_reader = TransposedVolumeService(n5_reader, ['x', 'y', 'z'])
         assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx).all()
         assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape).all()
         assert transposed_reader.block_width == n5_reader.block_width
@@ -51,7 +51,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         assert full_transposed.flags.c_contiguous
 
         # Now transpose x and y (reflect across diagonal line at y=x)
-        transposed_reader = TransposedVolumeService(n5_reader, ['z', 'x', 'y'])
+        transposed_reader = TransposedVolumeService(n5_reader, ['y', 'x', 'z'])
         assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx[:, (0,2,1)]).all()
         assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape[((0,2,1),)]).all()
         assert transposed_reader.block_width == n5_reader.block_width
@@ -63,7 +63,7 @@ class TestTransposedVolumeService(unittest.TestCase):
 
         # Invert x and y (but don't transpose)
         # Equivalent to 180 degree rotation
-        transposed_reader = TransposedVolumeService(n5_reader, ['z', '1-y', '1-x'])
+        transposed_reader = TransposedVolumeService(n5_reader, ['1-x', '1-y', 'z'])
         assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx).all()
         assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape).all()
         assert transposed_reader.block_width == n5_reader.block_width
@@ -137,7 +137,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         assert x_slice_n5[-1,0] == x_slice_transposed[0,0]
 
         # Multiple rotations (the hemibrain N5 -> DVID transform)
-        transposed_reader = TransposedVolumeService(n5_reader, ['y', 'x', '1-z'])
+        transposed_reader = TransposedVolumeService(n5_reader, ['1-z', 'x', 'y'])
         assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx[:, (1,2,0)]).all()
         assert (transposed_reader.preferred_message_shape == n5_reader.preferred_message_shape[((1,2,0),)]).all()
         assert transposed_reader.block_width == n5_reader.block_width
