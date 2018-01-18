@@ -211,6 +211,17 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         # TODO: Check the server for available scales and overwrite in the config?
         #volume_config["geometry"]["available-scales"] = [0]
 
+    @property
+    def server(self):
+        return self._server
+
+    @property
+    def uuid(self):
+        return self._uuid
+    
+    @property
+    def instance_name(self):
+        return self._instance_name
 
     @property
     def node_service(self):

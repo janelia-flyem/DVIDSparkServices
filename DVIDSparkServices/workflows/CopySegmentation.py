@@ -21,7 +21,9 @@ from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth
     replace_default_entries
 
 from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
-from DVIDSparkServices.io_util.volume_service import VolumeService, SegmentationVolumeSchema, SegmentationVolumeListSchema
+from DVIDSparkServices.io_util.volume_service import ( VolumeService, VolumeServiceWriter, SegmentationVolumeSchema,
+                                                       SegmentationVolumeListSchema, TransposedVolumeService, ScaledVolumeService )
+from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 
 logger = logging.getLogger(__name__)
 
@@ -99,17 +101,64 @@ class CopySegmentation(Workflow):
                                                 CopySegmentation.schema(),
                                                 "Copy Segmentation" )
 
-    def _sanitize_config(self):
+    def _init_services(self):
         """
-        Tidy up some config values.
+        Initialize the input and output services,
+        and fill in 'auto' config values as needed.
+        
+        Also check the service configurations for errors.
         """
         input_config = self.config_data["input"]
         output_configs = self.config_data["outputs"]
+        options = self.config_data["options"]
 
-        # Verify that the input config can be loaded,
-        # and overwrite 'auto' values with real parameters.
-        VolumeService.create_from_config(input_config, self.config_dir)
+        self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
+        self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
+
+        self.output_services = []
+        for i, output_config in enumerate(output_configs):
+            # Replace 'auto' dimensions with input bounding box
+            replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
+            output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
+            assert isinstance( output_service, VolumeServiceWriter )
+
+            # These services aren't supported because we copied some geometry (bounding-box)
+            # directly from the input service.
+            assert not isinstance( output_service, TransposedVolumeService )
+            assert not isinstance( output_service, ScaledVolumeService )
+
+            logger.info(f"Output {i} bounding box (xyz) is: {output_service.bounding_box_zyx[:,::-1]}")
+            self.output_services.append( output_service )
+
+        first_output_service = self.output_services[0]
         
+        input_shape = -np.subtract(*self.input_service.bounding_box_zyx)
+        output_shape = -np.subtract(*first_output_service.bounding_box_zyx)
+        
+        assert not any(np.array(first_output_service.preferred_message_shape) % first_output_service.block_width), \
+            "Output message-block-shape should be a multiple of the block size in all dimensions."
+        assert (input_shape == output_shape).all(), \
+            "Input bounding box and output bounding box do not have the same dimensions"
+
+        # NOTE: For now, we require that all outputs use the same bounding box and grid scheme,
+        #       to simplify the execute() function.
+        #       (We avoid re-translating and re-downsampling the input data for every new output.)
+        #       The only way in which the outputs may differ is their label mapping data.
+        for output_service in self.output_services[1:]:
+            bb_zyx = output_service.bounding_box_zyx
+            bs = output_service.preferred_message_shape
+            bw = output_service.block_width
+
+            assert (first_output_service.bounding_box_zyx == bb_zyx).all(), \
+                "For now, all output destinations must use the same bounding box and grid scheme"
+            assert (first_output_service.preferred_message_shape == bs).all(), \
+                "For now, all output destinations must use the same bounding box and grid scheme"
+            assert (first_output_service.block_width == bw), \
+                "For now, all output destinations must use the same bounding box and grid scheme"
+
+        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
+
+
         for volume_config in [input_config] + output_configs:
             # Convert labelmap (if any) to absolute path (relative to config file)
             labelmap_file = volume_config["apply-labelmap"]["file"]
@@ -119,73 +168,26 @@ class CopySegmentation(Workflow):
             elif labelmap_file and not os.path.isabs(labelmap_file):
                 volume_config["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
-        ##
-        ## Check input/output dimensions and grid schemes.
-        ##
-        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
-        logger.info(f"Input bounding box (xyz) is: {input_config['geometry']['bounding-box']}")
-
-        first_output_geometry = output_configs[0]["geometry"]
-        output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
-        output_brick_shape = np.array(first_output_geometry["message-block-shape"])
-        output_block_width = np.array(first_output_geometry["block-width"])
-
-        # Replace 'auto' dimensions with input bounding box
-        replace_default_entries(output_bb_zyx, input_bb_zyx)
-
-        assert not any(np.array(output_brick_shape) % first_output_geometry["block-width"]), \
-            "Output message-block-shape should be a multiple of the block size in all dimensions."
-        assert ((input_bb_zyx[1] - input_bb_zyx[0]) == (output_bb_zyx[1] - output_bb_zyx[0])).all(), \
-            "Input bounding box and output bounding box do not have the same dimensions"
-
-        # NOTE: For now, we require that all outputs use the same bounding box and grid scheme,
-        #       to simplify the execute() function.
-        #       (We avoid re-translating and re-downsampling the input data for every new output.)
-        #       The only way in which the outputs may differ is their label mapping data.
-        for i, output_config in enumerate(output_configs):
-            output_geometry = output_config["geometry"]
-
-            bb_zyx = np.array(output_geometry["bounding-box"])[:,::-1]
-            bs = output_geometry["message-block-shape"]
-            bw = output_geometry["block-width"]
-
-            # Replace 'auto' dimensions with input bounding box
-            replace_default_entries(bb_zyx, input_bb_zyx)
-            output_geometry["bounding-box"] = bb_zyx[:,::-1].tolist()
-
-            assert (output_bb_zyx == bb_zyx).all(), \
-                "For now, all output destinations must use the same bounding box and grid scheme"
-            assert (output_brick_shape == bs).all(), \
-                "For now, all output destinations must use the same bounding box and grid scheme"
-            assert (output_block_width == bw).all(), \
-                "For now, all output destinations must use the same bounding box and grid scheme"
-
-            # Create a throw-away writer service, to verify that all
-            # output configs are well-formed before we start the workflow.
-            VolumeService.create_from_config(output_config, self.config_dir)
-            logger.info(f"Output {i} bounding box (xyz) is: {output_geometry['bounding-box']}")
-
 
     def execute(self):
-        self._sanitize_config()
+        self._init_services()
 
         options = self.config_data["options"]
         input_config = self.config_data["input"]
-        output_configs = self.config_data["outputs"]
         
         self.resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-        input_service = VolumeService.create_from_config(input_config, self.config_dir, self.resource_mgr_client)
+        input_service = self.input_service
         input_wall = BrickWall.from_volume_service(input_service, 0, None, self.sc, target_partition_size_voxels)
 
         # See note in _sanitize_config()
-        first_output_geometry = output_configs[0]["geometry"]
+        first_output_service = self.output_services[0]
 
-        input_bb_zyx = np.array(input_config["geometry"]["bounding-box"])[:,::-1]
-        output_bb_zyx = np.array(first_output_geometry["bounding-box"])[:,::-1]
+        input_bb_zyx = input_service.bounding_box_zyx
+        output_bb_zyx = first_output_service.bounding_box_zyx
         translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
 
         self._create_output_instances_if_necessary()
@@ -198,7 +200,6 @@ class CopySegmentation(Workflow):
         input_wall.persist_and_execute(f"Reading entire volume", logger)
 
         # Apply post-input label map (if any)
-        print(f"labelmap config: type: {type(input_config['apply-labelmap'])} / {repr(input_config['apply-labelmap'])}")
         remapped_input_wall = input_wall.apply_labelmap( input_config["apply-labelmap"],
                                                          self.config_dir,
                                                          unpersist_original=True )
@@ -212,10 +213,10 @@ class CopySegmentation(Workflow):
 
         # For now, all output_configs are required to have identical grid alignment settings
         # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
-        aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, output_configs[0], align=True, pad=False)
+        aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
-        for output_config in self.config_data["outputs"]:
+        for output_config, output_service in zip(self.config_data["outputs"], self.output_services):
             # Apply pre-output label map (if any)
             # Don't delete input, because we need to reuse it for each iteration of this loop
             remapped_output_wall = aligned_input_wall.apply_labelmap( output_config["apply-labelmap"],
@@ -223,14 +224,14 @@ class CopySegmentation(Workflow):
                                                                       unpersist_original=False )
 
             # Pad internally to block-align.
-            padded_wall = self._consolidate_and_pad(remapped_output_wall, 0, output_config, align=False, pad=True)
+            padded_wall = self._consolidate_and_pad(remapped_output_wall, 0, output_service, align=False, pad=True)
             del remapped_output_wall
     
             # Compute body sizes and write to HDF5
-            self._write_body_sizes( padded_wall, output_config )
+            self._write_body_sizes( padded_wall, output_service )
     
             # Write scale 0 to DVID
-            self._write_bricks( padded_wall, 0, output_config )
+            self._write_bricks( padded_wall, 0, output_service )
     
             for new_scale in range(1, 1+options["pyramid-depth"]):
                 # Compute downsampled (results in smaller bricks)
@@ -240,11 +241,11 @@ class CopySegmentation(Workflow):
                 del padded_wall
 
                 # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_wall = self._consolidate_and_pad( downsampled_wall, new_scale, output_config, align=True, pad=True )
+                consolidated_wall = self._consolidate_and_pad( downsampled_wall, new_scale, output_service, align=True, pad=True )
                 del downsampled_wall
 
                 # Write to DVID
-                self._write_bricks( consolidated_wall, new_scale, output_config )
+                self._write_bricks( consolidated_wall, new_scale, output_service )
                 padded_wall = consolidated_wall
                 del consolidated_wall
             del padded_wall
@@ -257,26 +258,26 @@ class CopySegmentation(Workflow):
         If it doesn't exist yet, create it first with the user's specified
         pyramid-depth, or with an automatically chosen depth.
         """
-        options = self.config_data["options"]
+        pyramid_depth = self.config_data["options"]["pyramid-depth"]
 
-        for output_config in self.config_data["outputs"]:
+        for output_service in self.output_services:
+            assert isinstance( output_service, DvidVolumeService )
             # Create new segmentation instance first if necessary
-            if not is_datainstance( output_config["dvid"]["server"],
-                                    output_config["dvid"]["uuid"],
-                                    output_config["dvid"]["segmentation-name"] ):
+            if not is_datainstance( output_service.server,
+                                    output_service.uuid,
+                                    output_service.instance_name ):
 
-                depth = options["pyramid-depth"]
-                if depth == -1:
+                if pyramid_depth == -1:
                     # if no pyramid depth is specified, determine the max, based on bb size.
-                    input_bb_zyx = np.array(self.config_data["input"]["geometry"]["bounding-box"])[:,::-1]
-                    depth = choose_pyramid_depth(input_bb_zyx, 512)
+                    input_bb_zyx = self.input_service.bounding_box_zyx
+                    pyramid_depth = choose_pyramid_depth(input_bb_zyx, 512)
         
                 # create new label array with correct number of pyramid scales
-                create_labelarray( output_config["dvid"]["server"],
-                                   output_config["dvid"]["uuid"],
-                                   output_config["dvid"]["segmentation-name"],
-                                   depth,
-                                   3*(output_config["geometry"]["block-width"],) )
+                create_labelarray( output_service.server,
+                                   output_service.uuid,
+                                   output_service.instance_name,
+                                   pyramid_depth,
+                                   3*(output_service.block_width,) )
 
 
     def _log_neuroglancer_links(self):
@@ -284,12 +285,12 @@ class CopySegmentation(Workflow):
         Write a link to the log file for viewing the segmentation data after it is ingested.
         We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
         """
-        for index, output_config in enumerate(self.config_data["outputs"]):
-            server = output_config["dvid"]["server"] # Note: Begins with http://
-            uuid = output_config["dvid"]["uuid"]
-            instance = output_config["dvid"]["segmentation-name"]
+        for index, output_service in enumerate(self.output_services):
+            server = output_service.server # Note: Begins with http://
+            uuid = output_service.uuid
+            instance = output_service.instance_name
             
-            output_box_xyz = np.array(output_config["geometry"]["bounding-box"])
+            output_box_xyz = np.array(output_service.bounding_box_zyx)
             output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
             
             link_prefix = f"{server}/neuroglancer/#!"
@@ -322,30 +323,23 @@ class CopySegmentation(Workflow):
         Return the max depth we found in the outputs.
         (They should all be the same...)
         """
+        options = self.config_data["options"]
+
         max_depth = -1
-        for output_config in self.config_data["outputs"]:
-            output_source = output_config["dvid"]
-            options = self.config_data["options"]
-    
-            node_service = retrieve_node_service( output_source["server"],
-                                                  output_source["uuid"], 
-                                                  self.resource_server,
-                                                  self.resource_port,
-                                                  self.APPNAME )
-    
-            info = node_service.get_typeinfo(output_source["segmentation-name"])
-    
+        for output_service in self.output_services:
+            info = output_service.node_service.get_typeinfo(output_service.instance_name)
             existing_depth = int(info["Extended"]["MaxDownresLevel"])
+
             if options["pyramid-depth"] not in (-1, existing_depth):
                 raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
-                                f"Data instance '{output_source['segmentation-name']}' already existed, with depth {existing_depth}")
+                                f"Data instance '{output_service.instance_name}' already existed, with depth {existing_depth}")
 
             max_depth = max(max_depth, existing_depth)
 
         return existing_depth
 
 
-    def _consolidate_and_pad(self, input_wall, scale, output_config, align=True, pad=True):
+    def _consolidate_and_pad(self, input_wall, scale, output_service, align=True, pad=True):
         """
         Consolidate (align), and pad the given BrickWall
 
@@ -354,7 +348,7 @@ class CopySegmentation(Workflow):
         Args:
             scale: The pyramid scale of the data.
             
-            output_config: The config settings for the output volume to align to and pad from
+            output_service: The output_service to align to and pad from
             
             align: If False, skip the alignment step.
                   (Only use this if the bricks are already aligned.)
@@ -363,7 +357,7 @@ class CopySegmentation(Workflow):
         
         Returns a pre-executed and persisted BrickWall.
         """
-        output_writing_grid = Grid(output_config["geometry"]["message-block-shape"][::-1])
+        output_writing_grid = Grid(output_service.preferred_message_shape)
 
         if not align or output_writing_grid.equivalent_to(input_wall.grid):
             realigned_wall = input_wall
@@ -379,14 +373,12 @@ class CopySegmentation(Workflow):
         if not pad:
             return realigned_wall
 
-        output_reader = VolumeService.create_from_config(output_config, self.config_dir, self.resource_mgr_client)
-
         # Pad from previously-existing pyramid data until
         # we have full storage blocks, e.g. (64,64,64),
         # but not necessarily full bricks, e.g. (64,64,6400)
-        storage_block_width = output_config["geometry"]["block-width"]
+        storage_block_width = output_service.block_width
         output_padding_grid = Grid( (storage_block_width, storage_block_width, storage_block_width), output_writing_grid.offset )
-        output_accessor_func = partial(output_reader.get_subvolume, scale=scale)
+        output_accessor_func = partial(output_service.get_subvolume, scale=scale)
         
         padded_wall = realigned_wall.fill_missing(output_accessor_func, output_padding_grid)
         padded_wall.persist_and_execute(f"Scale {scale}: Padding", logger)
@@ -397,13 +389,12 @@ class CopySegmentation(Workflow):
         return padded_wall
 
 
-    def _write_bricks(self, brick_wall, scale, output_config):
+    def _write_bricks(self, brick_wall, scale, output_service):
         """
         Writes partition to specified dvid.
         """
-        output_writer = VolumeService.create_from_config(output_config, self.config_dir, self.resource_mgr_client)
-        instance_name = output_config["dvid"]["segmentation-name"]
-        block_width = output_config["geometry"]["block-width"]
+        instance_name = output_service.instance_name
+        block_width = output_service.block_width
         EMPTY_VOXEL = 0
         
         @self.collect_log(lambda _: socket.gethostname() + '-write-blocks-' + str(scale))
@@ -435,7 +426,7 @@ class CopySegmentation(Workflow):
                 data_offset_zyx = brick.physical_box[0] + (0,0,data_x_start)
 
                 with Timer() as put_timer:
-                    output_writer.write_subvolume(datacrop, data_offset_zyx, scale)
+                    output_service.write_subvolume(datacrop, data_offset_zyx, scale)
 
                 # Note: This timing data doesn't reflect ideal throughput, since throttle
                 #       and/or the resource manager muddy the numbers a bit...
@@ -448,7 +439,7 @@ class CopySegmentation(Workflow):
         logger.info(f"Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
 
     
-    def _write_body_sizes( self, brick_wall, output_config ):
+    def _write_body_sizes( self, brick_wall, output_service ):
         """
         Calculate the size (in voxels) of all label bodies in the volume,
         and write the results to an HDF5 file.
@@ -488,7 +479,7 @@ class CopySegmentation(Workflow):
             body_labels = body_labels[sort_indices]
         logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
-        suffix = output_config["dvid"]["segmentation-name"]
+        suffix = output_service.instance_name
         output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
         with Timer() as timer:
             logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
