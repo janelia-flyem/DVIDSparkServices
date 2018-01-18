@@ -9,7 +9,7 @@ import numpy as np
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
-from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
+from DVIDSparkServices.io_util.labelmap_utils import equivalence_mapping_from_edge_csv
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,7 @@ def load_labelmap(labelmap_config, working_dir):
             all_items = chain.from_iterable(rows)
             mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
     elif labelmap_config["file-type"] == "equivalence-edges":
-        mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
+        mapping_pairs = equivalence_mapping_from_edge_csv(path)
 
         # Export mapping to disk in case anyone wants to view it later
         output_dir, basename = os.path.split(path)
