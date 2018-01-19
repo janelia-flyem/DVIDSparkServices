@@ -223,7 +223,12 @@ class Workflow(object):
         if "DVIDSPARK_WORKFLOW_TMPDIR" in os.environ and os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]:
             worker_env["DVIDSPARK_WORKFLOW_TMPDIR"] = os.environ["DVIDSPARK_WORKFLOW_TMPDIR"]
         
-        spark_config = self.config_data["options"]["spark-config"]
+        try:
+            spark_config = self.config_data["options"]["spark-config"]
+        except KeyError:
+            # Old workflows haven't been updated to inherit the base Workflow schema
+            spark_config = {}
+        
         for k in list(spark_config.keys()):
             spark_config[k] = str(spark_config[k])
             if spark_config[k] in ('True', 'False'):
@@ -232,7 +237,7 @@ class Workflow(object):
         # Backwards compatibility:
         # if 'corespertask' option exists, override it in the spark config
         if "corespertask" in self.config_data["options"] and self.config_data["options"]["corespertask"] != 0:
-            if spark_config["spark.task.cpus"] != '1':
+            if "spark.task.cpus" in spark_config and spark_config["spark.task.cpus"] != '1':
                 raise RuntimeError("Bad config: You can't set both 'corespertask' and 'spark.task.cpus'.  Use 'spark.task.cpus'.")
             spark_config["spark.task.cpus"] = str(self.config_data["options"]["corespertask"])
 
@@ -516,7 +521,12 @@ class Workflow(object):
         from subprocess import STDOUT
         from os.path import basename, splitext
 
-        init_options = self.config_data["options"]["worker-initialization"]
+        try:
+            init_options = self.config_data["options"]["worker-initialization"]
+        except KeyError:
+            # old workflows haven't been updated to inherit from the base workflow schema
+            return ({}, None)
+            
         if not init_options["script-path"]:
             return ({}, None)
 
