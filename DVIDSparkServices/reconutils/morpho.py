@@ -609,16 +609,17 @@ def stitch(sc, label_chunks):
         # determine which interface there is touching between subvolumes 
         if subvolume1.touches(subvolume1.box.x1, subvolume1.box.x2,
                               subvolume2.box.x1, subvolume2.box.x2):
-            x1 = x2/2 
+            x1 = x2 // 2
             x2 = x1 + 1
+
         if subvolume1.touches(subvolume1.box.y1, subvolume1.box.y2,
                               subvolume2.box.y1, subvolume2.box.y2):
-            y1 = y2/2 
+            y1 = y2 // 2
             y2 = y1 + 1
         
         if subvolume1.touches(subvolume1.box.z1, subvolume1.box.z2,
                               subvolume2.box.z1, subvolume2.box.z2):
-            z1 = z2/2 
+            z1 = z2 // 2
             z2 = z1 + 1
 
         eligible_bodies = set(numpy.unique(boundary2[z1:z2, y1:y2, x1:x2]))

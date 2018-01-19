@@ -122,7 +122,7 @@ class CreatePyramid(DVIDWorkflow):
                 # set extents for new volume (only need to do for grayscale)
                 newsourceext = {}
                 newsourceext["MinPoint"] = [0,0,0] # for now no offset
-                newsourceext["MaxPoint"] = [((xspan-1) // 2+1)*BLKSIZE-1,((yspan-1)//2+1)*BLKSIZE-1,((zspan-1)//2+1)*BLKSIZE-1]
+                newsourceext["MaxPoint"] = [((xspan-1) // 2+1)*BLKSIZE-1,((yspan-1) // 2+1)*BLKSIZE-1,((zspan-1) // 2+1)*BLKSIZE-1]
                 requests.post(server + "/api/node/" + uuid + "/" + currsource + "/extents", json=newsourceext)
 
             # determine number of requests
@@ -246,7 +246,7 @@ class CreatePyramid(DVIDWorkflow):
 
                     zsize,ysize,xsize = data.shape
                     #xrun = xsize/BLKSIZE
-                    xbindex = xiter*maxxrun/2
+                    xbindex = xiter*maxxrun // 2
 
                     # retrieve blocks
                     blockbuffer = ""
@@ -278,7 +278,7 @@ class CreatePyramid(DVIDWorkflow):
 
                             else:
                                 if startblock == False:
-                                    xbindex = xiter*maxxrun/2 + iterx // BLKSIZE
+                                    xbindex = xiter*maxxrun // 2 + iterx // BLKSIZE
                                
                                 startblock = True
                                 blockbuffer += block.tobytes()
