@@ -68,6 +68,10 @@ class TransposedVolumeService(VolumeServiceReader):
                     "Bounding box must start at the origin for transposed axes."
     
     @property
+    def base_service(self):
+        return self.original_volume_service.base_service
+
+    @property
     def dtype(self):
         return self.original_volume_service.dtype
 

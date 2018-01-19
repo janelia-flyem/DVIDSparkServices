@@ -38,6 +38,10 @@ class ScaledVolumeService(VolumeServiceReader):
         self.scale_delta = scale_delta
 
     @property
+    def base_service(self):
+        return self.original_volume_service.base_service
+
+    @property
     def dtype(self):
         return self.original_volume_service.dtype
 

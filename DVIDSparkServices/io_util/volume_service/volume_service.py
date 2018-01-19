@@ -16,6 +16,15 @@ class VolumeService(metaclass=ABCMeta):
     def block_width(self):
         raise NotImplementedError
 
+    @property
+    def base_service(self):
+        """
+        If this service wraps another one (e.g. ScaledVolumeService, etc.),
+        return the wrapped service.
+        Default for 'base' services (e.g. DvidVolumeService) is to just return self.
+        """
+        return self
+
     @classmethod
     def create_from_config( cls, volume_config, config_dir, resource_manager_client=None ):
         from .dvid_volume_service import DvidVolumeService
