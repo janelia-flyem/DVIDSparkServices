@@ -131,7 +131,7 @@ class BrickWall:
         """
         Return a duplicate of this BrickWall, with a new bricks RDD (which not persisted).
         """
-        return BrickWall( self.bounding_box, self.grid, rt.map( lambda x:x, self.bricks ) )
+        return BrickWall( self.bounding_box, self.grid, _bricks=rt.map( lambda x:x, self.bricks ) )
 
     ##
     ## Convenience Constructor
