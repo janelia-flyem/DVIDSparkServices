@@ -1,5 +1,4 @@
 import os
-import csv
 import json
 from itertools import chain
 
@@ -8,6 +7,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 import numpy as np
 import snappy
+
+from .labelmap_utils import groups_from_edges, mapping_from_groups
 
 # DEBUG 'logging' (Doesn't actually use logging module)
 #import httplib2
@@ -330,137 +331,19 @@ class BrainMapsVolume:
         # There is no API for getting all groups, so we have to get the
         # full set of edges and run connected components ourselves.
         all_edges = self.get_equivalence_edges()
-        return BrainMapsVolume.groups_from_edges(all_edges)
+        return groups_from_edges(all_edges)
 
-
-    @classmethod
-    def groups_from_edges(cls, edges):
-        """
-        The given list of edges [(node_a, node_b),(node_a, node_b),...] encode a graph.
-        Find the connected components in the graph and return them as a dict:
-        
-        { group_id : [node_id, node_id, node_id] }
-        
-        ...where each group_id is the minimum node_id of the group.
-        """
-        import networkx as nx
-        g = nx.Graph()
-        g.add_edges_from(edges)
-        
-        groups = {}
-        for segment_set in nx.connected_components(g):
-            # According to Jeremy, group_id == the min segment_id of the group.
-            groups[min(segment_set)] = list(sorted(segment_set))
-
-        return groups
 
     def equivalence_mapping(self):
         if self._equivalence_mapping is not None:
             return self._equivalence_mapping
         groups = self.get_all_equivalence_groups()
-        self._equivalence_mapping = BrainMapsVolume.mapping_from_groups(groups)
+        self._equivalence_mapping = mapping_from_groups(groups)
         return self._equivalence_mapping
 
     def set_equivalence_mapping(self, mapping):
         self._equivalence_mapping = mapping
 
-    @classmethod
-    def equivalence_mapping_from_edge_csv(cls, csv_path, output_csv_path=None):
-        """
-        Load and return the equivalence_mapping from the given csv_path of equivalence edges.
-        
-        Each row represents an edge. For example:
-        
-            123,456
-            123,789
-            789,234
-            
-        The CSV file may optionally contain a header row.
-        Also, it may contain more than two columns, but only the first two columns are used.
-        
-        Args:
-            csv_path:
-                Path to a csv file whose first two columns are edge pairs
-            
-            output_csv_path:
-                (Optional.) If provided, also write the results to a CSV file.
-            
-        Returns:
-            ndarray with two columns representing node and group
-
-        Note: The returned array is NOT merely the parsed CSV.
-              It has been transformed from equivalence edges to node mappings,
-              via a connected components step.
-        """
-        edges = BrainMapsVolume.load_edge_csv(csv_path)
-        groups = BrainMapsVolume.groups_from_edges(edges)
-        mapping = BrainMapsVolume.mapping_from_groups(groups)
-        
-        if output_csv_path:
-            BrainMapsVolume.equivalence_mapping_to_csv(mapping, output_csv_path)
-            
-        return mapping
-
-    @classmethod
-    def load_edge_csv(cls, csv_path):
-        """
-        Load and return the given edge list CSV file as a numpy array.
-        
-        Each row represents an edge. For example:
-        
-            123,456
-            123,789
-            789,234
-        
-        The CSV file may optionally contain a header row.
-        Also, it may contain more than two columns, but only the first two columns are used.
-        
-        Returns:
-            ndarray with shape (N,2)
-        """
-        with open(csv_path, 'r') as csv_file:
-            # Is there a header?
-            has_header = csv.Sniffer().has_header(csv_file.read(1024))
-            csv_file.seek(0)
-            rows = iter(csv.reader(csv_file))
-            if has_header:
-                # Skip header
-                _header = next(rows)
-            
-            # We only care about the first two columns
-            all_items = chain.from_iterable( (row[0], row[1]) for row in rows )
-            edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
-
-        return edges
-
-    @classmethod
-    def equivalence_mapping_to_csv(cls, mapping_pairs, output_path):
-        if not os.path.exists(output_path):
-            with open(output_path, 'w') as f:
-                csv.writer(f).writerows(mapping_pairs)
-
-    @classmethod
-    def mapping_from_groups(cls, groups):
-        """
-        Given a dict of { group_id: [node_a, node_b,...] },
-        Return a reverse-mapping in the form of an ndarray:
-            
-            [[node_a, group_id],
-             [node_b, group_id],
-             [node_c, group_id],
-             ...
-            ]
-        """
-        element_count = sum(map(len, groups.values()))
-        
-        def generate():
-            for group_id, members in groups.items():
-                for member in members:
-                    yield member
-                    yield group_id
-
-        mapping = np.fromiter( generate(), np.uint64, 2*element_count ).reshape(-1,2)
-        return mapping
 
     def get_equivalence_edges(self, segment_id=None):
         """

@@ -1,5 +1,6 @@
 from .. import ( DvidGrayscaleServiceSchema, SliceFilesServiceSchema, N5ServiceSchema, 
-                 DvidSegmentationServiceSchema, BrainMapsSegmentationServiceSchema )
+                 DvidSegmentationServiceSchema, BrainMapsSegmentationServiceSchema, 
+                 NewAxisOrderSchema, RescaleLevelSchema, LabelMapSchema )
 
 from .geometry import GeometrySchema
 
@@ -24,30 +25,9 @@ GrayscaleVolumeSchema = \
         { "properties": { "n5": N5ServiceSchema } }
     ],
     "properties": {
-        "geometry": GeometrySchema
-    }
-}
-
-
-LabelMapSchema = \
-{
-    "description": "A label mapping file to apply to segmentation after reading or before writing.",
-    "type": "object",
-    "required": ["file", "file-type"],
-    "default": {"file": "", "file-type": "__invalid__"},
-    "properties": {
-        "file": {
-            "description": "Path to a file of labelmap data",
-            "type": "string" ,
-            "default": ""
-        },
-        "file-type": {
-            "type": "string",
-            "enum": ["label-to-body",       # CSV file containing the direct mapping.  Rows are orig,new 
-                     "equivalence-edges",   # CSV file containing a list of label merges.
-                                            # (A label-to-body mapping is derived from this, via connected components analysis.)
-                     "__invalid__"]
-        }
+        "geometry": GeometrySchema,
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema
     }
 }
 
@@ -67,8 +47,10 @@ SegmentationVolumeSchema = \
         { "properties": { "brainmaps": BrainMapsSegmentationServiceSchema }, "required": ["brainmaps"] }
     ],
     "properties": {
-        "apply-labelmap": LabelMapSchema,
-        "geometry": GeometrySchema
+        "geometry": GeometrySchema,
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema,
+        "apply-labelmap": LabelMapSchema
     }
 }
 

@@ -6,6 +6,19 @@ from DVIDSparkServices.reconutils.downsample import downsample_labels_3d, downsa
 
 from . import VolumeServiceReader
 
+RescaleLevelSchema = \
+{
+    "description": "Level to rescale the original input source when reading.\n"
+                   "Presents a resized view of the original volume.\n"
+                   "Examples:\n"
+                   "  0: no rescaling\n"
+                   "  1: downsample by 2x\n"
+                   "  2: downsample by 4x\n"
+                   " -1: upsample by 2x",
+    "type": "integer",
+    "default": 0
+}
+
 class ScaledVolumeService(VolumeServiceReader):
     """
     Wraps an existing VolumeServiceReader and presents
@@ -23,6 +36,10 @@ class ScaledVolumeService(VolumeServiceReader):
     def __init__(self, original_volume_service, scale_delta=0):
         self.original_volume_service = original_volume_service
         self.scale_delta = scale_delta
+
+    @property
+    def base_service(self):
+        return self.original_volume_service.base_service
 
     @property
     def dtype(self):

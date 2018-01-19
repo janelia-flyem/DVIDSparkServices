@@ -53,8 +53,8 @@ class ConvertGrayscaleVolume(Workflow):
         },
         "transpose-axes": {
             "description": "How to transpose/rotate the input volume before writing it out.\n"
-                           "Note: This setting is specified in ZYX order.\n"
-                           "      The default (['z', 'y', 'x']) is 'no-op'.",
+                           "Note: This setting is specified in XYZ order.\n"
+                           "      The default (['x', 'y', 'z']) is 'no-op'.",
             "type": "array",
             "items": { "type": "string" },
             "minItems": 3,
@@ -100,9 +100,6 @@ class ConvertGrayscaleVolume(Workflow):
 
         self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
         self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
-
-        if options["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE:
-            self.input_service = TransposedVolumeService( self.input_service, options["transpose-axes"] )
 
         replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
         self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )

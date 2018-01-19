@@ -56,6 +56,10 @@ class BrickWall:
         """
         Relabel the bricks in this BrickWall with a labelmap.
         If the given config specifies not labelmap, then the original is returned.
+        
+        NOTE: It is rarely necessary to call this function, since labelmaps can be
+              specified in a VolumeService config, in which case the labelmap is
+              automatically applied during reading/writing.
     
         bricks: RDD of Bricks
         
@@ -131,7 +135,7 @@ class BrickWall:
         """
         Return a duplicate of this BrickWall, with a new bricks RDD (which not persisted).
         """
-        return BrickWall( self.bounding_box, self.grid, rt.map( lambda x:x, self.bricks ) )
+        return BrickWall( self.bounding_box, self.grid, _bricks=rt.map( lambda x:x, self.bricks ) )
 
     ##
     ## Convenience Constructor

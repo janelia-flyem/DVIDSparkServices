@@ -16,6 +16,15 @@ class VolumeService(metaclass=ABCMeta):
     def block_width(self):
         raise NotImplementedError
 
+    @property
+    def base_service(self):
+        """
+        If this service wraps another one (e.g. ScaledVolumeService, etc.),
+        return the wrapped service.
+        Default for 'base' services (e.g. DvidVolumeService) is to just return self.
+        """
+        return self
+
     @classmethod
     def create_from_config( cls, volume_config, config_dir, resource_manager_client=None ):
         from .dvid_volume_service import DvidVolumeService
@@ -29,16 +38,34 @@ class VolumeService(metaclass=ABCMeta):
         if len(service_keys) != 1:
             raise RuntimeError(f"Unsupported service (or too many specified): {service_keys}")
         
+        # Choose base service
         if "dvid" in volume_config:
-            return DvidVolumeService( volume_config, resource_manager_client )
-        if "brainmaps" in volume_config:
-            return BrainMapsVolumeServiceReader( volume_config, resource_manager_client )
-        if "n5" in volume_config:
-            return N5VolumeServiceReader( volume_config, config_dir )
-        if "slice-files" in volume_config:
-            return SliceFilesVolumeServiceReader( volume_config )
-    
-        assert False, "Shouldn't get here."
+            service = DvidVolumeService( volume_config, resource_manager_client )
+        elif "brainmaps" in volume_config:
+            service = BrainMapsVolumeServiceReader( volume_config, resource_manager_client )
+        elif "n5" in volume_config:
+            service = N5VolumeServiceReader( volume_config, config_dir )
+        elif "slice-files" in volume_config:
+            service = SliceFilesVolumeServiceReader( volume_config )
+        else:
+            raise RuntimeError( "Unknown service type." )
+
+        # Wrap with labelmap service
+        from . import LabelmappedVolumeService
+        if ("apply-labelmap" in volume_config) and (volume_config["apply-labelmap"]["file-type"] != "__invalid__"):
+            service = LabelmappedVolumeService(service, volume_config["apply-labelmap"], config_dir)
+
+        # Wrap with transpose service
+        from . import TransposedVolumeService
+        if ("transpose-axes" in volume_config) and (volume_config["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE):
+            service = TransposedVolumeService(service, volume_config["transpose-axes"])
+
+        # Wrap with scaled service
+        from . import ScaledVolumeService
+        if ("rescale-level" in volume_config) and (volume_config["rescale-level"] != 0):
+            service = ScaledVolumeService(service, volume_config["rescale-level"])
+
+        return service
 
     @classmethod
     def _remove_default_service_configs(cls, volume_config):
