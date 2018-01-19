@@ -14,7 +14,6 @@ import h5py
 
 from dvid_resource_manager.client import ResourceManagerClient
 
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount,\
@@ -77,17 +76,12 @@ class CopySegmentation(Workflow):
         "additionalProperties": False,
         "required": ["input", "outputs"],
         "properties": {
-            "input": SegmentationVolumeSchema,       # Labelmap, if any, is applied post-read
-            
-            "outputs": SegmentationVolumeListSchema, # LIST of output locations to write to.
-                                                     # Labelmap, if any, is applied pre-write for each volume.
+            "input": SegmentationVolumeSchema,
+            "outputs": SegmentationVolumeListSchema,
             "options" : OptionsSchema
         }
     }
     
-    Schema["properties"]["input"]["description"] += "\n(Labelmap, if any, is applied post-read)"
-    Schema["properties"]["outputs"]["description"] += "\n(Labelmaps, if any, are applied before writing for each volume.)"
-
     @classmethod
     def schema(cls):
         return CopySegmentation.Schema
@@ -156,24 +150,19 @@ class CopySegmentation(Workflow):
             assert (first_output_service.block_width == bw), \
                 "For now, all output destinations must use the same bounding box and grid scheme"
 
+        for output_config in output_configs:
+            if ("apply-labelmap" in output_config) and (output_config["apply-labelmap"]["file-type"] != "__invalid__"):
+                assert output_config["apply-labelmap"]["apply-when"] == "reading-and-writing", \
+                    "Labelmap will be applied to voxels during pre-write and post-read (due to block padding).\n"\
+                    "You cannot use this workflow with non-idempotent labelmaps, unless your data is already perfectly block aligned."
+
         logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
-
-
-        for volume_config in [input_config] + output_configs:
-            # Convert labelmap (if any) to absolute path (relative to config file)
-            labelmap_file = volume_config["apply-labelmap"]["file"]
-            if labelmap_file.startswith('gs://'):
-                # Verify that gsutil is able to see the file before we start doing real work.
-                subprocess.check_output(f'gsutil ls {labelmap_file}', shell=True)
-            elif labelmap_file and not os.path.isabs(labelmap_file):
-                volume_config["apply-labelmap"]["file"] = self.relpath_to_abspath(labelmap_file)
 
 
     def execute(self):
         self._init_services()
 
         options = self.config_data["options"]
-        input_config = self.config_data["input"]
         
         self.resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
 
@@ -199,33 +188,30 @@ class CopySegmentation(Workflow):
 
         input_wall.persist_and_execute(f"Reading entire volume", logger)
 
-        # Apply post-input label map (if any)
-        remapped_input_wall = input_wall.apply_labelmap( input_config["apply-labelmap"],
-                                                         self.config_dir,
-                                                         unpersist_original=True )
-        del input_wall
-
         # Translate coordinates from input to output
         # (which will leave the bricks in a new, offset grid)
         # This has no effect on the brick volumes themselves.
-        translated_wall = remapped_input_wall.translate(translation_offset_zyx)
-        del remapped_input_wall
+        translated_wall = input_wall.translate(translation_offset_zyx)
+        del input_wall
 
         # For now, all output_configs are required to have identical grid alignment settings
         # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
         aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
-        for output_config, output_service in zip(self.config_data["outputs"], self.output_services):
-            # Apply pre-output label map (if any)
-            # Don't delete input, because we need to reuse it for each iteration of this loop
-            remapped_output_wall = aligned_input_wall.apply_labelmap( output_config["apply-labelmap"],
-                                                                      self.config_dir,
-                                                                      unpersist_original=False )
+        for output_index, output_service in enumerate(self.output_services):
+            if output_index < len(self.output_services) - 1:
+                # Copy to a new RDD so the input can be re-used for subsequent outputs
+                aligned_output_wall = aligned_input_wall.copy()
+            else:
+                # No copy needed for the last one
+                aligned_output_wall = aligned_input_wall
 
             # Pad internally to block-align.
-            padded_wall = self._consolidate_and_pad(remapped_output_wall, 0, output_service, align=False, pad=True)
-            del remapped_output_wall
+            # Here, we assume that any output labelmaps are idempotent,
+            # so it's okay to read pre-existing output data that will ultimately get remapped.
+            padded_wall = self._consolidate_and_pad(aligned_output_wall, 0, output_service, align=False, pad=True)
+            del aligned_output_wall
     
             # Compute body sizes and write to HDF5
             self._write_body_sizes( padded_wall, output_service )
@@ -261,11 +247,13 @@ class CopySegmentation(Workflow):
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
 
         for output_service in self.output_services:
-            assert isinstance( output_service, DvidVolumeService )
+            base_service = output_service.base_service
+            assert isinstance( base_service, DvidVolumeService )
+
             # Create new segmentation instance first if necessary
-            if not is_datainstance( output_service.server,
-                                    output_service.uuid,
-                                    output_service.instance_name ):
+            if not is_datainstance( base_service.server,
+                                    base_service.uuid,
+                                    base_service.instance_name ):
 
                 if pyramid_depth == -1:
                     # if no pyramid depth is specified, determine the max, based on bb size.
@@ -273,11 +261,11 @@ class CopySegmentation(Workflow):
                     pyramid_depth = choose_pyramid_depth(input_bb_zyx, 512)
         
                 # create new label array with correct number of pyramid scales
-                create_labelarray( output_service.server,
-                                   output_service.uuid,
-                                   output_service.instance_name,
+                create_labelarray( base_service.server,
+                                   base_service.uuid,
+                                   base_service.instance_name,
                                    pyramid_depth,
-                                   3*(output_service.block_width,) )
+                                   3*(base_service.block_width,) )
 
 
     def _log_neuroglancer_links(self):
@@ -286,9 +274,9 @@ class CopySegmentation(Workflow):
         We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
         """
         for index, output_service in enumerate(self.output_services):
-            server = output_service.server # Note: Begins with http://
-            uuid = output_service.uuid
-            instance = output_service.instance_name
+            server = output_service.base_service.server # Note: Begins with http://
+            uuid = output_service.base_service.uuid
+            instance = output_service.base_service.instance_name
             
             output_box_xyz = np.array(output_service.bounding_box_zyx)
             output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
@@ -327,12 +315,13 @@ class CopySegmentation(Workflow):
 
         max_depth = -1
         for output_service in self.output_services:
-            info = output_service.node_service.get_typeinfo(output_service.instance_name)
+            base_volume_service = output_service.base_service
+            info = base_volume_service.node_service.get_typeinfo(base_volume_service.instance_name)
             existing_depth = int(info["Extended"]["MaxDownresLevel"])
 
             if options["pyramid-depth"] not in (-1, existing_depth):
                 raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
-                                f"Data instance '{output_service.instance_name}' already existed, with depth {existing_depth}")
+                                f"Data instance '{base_volume_service.instance_name}' already existed, with depth {existing_depth}")
 
             max_depth = max(max_depth, existing_depth)
 
@@ -393,7 +382,7 @@ class CopySegmentation(Workflow):
         """
         Writes partition to specified dvid.
         """
-        instance_name = output_service.instance_name
+        instance_name = output_service.base_service.instance_name
         block_width = output_service.block_width
         EMPTY_VOXEL = 0
         
@@ -479,7 +468,7 @@ class CopySegmentation(Workflow):
             body_labels = body_labels[sort_indices]
         logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
 
-        suffix = output_service.instance_name
+        suffix = output_service.base_service.instance_name
         output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
         with Timer() as timer:
             logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")

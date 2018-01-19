@@ -50,6 +50,11 @@ class VolumeService(metaclass=ABCMeta):
         else:
             raise RuntimeError( "Unknown service type." )
 
+        # Wrap with labelmap service
+        from . import LabelmappedVolumeService
+        if ("apply-labelmap" in volume_config) and (volume_config["apply-labelmap"]["file-type"] != "__invalid__"):
+            service = LabelmappedVolumeService(service, volume_config["apply-labelmap"], config_dir)
+
         # Wrap with transpose service
         from . import TransposedVolumeService
         if ("transpose-axes" in volume_config) and (volume_config["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE):
