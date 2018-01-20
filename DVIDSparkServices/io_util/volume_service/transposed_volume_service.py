@@ -2,14 +2,16 @@ import numpy as np
 
 from . import VolumeServiceReader
 
+from DVIDSparkServices.json_util import flow_style
+
 NewAxisOrderSchema = \
 {
     "description": "How to present the volume, in terms of the source volume axes.",
     "type": "array",
     "minItems": 3,
     "maxItems": 3,
-    "items": { "enum": ["x", "y", "z", "1-x", "1-y", "1-z"] },
-    "default": ["x", "y", "z"] # no transpose
+    "items": { "type": "string", "enum": ["x", "y", "z", "1-x", "1-y", "1-z"] },
+    "default": flow_style(["x", "y", "z"]) # no transpose
 }
 
 class TransposedVolumeService(VolumeServiceReader):
