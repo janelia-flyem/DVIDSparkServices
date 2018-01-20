@@ -8,6 +8,33 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+LabelMapSchema = \
+{
+    "description": "A label mapping file to apply to segmentation after reading or before writing.",
+    "type": "object",
+    "default": {},
+    "properties": {
+        "file": {
+            "description": "Path to a file of labelmap data",
+            "type": "string" ,
+            "default": ""
+        },
+        "file-type": {
+            "type": "string",
+            "enum": ["label-to-body",       # CSV file containing the direct mapping.  Rows are orig,new 
+                     "equivalence-edges",   # CSV file containing a list of label merges.
+                                            # (A label-to-body mapping is derived from this, via connected components analysis.)
+                     "__invalid__"],
+            "default": "__invalid__"
+        },
+        "apply-when": {
+            "type": "string",
+            "enum": ["reading", "writing", "reading-and-writing"],
+            "default": "reading-and-writing"
+        }
+    }
+}
+
 def load_labelmap(labelmap_config, working_dir):
     """
     Load a labelmap file as specified in the given labelmap_config,

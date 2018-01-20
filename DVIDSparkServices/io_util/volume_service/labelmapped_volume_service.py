@@ -2,37 +2,13 @@ import os
 
 import numpy as np
 
+from jsonschema import validate
+
 from dvidutils import LabelMapper
 
-from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
+from DVIDSparkServices.io_util.labelmap_utils import LabelMapSchema, load_labelmap
 from . import VolumeServiceWriter
 
-LabelMapSchema = \
-{
-    "description": "A label mapping file to apply to segmentation after reading or before writing.",
-    "type": "object",
-    "default": {},
-    "properties": {
-        "file": {
-            "description": "Path to a file of labelmap data",
-            "type": "string" ,
-            "default": ""
-        },
-        "file-type": {
-            "type": "string",
-            "enum": ["label-to-body",       # CSV file containing the direct mapping.  Rows are orig,new 
-                     "equivalence-edges",   # CSV file containing a list of label merges.
-                                            # (A label-to-body mapping is derived from this, via connected components analysis.)
-                     "__invalid__"],
-            "default": "__invalid__"
-        },
-        "apply-when": {
-            "type": "string",
-            "enum": ["reading", "writing", "reading-and-writing"],
-            "default": "reading-and-writing"
-        }
-    }
-}
 
 class LabelmappedVolumeService(VolumeServiceWriter):
     """
@@ -57,7 +33,8 @@ class LabelmappedVolumeService(VolumeServiceWriter):
     """
     def __init__(self, original_volume_service, labelmap_config, config_dir):
         self.original_volume_service = original_volume_service
-        
+        validate(labelmap_config, LabelMapSchema)
+
         # Convert relative path to absolute
         if not labelmap_config["file"].startswith('gs://') and not labelmap_config["file"].startswith("/"):
             abspath = os.path.normpath( os.path.join(config_dir, labelmap_config["file"]) )
