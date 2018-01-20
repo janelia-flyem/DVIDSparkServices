@@ -11,7 +11,7 @@ from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
 
-from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter
+from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter, NewAxisOrderSchema, RescaleLevelSchema, LabelMapSchema
 
 DvidServiceSchema = \
 {
@@ -85,7 +85,10 @@ DvidGenericVolumeSchema = \
     "default": {},
     "properties": {
         "dvid": { "oneOf": [DvidGrayscaleServiceSchema, DvidSegmentationServiceSchema] },
-        "geometry": GeometrySchema
+        "geometry": GeometrySchema,
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema,
+        "apply-labelmap": LabelMapSchema
     }
 }
 
@@ -96,7 +99,10 @@ DvidSegmentationVolumeSchema = \
     "default": {},
     "properties": {
         "dvid": DvidSegmentationServiceSchema,
-        "geometry": GeometrySchema
+        "geometry": GeometrySchema,
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema,
+        "apply-labelmap": LabelMapSchema
     }
 }
 
