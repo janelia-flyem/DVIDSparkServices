@@ -1,9 +1,11 @@
 import os
 import copy
 import json
+import tarfile
 from datetime import datetime
 import logging
 from functools import partial
+from io import BytesIO
 
 import numpy as np
 import requests
@@ -12,7 +14,7 @@ from vol2mesh.mesh_from_array import mesh_from_array
 
 from dvid_resource_manager.client import ResourceManagerClient
 
-from DVIDSparkServices.util import Timer, persist_and_execute
+from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
@@ -21,7 +23,8 @@ from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
-from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidSegmentationVolumeSchema
+from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema
+from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
 from multiprocessing import TimeoutError
 from DVIDSparkServices.io_util.brickwall import BrickWall
@@ -70,21 +73,52 @@ class CreateSkeletons(Workflow):
                 "type": "integer",
                 "default": 1
             },
-            "format": {
-                "description": "Format to save the meshes in. ",
-                "type": "string",
-                "enum": ["obj",    # Wavefront OBJ (.obj)
-                         "drc"],   # Draco (compressed) (.drc)
-                "default": "obj"
-            },
             "use-subprocesses": {
                 "description": "Whether or not to generate meshes in a subprocess, \n"
                                "to protect against timeouts and failures.\n",
                 "type": "boolean",
                 "default": False
+            },
+            "storage": {
+                "description": "Options to group meshes in tarballs, if desired",
+                "type": "object",
+                "default": {},
+                "properties": {
+                    "grouping-scheme": {
+                        "description": "If/how to group meshes into tarballs before uploading them to DVID.\n"
+                                       "Choices:\n"
+                                       "- no-groups: No tarballs. Each mesh is written as a separate key.\n"
+                                       "- hundreds: Group meshes in groups of up to 100, such that ids xxx00 through xxx99 end up in the same group.\n"
+                                       "- labelmap: Use the labelmap setting below to determine the grouping.\n",
+                        "type": "string",
+                        "enum": ["no-groups", "hundreds", "labelmap"],
+                        "default": "no-groups"
+                    },
+                    "naming-scheme": {
+                        "description": "How to name mesh keys (and internal files, if grouped)",
+                        "type": "string",
+                        "enum": ["trivial", "neu3-level-0", "neu3-level-1"],
+                        "default": "trivial"
+                    },
+                    "format": {
+                        "description": "Format to save the meshes in. ",
+                        "type": "string",
+                        "enum": ["obj",    # Wavefront OBJ (.obj)
+                                 "drc"],   # Draco (compressed) (.drc)
+                        "default": "obj"
+                    },
+                    "labelmap": copy.copy(LabelMapSchema) # Only used by the 'labelmap' grouping-scheme
+                }
             }
         }
     }
+    
+    MeshGenerationSchema\
+        ["properties"]["storage"]\
+            ["properties"]["labelmap"]\
+                ["description"] = ("A labelmap file to determine mesh groupings.\n"
+                                   "Only used by the 'labelmap' grouping-scheme.\n"
+                                   "Will be applied AFTER any labelmap you specified in the segmentation volume info.\n")
 
     SkeletonWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
     SkeletonWorkflowOptionsSchema["additionalProperties"] = False
@@ -334,17 +368,58 @@ class CreateSkeletons(Workflow):
         def logged_generate_mesh(arg):
             return generate_mesh_in_subprocess(config, arg)
         
-        #     --> (body_id, swc_contents, error_msg)
-        body_ids_and_meshes = large_id_box_mask_factor_err.map( logged_generate_mesh )
-        persist_and_execute(body_ids_and_meshes, "Computing meshes", logger)
+        #     --> (body_id, mesh_bytes, error_msg)
+        body_ids_and_meshes_with_err = large_id_box_mask_factor_err.map( logged_generate_mesh )
+        persist_and_execute(body_ids_and_meshes_with_err, "Computing meshes", logger)
 
         # Errors were already written to a separate file, but let's duplicate them in the master log. 
-        errors = body_ids_and_meshes.map(lambda id_swc_err: id_swc_err[-1]).filter(bool).collect()
+        errors = body_ids_and_meshes_with_err.map(lambda id_mesh_err: id_mesh_err[-1]).filter(bool).collect()
         for error in errors:
             logger.error(error)
 
+        # Filter out error cases
+        body_ids_and_meshes = body_ids_and_meshes_with_err.filter(lambda id_mesh_err: id_mesh_err[-1] is None) \
+                                                          .map( lambda id_mesh_err: id_mesh_err[:2] )
+                                                          
+        # Group according to scheme
+        grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
+        n_partitions = num_worker_nodes() * cpus_per_worker()
+
+        if grouping_scheme in "hundreds":
+            def last_six_digits( id_mesh ):
+                body_id, _mesh = id_mesh
+                group_id = body_id - (body_id % 100)
+                return group_id
+            grouped_body_ids_and_meshes = body_ids_and_meshes.groupBy(last_six_digits, numPartitions=n_partitions)
+        elif grouping_scheme == "labelmap":
+            import pandas as pd
+            mapping_pairs = load_labelmap( config["mesh-config"]["storage"]["labelmap"], self.config_dir )
+
+            def prepend_mapped_group_id( id_mesh_partition ):
+                df = pd.DataFrame( mapping_pairs, columns=["body_id", "group_id"] )
+
+                new_partition = []
+                for id_mesh in id_mesh_partition:
+                    body_id, mesh = id_mesh
+                    group_id = df.loc[df.body_id == body_id]['group_id'].iloc[0]
+                    new_partition.append( (group_id, (body_id, mesh)) )
+                return new_partition
+            
+            # We do this via mapPartitions().groupByKey() instead of a simple groupBy()
+            # to save time constructing the DataFrame inside the closure above.
+            # (TODO: Figure out why the dataframe isn't pickling properly...)
+            grouped_body_ids_and_meshes = body_ids_and_meshes.mapPartitions( prepend_mapped_group_id ) \
+                                                             .groupByKey(numPartitions=n_partitions)
+        elif grouping_scheme == "no-groups":
+            # Create 'groups' of one item each, re-using the body ID as the group id.
+            grouped_body_ids_and_meshes = body_ids_and_meshes.map( lambda id_mesh: (id_mesh[0], [(id_mesh[0], id_mesh[1])]) )
+
+        persist_and_execute(grouped_body_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
+        unpersist(body_ids_and_meshes)
+        del body_ids_and_meshes
+        
         with Timer() as timer:
-            body_ids_and_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
+            grouped_body_ids_and_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
         logger.info(f"Writing meshes to DVID took {timer.seconds}")
 
 
@@ -626,11 +701,11 @@ def generate_mesh(config, body_id, combined_box, combined_mask, downsample_facto
                                   downsample_factor,
                                   config["mesh-config"]["simplify-ratio"],
                                   config["mesh-config"]["step-size"],
-                                  config["mesh-config"]["format"])
+                                  config["mesh-config"]["storage"]["format"])
     return body_id, mesh_bytes
 
 
-def post_meshes_to_dvid(config, items):
+def post_meshes_to_dvid(config, partition_items):
     """
     Send the given meshes (either .obj or .drc) as key/value pairs to DVID.
     
@@ -654,12 +729,78 @@ def post_meshes_to_dvid(config, items):
     dvid_server = config["dvid-info"]["dvid"]["server"]
     uuid = config["dvid-info"]["dvid"]["uuid"]
     instance = config["dvid-info"]["dvid"]["meshes-destination"]
-    info = {"format": config["mesh-config"]["format"]}
+    
+    # TODO: This format json probably needs to be re-thought or updated for the tarball stuff...
+    format_info = {"format": config["mesh-config"]["storage"]["format"]}
 
-    for (body_id, mesh_data, err) in items:
-        if mesh_data is None or err is not None:
-            continue
+    grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
 
-        with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
-            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
-            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=info)
+    if grouping_scheme == "no-groups":
+        for group_id, body_ids_and_meshes in partition_items:
+            for (body_id, mesh_data) in body_ids_and_meshes:
+                with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
+                    session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
+                    session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=format_info)
+    else:
+        for group_id, body_ids_and_meshes in partition_items:
+            tar_name = _get_group_name(config, group_id)
+            tar_stream = BytesIO()
+            tf = tarfile.open(tar_name, 'w', tar_stream)
+    
+            for (body_id, mesh_data) in body_ids_and_meshes:
+                mesh_name = _get_mesh_name(config, body_id)
+                f_info = tarfile.TarInfo(mesh_name)
+                f_info.size = len(mesh_data)
+                tf.addfile(f_info, BytesIO(mesh_data))
+    
+            tar_bytes = tar_stream.getbuffer()
+            with resource_client.access_context(dvid_server, False, 2, len(tar_bytes)):
+                session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}', tar_bytes)
+                session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}_info', json=format_info)
+
+def _get_group_name(config, group_id):
+    """
+    Encode the given group name (e.g. a 'body' in neu3)
+    into a suitable key name for the group tarball.
+    """
+    grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
+    naming_scheme = config["mesh-config"]["storage"]["naming-scheme"]
+
+    if naming_scheme == "trivial":
+        group_name = str(group_id) # no special encoding
+    elif naming_scheme == "neu3-level-0":
+        keyEncodeLevel0 = 10000000000000
+        group_name = str(group_id + keyEncodeLevel0)
+    elif naming_scheme == "neu3-level-1":
+        keyEncodeLevel1 = 10100000000000
+        group_name = str(group_id + keyEncodeLevel1)
+    else:
+        raise RuntimeError(f"Unknown naming scheme: {naming_scheme}")
+    
+    if grouping_scheme != 'no-groups':
+        group_name += '.tar'
+    
+    return group_name
+
+def _get_mesh_name(config, mesh_id):
+    """
+    Encode the given mesh id (e.g. a 'supervoxel ID' in neu3)
+    into a suitable filename for inclusion in a mesh tarball.
+    """
+    naming_scheme = config["mesh-config"]["storage"]["naming-scheme"]
+    mesh_format = config["mesh-config"]["storage"]["format"]
+
+    if naming_scheme == "trivial":
+        mesh_name = str(mesh_id) # no special encoding
+    elif naming_scheme == "neu3-level-0":
+        keyEncodeLevel0 = 10000000000000
+        mesh_name = str(mesh_id + keyEncodeLevel0)
+    elif naming_scheme == "neu3-level-1":
+        keyEncodeLevel1 = 10100000000000
+        mesh_name = str(mesh_id + keyEncodeLevel1)
+    else:
+        raise RuntimeError(f"Unknown naming scheme: {naming_scheme}")
+
+    mesh_name += '.' + mesh_format
+    return mesh_name
+
