@@ -48,7 +48,7 @@ def load_labelmap(labelmap_config, working_dir):
     """
     path = labelmap_config["file"]
 
-    # path is [gs://]/path/to/file.csv[.gz]
+    # path is [gs://][/]path/to/file.csv[.gz]
 
     # If the file is in a gbucket, download it first (if necessary)
     if path.startswith('gs://'):
@@ -59,6 +59,9 @@ def load_labelmap(labelmap_config, working_dir):
             logger.info(cmd)
             subprocess.check_call(cmd, shell=True)
         path = downloaded_path
+
+    if not labelmap_config["file"].startswith("/"):
+        path = os.path.normpath( os.path.join(working_dir, labelmap_config["file"]) )
 
     # Now path is /path/to/file.csv[.gz]
     
