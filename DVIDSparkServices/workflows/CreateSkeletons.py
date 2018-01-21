@@ -176,6 +176,12 @@ class CreateSkeletons(Workflow):
             "type": "string",
             "default": "./failed-masks"
         },
+        "rescale-before-write": {
+            "description": "How much to rescale the skeletons/meshes before writing to DVID.\n"
+                           "Specified as a multiplier, not power-of-2 'scale'.\n",
+            "type": "number",
+            "default": 1.0
+        },
         "write-mask-stats":  {
             "description": "Debugging feature.  Writes a CSV file containing \n"
                            "information about the body masks computed during the job.",
@@ -594,6 +600,12 @@ def skeletonize_in_subprocess(config, id_box_mask_factor_err):
 def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor):
     (combined_box_start, _combined_box_stop) = combined_box
 
+    # This config factor is an option to artificially scale the meshes up before
+    # writing them, on top of whatever amount the data was downsampled.
+    rescale_factor = config["options"]["rescale-before-write"]
+    downsample_factor *= rescale_factor
+    combined_box *= rescale_factor
+
     with Timer() as timer:
         # FIXME: Should the skeleton-config be tweaked in any way based on the downsample_factor??
         tree = skeletonize_array(combined_mask, config["skeleton-config"])
@@ -696,6 +708,12 @@ def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
 
 
 def generate_mesh(config, body_id, combined_box, combined_mask, downsample_factor):
+    # This config factor is an option to artificially scale the meshes up before
+    # writing them, on top of whatever amount the data was downsampled.
+    rescale_factor = config["options"]["rescale-before-write"]
+    downsample_factor *= rescale_factor
+    combined_box *= rescale_factor
+
     mesh_bytes = mesh_from_array( combined_mask,
                                   combined_box[0],
                                   downsample_factor,
