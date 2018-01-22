@@ -45,8 +45,9 @@ class CreateSkeletons(Workflow):
         },
         "meshes-destination": {
             "description": "Name of key-value instance to store the meshes. \n"
-                           "By convention, this should usually be {segmentation-name}_meshes, \n"
-                           "which will be used by default if you don't provide this setting.\n",
+                           "By convention, this should usually be {segmentation-name}_meshes_tars for 'grouped' meshes,\n"
+                           "or {segmentation-name}_meshes, if using 'no-groups',\n"
+                           "which are the default names to be used if you don't provide this setting.\n",
             "type": "string",
             "default": ""
         }
@@ -88,16 +89,19 @@ class CreateSkeletons(Workflow):
                         "description": "If/how to group meshes into tarballs before uploading them to DVID.\n"
                                        "Choices:\n"
                                        "- no-groups: No tarballs. Each mesh is written as a separate key.\n"
+                                       "- singletons: Each mesh is written as a separate key, but it is wrapped in a 1-item tarball.\n"
                                        "- hundreds: Group meshes in groups of up to 100, such that ids xxx00 through xxx99 end up in the same group.\n"
                                        "- labelmap: Use the labelmap setting below to determine the grouping.\n",
                         "type": "string",
-                        "enum": ["no-groups", "hundreds", "labelmap"],
+                        "enum": ["no-groups", "singletons", "hundreds", "labelmap"],
                         "default": "no-groups"
                     },
                     "naming-scheme": {
                         "description": "How to name mesh keys (and internal files, if grouped)",
                         "type": "string",
-                        "enum": ["trivial", "neu3-level-0", "neu3-level-1"],
+                        "enum": ["trivial", # Used for testing, and 'no-groups' mode.
+                                 "neu3-level-0",  # Used for tarballs of supervoxels (one tarball per body)
+                                 "neu3-level-1"], # Used for "tarballs" of pre-agglomerated bodies (one tarball per body, but only one file per tarball).
                         "default": "trivial"
                     },
                     "format": {
@@ -212,10 +216,11 @@ class CreateSkeletons(Workflow):
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.schema(), "CreateSkeletons")
         
     def _sanitize_config(self):
+        options = self.config_data['options']
         # Convert failed-mask-dir to absolute path
-        failed_skeleton_dir = self.config_data['options']['failed-mask-dir']
+        failed_skeleton_dir = options['failed-mask-dir']
         if failed_skeleton_dir and not os.path.isabs(failed_skeleton_dir):
-            self.config_data['options']['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
+            options['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
         dvid_info = self.config_data['dvid-info']
         # Provide default skeletons instance name if needed
@@ -224,7 +229,11 @@ class CreateSkeletons(Workflow):
 
         # Provide default meshes instance name if needed
         if not dvid_info["dvid"]["meshes-destination"]:
-            dvid_info["dvid"]["meshes-destination"] = dvid_info["dvid"]["segmentation-name"]+ '_meshes'
+            if options["meshes"]["storage"]["grouping-scheme"] == 'no-groups':
+                suffix = "_meshes"
+            else:
+                suffix = "_meshes_tars"
+            dvid_info["dvid"]["meshes-destination"] = dvid_info["dvid"]["segmentation-name"] + suffix
 
     
     def execute(self):
@@ -397,6 +406,7 @@ class CreateSkeletons(Workflow):
                 group_id = body_id - (body_id % 100)
                 return group_id
             grouped_body_ids_and_meshes = body_ids_and_meshes.groupBy(last_six_digits, numPartitions=n_partitions)
+
         elif grouping_scheme == "labelmap":
             import pandas as pd
             mapping_pairs = load_labelmap( config["mesh-config"]["storage"]["labelmap"], self.config_dir )
@@ -416,8 +426,9 @@ class CreateSkeletons(Workflow):
             # (TODO: Figure out why the dataframe isn't pickling properly...)
             grouped_body_ids_and_meshes = body_ids_and_meshes.mapPartitions( prepend_mapped_group_id ) \
                                                              .groupByKey(numPartitions=n_partitions)
-        elif grouping_scheme == "no-groups":
+        elif grouping_scheme in ("singletons", "no-groups"):
             # Create 'groups' of one item each, re-using the body ID as the group id.
+            # (The difference between 'singletons', and 'no-groups' is in how the mesh is stored, below.)
             grouped_body_ids_and_meshes = body_ids_and_meshes.map( lambda id_mesh: (id_mesh[0], [(id_mesh[0], id_mesh[1])]) )
 
         persist_and_execute(grouped_body_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
@@ -756,6 +767,8 @@ def post_meshes_to_dvid(config, partition_items):
                 with resource_client.access_context(dvid_server, False, 1, len(mesh_data)):
                     session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
     else:
+        # All other grouping schemes, including 'singletons' write tarballs.
+        # (In the 'singletons' case, there is just one tarball per body.)
         for group_id, body_ids_and_meshes in partition_items:
             tar_name = _get_group_name(config, group_id)
             tar_stream = BytesIO()
@@ -806,11 +819,11 @@ def _get_mesh_name(config, mesh_id):
     if naming_scheme == "trivial":
         mesh_name = str(mesh_id) # no special encoding
     elif naming_scheme == "neu3-level-0":
-        keyEncodeLevel0 = 10000000000000
-        mesh_name = str(mesh_id + keyEncodeLevel0)
+        fileEncodeLevel0 = 0 # identity (supervoxel names remain unchanged)
+        mesh_name = str(mesh_id + fileEncodeLevel0)
     elif naming_scheme == "neu3-level-1":
-        keyEncodeLevel1 = 10100000000000
-        mesh_name = str(mesh_id + keyEncodeLevel1)
+        fileEncodeLevel1 = 100000000000
+        mesh_name = str(mesh_id + fileEncodeLevel1)
     else:
         raise RuntimeError(f"Unknown naming scheme: {naming_scheme}")
 
