@@ -10,6 +10,7 @@ from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, bo
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
 from DVIDSparkServices.io_util.labelmap_utils import equivalence_mapping_from_edge_csv
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,13 @@ class Brick:
     def __init__(self, logical_box, physical_box, volume):
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
-        self.volume = volume
+        self._volume = volume
         assert (self.physical_box[1] - self.physical_box[0] == self.volume.shape).all()
         assert (self.physical_box[0] >= self.logical_box[0]).all()
         assert (self.physical_box[1] <= self.logical_box[1]).all()
+        
+        # Used for pickling.
+        self._compressed_volume = None
 
     def __hash__(self):
         return hash(tuple(self.logical_box[0]))
@@ -59,6 +63,37 @@ class Brick:
             return f"logical & physical: {self.logical_box.tolist()}"
         return f"logical: {self.logical_box.tolist()}, physical: {self.physical_box.tolist()}"
 
+    @property
+    def volume(self):
+        """
+        The volume is decompressed lazily.
+        See __getstate__() for explanation.
+        """
+        if self._volume is None:
+            assert self._compressed_volume is not None
+            self._volume = self._compressed_volume.deserialize()
+        return self._volume
+    
+    def __getstate__(self):
+        """
+        Pickle representation.
+        
+        By default, the volume would be compressed/decompressed transparently via
+        the code in CompressedNumpyArray.py, but we want decompression to be
+        performed lazily.
+        
+        Therefore, we explicitly compress the volume here, and decompress it only
+        first upon access, via the self.volume property.
+        
+        This avoids decompression during certain Spark operations that don't
+        require actual manipulation of the voxels, notably groupByKey().
+        """
+        if self._volume is not None:
+            self._compressed_volume = CompressedNumpyArray(self._volume)
+
+        d = self.__dict__.copy()
+        d['_volume'] = None
+        return d
 
 def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None ):
     """
