@@ -748,17 +748,13 @@ def post_meshes_to_dvid(config, partition_items):
     uuid = config["dvid-info"]["dvid"]["uuid"]
     instance = config["dvid-info"]["dvid"]["meshes-destination"]
     
-    # TODO: This format json probably needs to be re-thought or updated for the tarball stuff...
-    format_info = {"format": config["mesh-config"]["storage"]["format"]}
-
     grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
 
     if grouping_scheme == "no-groups":
         for group_id, body_ids_and_meshes in partition_items:
             for (body_id, mesh_data) in body_ids_and_meshes:
-                with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
+                with resource_client.access_context(dvid_server, False, 1, len(mesh_data)):
                     session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
-                    session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json=format_info)
     else:
         for group_id, body_ids_and_meshes in partition_items:
             tar_name = _get_group_name(config, group_id)
@@ -772,9 +768,8 @@ def post_meshes_to_dvid(config, partition_items):
                 tf.addfile(f_info, BytesIO(mesh_data))
     
             tar_bytes = tar_stream.getbuffer()
-            with resource_client.access_context(dvid_server, False, 2, len(tar_bytes)):
+            with resource_client.access_context(dvid_server, False, 1, len(tar_bytes)):
                 session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}', tar_bytes)
-                session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}_info', json=format_info)
 
 def _get_group_name(config, group_id):
     """
