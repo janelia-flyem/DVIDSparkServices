@@ -381,7 +381,8 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
     new_logical_boxes_and_brick_fragments = rt.flat_map( partial(split_brick, new_grid), original_bricks )
 
     # Group fragments according to their new homes
-    grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
+    #grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
+    grouped_brick_fragments = rt.frugal_group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
     new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)

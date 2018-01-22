@@ -63,6 +63,30 @@ def group_by_key(iterable):
             partitions[k].append(v)
         return partitions.items()
 
+def frugal_group_by_key(iterable):
+    """
+    Like group_by_key, but uses combineByKey(),
+    which involves more steps but is more RAM-efficient in Spark.
+    """
+    if isinstance(iterable, _RDD):
+        # Use combineByKey to avoid loading
+        # all partitions into RAM at once.
+        def create_combiner(val):
+            return [val]
+        
+        def merge_value(left_list, right_val):
+            left_list.append(right_val)
+            return left_list
+        
+        def merge_combiners( left_list, right_list ):
+            left_list.extend(right_list)
+            return left_list
+        
+        return iterable.combineByKey( create_combiner, merge_value, merge_combiners )
+    else:
+        raise NotImplemented # Non-spark case not implemented!
+    
+
 def foreach(f, iterable):
     if isinstance(iterable, _RDD):
         iterable.foreach(f)
