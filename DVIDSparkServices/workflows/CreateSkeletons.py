@@ -604,7 +604,7 @@ def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
     # writing them, on top of whatever amount the data was downsampled.
     rescale_factor = config["options"]["rescale-before-write"]
     downsample_factor *= rescale_factor
-    combined_box *= rescale_factor
+    combined_box = combined_box * rescale_factor
 
     with Timer() as timer:
         # FIXME: Should the skeleton-config be tweaked in any way based on the downsample_factor??
@@ -712,7 +712,7 @@ def generate_mesh(config, body_id, combined_box, combined_mask, downsample_facto
     # writing them, on top of whatever amount the data was downsampled.
     rescale_factor = config["options"]["rescale-before-write"]
     downsample_factor *= rescale_factor
-    combined_box *= rescale_factor
+    combined_box = combined_box * rescale_factor
 
     mesh_bytes = mesh_from_array( combined_mask,
                                   combined_box[0],
