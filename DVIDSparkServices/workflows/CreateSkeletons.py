@@ -216,20 +216,22 @@ class CreateSkeletons(Workflow):
         super(CreateSkeletons, self).__init__(config_filename, CreateSkeletons.schema(), "CreateSkeletons")
         
     def _sanitize_config(self):
+        dvid_info = self.config_data['dvid-info']
+        mesh_config = self.config_data["mesh-config"]
         options = self.config_data['options']
+        
         # Convert failed-mask-dir to absolute path
         failed_skeleton_dir = options['failed-mask-dir']
         if failed_skeleton_dir and not os.path.isabs(failed_skeleton_dir):
             options['failed-mask-dir'] = self.relpath_to_abspath(failed_skeleton_dir)
 
-        dvid_info = self.config_data['dvid-info']
         # Provide default skeletons instance name if needed
         if not dvid_info["dvid"]["skeletons-destination"]:
             dvid_info["dvid"]["skeletons-destination"] = dvid_info["dvid"]["segmentation-name"] + '_skeletons'
 
         # Provide default meshes instance name if needed
         if not dvid_info["dvid"]["meshes-destination"]:
-            if options["meshes"]["storage"]["grouping-scheme"] == 'no-groups':
+            if mesh_config["storage"]["grouping-scheme"] == 'no-groups':
                 suffix = "_meshes"
             else:
                 suffix = "_meshes_tars"
