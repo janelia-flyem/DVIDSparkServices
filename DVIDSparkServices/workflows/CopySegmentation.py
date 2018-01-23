@@ -21,6 +21,7 @@ from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
 from DVIDSparkServices.io_util.volume_service import ( VolumeService, VolumeServiceWriter, SegmentationVolumeSchema,
                                                        SegmentationVolumeListSchema, TransposedVolumeService, ScaledVolumeService )
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
+from DVIDSparkServices.io_util.brick import slabs_from_box
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,14 @@ class CopySegmentation(Workflow):
                            "(You had better know what you're doing...)\n",
             "type": "boolean",
             "default": False
+        },
+        "slab-depth": {
+            "description": "The data is downloaded and processed in Z-slabs.\n"
+                           "This setting determines how thick each Z-slab is.\n"
+                           "Should be a multiple of (block_width * 2**pyramid_depth) to ensure slabs\n"
+                           "are completely independent, even after downsampling.\n",
+            "type": "integer",
+            "default": -1 # Choose automatically: block_width * 2**pyramid_depth
         }
     })
 
@@ -189,61 +198,75 @@ class CopySegmentation(Workflow):
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
         if options["pyramid-depth"] == -1:
             options["pyramid-depth"] = self._read_pyramid_depth()
+        pyramid_depth = options["pyramid-depth"]
 
         self._log_neuroglancer_links()
 
-        input_wall = BrickWall.from_volume_service(input_service, 0, None, self.sc, target_partition_size_voxels)
-        input_wall.persist_and_execute(f"Reading entire volume", logger)
+        block_width = self.output_services[0].block_width
 
-        # Translate coordinates from input to output
-        # (which will leave the bricks in a new, offset grid)
-        # This has no effect on the brick volumes themselves.
-        translated_wall = input_wall.translate(translation_offset_zyx)
-        del input_wall
-
-        # For now, all output_configs are required to have identical grid alignment settings
-        # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
-        aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, self.output_services[0], align=True, pad=False)
-        del translated_wall
-
-        for output_index, output_service in enumerate(self.output_services):
-            if output_index < len(self.output_services) - 1:
-                # Copy to a new RDD so the input can be re-used for subsequent outputs
-                aligned_output_wall = aligned_input_wall.copy()
-            else:
-                # No copy needed for the last one
-                aligned_output_wall = aligned_input_wall
-
-            # Pad internally to block-align.
-            # Here, we assume that any output labelmaps are idempotent,
-            # so it's okay to read pre-existing output data that will ultimately get remapped.
-            padded_wall = self._consolidate_and_pad(aligned_output_wall, 0, output_service, align=False, pad=True)
-            del aligned_output_wall
+        slab_depth = options["slab-depth"]
+        if slab_depth == -1:
+            slab_depth = block_width * 2**pyramid_depth
+        elif slab_depth % ( block_width * 2**pyramid_depth ) != 0:
+            raise RuntimeError(f"Slab depth ({slab_depth}) is not aligned properly.\n"
+                               "Downsampled data blocks would span multiple slabs.")
+        
+        logger.info(f"Processing data in slabs of depth: {slab_depth}")
+        
+        for slab_index, output_slab_box in enumerate( slabs_from_box(output_bb_zyx, slab_depth) ):
+            input_slab_box = output_slab_box - translation_offset_zyx
+            input_wall = BrickWall.from_volume_service(input_service, 0, input_slab_box, self.sc, target_partition_size_voxels)
+            input_wall.persist_and_execute(f"Slab {slab_index}: Reading ({input_slab_box.tolist()})", logger)
     
-            # Compute body sizes and write to HDF5
-            self._write_body_sizes( padded_wall, output_service )
+            # Translate coordinates from input to output
+            # (which will leave the bricks in a new, offset grid)
+            # This has no effect on the brick volumes themselves.
+            translated_wall = input_wall.translate(translation_offset_zyx)
+            del input_wall
     
-            # Write scale 0 to DVID
-            self._write_bricks( padded_wall, 0, output_service )
+            # For now, all output_configs are required to have identical grid alignment settings
+            # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
+            aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, self.output_services[0], align=True, pad=False)
+            del translated_wall
     
-            for new_scale in range(1, 1+options["pyramid-depth"]):
-                # Compute downsampled (results in smaller bricks)
-                downsampled_wall = padded_wall.label_downsample( (2,2,2) )
-                downsampled_wall.persist_and_execute(f"Scale {new_scale}: Downsampling", logger)
-                padded_wall.unpersist()
+            for output_index, output_service in enumerate(self.output_services):
+                if output_index < len(self.output_services) - 1:
+                    # Copy to a new RDD so the input can be re-used for subsequent outputs
+                    aligned_output_wall = aligned_input_wall.copy()
+                else:
+                    # No copy needed for the last one
+                    aligned_output_wall = aligned_input_wall
+    
+                # Pad internally to block-align.
+                # Here, we assume that any output labelmaps are idempotent,
+                # so it's okay to read pre-existing output data that will ultimately get remapped.
+                padded_wall = self._consolidate_and_pad(aligned_output_wall, 0, output_service, align=False, pad=True)
+                del aligned_output_wall
+        
+                # Compute body sizes and write to HDF5
+                self._write_body_sizes( padded_wall, output_service )
+        
+                # Write scale 0 to DVID
+                self._write_bricks( padded_wall, 0, output_service )
+        
+                for new_scale in range(1, 1+pyramid_depth):
+                    # Compute downsampled (results in smaller bricks)
+                    downsampled_wall = padded_wall.label_downsample( (2,2,2) )
+                    downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
+                    padded_wall.unpersist()
+                    del padded_wall
+    
+                    # Consolidate to full-size bricks and pad internally to block-align
+                    consolidated_wall = self._consolidate_and_pad( downsampled_wall, new_scale, output_service, align=True, pad=True )
+                    del downsampled_wall
+    
+                    # Write to DVID
+                    self._write_bricks( consolidated_wall, new_scale, output_service )
+                    padded_wall = consolidated_wall
+                    del consolidated_wall
                 del padded_wall
-
-                # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_wall = self._consolidate_and_pad( downsampled_wall, new_scale, output_service, align=True, pad=True )
-                del downsampled_wall
-
-                # Write to DVID
-                self._write_bricks( consolidated_wall, new_scale, output_service )
-                padded_wall = consolidated_wall
-                del consolidated_wall
-            del padded_wall
-
-        logger.info(f"DONE copying segmentation to {len(self.config_data['outputs'])} destinations.")
+    
+            logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
 
     
     def _create_output_instances_if_necessary(self):
