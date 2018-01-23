@@ -179,8 +179,6 @@ class CopySegmentation(Workflow):
 
         options = self.config_data["options"]
         
-        self.resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
-
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
