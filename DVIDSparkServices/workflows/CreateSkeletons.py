@@ -15,6 +15,7 @@ from vol2mesh.mesh_from_array import mesh_from_array
 
 from dvid_resource_manager.client import ResourceManagerClient
 
+from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
@@ -681,11 +682,14 @@ def post_swcs_to_dvid(config, items):
     for (body_id, swc_contents, err) in items:
         if swc_contents is None or err is not None:
             continue
-    
-        swc_contents = swc_contents.encode('utf-8')
-        with resource_client.access_context(dvid_server, False, 1, len(swc_contents)):
-            session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
 
+        swc_contents = swc_contents.encode('utf-8')
+
+        @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+        def write_swc():
+            with resource_client.access_context(dvid_server, False, 1, len(swc_contents)):
+                session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_swc', swc_contents)
+        write_swc()
 
 def generate_mesh_in_subprocess(config, id_box_mask_factor_err):
     """
@@ -773,8 +777,13 @@ def post_meshes_to_dvid(config, partition_items):
     if grouping_scheme == "no-groups":
         for group_id, body_ids_and_meshes in partition_items:
             for (body_id, mesh_data) in body_ids_and_meshes:
-                with resource_client.access_context(dvid_server, False, 1, len(mesh_data)):
-                    session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
+
+                @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+                def write_mesh():
+                    with resource_client.access_context(dvid_server, False, 1, len(mesh_data)):
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
+                
+                write_mesh()
     else:
         # All other grouping schemes, including 'singletons' write tarballs.
         # (In the 'singletons' case, there is just one tarball per body.)
@@ -789,8 +798,13 @@ def post_meshes_to_dvid(config, partition_items):
                     tf.addfile(f_info, BytesIO(mesh_data))
     
             tar_bytes = tar_stream.getbuffer()
-            with resource_client.access_context(dvid_server, False, 1, len(tar_bytes)):
-                session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}', tar_bytes)
+
+            @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
+            def write_tar():
+                with resource_client.access_context(dvid_server, False, 1, len(tar_bytes)):
+                    session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}', tar_bytes)
+            
+            write_tar()
 
 def _get_group_name(config, group_id):
     """
