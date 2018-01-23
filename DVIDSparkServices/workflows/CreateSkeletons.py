@@ -419,7 +419,13 @@ class CreateSkeletons(Workflow):
                 new_partition = []
                 for id_mesh in id_mesh_partition:
                     body_id, mesh = id_mesh
-                    group_id = df.loc[df.body_id == body_id]['group_id'].iloc[0]
+                    rows = df.loc[df.body_id == body_id]
+                    if len(rows) == 0:
+                        # If missing from labelmap,
+                        # we assume an implicit identity mapping
+                        group_id = body_id
+                    else:
+                        group_id = rows['group_id'].iloc[0]
                     new_partition.append( (group_id, (body_id, mesh)) )
                 return new_partition
             
