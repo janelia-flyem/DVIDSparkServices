@@ -6,6 +6,7 @@ from datetime import datetime
 import logging
 from functools import partial
 from io import BytesIO
+from contextlib import closing
 
 import numpy as np
 import requests
@@ -780,13 +781,12 @@ def post_meshes_to_dvid(config, partition_items):
         for group_id, body_ids_and_meshes in partition_items:
             tar_name = _get_group_name(config, group_id)
             tar_stream = BytesIO()
-            tf = tarfile.open(tar_name, 'w', tar_stream)
-    
-            for (body_id, mesh_data) in body_ids_and_meshes:
-                mesh_name = _get_mesh_name(config, body_id)
-                f_info = tarfile.TarInfo(mesh_name)
-                f_info.size = len(mesh_data)
-                tf.addfile(f_info, BytesIO(mesh_data))
+            with closing(tarfile.open(tar_name, 'w', tar_stream)) as tf:
+                for (body_id, mesh_data) in body_ids_and_meshes:
+                    mesh_name = _get_mesh_name(config, body_id)
+                    f_info = tarfile.TarInfo(mesh_name)
+                    f_info.size = len(mesh_data)
+                    tf.addfile(f_info, BytesIO(mesh_data))
     
             tar_bytes = tar_stream.getbuffer()
             with resource_client.access_context(dvid_server, False, 1, len(tar_bytes)):
