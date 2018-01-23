@@ -84,7 +84,8 @@ def frugal_group_by_key(iterable):
         
         return iterable.combineByKey( create_combiner, merge_value, merge_combiners )
     else:
-        raise NotImplemented # Non-spark case not implemented!
+        # FIXME: Just call the regular group_by_key
+        return group_by_key(iterable)
     
 
 def foreach(f, iterable):

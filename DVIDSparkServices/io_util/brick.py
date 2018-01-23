@@ -19,8 +19,10 @@ class Grid:
     Describes a blocking scheme, which is simply a grid block shape,
     and an offset coordinate for the first block in the grid.
     """
-    def __init__(self, block_shape, offset=(0,0,0)):
-        assert len(block_shape) == len(offset) == 3
+    def __init__(self, block_shape, offset=None):
+        if offset is None:
+            offset = (0,)*len(block_shape)
+        assert len(block_shape) == len(offset)
         self.block_shape = np.asarray(block_shape)
         self.offset = np.asarray(offset)
         self.modulus_offset = self.offset % block_shape
@@ -531,3 +533,63 @@ def clipped_boxes_from_grid(bounding_box, grid):
     for box in boxes_from_grid(bounding_box, grid):
         yield box_intersection(box, bounding_box)
 
+def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out', slab_cutting_axis=0 ):
+    """
+    Generator.
+    
+    Divide a bounding box into several 'slabs' stacked along a particular axis,
+    after optionally reducing the bounding box to a reduced scale.
+    
+    Note: The output slabs are aligned to multiples of the slab depth.
+          For example, if full_res_box starts at 3 and slab_depth=10,
+          then the first slab will span [3,10], and the second slab will span from [10,20].
+    
+    full_res_box: (start, stop)
+        The original bounding-box, in full-res coordinates
+    
+    slab_depth: (int)
+        The desired width of the output slabs.
+        This will be the size of the output slabs, regardless of any scaling applied.
+    
+    scale:
+        Reduce the bounding-box to a smaller scale before computing the output slabs.
+        
+    scaling_policy:
+        For scale > 0, the input bounding box is reduced.
+        For bounding boxes that aren't divisible by 2*scale, the start/stop coordinates must be rounded up or down.
+        Choices are:
+            'round-out': Expand full_res_box to the next outer multiple of 2**scale before scaling down.
+            'round-in': Shrink full_res_box to the next inner multiple of 2**scale before scaling down.
+            'round-down': Round down on full_res_box (both start and stop) before scaling down.
+    
+    slab_cutting_axes:
+        Which axis to cut across to form the stacked slabs. Default is Z (assuming ZYX order).
+    """
+    assert scaling_policy in ('round-out', 'round-in', 'round-down')
+    full_res_box = np.asarray(full_res_box)
+
+    scaled_input_bb_zyx = np.zeros((2,3), dtype=int)
+    
+    if scaling_policy == 'round-out':
+        scaled_input_bb_zyx[0] = full_res_box[0] // 2**scale                  # round down
+        scaled_input_bb_zyx[1] = (full_res_box[1] + 2**scale - 1) // 2**scale # round up
+        
+    elif scaling_policy == 'round-in':
+        scaled_input_bb_zyx[0] = (full_res_box[0] + 2**scale - 1) // 2**scale  # round up
+        scaled_input_bb_zyx[1] = full_res_box[1] // 2**scale                   # round down
+
+    elif scaling_policy == 'round-down':
+        scaled_input_bb_zyx[0] = full_res_box[0] // 2**scale  # round down
+        scaled_input_bb_zyx[1] = full_res_box[1] // 2**scale  # round down
+
+    slab_shape_zyx = scaled_input_bb_zyx[1] - scaled_input_bb_zyx[0]
+    slab_shape_zyx[slab_cutting_axis] = slab_depth
+
+    # This grid outlines the slabs -- each box in slab_grid is a full slab
+    grid_offset = scaled_input_bb_zyx[0].copy()
+    grid_offset[slab_cutting_axis] = 0 # See note about slab alignment, above.
+    
+    slab_grid = Grid(slab_shape_zyx, grid_offset)
+    slab_boxes = clipped_boxes_from_grid(scaled_input_bb_zyx, slab_grid)
+    
+    return slab_boxes
