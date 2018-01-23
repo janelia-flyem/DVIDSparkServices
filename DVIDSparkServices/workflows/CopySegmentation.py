@@ -1,8 +1,6 @@
-import os
 import copy
 import json
 import logging
-import subprocess
 import socket
 from functools import partial
 
@@ -65,6 +63,14 @@ class CopySegmentation(Workflow):
                            "(-1 means choose automatically, 0 means no pyramid)",
             "type": "integer",
             "default": -1 # automatic by default
+        },
+        "permit-inconsistent-pyramid": {
+            "description": "Normally overwriting a pre-existing data instance is\n"
+                           "an error unless you rewrite ALL of its pyramid levels,\n"
+                           "but this setting allows you to override that error.\n"
+                           "(You had better know what you're doing...)\n",
+            "type": "boolean",
+            "default": False
         }
     })
 
@@ -170,7 +176,6 @@ class CopySegmentation(Workflow):
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
         input_service = self.input_service
-        input_wall = BrickWall.from_volume_service(input_service, 0, None, self.sc, target_partition_size_voxels)
 
         # See note in _sanitize_config()
         first_output_service = self.output_services[0]
@@ -182,10 +187,12 @@ class CopySegmentation(Workflow):
         self._create_output_instances_if_necessary()
 
         # Overwrite pyramid depth in our config (in case the user specified -1, i.e. automatic)
-        options["pyramid-depth"] = self._read_pyramid_depth()
+        if options["pyramid-depth"] == -1:
+            options["pyramid-depth"] = self._read_pyramid_depth()
 
         self._log_neuroglancer_links()
 
+        input_wall = BrickWall.from_volume_service(input_service, 0, None, self.sc, target_partition_size_voxels)
         input_wall.persist_and_execute(f"Reading entire volume", logger)
 
         # Translate coordinates from input to output
@@ -245,16 +252,22 @@ class CopySegmentation(Workflow):
         pyramid-depth, or with an automatically chosen depth.
         """
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
+        permit_inconsistent_pyramids = self.config_data["options"]["permit-inconsistent-pyramid"]
 
         for output_service in self.output_services:
             base_service = output_service.base_service
             assert isinstance( base_service, DvidVolumeService )
 
             # Create new segmentation instance first if necessary
-            if not is_datainstance( base_service.server,
-                                    base_service.uuid,
-                                    base_service.instance_name ):
+            if is_datainstance( base_service.server,
+                                base_service.uuid,
+                                base_service.instance_name ):
 
+                existing_depth = self._read_pyramid_depth()
+                if pyramid_depth not in (-1, existing_depth) and not permit_inconsistent_pyramids:
+                    raise Exception(f"Can't set pyramid-depth to {pyramid_depth}: "
+                                    f"Data instance '{base_service.instance_name}' already existed, with depth {existing_depth}")
+            else:
                 if pyramid_depth == -1:
                     # if no pyramid depth is specified, determine the max, based on bb size.
                     input_bb_zyx = self.input_service.bounding_box_zyx
@@ -311,21 +324,14 @@ class CopySegmentation(Workflow):
         Return the max depth we found in the outputs.
         (They should all be the same...)
         """
-        options = self.config_data["options"]
-
         max_depth = -1
         for output_service in self.output_services:
             base_volume_service = output_service.base_service
             info = base_volume_service.node_service.get_typeinfo(base_volume_service.instance_name)
             existing_depth = int(info["Extended"]["MaxDownresLevel"])
-
-            if options["pyramid-depth"] not in (-1, existing_depth):
-                raise Exception(f"Can't set pyramid-depth to {options['pyramid-depth']}: "
-                                f"Data instance '{base_volume_service.instance_name}' already existed, with depth {existing_depth}")
-
             max_depth = max(max_depth, existing_depth)
 
-        return existing_depth
+        return max_depth
 
 
     def _consolidate_and_pad(self, input_wall, scale, output_service, align=True, pad=True):
