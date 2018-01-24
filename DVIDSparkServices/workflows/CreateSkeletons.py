@@ -790,8 +790,9 @@ def post_meshes_to_dvid(config, partition_items):
 
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def write_mesh():
-                    with resource_client.access_context(dvid_server, False, 1, len(mesh_data)):
+                    with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
                         session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}', mesh_data)
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{body_id}_info', json={ 'format': 'drc' })
                 
                 write_mesh()
     else:
