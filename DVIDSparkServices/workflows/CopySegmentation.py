@@ -482,13 +482,13 @@ class CopySegmentation(Workflow):
                 datacrop = brick.volume[:,:,data_x_start:data_x_end].copy()
                 data_offset_zyx = brick.physical_box[0] + (0,0,data_x_start)
 
-                with Timer() as put_timer:
+                with Timer() as _put_timer:
                     output_service.write_subvolume(datacrop, data_offset_zyx, scale)
 
                 # Note: This timing data doesn't reflect ideal throughput, since throttle
                 #       and/or the resource manager muddy the numbers a bit...
-                megavoxels_per_second = datacrop.size / 1e6 / put_timer.seconds
-                logger.info(f"Put block {data_offset_zyx} in {put_timer.seconds:.3f} seconds ({megavoxels_per_second:.1f} Megavoxels/second)")
+                #megavoxels_per_second = datacrop.size / 1e6 / put_timer.seconds
+                #logger.info(f"Put block {data_offset_zyx} in {put_timer.seconds:.3f} seconds ({megavoxels_per_second:.1f} Megavoxels/second)")
 
         logger.info(f"Scale {scale}: Writing bricks to {instance_name}...")
         with Timer() as timer:
