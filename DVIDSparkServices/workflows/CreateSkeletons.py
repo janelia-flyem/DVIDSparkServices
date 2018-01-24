@@ -113,7 +113,15 @@ class CreateSkeletons(Workflow):
                                  "drc"],   # Draco (compressed) (.drc)
                         "default": "obj"
                     },
-                    "labelmap": copy.copy(LabelMapSchema) # Only used by the 'labelmap' grouping-scheme
+                    
+                    "labelmap": copy.copy(LabelMapSchema), # Only used by the 'labelmap' grouping-scheme
+                    
+                    "skip-groups": {
+                        "description": "For 'labelmap grouping scheme, optionally skip writing of this list of groups (tarballs).'",
+                        "type": "array",
+                        "items": { "type": "integer" },
+                        "default": []
+                    },
                 }
             }
         }
@@ -434,7 +442,9 @@ class CreateSkeletons(Workflow):
             # We do this via mapPartitions().groupByKey() instead of a simple groupBy()
             # to save time constructing the DataFrame inside the closure above.
             # (TODO: Figure out why the dataframe isn't pickling properly...)
+            skip_groups = set(config["mesh-config"]["storage"]["skip-groups"])
             grouped_body_ids_and_meshes = body_ids_and_meshes.mapPartitions( prepend_mapped_group_id ) \
+                                                             .filter(lambda item: item[0] not in skip_groups) \
                                                              .groupByKey(numPartitions=n_partitions)
         elif grouping_scheme in ("singletons", "no-groups"):
             # Create 'groups' of one item each, re-using the body ID as the group id.
