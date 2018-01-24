@@ -26,6 +26,32 @@ from DVIDSparkServices.io_util.brick import slabs_from_box
 logger = logging.getLogger(__name__)
 
 class CopySegmentation(Workflow):
+    """
+    Workflow to copy segmentation from one source (e.g. a DVID segmentation
+    instance or a BrainMaps volume) into a DVID segmentation instance.
+    
+    Notes:
+    
+    - The data is written to DVID in block-aligned 'bricks'.
+      If the source data is not block-aligned at the edges,
+      pre-existing data (if any) is read from the DVID destination
+      to fill out ('pad') the bricks until they are completely block aligned.
+    
+    - The data is also downsampled into a multi-scale pyramid and uploaded.
+    
+    - The volume is processed in Z-slabs. To avoid complications during downsampling,
+      the Z-slabs must be aligned to a multiple of the DVID block shape, which may be
+      rather large, depending on the highest scale of the pyramid.
+      (It is recommended that you don't set this explicitly in the config, so a
+      suitable default can be chosen for you.)
+      
+    - This workflow uses DvidVolumeService to write the segmentation blocks,
+      which is able to send them to DVID in the pre-encoded 'labelarray' block format.
+      This saves CPU resources on the DVID server.
+    
+    - As a convenience, size of each label 'body' in the copied volume is also
+      calculated and exported in an HDF5 file, sorted by body size.
+    """
     
     BodySizesOptionsSchema = \
     {
@@ -96,7 +122,7 @@ class CopySegmentation(Workflow):
             "options" : OptionsSchema
         }
     }
-    
+
     @classmethod
     def schema(cls):
         return CopySegmentation.Schema
@@ -520,6 +546,7 @@ class CopySegmentation(Workflow):
                 f['total_nonzero_voxels'] = nonzero_count
         logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
 
+
     def _compute_body_sizes(self, brick_wall):
         if self.config_data["options"]["body-sizes"]["method"] == "reduce-by-key":
             body_labels, body_sizes = self._compute_body_sizes_via_reduce_by_key(brick_wall)
@@ -527,6 +554,7 @@ class CopySegmentation(Workflow):
             body_labels, body_sizes = self._compute_body_sizes_via_pandas_dataframes(brick_wall)
         return body_labels, body_sizes
         
+
     def _compute_body_sizes_via_reduce_by_key(self, brick_wall):
         # Reduce using reduceByKey and simply concatenating the results
         from operator import add
@@ -547,6 +575,7 @@ class CopySegmentation(Workflow):
         body_labels, body_sizes = np.transpose( labels_and_sizes )
         return body_labels, body_sizes
         
+
     def _compute_body_sizes_via_pandas_dataframes(self, brick_wall):
         import pandas as pd
 
