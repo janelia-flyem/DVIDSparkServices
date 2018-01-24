@@ -102,7 +102,7 @@ signal.signal(signal.SIGTERM, lambda signum, stack_frame: sys.exit(0))
 # (The LSF cluster scheduler uses SIGUSR2 if the job's -W time limit has been exceeded.)
 signal.signal(signal.SIGUSR2, lambda signum, stack_frame: sys.exit(0))
     
-formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
+formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(message)s')
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(formatter)
 logging.getLogger().addHandler(handler)
