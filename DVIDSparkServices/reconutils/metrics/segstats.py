@@ -90,7 +90,7 @@ class SubvolumeStats(object):
         return debuginfo
 
     # drops subvolume stats and subvolume
-    def merge_stats(self, subvolume):
+    def merge_stats(self, subvolume, enablemetrics=True):
         assert(len(self.seg_overlaps) == len(subvolume.seg_overlaps))
         assert(len(self.gt_overlaps) == len(subvolume.gt_overlaps))
         for iter1 in range(0, len(self.gt_overlaps)):
@@ -100,9 +100,10 @@ class SubvolumeStats(object):
 
         assert(len(self.subvolume_stats) == len(subvolume.subvolume_stats))
 
-        for iter1, val in enumerate(self.subvolume_stats):
-            self.subvolume_stats[iter1].reduce_subvolume(subvolume.subvolume_stats[iter1])
-        
+        if enablemetrics:
+            for iter1, val in enumerate(self.subvolume_stats):
+                self.subvolume_stats[iter1].reduce_subvolume(subvolume.subvolume_stats[iter1])
+            
         self.subvolumes.extend(subvolume.subvolumes)
         
         # enable subvolume computation if one of the internal subvolumes is enabled

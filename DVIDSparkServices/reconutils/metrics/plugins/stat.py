@@ -12,6 +12,22 @@ class StatType:
     def __init__(self):
         self.segstats = None
 
+    @static_method 
+    def iscustom_workflow():
+        """Indicates whether plugin requires a specialized workflow.
+        """
+        return False
+
+    def custom_workflow(segroichunks_rdd):
+        """Takes RDD of segmentation and produces stats.
+
+        Args:
+            segroichunks_rdd(RDD): RDD of segmentation partitioned into chunks
+        Returns:
+            summarystats, bodystats, roistats
+        """
+        return [], [], {}
+
     def set_segstats(self, segstats):
         """Set segstats to allow access to overlap tables.
         """

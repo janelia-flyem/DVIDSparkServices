@@ -60,13 +60,17 @@ class Evaluate(object):
 
         # load all metric plugins
         self.metrics = []
+        self.custommetrics = []
         self.config = config
             
         import importlib
         for metric in config["options"]["plugins"]:
             modname = importlib.import_module('DVIDSparkServices.reconutils.metrics.plugins.'+metric["name"]+"_stat")
             metric_class = getattr(modname, metric["name"] + "_stat")
-            self.metrics.append((metric_class, metric["parameters"]))
+            if metric_class.iscustom_workflow():
+                self.custommetrics.append((metric_class, metric["parameters"]))
+            else:
+                self.metrics.append((metric_class, metric["parameters"]))
 
 
     def _extract_subvolume_connections(self, index2body_seg, parent_list, adjacency_list):
@@ -387,21 +391,35 @@ class Evaluate(object):
 
         """
 
-        # TODO: allow stat to customize RDD workflow if needed (like 2-pass orphan counts)
+        summarystats = []
+        bodystats = []
+        allsubvolume_metrics = {}
+        
+        # call custom workflows if they exist
+        if len(self.custommetrics) > 0:
+            lpairs_splits.persist()
+        for (metric, config) in self.custommetrics:
+            custommetric = metric(**config)
+            summarystats2, bodystats2, allsubvolume_metrics2 = custommetric.custom_worfklow(lpairs_splits)
+            summarystats.extend(summarystats2)
+            bodystats.extend(bodystats2)
+
+            for (sid, stats) in allvolume_metrics2:
+                if sid in allsubvolume_metrics:
+                    allsubvolume_metrics[sid].extend(stats)
+                else:
+                    allsubvolume_metrics[sid] = stats
 
         # metric results divided into summarystats, bodystats, and subvolumes
         metric_results = {}
-        metric_results["summarystats"] = []
-        metric_results["bodystats"] = []
+        metric_results["summarystats"] = summarystats
+        metric_results["bodystats"] = bodystats
         metric_results["bodydebug"] = []
-        allsubvolume_metrics = {}
         metric_results['subvolumes'] = allsubvolume_metrics
         metric_results['types'] = self.comptypes
 
-
         # no longer need volumes
         allstats = lpairs_splits.map(lambda x: x[1][0]) 
-       
         
         # generate stat state if needed
         def compute_subvolume(stat):
@@ -412,7 +430,7 @@ class Evaluate(object):
 
         # save stats to enable subvolumes to be printed
         subvolstats_computed.persist()
-      
+
         # only compute subvolume if enabled
         if not self.config["options"]["disable-subvolumes"]:
             # each subvolume will extract subvol relevant stats
@@ -425,13 +443,16 @@ class Evaluate(object):
             subvolstats = subvolstats_computed.map(extractstats).collect()
             # set allsubvolume_metrics
             for (sid, subvolstat) in subvolstats:
-                allsubvolume_metrics[sid] = subvolstat
+                if sid in allsubvol_metrics:
+                    allsubvolume_metrics[sid].extend(subvolstat)
+                else:
+                    allsubvolume_metrics[sid] = subvolstat
 
         # combine all the stats (max/min/average substack stacks maintained as well)
         def combinestats(stat1, stat2):
             stat1.merge_stats(stat2)
             return stat1
-        whole_volume_stats = subvolstats_computed.treeReduce(combinestats, int(math.log(len(subvolstats),2)))
+        whole_volume_stats = subvolstats_computed.treeReduce(combinestats, int(math.log(subvolstats_computed.getNumPartitions(),2)))
         
         # compute summary, body stats, and debug information
         # iterate stats and collect summary and body stats
