@@ -265,7 +265,7 @@ class CopySegmentation(Workflow):
 
         # For now, all output_configs are required to have identical grid alignment settings
         # Therefore, we can save time in the loop below by aligning the input to the output grid in advance.
-        aligned_input_wall = self._consolidate_and_pad(translated_wall, 0, self.output_services[0], align=True, pad=False)
+        aligned_input_wall = self._consolidate_and_pad(slab_index, translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
         for output_index, output_service in enumerate(self.output_services):
@@ -279,14 +279,15 @@ class CopySegmentation(Workflow):
             # Pad internally to block-align.
             # Here, we assume that any output labelmaps are idempotent,
             # so it's okay to read pre-existing output data that will ultimately get remapped.
-            padded_wall = self._consolidate_and_pad(aligned_output_wall, 0, output_service, align=False, pad=True)
+            padded_wall = self._consolidate_and_pad(slab_index, aligned_output_wall, 0, output_service, align=False, pad=True)
             del aligned_output_wall
     
             # Compute body sizes and write to HDF5
-            self._write_body_sizes( padded_wall, output_service )
+            # FIXME: Needs to be fixed now that we copy data slab-by-slab
+            #self._write_body_sizes( padded_wall, output_service )
     
             # Write scale 0 to DVID
-            self._write_bricks( padded_wall, 0, output_service )
+            self._write_bricks( slab_index, padded_wall, 0, output_service )
     
             for new_scale in range(1, 1+pyramid_depth):
                 # Compute downsampled (results in smaller bricks)
@@ -296,11 +297,11 @@ class CopySegmentation(Workflow):
                 del padded_wall
 
                 # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_wall = self._consolidate_and_pad( downsampled_wall, new_scale, output_service, align=True, pad=True )
+                consolidated_wall = self._consolidate_and_pad(slab_index, downsampled_wall, new_scale, output_service, align=True, pad=True)
                 del downsampled_wall
 
                 # Write to DVID
-                self._write_bricks( consolidated_wall, new_scale, output_service )
+                self._write_bricks( slab_index, consolidated_wall, new_scale, output_service )
                 padded_wall = consolidated_wall
                 del consolidated_wall
             del padded_wall
@@ -396,7 +397,7 @@ class CopySegmentation(Workflow):
         return max_depth
 
 
-    def _consolidate_and_pad(self, input_wall, scale, output_service, align=True, pad=True):
+    def _consolidate_and_pad(self, slab_index, input_wall, scale, output_service, align=True, pad=True):
         """
         Consolidate (align), and pad the given BrickWall
 
@@ -418,11 +419,11 @@ class CopySegmentation(Workflow):
 
         if not align or output_writing_grid.equivalent_to(input_wall.grid):
             realigned_wall = input_wall
-            realigned_wall.persist_and_execute(f"Scale {scale}: Persisting pre-aligned bricks", logger)
+            realigned_wall.persist_and_execute(f"Slab {slab_index}: Scale {scale}: Persisting pre-aligned bricks", logger)
         else:
             # Consolidate bricks to full-size, aligned blocks (shuffles data)
             realigned_wall = input_wall.realign_to_new_grid( output_writing_grid )
-            realigned_wall.persist_and_execute(f"Scale {scale}: Shuffling bricks into alignment", logger)
+            realigned_wall.persist_and_execute(f"Slab {slab_index}: Scale {scale}: Shuffling bricks into alignment", logger)
 
             # Discard original
             input_wall.unpersist()
@@ -438,7 +439,7 @@ class CopySegmentation(Workflow):
         output_accessor_func = partial(output_service.get_subvolume, scale=scale)
         
         padded_wall = realigned_wall.fill_missing(output_accessor_func, output_padding_grid)
-        padded_wall.persist_and_execute(f"Scale {scale}: Padding", logger)
+        padded_wall.persist_and_execute(f"Slab {slab_index}: Scale {scale}: Padding", logger)
 
         # Discard old
         realigned_wall.unpersist()
@@ -446,7 +447,7 @@ class CopySegmentation(Workflow):
         return padded_wall
 
 
-    def _write_bricks(self, brick_wall, scale, output_service):
+    def _write_bricks(self, slab_index, brick_wall, scale, output_service):
         """
         Writes partition to specified dvid.
         """
@@ -490,10 +491,10 @@ class CopySegmentation(Workflow):
                 #megavoxels_per_second = datacrop.size / 1e6 / put_timer.seconds
                 #logger.info(f"Put block {data_offset_zyx} in {put_timer.seconds:.3f} seconds ({megavoxels_per_second:.1f} Megavoxels/second)")
 
-        logger.info(f"Scale {scale}: Writing bricks to {instance_name}...")
+        logger.info(f"Slab {slab_index}: Scale {scale}: Writing bricks to {instance_name}...")
         with Timer() as timer:
             brick_wall.bricks.foreach(write_brick)
-        logger.info(f"Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
+        logger.info(f"Slab {slab_index}: Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
 
     
     def _write_body_sizes( self, brick_wall, output_service ):
