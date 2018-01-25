@@ -346,6 +346,19 @@ class CopySegmentation(Workflow):
 
 
     def _process_slab(self, slab_index, output_slab_box ):
+        """
+        (The main work of this file.)
+        
+        Process a large slab of voxels:
+        
+        1. Read a 'slab' of bricks from the input as a BrickWall
+        2. Translate it to the output coordinates.
+        3. Splice & group the bricks so that they are aligned to the optimal output grid
+        4. 'Pad' the bricks on the edges of the wall by *reading* data from the output destination,
+            so that all bricks are complete (i.e. they completely fill their grid block).
+        5. Write all bricks to the output destination.
+        6. Downsample the bricks and repeat steps 3-5 for the downsampled scale.
+        """
         options = self.config_data["options"]
         pyramid_depth = options["pyramid-depth"]
 
