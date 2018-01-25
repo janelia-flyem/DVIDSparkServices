@@ -168,7 +168,7 @@ class CopySegmentation(Workflow):
             assert not isinstance( output_service, TransposedVolumeService )
             assert not isinstance( output_service, ScaledVolumeService )
 
-            logger.info(f"Output {i} bounding box (xyz) is: {output_service.bounding_box_zyx[:,::-1]}")
+            logger.info(f"Output {i} bounding box (xyz) is: {output_service.bounding_box_zyx[:,::-1].tolist()}")
             self.output_services.append( output_service )
 
         first_output_service = self.output_services[0]
@@ -202,8 +202,6 @@ class CopySegmentation(Workflow):
                 assert output_config["apply-labelmap"]["apply-when"] == "reading-and-writing", \
                     "Labelmap will be applied to voxels during pre-write and post-read (due to block padding).\n"\
                     "You cannot use this workflow with non-idempotent labelmaps, unless your data is already perfectly block aligned."
-
-        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
 
 
     def _sanitize_config(self):
@@ -250,7 +248,10 @@ class CopySegmentation(Workflow):
         
         # Process data in Z-slabs
         for slab_index, output_slab_box in enumerate( slabs_from_box(output_bb_zyx, slab_depth) ):
-            self._process_slab(slab_index, output_slab_box)
+            with Timer() as timer:
+                self._process_slab(slab_index, output_slab_box)
+            logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
+            logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
 
         logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
 
@@ -314,9 +315,7 @@ class CopySegmentation(Workflow):
                 del consolidated_wall
             del padded_wall
 
-        logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
 
-    
     def _create_output_instances_if_necessary(self):
         """
         If it doesn't exist yet, create it first with the user's specified
