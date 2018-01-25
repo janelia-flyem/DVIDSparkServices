@@ -142,6 +142,36 @@ class CopySegmentation(Workflow):
                                                 CopySegmentation.schema(),
                                                 "Copy Segmentation" )
 
+
+    def execute(self):
+        self._init_services()
+        self._create_output_instances_if_necessary()
+        self._log_neuroglancer_links()
+        self._sanitize_config()
+
+        # Aim for 2 GB RDD partitions when loading segmentation
+        GB = 2**30
+        self.target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+
+        # (See note in _init_services() regarding output bounding boxes)
+        input_bb_zyx = self.input_service.bounding_box_zyx
+        output_bb_zyx = self.output_services[0].bounding_box_zyx
+        self.translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
+
+        pyramid_depth = self.config_data["options"]["pyramid-depth"]
+        slab_depth = self.config_data["options"]["slab-depth"]
+        logger.info(f"Processing data in slabs of depth: {slab_depth} for {pyramid_depth} pyramid levels")
+        
+        # Process data in Z-slabs
+        for slab_index, output_slab_box in enumerate( slabs_from_box(output_bb_zyx, slab_depth) ):
+            with Timer() as timer:
+                self._process_slab(slab_index, output_slab_box)
+            logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
+            logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
+
+        logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
+
+
     def _init_services(self):
         """
         Initialize the input and output services,
@@ -204,6 +234,94 @@ class CopySegmentation(Workflow):
                     "You cannot use this workflow with non-idempotent labelmaps, unless your data is already perfectly block aligned."
 
 
+    def _create_output_instances_if_necessary(self):
+        """
+        If it doesn't exist yet, create it first with the user's specified
+        pyramid-depth, or with an automatically chosen depth.
+        """
+        pyramid_depth = self.config_data["options"]["pyramid-depth"]
+        permit_inconsistent_pyramids = self.config_data["options"]["permit-inconsistent-pyramid"]
+
+        for output_service in self.output_services:
+            base_service = output_service.base_service
+            assert isinstance( base_service, DvidVolumeService )
+
+            # Create new segmentation instance first if necessary
+            if is_datainstance( base_service.server,
+                                base_service.uuid,
+                                base_service.instance_name ):
+
+                existing_depth = self._read_pyramid_depth()
+                if pyramid_depth not in (-1, existing_depth) and not permit_inconsistent_pyramids:
+                    raise Exception(f"Can't set pyramid-depth to {pyramid_depth}: "
+                                    f"Data instance '{base_service.instance_name}' already existed, with depth {existing_depth}")
+            else:
+                if pyramid_depth == -1:
+                    # if no pyramid depth is specified, determine the max, based on bb size.
+                    input_bb_zyx = self.input_service.bounding_box_zyx
+                    pyramid_depth = choose_pyramid_depth(input_bb_zyx, 512)
+        
+                # create new label array with correct number of pyramid scales
+                create_labelarray( base_service.server,
+                                   base_service.uuid,
+                                   base_service.instance_name,
+                                   pyramid_depth,
+                                   3*(base_service.block_width,) )
+
+
+    def _read_pyramid_depth(self):
+        """
+        Read the MaxDownresLevel from each output instance we'll be writing to,
+        and verify that it matches our config for pyramid-depth.
+        
+        Return the max depth we found in the outputs.
+        (They should all be the same...)
+        """
+        max_depth = -1
+        for output_service in self.output_services:
+            base_volume_service = output_service.base_service
+            info = base_volume_service.node_service.get_typeinfo(base_volume_service.instance_name)
+            existing_depth = int(info["Extended"]["MaxDownresLevel"])
+            max_depth = max(max_depth, existing_depth)
+
+        return max_depth
+
+
+    def _log_neuroglancer_links(self):
+        """
+        Write a link to the log file for viewing the segmentation data after it is ingested.
+        We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
+        """
+        for index, output_service in enumerate(self.output_services):
+            server = output_service.base_service.server # Note: Begins with http://
+            uuid = output_service.base_service.uuid
+            instance = output_service.base_service.instance_name
+            
+            output_box_xyz = np.array(output_service.bounding_box_zyx)
+            output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
+            
+            link_prefix = f"{server}/neuroglancer/#!"
+            link_json = \
+            {
+                "layers": {
+                    "segmentation": {
+                        "type": "segmentation",
+                        "source": f"dvid://{server}/{uuid}/{instance}"
+                    }
+                },
+                "navigation": {
+                    "pose": {
+                        "position": {
+                            "voxelSize": [8,8,8],
+                            "voxelCoordinates": output_center_xyz.tolist()
+                        }
+                    },
+                    "zoomFactor": 8
+                }
+            }
+            logger.info(f"Neuroglancer link to output {index}: {link_prefix}{json.dumps(link_json)}")
+
+
     def _sanitize_config(self):
         """
         Replace a few config values with reasonable defaults if necessary.
@@ -225,35 +343,6 @@ class CopySegmentation(Workflow):
             raise RuntimeError(f"Slab depth ({slab_depth}) is not aligned properly.\n"
                                "Downsampled data blocks would span multiple slabs.")
         options["slab-depth"] = slab_depth
-
-
-    def execute(self):
-        self._init_services()
-        self._create_output_instances_if_necessary()
-        self._log_neuroglancer_links()
-        self._sanitize_config()
-
-        # Aim for 2 GB RDD partitions when loading segmentation
-        GB = 2**30
-        self.target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-
-        # (See note in _init_services() regarding output bounding boxes)
-        input_bb_zyx = self.input_service.bounding_box_zyx
-        output_bb_zyx = self.output_services[0].bounding_box_zyx
-        self.translation_offset_zyx = output_bb_zyx[0] - input_bb_zyx[0]
-
-        pyramid_depth = self.config_data["options"]["pyramid-depth"]
-        slab_depth = self.config_data["options"]["slab-depth"]
-        logger.info(f"Processing data in slabs of depth: {slab_depth} for {pyramid_depth} pyramid levels")
-        
-        # Process data in Z-slabs
-        for slab_index, output_slab_box in enumerate( slabs_from_box(output_bb_zyx, slab_depth) ):
-            with Timer() as timer:
-                self._process_slab(slab_index, output_slab_box)
-            logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
-            logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
-
-        logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
 
 
     def _process_slab(self, slab_index, output_slab_box ):
@@ -314,94 +403,6 @@ class CopySegmentation(Workflow):
                 padded_wall = consolidated_wall
                 del consolidated_wall
             del padded_wall
-
-
-    def _create_output_instances_if_necessary(self):
-        """
-        If it doesn't exist yet, create it first with the user's specified
-        pyramid-depth, or with an automatically chosen depth.
-        """
-        pyramid_depth = self.config_data["options"]["pyramid-depth"]
-        permit_inconsistent_pyramids = self.config_data["options"]["permit-inconsistent-pyramid"]
-
-        for output_service in self.output_services:
-            base_service = output_service.base_service
-            assert isinstance( base_service, DvidVolumeService )
-
-            # Create new segmentation instance first if necessary
-            if is_datainstance( base_service.server,
-                                base_service.uuid,
-                                base_service.instance_name ):
-
-                existing_depth = self._read_pyramid_depth()
-                if pyramid_depth not in (-1, existing_depth) and not permit_inconsistent_pyramids:
-                    raise Exception(f"Can't set pyramid-depth to {pyramid_depth}: "
-                                    f"Data instance '{base_service.instance_name}' already existed, with depth {existing_depth}")
-            else:
-                if pyramid_depth == -1:
-                    # if no pyramid depth is specified, determine the max, based on bb size.
-                    input_bb_zyx = self.input_service.bounding_box_zyx
-                    pyramid_depth = choose_pyramid_depth(input_bb_zyx, 512)
-        
-                # create new label array with correct number of pyramid scales
-                create_labelarray( base_service.server,
-                                   base_service.uuid,
-                                   base_service.instance_name,
-                                   pyramid_depth,
-                                   3*(base_service.block_width,) )
-
-
-    def _log_neuroglancer_links(self):
-        """
-        Write a link to the log file for viewing the segmentation data after it is ingested.
-        We assume that the output server is hosting neuroglancer at http://<server>:<port>/neuroglancer/
-        """
-        for index, output_service in enumerate(self.output_services):
-            server = output_service.base_service.server # Note: Begins with http://
-            uuid = output_service.base_service.uuid
-            instance = output_service.base_service.instance_name
-            
-            output_box_xyz = np.array(output_service.bounding_box_zyx)
-            output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
-            
-            link_prefix = f"{server}/neuroglancer/#!"
-            link_json = \
-            {
-                "layers": {
-                    "segmentation": {
-                        "type": "segmentation",
-                        "source": f"dvid://{server}/{uuid}/{instance}"
-                    }
-                },
-                "navigation": {
-                    "pose": {
-                        "position": {
-                            "voxelSize": [8,8,8],
-                            "voxelCoordinates": output_center_xyz.tolist()
-                        }
-                    },
-                    "zoomFactor": 8
-                }
-            }
-            logger.info(f"Neuroglancer link to output {index}: {link_prefix}{json.dumps(link_json)}")
-
-
-    def _read_pyramid_depth(self):
-        """
-        Read the MaxDownresLevel from each output instance we'll be writing to,
-        and verify that it matches our config for pyramid-depth.
-        
-        Return the max depth we found in the outputs.
-        (They should all be the same...)
-        """
-        max_depth = -1
-        for output_service in self.output_services:
-            base_volume_service = output_service.base_service
-            info = base_volume_service.node_service.get_typeinfo(base_volume_service.instance_name)
-            existing_depth = int(info["Extended"]["MaxDownresLevel"])
-            max_depth = max(max_depth, existing_depth)
-
-        return max_depth
 
 
     def _consolidate_and_pad(self, slab_index, input_wall, scale, output_service, align=True, pad=True):
