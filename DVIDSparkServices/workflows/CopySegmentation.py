@@ -99,6 +99,12 @@ class CopySegmentation(Workflow):
             "type": "boolean",
             "default": False
         },
+        "skip-scale-0-write": {
+            "description": "Skip writing scale 0.  Useful if scale 0 is already downloaded and now\n"
+                           "you just want to generate the rest of the pyramid to the same instance.\n",
+            "type": "boolean",
+            "default": False
+        },        
         "slab-depth": {
             "description": "The data is downloaded and processed in Z-slabs.\n"
                            "This setting determines how thick each Z-slab is.\n"
@@ -287,7 +293,8 @@ class CopySegmentation(Workflow):
             #self._write_body_sizes( padded_wall, output_service )
     
             # Write scale 0 to DVID
-            self._write_bricks( slab_index, padded_wall, 0, output_service )
+            if not options["skip-scale-0-write"]:
+                self._write_bricks( slab_index, padded_wall, 0, output_service )
     
             for new_scale in range(1, 1+pyramid_depth):
                 # Compute downsampled (results in smaller bricks)
@@ -302,6 +309,7 @@ class CopySegmentation(Workflow):
 
                 # Write to DVID
                 self._write_bricks( slab_index, consolidated_wall, new_scale, output_service )
+
                 padded_wall = consolidated_wall
                 del consolidated_wall
             del padded_wall
