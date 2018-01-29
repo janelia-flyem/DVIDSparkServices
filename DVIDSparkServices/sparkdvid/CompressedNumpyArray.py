@@ -179,9 +179,6 @@ class CompressedNumpyArray(object):
 
     @classmethod
     def is_labels(cls, volume):
-        # FIXME: Why is labelarray compression segfaulting?
-        return False
-    
         return volume.dtype == np.uint64 and volume.ndim == 3
 
 def serialize_uint64_blocks(volume):
