@@ -297,7 +297,7 @@ class CopySegmentation(Workflow):
             uuid = output_service.base_service.uuid
             instance = output_service.base_service.instance_name
             
-            output_box_xyz = np.array(output_service.bounding_box_zyx)
+            output_box_xyz = np.array(output_service.bounding_box_zyx[:, :-1])
             output_center_xyz = (output_box_xyz[0] + output_box_xyz[1]) / 2
             
             link_prefix = f"{server}/neuroglancer/#!"
