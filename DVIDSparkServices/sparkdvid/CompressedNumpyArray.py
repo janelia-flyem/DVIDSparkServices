@@ -276,7 +276,9 @@ def reduce_ndarray_compressed(a):
     else:
         view_dict = None
     
-    if a.dtype == np.object:
+    if a.dtype == np.object or a.ndim != 3 or a.size == 0:
+        # CompressedNumpyArray isn't designed for weird cases.
+        # Use standard numpy pickle routine instead.
         return a.__reduce__()
     else:
         return reconstruct_ndarray_from_compressed, (CompressedNumpyArray(a), view_type, view_dict)
