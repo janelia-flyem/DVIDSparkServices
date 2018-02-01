@@ -405,6 +405,10 @@ class CreateMeshes(Workflow):
         #logger.info(f"{full_stats_df}")
         full_stats_df['keep_body'] = (full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size'])
 
+        # Sort for convenience of viewing output
+        with Timer("Sorting segment stats", logger):
+            full_stats_df.sort_values('body_voxel_count', ascending=False, inplace=True)
+
         #import pandas as pd
         #pd.set_option('expand_frame_repr', False)
         #logger.info(f"FULL_STATS:\n{full_stats_df}")
