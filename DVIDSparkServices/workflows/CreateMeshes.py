@@ -49,6 +49,7 @@ class CreateMeshes(Workflow):
     {
         "type": "object",
         "description": "Mesh generation settings",
+        "additionalProperties": False,
         "default": {},
         "properties": {
             "simplify-ratio": {
@@ -76,6 +77,7 @@ class CreateMeshes(Workflow):
                 "description": "Options to group meshes in tarballs, if desired",
                 "type": "object",
                 "default": {},
+                "additionalProperties": False,
                 "properties": {
                     "grouping-scheme": {
                         "description": "If/how to group meshes into tarballs before uploading them to DVID.\n"
