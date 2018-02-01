@@ -38,10 +38,7 @@
             "write_reqs": 128,
             "write_data": 4000000000
         },
-        
-        "downsample-timeout": 10.0,
-        "analysis-timeout": 10.0,
-        
+                
         "log-collector-port": 3000,
         "log-collector-directory": "./logs"
     }
