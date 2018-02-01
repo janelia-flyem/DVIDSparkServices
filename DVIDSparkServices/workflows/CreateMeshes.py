@@ -354,6 +354,11 @@ class CreateMeshes(Workflow):
 
         # Calculate segment (a.k.a. supervoxel) stats
         full_stats_df = segments_and_masks.map(stats_df_for_masks).treeReduce(merge_stats, depth=4)
+
+        # Convert column types (float64 was used above to handle NaNs, but now we can convert back to int)
+        convert_dtype_inplace(full_stats_df, np.uint64, ['segment_voxel_count', 'compressed_bytes'])
+        convert_dtype_inplace(full_stats_df, np.int32, BB_COLS)
+
         full_stats_df['box_size'] = full_stats_df.eval('(z1 - z0)*(y1 - y0)*(x1 - x0)')
         full_stats_df['keep_segment'] = (full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size'])
         full_stats_df['keep_segment'] &= (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size'])
@@ -711,3 +716,8 @@ def fillna_inplace(df, value=0, columns=None):
     for col in columns:
         df[col].fillna(value, inplace=True)
 
+def convert_dtype_inplace(df, dtype, columns=None):
+    if columns is None:
+        columns = df.columns
+    for col in columns:
+        df[col] = df[col].astype(dtype)
