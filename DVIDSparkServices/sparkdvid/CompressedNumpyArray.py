@@ -275,7 +275,11 @@ def reduce_ndarray_compressed(a):
         view_dict = a.__dict__
     else:
         view_dict = None
-    return reconstruct_ndarray_from_compressed, (CompressedNumpyArray(a), view_type, view_dict)
+    
+    if a.dtype == np.object:
+        return a.__reduce__()
+    else:
+        return reconstruct_ndarray_from_compressed, (CompressedNumpyArray(a), view_type, view_dict)
 
 def reconstruct_ndarray_from_compressed(compressed_array, view_type, view_dict):
     """
