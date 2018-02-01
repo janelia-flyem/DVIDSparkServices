@@ -224,7 +224,8 @@ class CreateMeshes(Workflow):
         brick_wall.unpersist()
         del brick_wall
 
-        mask_stats_df = self.compute_mask_stats(segments_and_masks)
+        with Timer("Computing segment statistics", logger):
+            mask_stats_df = self.compute_mask_stats(segments_and_masks)
 
         # Flatten now, AFTER stats have been computed
         # (compute_mask_stats() requires that the RDDs not have duplicate labels in them.)
@@ -262,7 +263,8 @@ class CreateMeshes(Workflow):
         segments_meshes_counts = segment_box_mask_factor.mapValues( _generate_mesh )
         persist_and_execute(segments_meshes_counts, "Computing meshes", logger)
 
-        mask_stats_df = self.append_mesh_stats( mask_stats_df, segments_meshes_counts )
+        with Timer("Computing mesh statistics", logger):
+            mask_stats_df = self.append_mesh_stats( mask_stats_df, segments_meshes_counts )
 
         # Update the 'keep_body' column: Skip meshes that are too big.
         huge_bodies = (mask_stats_df['body_mesh_bytes'] > 1.9e9)
@@ -286,9 +288,8 @@ class CreateMeshes(Workflow):
         unpersist(segments_and_meshes)
         del segments_and_meshes
 
-        with Timer() as timer:
+        with Timer("Writing meshes to DVID", logger) as timer:
             grouped_body_ids_segments_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
-        logger.info(f"Writing meshes to DVID took {timer.seconds}")
 
 
     def compute_mask_stats(self, segments_and_masks):
