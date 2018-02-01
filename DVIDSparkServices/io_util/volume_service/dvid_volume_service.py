@@ -261,7 +261,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     # 1. Auto-retry up to three time for any reason.
     # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
     @auto_retry(2, pause_between_tries=5*60.0, logging_name=__name__,
-                predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
+                predicate=lambda ex: '503' in str(ex.args[0]) or '504' in str(ex.args[0]))
     @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
     def get_subvolume(self, box_zyx, scale=0):
         shape = np.asarray(box_zyx[1]) - box_zyx[0]
@@ -285,7 +285,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     # 1. Auto-retry up to three time for any reason.
     # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
     @auto_retry(2, pause_between_tries=5*60.0, logging_name=__name__,
-                predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
+                predicate=lambda ex: '503' in str(ex.args[0]) or '504' in str(ex.args[0]))
     @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
     def write_subvolume(self, subvolume, offset_zyx, scale):
         req_bytes = self._dtype_nbytes * np.prod(subvolume.shape)
