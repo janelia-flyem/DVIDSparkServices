@@ -100,7 +100,7 @@ class CompressedNumpyArray(object):
         # TODO: Also support compression of bool arrays via the special DVID binary compression
         if self.is_labels(numpy_array):
             self.compressed_label_blocks = serialize_uint64_blocks(numpy_array)
-        elif self.dtype == np.bool:
+        elif self.dtype == np.bool and numpy_array.ndim == 3:
             self.compressed_mask_array = encode_mask_array(numpy_array)
         else:
 
