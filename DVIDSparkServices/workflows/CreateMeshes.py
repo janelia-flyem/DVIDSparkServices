@@ -357,7 +357,7 @@ class CreateMeshes(Workflow):
 
         # Convert column types (float64 was used above to handle NaNs, but now we can convert back to int)
         convert_dtype_inplace(full_stats_df, np.uint64, ['segment_voxel_count', 'compressed_bytes'])
-        convert_dtype_inplace(full_stats_df, np.int32, BB_COLS)
+        convert_dtype_inplace(full_stats_df, np.int64, BB_COLS) # int32 is dangerous because multiplying them together quickly overflows
 
         full_stats_df['box_size'] = full_stats_df.eval('(z1 - z0)*(y1 - y0)*(x1 - x0)')
         full_stats_df['keep_segment'] = (full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size'])
