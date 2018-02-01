@@ -157,42 +157,11 @@ class CreateMeshes(Workflow):
             "type": "number",
             "default": 1e9 # 1 GB max
         },
-        "downsample-timeout": {
-            "description": "The maximum time to wait for an object to be downsampled before processing. \n"
-                           "If timeout is exceeded, the an error is logged and the object is skipped.\n"
-                           "IGNORED IF downsample-in-subprocess is False\n",
-            "type": "number",
-            "default": 600.0 # 10 minutes max
-        },
-        "downsample-in-subprocess":  {
-            "description": "Collect and downsample each object in a subprocess, to protect against timeouts and failures.\n"
-                           "Must be True for downsample-timeout to have any effect.\n",
-            "type": "boolean",
-            "default": True
-        },
-        "analysis-timeout": {
-            "description": "The maximum time to wait for an object to be meshified. \n"
-                           "If timeout is exceeded, the an error is logged and the object is skipped.\n",
-            "type": "number",
-            "default": 600.0 # 10 minutes max
-        },
-        "failed-mask-dir": {
-            "description": "Volumes that fail to be processed (due to timeout) will \n"
-                           "be written out as h5 files to this directory.",
-            "type": "string",
-            "default": "./failed-masks"
-        },
         "rescale-before-write": {
             "description": "How much to rescale the meshes before writing to DVID.\n"
                            "Specified as a multiplier, not power-of-2 'scale'.\n",
             "type": "number",
             "default": 1.0
-        },
-        "write-mask-stats":  {
-            "description": "Debugging feature.  Writes a CSV file containing \n"
-                           "information about the body masks computed during the job.",
-            "type": "boolean",
-            "default": False
         }
     })
     
@@ -221,13 +190,7 @@ class CreateMeshes(Workflow):
     def _sanitize_config(self):
         dvid_info = self.config_data['dvid-info']
         mesh_config = self.config_data["mesh-config"]
-        options = self.config_data['options']
         
-        # Convert failed-mask-dir to absolute path
-        failed_mask_dir = options['failed-mask-dir']
-        if failed_mask_dir and not os.path.isabs(failed_mask_dir):
-            options['failed-mask-dir'] = self.relpath_to_abspath(failed_mask_dir)
-
         # Provide default meshes instance name if needed
         if not dvid_info["dvid"]["meshes-destination"]:
             if mesh_config["storage"]["grouping-scheme"] == 'no-groups':
