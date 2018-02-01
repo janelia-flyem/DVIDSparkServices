@@ -383,11 +383,20 @@ class CreateMeshes(Workflow):
             full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
 
             # Calculate body voxel sizes
-            body_sizes = full_stats_df[['body', 'segment_voxel_count']].groupby('body').sum()
-            body_sizes_df = pd.DataFrame({ 'body': body_sizes.index,
-                                           'body_voxel_count': body_sizes['segment_voxel_count'] })
+            body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
+            body_stats_df.columns = ['body_segment_count', 'body_voxel_count']
+            body_stats_df['body'] = body_stats_df.index
 
-            full_stats_df = full_stats_df.merge(body_sizes_df, 'left', on='body', copy=False)
+            full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
+            
+            # For offline analysis, write body stats to a file
+            output_path = self.config_dir + '/body-stats.csv'
+            logger.info(f"Saving body statistics to {output_path}")
+            body_stats_df = body_stats_df[['body', 'body_segment_count', 'body_voxel_count']] # Set col order
+            body_stats_df.columns = ['body', 'segment_count', 'voxel_count'] # rename columns for csv
+            body_stats_df.sort_values('voxel_count', ascending=False, inplace=True)
+            body_stats_df.to_csv(output_path, header=True, index=False)
+            
         else:
             # Not grouping -- Just duplicate segment stats into body columns
             full_stats_df['body'] = full_stats_df['body']
