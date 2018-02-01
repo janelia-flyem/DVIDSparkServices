@@ -407,7 +407,7 @@ class CreateMeshes(Workflow):
 
         # Sort for convenience of viewing output
         with Timer("Sorting segment stats", logger):
-            full_stats_df.sort_values('body_voxel_count', ascending=False, inplace=True)
+            full_stats_df.sort_values(['body_voxel_count', 'segment_voxel_count'], ascending=False, inplace=True)
 
         #import pandas as pd
         #pd.set_option('expand_frame_repr', False)
