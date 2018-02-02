@@ -15,12 +15,13 @@
         "simplify-ratio": 0.5,
         "step-size": 1,
         "storage": {
+          format: drc,
+          naming-scheme: "neu3-level-0",
           "grouping-scheme": "labelmap",
           "labelmap": {
             "file": ../mod-10-labelmap.csv, # Relative to temp_data/config.json
             "file-type": label-to-body
           },
-          "format": "obj"
         }
     },
     "options": {
