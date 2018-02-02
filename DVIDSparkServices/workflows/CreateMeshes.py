@@ -19,13 +19,10 @@ from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
 from DVIDSparkServices.dvid.metadata import is_node_locked
-from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
-from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
-from multiprocessing import TimeoutError
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 
@@ -290,7 +287,7 @@ class CreateMeshes(Workflow):
         unpersist(segments_and_meshes)
         del segments_and_meshes
 
-        with Timer("Writing meshes to DVID", logger) as timer:
+        with Timer("Writing meshes to DVID", logger):
             grouped_body_ids_segments_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
 
 
@@ -463,7 +460,7 @@ class CreateMeshes(Workflow):
         return self._labelmap
 
 
-    def group_by_body(self, body_ids_and_meshes):
+    def group_by_body(self, segments_and_meshes):
         config = self.config_data
 
         # Group according to scheme
@@ -475,7 +472,7 @@ class CreateMeshes(Workflow):
                 body_id, _mesh = id_mesh
                 group_id = body_id - (body_id % 100)
                 return group_id
-            grouped_body_ids_and_meshes = body_ids_and_meshes.groupBy(last_six_digits, numPartitions=n_partitions)
+            grouped_body_ids_and_meshes = segments_and_meshes.groupBy(last_six_digits, numPartitions=n_partitions)
 
         elif grouping_scheme == "labelmap":
             import pandas as pd
@@ -501,19 +498,15 @@ class CreateMeshes(Workflow):
             # to save time constructing the DataFrame inside the closure above.
             # (TODO: Figure out why the dataframe isn't pickling properly...)
             skip_groups = set(config["mesh-config"]["storage"]["skip-groups"])
-            grouped_body_ids_and_meshes = body_ids_and_meshes.mapPartitions( prepend_mapped_group_id ) \
+            grouped_body_ids_and_meshes = segments_and_meshes.mapPartitions( prepend_mapped_group_id ) \
                                                              .filter(lambda item: item[0] not in skip_groups) \
                                                              .groupByKey(numPartitions=n_partitions)
         elif grouping_scheme in ("singletons", "no-groups"):
             # Create 'groups' of one item each, re-using the body ID as the group id.
             # (The difference between 'singletons', and 'no-groups' is in how the mesh is stored, below.)
-            grouped_body_ids_and_meshes = body_ids_and_meshes.map( lambda id_mesh: (id_mesh[0], [(id_mesh[0], id_mesh[1])]) )
+            grouped_body_ids_and_meshes = segments_and_meshes.map( lambda id_mesh: (id_mesh[0], [(id_mesh[0], id_mesh[1])]) )
 
         persist_and_execute(grouped_body_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
-        return grouped_body_ids_and_meshes
-
-        
-        
         return grouped_body_ids_and_meshes
         
 
