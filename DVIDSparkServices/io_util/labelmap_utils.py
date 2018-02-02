@@ -8,6 +8,8 @@ import numpy as np
 import logging
 logger = logging.getLogger(__name__)
 
+from ..util import Timer
+
 LabelMapSchema = \
 {
     "description": "A label mapping file to apply to segmentation after reading or before writing.",
@@ -83,12 +85,16 @@ def load_labelmap(labelmap_config, working_dir):
 
     # Mapping is only loaded into numpy once, on the driver
     if labelmap_config["file-type"] == "label-to-body":
-        with open(path, 'r') as csv_file:
-            rows = csv.reader(csv_file)
-            all_items = chain.from_iterable(rows)
-            mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
+        logger.info(f"Loading label-to-body mapping from {path}")
+        with Timer("Loading mapping", logger):
+            with open(path, 'r') as csv_file:
+                rows = csv.reader(csv_file)
+                all_items = chain.from_iterable(rows)
+                mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
     elif labelmap_config["file-type"] == "equivalence-edges":
-        mapping_pairs = equivalence_mapping_from_edge_csv(path)
+        logger.info(f"Loading equivalence mapping from {path}")
+        with Timer("Loading mapping", logger):
+            mapping_pairs = equivalence_mapping_from_edge_csv(path)
 
         # Export mapping to disk in case anyone wants to view it later
         output_dir, basename = os.path.split(path)
@@ -96,6 +102,8 @@ def load_labelmap(labelmap_config, working_dir):
         if not os.path.exists(mapping_csv_path):
             with open(mapping_csv_path, 'w') as f:
                 csv.writer(f).writerows(mapping_pairs)
+    else:
+        raise RuntimeError(f"Unknown labelmap file-type: {labelmap_config['file-type']}")
 
     return mapping_pairs
 
