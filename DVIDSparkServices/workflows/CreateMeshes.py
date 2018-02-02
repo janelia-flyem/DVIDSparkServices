@@ -683,6 +683,9 @@ def _get_group_name(config, group_id):
     grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
     naming_scheme = config["mesh-config"]["storage"]["naming-scheme"]
 
+    # Must not allow np.uint64, which uses a custom __str__()
+    group_id = int(group_id)
+
     if naming_scheme == "trivial":
         group_name = str(group_id) # no special encoding
     elif naming_scheme == "neu3-level-0":
@@ -706,6 +709,9 @@ def _get_mesh_name(config, mesh_id):
     """
     naming_scheme = config["mesh-config"]["storage"]["naming-scheme"]
     mesh_format = config["mesh-config"]["storage"]["format"]
+
+    # Must not allow np.uint64, which uses a custom __str__()
+    mesh_id = int(mesh_id)
 
     if naming_scheme == "trivial":
         mesh_name = str(mesh_id) # no special encoding
