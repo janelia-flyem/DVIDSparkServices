@@ -640,6 +640,7 @@ def post_meshes_to_dvid(config, partition_items):
     instance = config["dvid-info"]["dvid"]["meshes-destination"]
     
     grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
+    mesh_format = config["mesh-config"]["storage"]["format"]
 
     if grouping_scheme == "no-groups":
         for group_id, segment_ids_and_meshes in partition_items:
@@ -649,7 +650,7 @@ def post_meshes_to_dvid(config, partition_items):
                 def write_mesh():
                     with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
                         session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{segment_id}', mesh_data)
-                        session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{segment_id}_info', json={ 'format': 'drc' })
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{segment_id}_info', json={ 'format': mesh_format })
                 
                 write_mesh()
     else:
