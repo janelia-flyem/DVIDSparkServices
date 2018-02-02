@@ -397,7 +397,7 @@ class CreateMeshes(Workflow):
             
         else:
             # Not grouping -- Just duplicate segment stats into body columns
-            full_stats_df['body'] = full_stats_df['body']
+            full_stats_df['body'] = full_stats_df['segment']
             full_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
         
         #logger.info(f"{full_stats_df}")
