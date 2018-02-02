@@ -381,6 +381,7 @@ class CreateMeshes(Workflow):
 
             # Missing segments in the labelmap are assumed to be the identity-mapped
             full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
+            full_stats_df['body'] = full_stats_df['body'].astype(np.uint64)
 
             # Calculate body voxel sizes
             body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
