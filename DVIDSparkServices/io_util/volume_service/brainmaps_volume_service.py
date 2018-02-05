@@ -15,6 +15,7 @@ BrainMapsSegmentationServiceSchema = \
     "type": "object",
     "required": ["project", "dataset", "volume-id", "change-stack-id"],
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "project": {
             "description": "Project ID",
@@ -47,6 +48,7 @@ BrainMapsVolumeSchema = \
     "description": "Describes a segmentation volume from BrainMaps.",
     "type": "object",
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "slice-files": BrainMapsSegmentationServiceSchema,
         "geometry": GeometrySchema

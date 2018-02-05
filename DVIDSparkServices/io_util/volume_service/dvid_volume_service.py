@@ -68,6 +68,7 @@ DvidSegmentationServiceSchema = \
 
     "required": DvidServiceSchema["required"] + ["segmentation-name"],
     "default": {},
+#    "additionalProperties": False,
     "properties": {
         "segmentation-name": {
             "description": "The labels instance to read/write from. \n"
@@ -83,6 +84,7 @@ DvidGenericVolumeSchema = \
     "description": "Schema for a generic dvid volume",
     "type": "object",
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "dvid": { "oneOf": [DvidGrayscaleServiceSchema, DvidSegmentationServiceSchema] },
         "geometry": GeometrySchema,
@@ -97,6 +99,7 @@ DvidSegmentationVolumeSchema = \
     "description": "Schema for a segmentation dvid volume", # (for when a generic SegmentationVolumeSchema won't suffice)
     "type": "object",
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "dvid": DvidSegmentationServiceSchema,
         "geometry": GeometrySchema,
