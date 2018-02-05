@@ -1,3 +1,4 @@
+
 from abc import ABCMeta, abstractmethod, abstractproperty
 
 class VolumeService(metaclass=ABCMeta):
@@ -49,6 +50,9 @@ class VolumeService(metaclass=ABCMeta):
             service = SliceFilesVolumeServiceReader( volume_config )
         else:
             raise RuntimeError( "Unknown service type." )
+
+        if 'labelmap' in volume_config:
+            raise RuntimeError("Bad key for volume service: 'labelmap' -- did you mean 'apply-labelmap'?")
 
         # Wrap with labelmap service
         from . import LabelmappedVolumeService
