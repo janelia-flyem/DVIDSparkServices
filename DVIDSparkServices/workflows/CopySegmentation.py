@@ -1,3 +1,4 @@
+import time
 import copy
 import json
 import logging
@@ -112,6 +113,12 @@ class CopySegmentation(Workflow):
                            "are completely independent, even after downsampling.\n",
             "type": "integer",
             "default": -1 # Choose automatically: block_width * 2**pyramid_depth
+        },
+        "delay-minutes-between-slabs": {
+            "description": "Optionally introduce an artificial pause after finishing one slab before starting the next,\n"
+                           "to give DVID time to index the blocks we've sent so far.",
+            "type": "integer",
+            "default": 0,
         }
     })
 
@@ -163,11 +170,17 @@ class CopySegmentation(Workflow):
         logger.info(f"Processing data in slabs of depth: {slab_depth} for {pyramid_depth} pyramid levels")
         
         # Process data in Z-slabs
-        for slab_index, output_slab_box in enumerate( slabs_from_box(output_bb_zyx, slab_depth) ):
+        output_slab_boxes = list( slabs_from_box(output_bb_zyx, slab_depth) )
+        for slab_index, output_slab_box in enumerate( output_slab_boxes ):
             with Timer() as timer:
                 self._process_slab(slab_index, output_slab_box)
             logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
             logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
+            
+            delay_minutes = self.config_data["options"]["delay-minutes-between-slabs"]
+            if delay_minutes > 0 and slab_index != len(output_slab_boxes)-1:
+                logger.info(f"Delaying {delay_minutes} before continuing to next slab...")
+                time.sleep(delay_minutes * 60)
 
         logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
 
