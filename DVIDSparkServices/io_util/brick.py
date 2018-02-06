@@ -1,15 +1,12 @@
-import os
-import csv
 import logging
-import subprocess
-from itertools import starmap, chain
+from itertools import starmap
 from functools import partial
 
 import numpy as np
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
-from DVIDSparkServices.io_util.labelmap_utils import equivalence_mapping_from_edge_csv
+from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 logger = logging.getLogger(__name__)
@@ -268,66 +265,6 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
 
     return remapped_bricks
 
-def load_labelmap(labelmap_config, working_dir):
-    """
-    Load a labelmap file as specified in the given labelmap_config,
-    which must conform to LabelMapSchema.
-    
-    If the labelmapfile exists on gbuckets, it will be downloaded first.
-    If it is gzip-compressed, it will be unpacked.
-    
-    The final downloaded/uncompressed file will be saved into working_dir,
-    and the final path will be overwritten in the labelmap_config.
-    """
-    path = labelmap_config["file"]
-
-    # path is [gs://]/path/to/file.csv[.gz]
-
-    # If the file is in a gbucket, download it first (if necessary)
-    if path.startswith('gs://'):
-        filename = path.split('/')[-1]
-        downloaded_path = working_dir + '/' + filename
-        if not os.path.exists(downloaded_path):
-            cmd = f'gsutil -q cp {path} {downloaded_path}'
-            logger.info(cmd)
-            subprocess.check_call(cmd, shell=True)
-        path = downloaded_path
-
-    # Now path is /path/to/file.csv[.gz]
-    
-    if not os.path.exists(path) and os.path.exists(path + '.gz'):
-        path = path + '.gz'
-
-    # If the file is compressed, decompress it
-    if os.path.splitext(path)[1] == '.gz':
-        uncompressed_path = path[:-3] # drop '.gz'
-        if not os.path.exists(uncompressed_path):
-            subprocess.check_call(f"gunzip {path}", shell=True)
-            assert os.path.exists(uncompressed_path), \
-                "Tried to uncompress the labelmap CSV file... where did it go?"
-        path = uncompressed_path # drop '.gz'
-
-    # Now path is /path/to/file.csv
-    # Overwrite the final downloaded/upacked location
-    labelmap_config['file'] = path
-
-    # Mapping is only loaded into numpy once, on the driver
-    if labelmap_config["file-type"] == "label-to-body":
-        with open(path, 'r') as csv_file:
-            rows = csv.reader(csv_file)
-            all_items = chain.from_iterable(rows)
-            mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
-    elif labelmap_config["file-type"] == "equivalence-edges":
-        mapping_pairs = equivalence_mapping_from_edge_csv(path)
-
-        # Export mapping to disk in case anyone wants to view it later
-        output_dir, basename = os.path.split(path)
-        mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
-        if not os.path.exists(mapping_csv_path):
-            with open(mapping_csv_path, 'w') as f:
-                csv.writer(f).writerows(mapping_pairs)
-
-    return mapping_pairs
 
 def apply_label_mapping(bricks, mapping_pairs):
     """
