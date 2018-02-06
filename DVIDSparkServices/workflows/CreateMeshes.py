@@ -136,14 +136,21 @@ class CreateMeshes(Workflow):
             "type": "number",
             "default": 10e6
         },
-        "downsample-factor": {
-            "description": "Minimum factor by which to downsample bodies before processing.n"
+        "minimum-downsample-factor": {
+            "description": "Minimum factor by which to downsample bodies before processing.\n"
                            "NOTE: If the object is larger than max-analysis-volume, even after \n"
                            "downsampling, then it will be downsampled even further before processing. \n"
                            "The comments in the generated SWC file will indicate the final-downsample-factor. \n",
             "type": "integer",
             "default": 1
         },
+        "force-uniform-downsampling": {
+            "description": "If true, force all segments in each group to be downsampled at the same level before meshification.\n"
+                           "That is, small supervoxels will be downsampled to the same resolution as the largest supervoxel in the body.\n",
+            "type": "boolean",
+            "default": False
+        },
+
         "max-analysis-volume": {
             "description": "The above downsample-factor will be overridden if the body would still \n"
                            "be too large to process, as defined by this setting.\n",
@@ -194,6 +201,7 @@ class CreateMeshes(Workflow):
 
     
     def execute(self):
+        import pandas as pd
         self._sanitize_config()
 
         config = self.config_data
@@ -211,7 +219,8 @@ class CreateMeshes(Workflow):
         brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels)
         brick_wall.persist_and_execute("Downloading segmentation", logger)
 
-        # brick -> (segment_label, (box, mask, count))
+        # brick -> [ (segment_label, (box, mask, count)),
+        #            (segment_label, (box, mask, count)), ... ]
         segments_and_masks = brick_wall.bricks.map( partial(compute_segment_masks, config) )
         persist_and_execute(segments_and_masks, "Computing brick-local segment masks", logger)
         brick_wall.unpersist()
@@ -222,14 +231,34 @@ class CreateMeshes(Workflow):
 
         # Flatten now, AFTER stats have been computed
         # (compute_mask_stats() requires that the RDDs not have duplicate labels in them.)
-        segments_and_masks = segments_and_masks.flatMap(lambda x: x)
-
-        # (label, (box, mask, count))
-        #   --> (label, [(box, mask, count), (box, mask, count), (box, mask, count), ...])
+        # While we're at it, drop the count (not needed any more)
+        # --> (segment_label, (box, mask))
+        def drop_count(items):
+            new_items = []
+            for item in items:
+                segment_label, (box, mask, _count) = item
+            new_items.append( (segment_label, (box, mask)) )
+            return new_items
+        segments_and_masks = segments_and_masks.flatMap( drop_count )
+        
+        # (segment, (box, mask))
+        #   --> (segment, boxes_and_masks)
+        #   === (segment, [(box, mask), (box, mask), (box, mask), ...])
         masks_by_segment_id = segments_and_masks.groupByKey()
         persist_and_execute(masks_by_segment_id, "Grouping segment masks by segment label ID", logger)
         segments_and_masks.unpersist()
         del segments_and_masks
+
+        # Insert chosen downsample_factor (a.k.a. dsf)
+        #   --> (segment, dsf_and_boxes_and_masks)
+        #   === (segment, (downsample_factor, [(box, mask), (box, mask), (box, mask), ...]))
+        downsample_df = pd.Series( mask_stats_df['downsample_factor'].values, # Must use '.values' here, otherwise
+                                   index=mask_stats_df['segment'].values )    # index is used to read initial data.
+        def insert_dsf(item):
+            segment, boxes_and_masks = item
+            downsample_factor = downsample_df[segment]
+            return (segment, (downsample_factor, boxes_and_masks))
+        masks_by_segment_id = masks_by_segment_id.map( insert_dsf )
 
         ##
         ## Filter out small segments and/or small bodies
@@ -238,6 +267,8 @@ class CreateMeshes(Workflow):
         if not keep_col.all():
             # Note: This array will be broadcasted to the workers.
             #       It will be potentially quite large if we're keeping most (but not all) segments.
+            #       Broadcast expense should be minimal thanks to lz4 compression,
+            #       but RAM usage will be high.
             segments_to_keep = mask_stats_df['segment'][keep_col].values
             filtered_masks_by_segment_id = masks_by_segment_id.filter( lambda key_and_value: key_and_value[0] in segments_to_keep )
             persist_and_execute(filtered_masks_by_segment_id, "Filtering masks by segment and size", logger)
@@ -270,10 +301,10 @@ class CreateMeshes(Workflow):
             segments_meshes_counts = segments_meshes_counts.filter(lambda seg_and_values: not (seg_and_values[0] in segments_in_huge_bodies))
 
         # --> (segment_label, mesh_bytes)
-        def drop_count(item):
+        def drop_vcount(item):
             segment_label, (mesh_bytes, _vertex_count) = item
             return (segment_label, mesh_bytes)
-        segments_and_meshes = segments_meshes_counts.map(drop_count)
+        segments_and_meshes = segments_meshes_counts.map(drop_vcount)
 
         # Group by body ID
         # --> ( body_id ( segment_label, mesh_bytes ) )
@@ -325,7 +356,7 @@ class CreateMeshes(Workflow):
             pd.set_option('expand_frame_repr', False)
 
             # Join the two DFs and replace missing values with appropriate defaults
-            joined = left.merge(right, 'outer', 'segment', suffixes=('_left', '_right'), copy=False)
+            joined = left.merge(right, 'outer', on='segment', suffixes=('_left', '_right'), copy=False)
             fillna_inplace(joined, np.inf, ['z0_left', 'y0_left', 'x0_left'])
             fillna_inplace(joined, np.inf, ['z0_right', 'y0_right', 'x0_right'])
             fillna_inplace(joined, -np.inf, ['z1_left', 'y1_left', 'x1_left'])
@@ -350,12 +381,22 @@ class CreateMeshes(Workflow):
         convert_dtype_inplace(full_stats_df, np.uint64, ['segment_voxel_count', 'compressed_bytes'])
         convert_dtype_inplace(full_stats_df, np.int64, BB_COLS) # int32 is dangerous because multiplying them together quickly overflows
 
+
         full_stats_df['box_size'] = full_stats_df.eval('(z1 - z0)*(y1 - y0)*(x1 - x0)')
         full_stats_df['keep_segment'] = (full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size'])
         full_stats_df['keep_segment'] &= (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size'])
 
         max_analysis_voxels = config['options']['max-analysis-volume']
-        full_stats_df['downsample_factor'] = 1 + np.power(full_stats_df['box_size'].values / max_analysis_voxels, (1./3)).astype(int)
+
+        # Chosen dowsnsample factor is max of user's minimum and auto-minimum
+        full_stats_df['downsample_factor'] = 1 + np.power(full_stats_df['box_size'].values / max_analysis_voxels, (1./3)).astype(np.int16)
+        full_stats_df['downsample_factor'] = np.maximum( full_stats_df['downsample_factor'],
+                                                         config['options']['minimum-downsample-factor'] )
+
+        # Convert to uint8 to save RAM (will be broadcasted to workers)
+        assert full_stats_df['downsample_factor'].max() < 256
+        full_stats_df['downsample_factor'] = full_stats_df['downsample_factor'].astype(np.uint8)
+        assert full_stats_df['downsample_factor'].dtype == np.uint8
 
         ##
         ## If grouping segments into bodies (for tarballs),
@@ -370,7 +411,7 @@ class CreateMeshes(Workflow):
             segment_to_body_df = pd.DataFrame( mapping_pairs, columns=['segment', 'body'] )
             full_stats_df = full_stats_df.merge(segment_to_body_df, 'left', on='segment', copy=False)
 
-            # Missing segments in the labelmap are assumed to be the identity-mapped
+            # Missing segments in the labelmap are assumed to be identity-mapped
             full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
             full_stats_df['body'] = full_stats_df['body'].astype(np.uint64)
 
@@ -380,6 +421,12 @@ class CreateMeshes(Workflow):
             body_stats_df['body'] = body_stats_df.index
 
             full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
+
+            if config["options"]["force-uniform-downsampling"]:
+                body_downsample_factors = full_stats_df[['body', 'downsample_factor']].groupby('body').max()
+                assert body_downsample_factors['downsample_factor'].dtype == np.uint8
+                full_stats_df['downsample_factor'] = full_stats_df[['body']].merge(body_downsample_factors, 'inner', left_on='body', right_index=True)
+                full_stats_df['downsample_factor'] = full_stats_df.astype(np.uint8)
             
             # For offline analysis, write body stats to a file
             output_path = self.config_dir + '/body-stats.csv'
@@ -536,7 +583,7 @@ def compute_segment_masks(config, brick):
                                     compress_masks=True )
 
 
-def combine_masks(config, boxes_and_compressed_masks ):
+def combine_masks(config, dsf_and_boxes_and_masks ):
     """
     Given a list of binary masks and corresponding bounding
     boxes, assemble them all into a combined binary mask.
@@ -545,6 +592,20 @@ def combine_masks(config, boxes_and_compressed_masks ):
     resulting in a downsampled final mask.
 
     For more details, see documentation for assemble_masks().
+
+    Arg:
+    
+        boxes_masks_dsfs: tuple(boxes, compressed_masks, downsample_factor)
+
+            where:
+                boxes:
+                    list of boxes [(z0,y0,x0), (z1,y1,x1)]
+                
+                compressed_masks:
+                    corresponding list of boolean masks, as CompressedNumpyArrays
+                
+                downsample_factor:
+                    The MINIMUM downsample_factor to use.
 
     Returns: (combined_bounding_box, combined_mask, downsample_factor)
 
@@ -555,16 +616,17 @@ def combine_masks(config, boxes_and_compressed_masks ):
             
             combined_mask:
                 the full downsampled combined mask,
-            
-            downsample_factor:
-                The chosen downsampling factor if using 'auto' downsampling,
-                otherwise equal to the downsample_factor you passed in.
 
+            downsample_factor:
+                The same downsample_factor as passed in.
+                (For convenience of chaining with downstream operations.)
     """
-    boxes, compressed_masks, _counts = zip(*boxes_and_compressed_masks)
+    downsample_factor, boxes_and_masks = dsf_and_boxes_and_masks
+    boxes, compressed_masks = zip(*boxes_and_masks)
 
     boxes = np.asarray(boxes)
-    assert boxes.shape == (len(boxes_and_compressed_masks), 2,3)
+    assert boxes.shape == (len(boxes_and_masks), 2,3)
+    
     
     # Important to use a generator expression here (not a list comprehension)
     # to avoid excess RAM usage from many uncompressed masks.
@@ -572,16 +634,20 @@ def combine_masks(config, boxes_and_compressed_masks ):
 
     # In theory this can return 'None' for the combined mask if the object is too small,
     # but we already filtered out 
-    combined_box, combined_mask_downsampled, chosen_downsample_factor = \
+    combined_box, combined_mask_downsampled, auto_chosen_downsample_factor = \
         assemble_masks( boxes,
                         masks,
-                        config["options"]["downsample-factor"],
+                        downsample_factor,
                         config["options"]["minimum-segment-size"],
                         config["options"]["max-analysis-volume"],
                         suppress_zero=True,
                         pad=1 ) # mesh generation requires 1-px halo of zeros
 
-    return (combined_box, combined_mask_downsampled, chosen_downsample_factor)
+    assert auto_chosen_downsample_factor == downsample_factor, \
+        f"The config/driver chose a downsampling factor {downsample_factor} that was "\
+        f"different than the one chosen by assemble_masks ({auto_chosen_downsample_factor})!"
+        
+    return (combined_box, combined_mask_downsampled, downsample_factor)
 
 
 def generate_mesh(config, combined_box, combined_mask, downsample_factor):
