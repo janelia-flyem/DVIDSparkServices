@@ -64,12 +64,6 @@ class CreateMeshes(Workflow):
                 "type": "integer",
                 "default": 1
             },
-            "use-subprocesses": {
-                "description": "Whether or not to generate meshes in a subprocess, \n"
-                               "to protect against timeouts and failures.\n",
-                "type": "boolean",
-                "default": False
-            },
             "storage": {
                 "description": "Options to group meshes in tarballs, if desired",
                 "type": "object",
