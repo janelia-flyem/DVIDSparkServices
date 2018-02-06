@@ -22,10 +22,22 @@ LabelMapSchema = \
             "default": ""
         },
         "file-type": {
+            "description": "Path to a CSV file containing supervoxel graph or mapping\n",
             "type": "string",
-            "enum": ["label-to-body",       # CSV file containing the direct mapping.  Rows are orig,new 
-                     "equivalence-edges",   # CSV file containing a list of label merges.
-                                            # (A label-to-body mapping is derived from this, via connected components analysis.)
+            "enum": [
+                        # CSV file containing the direct mapping.  Columns: orig,new
+                        "label-to-body",
+                        
+                        # CSV file containing a list of merged edges between adjacent
+                        # supervoxels within every body (but no inter-body edges).
+                        # Rows are sv1,sv2
+                        "body-rag",
+
+                        # CSV file containing a list of label merges.
+                        # Same format as a body-rag file, but with only a subset of the edges.
+                        # (A label-to-body mapping is derived from this, via connected components analysis.)
+                        "equivalence-edges",
+                        
                      "__invalid__"],
             "default": "__invalid__"
         },
@@ -91,10 +103,11 @@ def load_labelmap(labelmap_config, working_dir):
                 rows = csv.reader(csv_file)
                 all_items = chain.from_iterable(rows)
                 mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
-    elif labelmap_config["file-type"] == "equivalence-edges":
+
+    elif labelmap_config["file-type"] in ("equivalence-edges", "body-rag"):
         logger.info(f"Loading equivalence mapping from {path}")
         with Timer("Loading mapping", logger):
-            mapping_pairs = equivalence_mapping_from_edge_csv(path)
+            mapping_pairs = segment_to_body_mapping_from_edge_csv(path)
 
         # Export mapping to disk in case anyone wants to view it later
         output_dir, basename = os.path.split(path)
@@ -161,9 +174,13 @@ def groups_from_edges(edges):
     return groups
 
 
-def equivalence_mapping_from_edge_csv(csv_path, output_csv_path=None):
+def segment_to_body_mapping_from_edge_csv(csv_path, output_csv_path=None):
     """
-    Load and return the equivalence_mapping from the given csv_path of equivalence edges.
+    Load and return the a segment-to-body mapping (a.k.a. an "equivalence_mapping" in Brainmaps terminology,
+    from the given csv_path of equivalence edges (or complete merge graph).
+
+    That is, compute the groups "connected components" of the graph,
+    and map each node to its owning group.
     
     Each row represents an edge. For example:
     
