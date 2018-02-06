@@ -243,3 +243,41 @@ def equivalence_mapping_to_csv(mapping_pairs, output_path):
         with open(output_path, 'w') as f:
             csv.writer(f).writerows(mapping_pairs)
 
+def find_leaf_nodes_for_group(edges, group_id):
+    """
+    Exctract the graph of nodes for the given group,
+    then partition into the set of leaf and non-leaf nodes.
+    
+    Note: Obviously, 'edges' must include the complete merge graph for each body,
+          not merely an equivalence mapping or a label-to-body mapping.
+    """
+    import pandas as pd
+    import networkx as nx
+    g = nx.Graph()
+    g.add_edges_from(edges)
+    
+    group_nodes = nx.node_connected_component(g, group_id) # (Used in query below)
+
+    edge_df = pd.DataFrame(edges, columns=['u', 'v'])
+    group_edges = edge_df.query('u in @group_nodes or v in @group_nodes')
+    
+    return find_all_leaf_nodes(group_edges.values)
+
+def find_all_leaf_nodes(edges):
+    """
+    For a graph with the given edges [ndarray, shape == (N,2)],
+    return the list of nodes with only a single connection.
+
+    Note: Obviously, 'edges' must include the complete merge graph for each body,
+          not merely an equivalence mapping or a label-to-body mapping.
+    """
+    import pandas as pd
+    # Leaf nodes are simply those nodes only referred to in only a single edge
+    endpoint_counts = pd.Series(edges.ravel('K')).value_counts()
+    leaf_counts = endpoint_counts[ endpoint_counts == 1 ]
+    return np.array(leaf_counts.index)
+
+
+
+
+
