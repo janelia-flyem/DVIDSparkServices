@@ -389,7 +389,10 @@ class CopySegmentation(Workflow):
         # Translate coordinates from input to output
         # (which will leave the bricks in a new, offset grid)
         # This has no effect on the brick volumes themselves.
-        translated_wall = input_wall.translate(self.translation_offset_zyx)
+        if any(self.translation_offset_zyx):
+            translated_wall = input_wall.translate(self.translation_offset_zyx)
+        else:
+            translated_wall = input_wall # no translation needed
         del input_wall
 
         # For now, all output_configs are required to have identical grid alignment settings
