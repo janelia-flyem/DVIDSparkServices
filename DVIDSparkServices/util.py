@@ -38,14 +38,16 @@ def num_worker_nodes():
     return num_workers
     
 
-def persist_and_execute(rdd, description, logger=None):
-    from pyspark import StorageLevel
+def persist_and_execute(rdd, description, logger=None, storage=None):
+    if storage is None:
+        from pyspark import StorageLevel
+        storage = StorageLevel.MEMORY_ONLY
 
     if logger:
         logger.info(f"{description}...")
 
     with Timer() as timer:
-        rdd.persist(StorageLevel.MEMORY_AND_DISK)
+        rdd.persist(storage)
         count = rdd.count()
 
     if logger:

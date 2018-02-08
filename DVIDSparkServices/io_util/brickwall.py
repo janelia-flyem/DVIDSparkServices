@@ -95,8 +95,8 @@ class BrickWall:
         new_grid = Grid( self.grid.block_shape, self.grid.offset + offset_zyx )
         return BrickWall( new_bounding_box, new_grid, _bricks=translated_bricks )
 
-    def persist_and_execute(self, description, logger=None):
-        self.bricks = rt.persist_and_execute( self.bricks, description, logger )
+    def persist_and_execute(self, description, logger=None, storage=None):
+        self.bricks = rt.persist_and_execute( self.bricks, description, logger, storage )
     
     def unpersist(self):
         rt.unpersist(self.bricks)

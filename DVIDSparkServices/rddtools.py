@@ -95,7 +95,7 @@ def foreach(f, iterable):
         # Force execution
         reduce(lambda *_: None,  builtin_map(f, iterable))
 
-def persist_and_execute(rdd, description, logger=None):
+def persist_and_execute(rdd, description, logger=None, storage=None):
     """
     Persist and execute the given RDD or iterable.
     The persisted RDD is returned (in the case of an iterable, it may not be the original)
@@ -105,9 +105,11 @@ def persist_and_execute(rdd, description, logger=None):
 
     with Timer() as timer:
         if isinstance(rdd, _RDD):
-            from pyspark import StorageLevel
-        
-            rdd.persist(StorageLevel.MEMORY_AND_DISK)
+            if storage is None:
+                from pyspark import StorageLevel
+                storage = StorageLevel.MEMORY_ONLY
+
+            rdd.persist(storage)
             count = rdd.count() # force eval
         else:
             rdd = list(rdd) # force eval and 'persist' in a new list
