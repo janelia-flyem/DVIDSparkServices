@@ -119,6 +119,12 @@ class CopySegmentation(Workflow):
                            "to give DVID time to index the blocks we've sent so far.",
             "type": "integer",
             "default": 0,
+        },
+        "enable-indexing": {
+            "description": "Enable indexing on the new labelarray instance.\n"
+                           "(Should normally be left as the default (true), except for benchmarking purposes.)",
+            "type": "boolean",
+            "default": True
         }
     })
 
@@ -279,7 +285,8 @@ class CopySegmentation(Workflow):
                                    base_service.uuid,
                                    base_service.instance_name,
                                    pyramid_depth,
-                                   3*(base_service.block_width,) )
+                                   3*(base_service.block_width,),
+                                   enable_index=self.config_data["options"]["enable-indexing"] )
 
 
     def _read_pyramid_depth(self):

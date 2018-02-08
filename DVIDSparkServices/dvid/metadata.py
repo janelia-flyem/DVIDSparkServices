@@ -68,7 +68,7 @@ def is_node_locked(dvid_server, uuid):
 
 
 def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
-                      compression=Compression.DEFAULT ):
+                      compression=Compression.DEFAULT, enable_index=True ):
     """
     Create 64 bit labels data structure.
 
@@ -102,10 +102,16 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
 
     endpoint = "/repo/" + uuid + "/instance"
     blockstr = "%d,%d,%d" % (blocksize[2], blocksize[1], blocksize[0])
-    data = {"typename": typename, "dataname": name, "MaxDownresLevel": str(levels), "BlockSize": blockstr}
+    data = { "typename": typename,
+             "dataname": name,
+             "BlockSize": blockstr,
+             "IndexedLabels": enable_index,
+             "CountLabels": enable_index,
+             "MaxDownresLevel": str(levels) }
+    
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
-
+    
     try:
         conn.make_request(endpoint, ConnectionMethod.POST, json.dumps(data).encode('utf-8'))
     except DVIDException as ex:
