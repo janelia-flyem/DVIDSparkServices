@@ -105,8 +105,8 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
     data = { "typename": typename,
              "dataname": name,
              "BlockSize": blockstr,
-             "IndexedLabels": enable_index,
-             "CountLabels": enable_index,
+             "IndexedLabels": str(enable_index).lower(),
+             "CountLabels": str(enable_index).lower(),
              "MaxDownresLevel": str(levels) }
     
     if compression != Compression.DEFAULT:
