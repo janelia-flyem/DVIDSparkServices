@@ -12,7 +12,7 @@ class StatType:
     def __init__(self):
         self.segstats = None
 
-    @static_method 
+    @staticmethod 
     def iscustom_workflow():
         """Indicates whether plugin requires a specialized workflow.
         """

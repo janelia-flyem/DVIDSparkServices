@@ -197,8 +197,12 @@ class EvaluateSeg(DVIDWorkflow):
 
         #  grab ROI (no overlap and no neighbor checking)
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
-                self.chunksize)
-
+                self.chunksize, border=1)
+        def setBorderHack(subvolume):
+            subvolume.border = 0
+            return subvolume
+        distrois = distrois.mapValues(setBorderHack)
+        
         # check for self mode
         selfcompare = False
         dvidserver2 = ""

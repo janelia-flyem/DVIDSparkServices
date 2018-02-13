@@ -7,7 +7,7 @@ It provides functionality to hold stats for a given volume and top-level
 functionality to combine volume stats together.
 """
 class SubvolumeStats(object):
-    def __init__(self, subvolume, voxelfilter=1000, ptfilter=10, num_displaybodies=100, nogt=False, selfcompare=False, enable_sparse=False, important_bodies=None):
+    def __init__(self, subvolume, voxelfilter=1000, ptfilter=10, num_displaybodies=100, nogt=False, selfcompare=False, enable_sparse=False, important_bodies=None, subvolume_threshold=0):
         # TODO: support for skeletons
         self.subvolumes = [subvolume]
         self.disable_subvolumes = False 
@@ -21,13 +21,19 @@ class SubvolumeStats(object):
         self.gt_overlaps = []
         self.seg_overlaps = []
 
+        # bodies that touch edge of ROI
+        self.boundarybodies = set()
+        self.boundarybodies2 = set()
+
         self.voxelfilter = voxelfilter
         self.ptfilter = ptfilter
         self.num_displaybodies = num_displaybodies
         self.nogt = nogt
         self.selfcompare = selfcompare
         self.enable_sparse = enable_sparse
+        self.subvolume_threshold = subvolume_threshold
         self.important_bodies = set(important_bodies)
+        self.subvolsize = 0
 
     def compute_subvolume(self):
         """Performs metric computation for each stat and saves relevant state.
@@ -105,7 +111,10 @@ class SubvolumeStats(object):
                 self.subvolume_stats[iter1].reduce_subvolume(subvolume.subvolume_stats[iter1])
             
         self.subvolumes.extend(subvolume.subvolumes)
-        
+       
+        self.boundarybodies = self.boundarybodies.union(subvolume.boundarybodies)
+        self.boundarybodies2 = self.boundarybodies2.union(subvolume.boundarybodies2)
+
         # enable subvolume computation if one of the internal subvolumes is enabled
         if self.ignore_subvolume:
             self.ignore_subvolume = subvolume.ignore_subvolume

@@ -6,9 +6,11 @@ evaluate workflow.  Code requires pyspark to execute.
 """
 from __future__ import absolute_import
 from __future__ import division
+from  scipy.ndimage.morphology import binary_erosion
 import libNeuroProofMetrics as npmetrics
 import numpy
 import math
+from DVIDSparkServices.util import mask_roi
 
 # contains helper functions
 from DVIDSparkServices.reconutils.morpho import *
@@ -190,7 +192,7 @@ class Evaluate(object):
             for (body1, body2, overlap) in overlaps12:
                 overlaps21.append((body2, body1, overlap))
 
-            stats = SubvolumeStats(subvolume, self.body_threshold, self.point_threshold, self.num_displaybodies, self.no_gt, self.selfcompare, self.enable_sparse, self.important_bodies)
+            stats = SubvolumeStats(subvolume, self.body_threshold, self.point_threshold, self.num_displaybodies, self.no_gt, self.selfcompare, self.enable_sparse, self.important_bodies, self.subvolume_threshold)
             stats.disable_subvolumes = self.config["options"]["disable-subvolumes"]
 
             # load different metrics available
@@ -216,7 +218,34 @@ class Evaluate(object):
 
             self._load_subvolume_stats(stats, overlaps12, overlaps21,
                     comptype, labelgt_map, label2_map)
+          
+            # find bodies that touch ROI edge
            
+            # get mask for 3D volume with 1 pixel border
+            (zsize, ysize, xsize) = labelgt.shape
+            maskval = numpy.ones((zsize+2, ysize+2, xsize+2))
+            
+            # set border to work with API
+            subvolume.border = 1
+            mask_roi(maskval, subvolume, 1) 
+            subvolume.border = 0
+
+            # erode mask by 1
+            maskval = binary_erosion(maskval)
+            maskval = maskval[1:(zsize+1), 1:(ysize+1), 1:(xsize+1)]
+
+            # find all bodies on boundary
+            labelgtcp = labelgt.copy()
+            labelgtcp[maskval==1] = 0
+            boundary_bodies = set(numpy.unique(labelgtcp))
+            stats.boundarybodies = boundary_bodies
+            stats.subvolsize = labelgt.size
+
+            label2cp = label2.copy()
+            label2cp[maskval==1] = 0
+            boundary_bodies2 = set(numpy.unique(label2cp))
+            stats.boundarybodies2 = boundary_bodies2
+
             # keep volumes for subsequent point queries
             return (stats, labelgt_map, label2_map,
                     labelgt.astype(numpy.uint64),
@@ -443,7 +472,7 @@ class Evaluate(object):
             subvolstats = subvolstats_computed.map(extractstats).collect()
             # set allsubvolume_metrics
             for (sid, subvolstat) in subvolstats:
-                if sid in allsubvol_metrics:
+                if sid in allsubvolume_metrics:
                     allsubvolume_metrics[sid].extend(subvolstat)
                 else:
                     allsubvolume_metrics[sid] = subvolstat

@@ -6,7 +6,7 @@ class orphans_stat(StatType):
     def __init__(self):
         super(orphans_stat, self).__init__()
 
-    @static_method 
+    @staticmethod 
     def iscustom_workflow():
         """Indicates whether plugin requires a specialized workflow.
         """
@@ -31,11 +31,6 @@ class orphans_stat(StatType):
         if len(segstats_accum.important_bodies) > 0:
             return summary_stats, [], {}
 
-
-        # ?! need segstat to keep track of bodies that leave (each subvolume can access ROI, make a mask 32 pixels larger than subvolume -- erode mask by one pixel and find bodies that touch global boundary)
-        # ?! need to create ignore subvolume with orphans accounted for in Evaluate
-        # ?! if body is smaller than threshold but touches global, filter out
-
         bigbodies_gt = []
         bigbodies_seg = []
         for onum, gotable in enumerate(segstats_accum.gt_overlaps):
@@ -55,6 +50,9 @@ class orphans_stat(StatType):
                     total += overlap
                 if total >= body_threshold:
                     bigbodies.add(gt)
+                elif gt in segstats.boundarybodies:
+                    # completely ignore small bodies on boundary
+                    pass
                 else:
                     smallbodies += 1
 
@@ -70,6 +68,9 @@ class orphans_stat(StatType):
                             total += overlap
                     if total >= body_threshold:
                         segbigbodies.add(seg)
+                    elif seg in segstats.boundarybodies2:
+                        # completely ignore small bodies on boundary
+                        pass
                     else:
                         segsmallbodies += 1
                 
@@ -94,16 +95,31 @@ class orphans_stat(StatType):
                 # create subvolume stat
                 # (hide if small)
                 num_gtorphans = 0
+                
+                subvolumesize = 0
                 for gt, overlapset in gotable.overlap_map.items():
-                    if gt not in bigbodies_gt:
+                    total = self._get_body_volume(overlapset)
+                    if gt not in bigbodies_gt and gt not in stat.boundarybodies:
+                        # small bodies not touching the edge
                         num_gtorphans += 1
-           
+                        subvolumesize += total
+                    if gt in bigbodies_gt:
+                        subvolumesize += total
+      
+                # filter small subvolumes (remove boundary orphans)
+                ignoresubvolume = False
+                if stat.subvolume_threshold > float(subvolumesize / stat.subvolsize):
+                    ignoresubvolume = True    
+
+
                 if not segstats_accum.selfcompare:
                     num_segorphans = 0
                     for seg, overlapset in sotable.overlap_map.items():
-                        num_segorphans += 1
-                    sumstat = {"name": "orphans", "typename": gotable.get_name(), "val": num_segorphans-num_gtorphans, "higher-better": False}
-                    sumstat["description"] = "%d seg orphans, %d gt orphans" % (num_segorphans, num_gtorphans, "ignore": stat.ignore_subvolume)                 
+                        if seg not in bigbodies_seg and seg not in stat.boundarybodies2:
+                            # small bodies not touching the edge
+                            num_segorphans += 1
+                    sumstat = {"name": "orphans", "typename": gotable.get_name(), "val": num_segorphans-num_gtorphans, "higher-better": False, "ignore": ignoresubvolume}
+                    sumstat["description"] = "%d seg orphans, %d gt orphans" % (num_segorphans, num_gtorphans)                 
                     summary_stats.append(sumstat)
                     if not stat.ignore_subvolume:
                         subval[gotable.get_name()] = num_segorphans-num_gtorphans
@@ -123,7 +139,7 @@ class orphans_stat(StatType):
         subvol_metrics = {}
         maxvals = {}
         minvals = {} 
-        for (sid, subval, sumstats) in subvolres
+        for (sid, subval, sumstats) in subvolres:
             subvol_metrics[sid] = subvolstat
             for typename, val in subval.items():
                 val2 = 0
