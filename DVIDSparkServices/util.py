@@ -38,14 +38,16 @@ def num_worker_nodes():
     return num_workers
     
 
-def persist_and_execute(rdd, description, logger=None):
-    from pyspark import StorageLevel
+def persist_and_execute(rdd, description, logger=None, storage=None):
+    if storage is None:
+        from pyspark import StorageLevel
+        storage = StorageLevel.MEMORY_ONLY
 
     if logger:
         logger.info(f"{description}...")
 
     with Timer() as timer:
-        rdd.persist(StorageLevel.MEMORY_AND_DISK)
+        rdd.persist(storage)
         count = rdd.count()
 
     if logger:
@@ -103,12 +105,17 @@ class NumpyConvertingEncoder(json.JSONEncoder):
         return super().default(o)
 
 @contextlib.contextmanager
-def Timer():
-    result = _TimerResult
+def Timer(msg=None, logger=None):
+    if msg:
+        logger = logger or logging.getLogger(__name__)
+        logger.info(msg + '...')
+    result = _TimerResult()
     start = time.time()
     yield result
     result.seconds = time.time() - start
     result.timedelta = timedelta(seconds=result.seconds)
+    if msg:
+        logger.info(msg + f' took {result.timedelta}')
 
 class _TimerResult(object):
     seconds = -1.0

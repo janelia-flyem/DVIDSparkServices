@@ -9,7 +9,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries, Timer, box_to_slicing
-from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid
+from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid, slabs_from_box
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema, TransposedVolumeService
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -53,8 +53,8 @@ class ConvertGrayscaleVolume(Workflow):
         },
         "transpose-axes": {
             "description": "How to transpose/rotate the input volume before writing it out.\n"
-                           "Note: This setting is specified in ZYX order.\n"
-                           "      The default (['z', 'y', 'x']) is 'no-op'.",
+                           "Note: This setting is specified in XYZ order.\n"
+                           "      The default (['x', 'y', 'z']) is 'no-op'.",
             "type": "array",
             "items": { "type": "string" },
             "minItems": 3,
@@ -100,9 +100,6 @@ class ConvertGrayscaleVolume(Workflow):
 
         self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
         self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
-
-        if options["transpose-axes"] != TransposedVolumeService.NO_TRANSPOSE:
-            self.input_service = TransposedVolumeService( self.input_service, options["transpose-axes"] )
 
         replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
         self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
@@ -188,29 +185,7 @@ class ConvertGrayscaleVolume(Workflow):
         min_scale = options["min-pyramid-scale"]
         max_scale = options["max-pyramid-scale"]
         for scale in range(min_scale, max_scale+1):
-            scaled_input_bb_zyx = np.zeros((2,3), dtype=int)
-            scaled_input_bb_zyx[0] = input_bb_zyx[0] // 2**scale # round down
-            
-            # Proper downsampled bounding-box would round up here...
-            #scaled_input_bb_zyx[1] = (input_bb_zyx[1] + 2**scale - 1) // 2**scale
-            
-            # ...but some some services probably don't do that, so we'll
-            # round down to avoid out-of-bounds errors for higher scales. 
-            scaled_input_bb_zyx[1] = input_bb_zyx[1] // 2**scale
-
-            # Data is processed in Z-slabs
-            # Auto-choose a depth that keeps all threads busy with at least one output brick
-            output_brick_shape_zyx = self.output_service.preferred_message_shape
-            output_brick_depth = output_brick_shape_zyx[0]
-            assert output_brick_depth != -1
-            
-            slab_shape_zyx = scaled_input_bb_zyx[1] - scaled_input_bb_zyx[0]
-            slab_shape_zyx[0] = options["slab-depth"]
-    
-            # This grid outlines the slabs -- each box in slab_grid is a full slab
-            slab_grid = Grid(slab_shape_zyx, scaled_input_bb_zyx[0])
-            slab_boxes = list(clipped_boxes_from_grid(scaled_input_bb_zyx, slab_grid))
-    
+            slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], scale, 'round-down'))
             for slab_index, slab_box_zyx in enumerate(slab_boxes):
                 self._convert_slab(scale, slab_box_zyx, slab_index, len(slab_boxes))
             logger.info(f"Done exporting {len(slab_boxes)} slabs for scale {scale}.", extra={'status': f"DONE with scale {scale}"})

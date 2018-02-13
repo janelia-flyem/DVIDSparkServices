@@ -1,15 +1,13 @@
-import os
-import csv
 import logging
-import subprocess
-from itertools import starmap, chain
+from itertools import starmap
 from functools import partial
 
 import numpy as np
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
-from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
+from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +16,10 @@ class Grid:
     Describes a blocking scheme, which is simply a grid block shape,
     and an offset coordinate for the first block in the grid.
     """
-    def __init__(self, block_shape, offset=(0,0,0)):
-        assert len(block_shape) == len(offset) == 3
+    def __init__(self, block_shape, offset=None):
+        if offset is None:
+            offset = (0,)*len(block_shape)
+        assert len(block_shape) == len(offset)
         self.block_shape = np.asarray(block_shape)
         self.offset = np.asarray(offset)
         self.modulus_offset = self.offset % block_shape
@@ -46,10 +46,13 @@ class Brick:
     def __init__(self, logical_box, physical_box, volume):
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
-        self.volume = volume
+        self._volume = volume
         assert (self.physical_box[1] - self.physical_box[0] == self.volume.shape).all()
         assert (self.physical_box[0] >= self.logical_box[0]).all()
         assert (self.physical_box[1] <= self.logical_box[1]).all()
+        
+        # Used for pickling.
+        self._compressed_volume = None
 
     def __hash__(self):
         return hash(tuple(self.logical_box[0]))
@@ -59,6 +62,37 @@ class Brick:
             return f"logical & physical: {self.logical_box.tolist()}"
         return f"logical: {self.logical_box.tolist()}, physical: {self.physical_box.tolist()}"
 
+    @property
+    def volume(self):
+        """
+        The volume is decompressed lazily.
+        See __getstate__() for explanation.
+        """
+        if self._volume is None:
+            assert self._compressed_volume is not None
+            self._volume = self._compressed_volume.deserialize()
+        return self._volume
+    
+    def __getstate__(self):
+        """
+        Pickle representation.
+        
+        By default, the volume would be compressed/decompressed transparently via
+        the code in CompressedNumpyArray.py, but we want decompression to be
+        performed lazily.
+        
+        Therefore, we explicitly compress the volume here, and decompress it only
+        first upon access, via the self.volume property.
+        
+        This avoids decompression during certain Spark operations that don't
+        require actual manipulation of the voxels, notably groupByKey().
+        """
+        if self._volume is not None:
+            self._compressed_volume = CompressedNumpyArray(self._volume)
+
+        d = self.__dict__.copy()
+        d['_volume'] = None
+        return d
 
 def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None ):
     """
@@ -231,66 +265,6 @@ def apply_labelmap_to_bricks(bricks, labelmap_config, working_dir, unpersist_ori
 
     return remapped_bricks
 
-def load_labelmap(labelmap_config, working_dir):
-    """
-    Load a labelmap file as specified in the given labelmap_config,
-    which must conform to LabelMapSchema.
-    
-    If the labelmapfile exists on gbuckets, it will be downloaded first.
-    If it is gzip-compressed, it will be unpacked.
-    
-    The final downloaded/uncompressed file will be saved into working_dir,
-    and the final path will be overwritten in the labelmap_config.
-    """
-    path = labelmap_config["file"]
-
-    # path is [gs://]/path/to/file.csv[.gz]
-
-    # If the file is in a gbucket, download it first (if necessary)
-    if path.startswith('gs://'):
-        filename = path.split('/')[-1]
-        downloaded_path = working_dir + '/' + filename
-        if not os.path.exists(downloaded_path):
-            cmd = f'gsutil -q cp {path} {downloaded_path}'
-            logger.info(cmd)
-            subprocess.check_call(cmd, shell=True)
-        path = downloaded_path
-
-    # Now path is /path/to/file.csv[.gz]
-    
-    if not os.path.exists(path) and os.path.exists(path + '.gz'):
-        path = path + '.gz'
-
-    # If the file is compressed, decompress it
-    if os.path.splitext(path)[1] == '.gz':
-        uncompressed_path = path[:-3] # drop '.gz'
-        if not os.path.exists(uncompressed_path):
-            subprocess.check_call(f"gunzip {path}", shell=True)
-            assert os.path.exists(uncompressed_path), \
-                "Tried to uncompress the labelmap CSV file... where did it go?"
-        path = uncompressed_path # drop '.gz'
-
-    # Now path is /path/to/file.csv
-    # Overwrite the final downloaded/upacked location
-    labelmap_config['file'] = path
-
-    # Mapping is only loaded into numpy once, on the driver
-    if labelmap_config["file-type"] == "label-to-body":
-        with open(path, 'r') as csv_file:
-            rows = csv.reader(csv_file)
-            all_items = chain.from_iterable(rows)
-            mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
-    elif labelmap_config["file-type"] == "equivalence-edges":
-        mapping_pairs = BrainMapsVolume.equivalence_mapping_from_edge_csv(path)
-
-        # Export mapping to disk in case anyone wants to view it later
-        output_dir, basename = os.path.split(path)
-        mapping_csv_path = f'{output_dir}/LABEL-TO-BODY-{basename}'
-        if not os.path.exists(mapping_csv_path):
-            with open(mapping_csv_path, 'w') as f:
-                csv.writer(f).writerows(mapping_pairs)
-
-    return mapping_pairs
 
 def apply_label_mapping(bricks, mapping_pairs):
     """
@@ -315,6 +289,11 @@ def apply_label_mapping(bricks, mapping_pairs):
         
         partition_bricks = list(partition_bricks)
         for brick in partition_bricks:
+            # TODO: Apparently LabelMapper can't handle non-contiguous arrays right now.
+            #       (It yields incorrect results)
+            #       Check to see if this is still a problem in the latest version of xtensor-python.
+            brick.volume = np.asarray( brick.volume, order='C' )
+            
             mapper.apply_inplace(brick.volume, allow_unmapped=True)
         return partition_bricks
     
@@ -341,7 +320,8 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
     new_logical_boxes_and_brick_fragments = rt.flat_map( partial(split_brick, new_grid), original_bricks )
 
     # Group fragments according to their new homes
-    grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
+    #grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
+    grouped_brick_fragments = rt.frugal_group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
     new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)
@@ -490,3 +470,63 @@ def clipped_boxes_from_grid(bounding_box, grid):
     for box in boxes_from_grid(bounding_box, grid):
         yield box_intersection(box, bounding_box)
 
+def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out', slab_cutting_axis=0 ):
+    """
+    Generator.
+    
+    Divide a bounding box into several 'slabs' stacked along a particular axis,
+    after optionally reducing the bounding box to a reduced scale.
+    
+    Note: The output slabs are aligned to multiples of the slab depth.
+          For example, if full_res_box starts at 3 and slab_depth=10,
+          then the first slab will span [3,10], and the second slab will span from [10,20].
+    
+    full_res_box: (start, stop)
+        The original bounding-box, in full-res coordinates
+    
+    slab_depth: (int)
+        The desired width of the output slabs.
+        This will be the size of the output slabs, regardless of any scaling applied.
+    
+    scale:
+        Reduce the bounding-box to a smaller scale before computing the output slabs.
+        
+    scaling_policy:
+        For scale > 0, the input bounding box is reduced.
+        For bounding boxes that aren't divisible by 2*scale, the start/stop coordinates must be rounded up or down.
+        Choices are:
+            'round-out': Expand full_res_box to the next outer multiple of 2**scale before scaling down.
+            'round-in': Shrink full_res_box to the next inner multiple of 2**scale before scaling down.
+            'round-down': Round down on full_res_box (both start and stop) before scaling down.
+    
+    slab_cutting_axes:
+        Which axis to cut across to form the stacked slabs. Default is Z (assuming ZYX order).
+    """
+    assert scaling_policy in ('round-out', 'round-in', 'round-down')
+    full_res_box = np.asarray(full_res_box)
+
+    scaled_input_bb_zyx = np.zeros((2,3), dtype=int)
+    
+    if scaling_policy == 'round-out':
+        scaled_input_bb_zyx[0] = full_res_box[0] // 2**scale                  # round down
+        scaled_input_bb_zyx[1] = (full_res_box[1] + 2**scale - 1) // 2**scale # round up
+        
+    elif scaling_policy == 'round-in':
+        scaled_input_bb_zyx[0] = (full_res_box[0] + 2**scale - 1) // 2**scale  # round up
+        scaled_input_bb_zyx[1] = full_res_box[1] // 2**scale                   # round down
+
+    elif scaling_policy == 'round-down':
+        scaled_input_bb_zyx[0] = full_res_box[0] // 2**scale  # round down
+        scaled_input_bb_zyx[1] = full_res_box[1] // 2**scale  # round down
+
+    slab_shape_zyx = scaled_input_bb_zyx[1] - scaled_input_bb_zyx[0]
+    slab_shape_zyx[slab_cutting_axis] = slab_depth
+
+    # This grid outlines the slabs -- each box in slab_grid is a full slab
+    grid_offset = scaled_input_bb_zyx[0].copy()
+    grid_offset[slab_cutting_axis] = 0 # See note about slab alignment, above.
+    
+    slab_grid = Grid(slab_shape_zyx, grid_offset)
+    slab_boxes = clipped_boxes_from_grid(scaled_input_bb_zyx, slab_grid)
+    
+    return slab_boxes

@@ -266,6 +266,8 @@ def flat_binary_mode(data):
         return 1
     return 0
 
+# Signature:
+# reduced_output, reduced_box = f(data, block_shape, data_box=None)
 downsample_labels_3d = make_blockwise_reducer_3d(flat_mode)
 downsample_binary_3d = make_blockwise_reducer_3d(flat_binary_mode)
 

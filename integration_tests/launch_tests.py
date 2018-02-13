@@ -352,6 +352,9 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
 
     tests["test_skeletons"] = "CreateSkeletons"
     tests["test_meshes"] = "CreateSkeletons"
+    
+    tests["test_meshes_grouped"] = "CreateMeshes"
+    
     tests["test_cc"] = "ConnectedComponents"
     tests["test_comp"] = "EvaluateSeg"
     tests["test_graph"] = "ComputeGraph"

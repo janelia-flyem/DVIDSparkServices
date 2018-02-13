@@ -78,12 +78,17 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
             f"Preferred message shape for slice files must be a single Z-slice, and a complete XY output plane ({output_slice_shape}), "\
             f"not {preferred_message_shape_zyx}"
 
+        available_scales = volume_config["geometry"]["available-scales"]
+        assert available_scales == [0], \
+            "Bad config: slice-files reader supports only scale zero."
+
         # Store members
         self._slice_fmt = slice_fmt
         self._dtype = dtype
         self._dtype_nbytes = np.dtype(dtype).type().nbytes
         self._bounding_box_zyx = bounding_box_zyx
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
+        self._available_scales = available_scales
 
         # Overwrite config entries that we might have modified
         volume_config["slice-files"]["slice-path-format"] = slice_fmt
@@ -111,6 +116,10 @@ class SliceFilesVolumeServiceReader(VolumeServiceReader):
     @property
     def bounding_box_zyx(self):
         return self._bounding_box_zyx
+
+    @property
+    def available_scales(self):
+        return self._available_scales
 
     def get_subvolume(self, box_zyx, scale=0):
         assert scale == 0, "Slice File reader only supports scale 0"

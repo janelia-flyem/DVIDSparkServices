@@ -62,7 +62,7 @@ class TestCompressedNumpyArray(object):
         compress = assert_mem_usage_factor(0.0)(CompressedNumpyArray)
         compressed = compress( original )
 
-        # No new numpy arrays needed for deserialization except for the resut itself.
+        # No new numpy arrays needed for deserialization except for the result itself.
         uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)
         uncompressed = uncompress()
 
@@ -84,6 +84,64 @@ class TestCompressedNumpyArray(object):
             assert (original == deserialized).all()
         finally:
             CompressedNumpyArray.MAX_LZ4_BUFFER_SIZE = orig_max_size
+
+    def test_uint64_blocks(self):
+        """
+        CompressedNumpyArray uses special compression for labels (uint64),
+        as long as they are aligned to 64px sizes.
+        """
+        original = np.random.randint(1, 100, (128,128,128), np.uint64)
+        assert original.flags['C_CONTIGUOUS']
+
+        # RAM is allocated for the compressed buffers, but there should be only small numpy array allocations
+        # (Each block must be copied once to a C-contiguous buffer when it is compressed.)
+        factor = (64.**3 / 128.**3) * 1.01 # 1% fudge-factor
+        compress = assert_mem_usage_factor(factor)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        # No new numpy arrays needed for deserialization except for the result itself.
+        # (Though there are some copies on the C++ side, not reflected here.)
+        uncompress = assert_mem_usage_factor(1.0, comparison_input_arg=original)(compressed.deserialize)
+        uncompressed = uncompress()
+
+        assert uncompressed.flags['C_CONTIGUOUS']
+        assert (uncompressed == original).all()
+
+    def test_uint64_nonblocks(self):
+        """
+        CompressedNumpyArray uses special compression for labels (uint64).
+        It handles non-aligned data in a somewhat clumsy way, so the RAM requirements are higher.
+        """
+        original = np.random.randint(1, 100, (100,100,100), np.uint64) # Not 64px block-aligned
+        assert original.flags['C_CONTIGUOUS']
+
+        # Copies are needed.
+        compress = assert_mem_usage_factor(3.0)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        uncompress = assert_mem_usage_factor(3.0, comparison_input_arg=original)(compressed.deserialize)        
+        uncompressed = uncompress()
+
+        assert (uncompressed == original).all()
+
+    def test_boolean_nonblocks(self):
+        """
+        CompressedNumpyArray uses special compression for binary images (bool).
+        """
+        original = np.random.randint(0, 1, (100,100,100), np.bool)
+        assert original.flags['C_CONTIGUOUS']
+
+        # Some copying is required, especially for non-block aligned data.
+        compress = assert_mem_usage_factor(3.0)(CompressedNumpyArray)
+        compressed = compress( original )
+
+        # Some copying is required, especially for non-block aligned data.
+        uncompress = assert_mem_usage_factor(5.0, comparison_input_arg=original)(compressed.deserialize)
+        uncompressed = uncompress()
+
+        assert uncompressed.flags['C_CONTIGUOUS']
+        assert (uncompressed == original).all()
+
 
 if __name__ == "__main__":
     import sys

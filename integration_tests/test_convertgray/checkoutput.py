@@ -8,8 +8,8 @@ from libdvid import DVIDNodeService
 
 from DVIDSparkServices.util import bb_to_slicing
 
-#dirpath = sys.argv[1]
-dirpath = '/magnetic/workspace/DVIDSparkServices/integration_tests/test_convertgray'
+dirpath = sys.argv[1]
+#dirpath = '/magnetic/workspace/DVIDSparkServices/integration_tests/test_convertgray'
 
 configs = glob.glob(dirpath + "/temp_data/config.*")
 assert len(configs) == 1, "Why does the temp_dir have more than one config.* file?"

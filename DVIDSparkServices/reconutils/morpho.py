@@ -375,8 +375,9 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
         max_coord = acc['Coord<Maximum >'][label].astype(int)
         box_local = np.array((min_coord, 1+max_coord))
         
-        mask = (consecutive_seg[bb_to_slicing(*box_local)] == label).view(np.uint8)
+        mask = (consecutive_seg[bb_to_slicing(*box_local)] == label)
         if compress_masks:
+            assert mask.dtype == np.bool # CompressedNumpyArray has special support for boolean masks.
             mask = CompressedNumpyArray(mask)
 
         body_id = consecutive_to_bodies[label]
@@ -462,7 +463,7 @@ def assemble_masks( boxes, masks, downsample_factor=0, minimum_object_size=1, ma
     combined_downsampled_box = downsample_box( combined_box, block_shape )
     combined_downsampled_box_shape = combined_downsampled_box[1] - combined_downsampled_box[0]
 
-    combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.uint8 )
+    combined_mask_downsampled = np.zeros( combined_downsampled_box_shape, dtype=np.bool )
 
     if suppress_zero:
         downsample_func = downsample_binary_3d_suppress_zero
@@ -608,16 +609,17 @@ def stitch(sc, label_chunks):
         # determine which interface there is touching between subvolumes 
         if subvolume1.touches(subvolume1.box.x1, subvolume1.box.x2,
                               subvolume2.box.x1, subvolume2.box.x2):
-            x1 = x2/2 
+            x1 = x2 // 2
             x2 = x1 + 1
+
         if subvolume1.touches(subvolume1.box.y1, subvolume1.box.y2,
                               subvolume2.box.y1, subvolume2.box.y2):
-            y1 = y2/2 
+            y1 = y2 // 2
             y2 = y1 + 1
         
         if subvolume1.touches(subvolume1.box.z1, subvolume1.box.z2,
                               subvolume2.box.z1, subvolume2.box.z2):
-            z1 = z2/2 
+            z1 = z2 // 2
             z2 = z1 + 1
 
         eligible_bodies = set(numpy.unique(boundary2[z1:z2, y1:y2, x1:x2]))

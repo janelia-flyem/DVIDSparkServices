@@ -63,6 +63,31 @@ def group_by_key(iterable):
             partitions[k].append(v)
         return partitions.items()
 
+def frugal_group_by_key(iterable):
+    """
+    Like group_by_key, but uses combineByKey(),
+    which involves more steps but is more RAM-efficient in Spark.
+    """
+    if isinstance(iterable, _RDD):
+        # Use combineByKey to avoid loading
+        # all partitions into RAM at once.
+        def create_combiner(val):
+            return [val]
+        
+        def merge_value(left_list, right_val):
+            left_list.append(right_val)
+            return left_list
+        
+        def merge_combiners( left_list, right_list ):
+            left_list.extend(right_list)
+            return left_list
+        
+        return iterable.combineByKey( create_combiner, merge_value, merge_combiners )
+    else:
+        # FIXME: Just call the regular group_by_key
+        return group_by_key(iterable)
+    
+
 def foreach(f, iterable):
     if isinstance(iterable, _RDD):
         iterable.foreach(f)
@@ -70,7 +95,7 @@ def foreach(f, iterable):
         # Force execution
         reduce(lambda *_: None,  builtin_map(f, iterable))
 
-def persist_and_execute(rdd, description, logger=None):
+def persist_and_execute(rdd, description, logger=None, storage=None):
     """
     Persist and execute the given RDD or iterable.
     The persisted RDD is returned (in the case of an iterable, it may not be the original)
@@ -80,9 +105,11 @@ def persist_and_execute(rdd, description, logger=None):
 
     with Timer() as timer:
         if isinstance(rdd, _RDD):
-            from pyspark import StorageLevel
-        
-            rdd.persist(StorageLevel.MEMORY_AND_DISK)
+            if storage is None:
+                from pyspark import StorageLevel
+                storage = StorageLevel.MEMORY_ONLY
+
+            rdd.persist(storage)
             count = rdd.count() # force eval
         else:
             rdd = list(rdd) # force eval and 'persist' in a new list

@@ -1,0 +1,38 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/tmp/61e9a328-b83b-11e7-b915-a45e60e933fb', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/61e9a328-b83b-11e7-b915-a45e60e933fb
+INFO [2017-10-23 17:44:46,378] workflow Started logserver on 10.101.10.102:3000
+CreateSkeletons: Started [2017-10-23 17:44:46]
+INFO [2017-10-23 17:44:46,794] util Downloading segmentation...
+INFO [2017-10-23 17:44:55,777] util Downloading segmentation (N=16) took 0:00:08.981163
+INFO [2017-10-23 17:44:55,780] util Computing brick-local masks...
+INFO [2017-10-23 17:44:57,029] util Computing brick-local masks (N=892) took 0:00:01.247080
+INFO [2017-10-23 17:44:57,068] util Grouping masks by body id...
+INFO [2017-10-23 17:44:57,346] util Grouping masks by body id (N=300) took 0:00:00.276437
+INFO [2017-10-23 17:44:57,349] util Filtering masks by size...
+INFO [2017-10-23 17:44:57,454] util Filtering masks by size (N=100) took 0:00:00.103041
+INFO [2017-10-23 17:44:57,458] util Downsampling and aggregating masks...
+INFO [2017-10-23 17:45:58,331] util Downsampling and aggregating masks (N=100) took 0:01:00.871408
+INFO [2017-10-23 17:45:58,394] util Computing skeletons...
+INFO [2017-10-23 17:46:08,495] util Computing skeletons (N=100) took 0:00:10.097975
+INFO [2017-10-23 17:46:08,710] CreateSkeletons Writing skeletons to DVID took 0.1764049530029297
+INFO [2017-10-23 17:46:08,712] util Computing meshes...
+INFO [2017-10-23 17:46:28,385] util Computing meshes (N=100) took 0:00:19.671705
+INFO [2017-10-23 17:46:28,830] CreateSkeletons Writing meshes to DVID took 0.403109073638916
+CreateSkeletons: Finished [2017-10-23 17:46:28]
+INFO [2017-10-23 17:46:28,834] workflow No worker init processes to kill
+INFO [2017-10-23 17:46:28,836] workflow No driver init process to kill
+INFO [2017-10-23 17:46:28,849] workflow Terminating logserver (PID 23061)
+Log server killed via external signal: SystemExit
+Traceback (most recent call last):
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 193, in _run_module_as_main
+    "__main__", mod_spec)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 85, in _run_code
+    exec(code, run_globals)
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 246, in <module>
+    close_all()
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 163, in close_all
+    f.close()
+KeyboardInterrupt
+INFO [2017-10-23 17:46:30,856] util Successfully interrupted process 23061
+INFO [2017-10-23 17:46:30,856] util Interrupted process was: /miniforge/envs/flyem-forge/bin/python -m logcollector.logserver --log-dir=/tmp/61e9a328-b83b-11e7-b915-a45e60e933fb --port=3000

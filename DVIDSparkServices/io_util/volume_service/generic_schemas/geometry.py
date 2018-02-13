@@ -41,6 +41,15 @@ GeometrySchema = \
             "description": "The block size of the underlying volume storage, if applicable.",
             "type": "integer",
             "default": -1
-        } 
+        },
+        
+        "available-scales": {
+            "description": "The list of available scales for the volume source.",
+            "type": "array",
+            "items": { "type": "integer" },
+            "minItems": 1,
+            "maxItems": 10,
+            "default": [0]
+        }
     }
 }

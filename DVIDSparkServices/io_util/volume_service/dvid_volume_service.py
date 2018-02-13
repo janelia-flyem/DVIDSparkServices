@@ -11,7 +11,7 @@ from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize
 
-from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter
+from . import GeometrySchema, VolumeServiceReader, VolumeServiceWriter, NewAxisOrderSchema, RescaleLevelSchema, LabelMapSchema
 
 DvidServiceSchema = \
 {
@@ -68,6 +68,7 @@ DvidSegmentationServiceSchema = \
 
     "required": DvidServiceSchema["required"] + ["segmentation-name"],
     "default": {},
+#    "additionalProperties": False,
     "properties": {
         "segmentation-name": {
             "description": "The labels instance to read/write from. \n"
@@ -83,9 +84,13 @@ DvidGenericVolumeSchema = \
     "description": "Schema for a generic dvid volume",
     "type": "object",
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "dvid": { "oneOf": [DvidGrayscaleServiceSchema, DvidSegmentationServiceSchema] },
-        "geometry": GeometrySchema
+        "geometry": GeometrySchema,
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema,
+        "apply-labelmap": LabelMapSchema
     }
 }
 
@@ -94,9 +99,13 @@ DvidSegmentationVolumeSchema = \
     "description": "Schema for a segmentation dvid volume", # (for when a generic SegmentationVolumeSchema won't suffice)
     "type": "object",
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "dvid": DvidSegmentationServiceSchema,
-        "geometry": GeometrySchema
+        "geometry": GeometrySchema,
+        "transpose-axes": NewAxisOrderSchema,
+        "rescale-level": RescaleLevelSchema,
+        "apply-labelmap": LabelMapSchema
     }
 }
 
@@ -178,6 +187,11 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         replace_default_entries(preferred_message_shape_zyx, [block_width, block_width, 100*block_width])
 
         ##
+        ## available-scales
+        ##
+        available_scales = list(volume_config["geometry"]["available-scales"])
+
+        ##
         ## resource_manager_client
         ##
         if resource_manager_client is None:
@@ -191,6 +205,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         self._block_width = block_width
         self._bounding_box_zyx = bounding_box_zyx
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
+        self._available_scales = available_scales
 
         # Memoized in the node_service property.
         self._node_service = None
@@ -201,6 +216,21 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         volume_config["geometry"]["block-width"] = self._block_width
         volume_config["geometry"]["bounding-box"] = self._bounding_box_zyx[:,::-1].tolist()
         volume_config["geometry"]["message-block-shape"] = self._preferred_message_shape_zyx[::-1].tolist()
+
+        # TODO: Check the server for available scales and overwrite in the config?
+        #volume_config["geometry"]["available-scales"] = [0]
+
+    @property
+    def server(self):
+        return self._server
+
+    @property
+    def uuid(self):
+        return self._uuid
+    
+    @property
+    def instance_name(self):
+        return self._instance_name
 
     @property
     def node_service(self):
@@ -226,11 +256,15 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     def bounding_box_zyx(self):
         return self._bounding_box_zyx
 
+    @property
+    def available_scales(self):
+        return self._available_scales
+
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.
     # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
     @auto_retry(2, pause_between_tries=5*60.0, logging_name=__name__,
-                predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
+                predicate=lambda ex: '503' in str(ex.args[0]) or '504' in str(ex.args[0]))
     @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
     def get_subvolume(self, box_zyx, scale=0):
         shape = np.asarray(box_zyx[1]) - box_zyx[0]
@@ -254,7 +288,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     # 1. Auto-retry up to three time for any reason.
     # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
     @auto_retry(2, pause_between_tries=5*60.0, logging_name=__name__,
-                predicate=lambda ex: '503' in ex.args[0] or '504' in ex.args[0])
+                predicate=lambda ex: '503' in str(ex.args[0]) or '504' in str(ex.args[0]))
     @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
     def write_subvolume(self, subvolume, offset_zyx, scale):
         req_bytes = self._dtype_nbytes * np.prod(subvolume.shape)

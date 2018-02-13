@@ -1,5 +1,4 @@
 import os
-import csv
 import json
 from itertools import chain
 
@@ -8,6 +7,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 import numpy as np
 import snappy
+
+from .labelmap_utils import groups_from_edges, mapping_from_groups
 
 # DEBUG 'logging' (Doesn't actually use logging module)
 #import httplib2
@@ -18,7 +19,7 @@ BRAINMAPS_BASE_URL = f'https://brainmaps.googleapis.com/{BRAINMAPS_API_VERSION}'
 
 
 class BrainMapsVolume:
-    def __init__(self, project, dataset, volume_id, change_stack_id="", dtype=None, skip_checks=False):
+    def __init__(self, project, dataset, volume_id, change_stack_id="", dtype=None, skip_checks=False, use_gzip=True):
         """
         Utility for accessing subvolumes of a BrainMaps volume.
         Instances of this class are pickleable, but they will have to re-authenticate after unpickling.
@@ -48,6 +49,7 @@ class BrainMapsVolume:
         self.change_stack_id = change_stack_id
         self.skip_checks = skip_checks
         self._dtype = None # Assigned *after* check below.
+        self.use_gzip = use_gzip
 
         # These members are lazily computed/memoized.
         self._http = None
@@ -97,7 +99,9 @@ class BrainMapsVolume:
         Convenience constructor.
         Construct from FlyEM JSON config data.
         """
-        return BrainMapsVolume(d["project"], d["dataset"], d["volume-id"], d["change-stack-id"])
+        if 'use-gzip' not in d:
+            d["use-gzip"] = True
+        return BrainMapsVolume(d["project"], d["dataset"], d["volume-id"], d["change-stack-id"], use_gzip=d["use-gzip"])
 
 
     def flyem_source_info(self, as_str=False):
@@ -126,7 +130,7 @@ class BrainMapsVolume:
         return '\n'.join(json_lines)
 
 
-    def get_subvolume(self, box, scale=0):
+    def get_subvolume(self, box_zyx, scale=0):
         """
         Fetch a subvolume from the remote BrainMaps volume.
         
@@ -137,9 +141,9 @@ class BrainMapsVolume:
         Returns:
             volume (ndarray), where volume.shape = (stop - start)
         """
-        box = np.asarray(box)
-        corner_zyx = box[0]
-        shape_zyx = box[1] - box[0]
+        box_zyx = np.asarray(box_zyx)
+        corner_zyx = box_zyx[0]
+        shape_zyx = box_zyx[1] - box_zyx[0]
         
         corner_xyz = corner_zyx[::-1]
         shape_xyz = shape_zyx[::-1]
@@ -152,7 +156,7 @@ class BrainMapsVolume:
                                          shape_xyz,
                                          scale,
                                          self.change_stack_id,
-                                         subvol_format='RAW_SNAPPY' )
+                                         self.use_gzip )
 
         volume_buffer = snappy.decompress(snappy_data)
         volume = np.frombuffer(volume_buffer, dtype=self.dtype).reshape(shape_zyx)
@@ -327,137 +331,19 @@ class BrainMapsVolume:
         # There is no API for getting all groups, so we have to get the
         # full set of edges and run connected components ourselves.
         all_edges = self.get_equivalence_edges()
-        return BrainMapsVolume.groups_from_edges(all_edges)
+        return groups_from_edges(all_edges)
 
-
-    @classmethod
-    def groups_from_edges(cls, edges):
-        """
-        The given list of edges [(node_a, node_b),(node_a, node_b),...] encode a graph.
-        Find the connected components in the graph and return them as a dict:
-        
-        { group_id : [node_id, node_id, node_id] }
-        
-        ...where each group_id is the minimum node_id of the group.
-        """
-        import networkx as nx
-        g = nx.Graph()
-        g.add_edges_from(edges)
-        
-        groups = {}
-        for segment_set in nx.connected_components(g):
-            # According to Jeremy, group_id == the min segment_id of the group.
-            groups[min(segment_set)] = list(sorted(segment_set))
-
-        return groups
 
     def equivalence_mapping(self):
         if self._equivalence_mapping is not None:
             return self._equivalence_mapping
         groups = self.get_all_equivalence_groups()
-        self._equivalence_mapping = BrainMapsVolume.mapping_from_groups(groups)
+        self._equivalence_mapping = mapping_from_groups(groups)
         return self._equivalence_mapping
 
     def set_equivalence_mapping(self, mapping):
         self._equivalence_mapping = mapping
 
-    @classmethod
-    def equivalence_mapping_from_edge_csv(cls, csv_path, output_csv_path=None):
-        """
-        Load and return the equivalence_mapping from the given csv_path of equivalence edges.
-        
-        Each row represents an edge. For example:
-        
-            123,456
-            123,789
-            789,234
-            
-        The CSV file may optionally contain a header row.
-        Also, it may contain more than two columns, but only the first two columns are used.
-        
-        Args:
-            csv_path:
-                Path to a csv file whose first two columns are edge pairs
-            
-            output_csv_path:
-                (Optional.) If provided, also write the results to a CSV file.
-            
-        Returns:
-            ndarray with two columns representing node and group
-
-        Note: The returned array is NOT merely the parsed CSV.
-              It has been transformed from equivalence edges to node mappings,
-              via a connected components step.
-        """
-        edges = BrainMapsVolume.load_edge_csv(csv_path)
-        groups = BrainMapsVolume.groups_from_edges(edges)
-        mapping = BrainMapsVolume.mapping_from_groups(groups)
-        
-        if output_csv_path:
-            BrainMapsVolume.equivalence_mapping_to_csv(mapping, output_csv_path)
-            
-        return mapping
-
-    @classmethod
-    def load_edge_csv(cls, csv_path):
-        """
-        Load and return the given edge list CSV file as a numpy array.
-        
-        Each row represents an edge. For example:
-        
-            123,456
-            123,789
-            789,234
-        
-        The CSV file may optionally contain a header row.
-        Also, it may contain more than two columns, but only the first two columns are used.
-        
-        Returns:
-            ndarray with shape (N,2)
-        """
-        with open(csv_path, 'r') as csv_file:
-            # Is there a header?
-            has_header = csv.Sniffer().has_header(csv_file.read(1024))
-            csv_file.seek(0)
-            rows = iter(csv.reader(csv_file))
-            if has_header:
-                # Skip header
-                _header = next(rows)
-            
-            # We only care about the first two columns
-            all_items = chain.from_iterable( (row[0], row[1]) for row in rows )
-            edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
-
-        return edges
-
-    @classmethod
-    def equivalence_mapping_to_csv(cls, mapping_pairs, output_path):
-        if not os.path.exists(output_path):
-            with open(output_path, 'w') as f:
-                csv.writer(f).writerows(mapping_pairs)
-
-    @classmethod
-    def mapping_from_groups(cls, groups):
-        """
-        Given a dict of { group_id: [node_a, node_b,...] },
-        Return a reverse-mapping in the form of an ndarray:
-            
-            [[node_a, group_id],
-             [node_b, group_id],
-             [node_c, group_id],
-             ...
-            ]
-        """
-        element_count = sum(map(len, groups.values()))
-        
-        def generate():
-            for group_id, members in groups.items():
-                for member in members:
-                    yield member
-                    yield group_id
-
-        mapping = np.fromiter( generate(), np.uint64, 2*element_count ).reshape(-1,2)
-        return mapping
 
     def get_equivalence_edges(self, segment_id=None):
         """
@@ -520,7 +406,7 @@ def fetch_json(http, url, body=None):
     return json.loads(content)
 
 
-def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", subvol_format='RAW_SNAPPY'):
+def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, scale, change_stack_id="", use_gzip=True):
     """
     Returns raw subvolume data (not decompressed).
     
@@ -536,13 +422,21 @@ def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, s
             'size': ','.join(str(x) for x in size_xyz),
             'scale': scale
         },
-        'subvolumeFormat': subvol_format
+        'subvolumeFormat': 'RAW_SNAPPY'
     }
 
     if change_stack_id:
         params["changeSpec"] = { "changeStackId": change_stack_id }
+
+    if use_gzip:
+        # GZIP is enabled by default in httplib2; but let's be explicit.
+        headers = { 'accept-encoding': 'gzip' }
+        response, content = http.request(url, "POST", headers=headers, body=json.dumps(params).encode('utf-8'))
+    else:
+        # GZIP is enabled by default in httplib2; this is the only way to disable it.
+        headers = { 'accept-encoding': 'FAKE' }
+        response, content = http.request(url, "POST", headers=headers, body=json.dumps(params).encode('utf-8'))
     
-    response, content = http.request(url, "POST", body=json.dumps(params).encode('utf-8'))
     if response['status'] != '200':
         raise RuntimeError(f"Bad response ({response['status']}):\n{content.decode('utf-8')}")
     return content

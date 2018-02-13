@@ -15,6 +15,7 @@ BrainMapsSegmentationServiceSchema = \
     "type": "object",
     "required": ["project", "dataset", "volume-id", "change-stack-id"],
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "project": {
             "description": "Project ID",
@@ -33,6 +34,11 @@ BrainMapsSegmentationServiceSchema = \
                            "(e.g. a set of agglomeration steps).",
             "type": "string",
             "default": ""
+        },
+        "use-gzip": {
+            "description": "Whether or not to use gzip transfer encoding (on top of the snappy compression)",
+            "type": "boolean",
+            "default": True
         }
     }
 }
@@ -42,6 +48,7 @@ BrainMapsVolumeSchema = \
     "description": "Describes a segmentation volume from BrainMaps.",
     "type": "object",
     "default": {},
+    "additionalProperties": False,
     "properties": {
         "slice-files": BrainMapsSegmentationServiceSchema,
         "geometry": GeometrySchema
@@ -65,7 +72,8 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
                                                   volume_config["brainmaps"]["dataset"],
                                                   volume_config["brainmaps"]["volume-id"],
                                                   volume_config["brainmaps"]["change-stack-id"],
-                                                  dtype=np.uint64 )
+                                                  dtype=np.uint64,
+                                                  use_gzip=volume_config["brainmaps"]["use-gzip"] )
 
         block_width = volume_config["geometry"]["block-width"]
         if block_width == -1:
@@ -83,11 +91,14 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
             f"Specified bounding box ({bounding_box_zyx.tolist()}) extends outside the "\
             f"BrainMaps volume geometry ({self._brainmaps_client.bounding_box.tolist()})"        
 
-        # Store members        
+        available_scales = list(volume_config["geometry"]["available-scales"])
+
+        # Store members
         self._bounding_box_zyx = bounding_box_zyx
         self._resource_manager_client = resource_manager_client
         self._preferred_message_shape_zyx = preferred_message_shape_zyx
         self._block_width = block_width
+        self._available_scales = available_scales
 
         # Overwrite config entries that we might have modified
         volume_config["geometry"]["block-width"] = self._block_width
@@ -109,6 +120,10 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
     @property
     def bounding_box_zyx(self):
         return self._bounding_box_zyx
+
+    @property
+    def available_scales(self):
+        return self._available_scales
 
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.

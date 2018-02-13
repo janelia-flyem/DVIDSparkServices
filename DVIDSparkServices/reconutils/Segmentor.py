@@ -77,7 +77,8 @@ class Segmentor(object):
                 "subprocess-timeout" : {
                   "description": "Automatically kill the subprocess after this timeout and raise an error.",
                   "type": "integer",
-                  "default": 0
+                  "minimum": 1, 
+                  "default": 1
                 }
               },
               "additionalProperties": true
