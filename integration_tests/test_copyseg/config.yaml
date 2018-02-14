@@ -28,7 +28,7 @@
     ],
 
     "options": {
-        "pyramid-depth": 2,
+        "pyramid-depth": 0, # No pyramid, to force several slabs (and exercise stats merging logic)
 
         "body-sizes": {
             "minimum-size": 10
