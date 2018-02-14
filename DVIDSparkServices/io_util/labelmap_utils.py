@@ -243,14 +243,22 @@ def equivalence_mapping_to_csv(mapping_pairs, output_path):
         with open(output_path, 'w') as f:
             csv.writer(f).writerows(mapping_pairs)
 
-def find_leaf_nodes_for_group(edges, group_id):
+def erode_leaf_nodes(edges, rounds=1):
     """
-    Exctract the graph of nodes for the given group,
-    then partition into the set of leaf and non-leaf nodes.
+    Given a graph encoded in the given array of edge pairs.
+    """
+    import pandas as pd
     
-    Note: Obviously, 'edges' must include the complete merge graph for each body,
-          not merely an equivalence mapping or a label-to-body mapping.
-    """
+    edge_df = pd.DataFrame(edges, columns=['u', 'v'], copy=True)
+    
+    for _ in range(rounds):
+        leaf_nodes = find_all_leaf_nodes( edges )
+        leaf_edges = edge_df.eval('u in @leaf_nodes or v in @leaf_nodes')
+        edge_df[leaf_edges] = 0
+
+    return edge_df.query('u != 0 and v != 0')
+
+def edges_for_group(edges, group_id):
     import pandas as pd
     import networkx as nx
     g = nx.Graph()
@@ -260,7 +268,17 @@ def find_leaf_nodes_for_group(edges, group_id):
 
     edge_df = pd.DataFrame(edges, columns=['u', 'v'])
     group_edges = edge_df.query('u in @group_nodes or v in @group_nodes')
+    return group_edges.values
+
+def find_leaf_nodes_for_group(edges, group_id):
+    """
+    Exctract the graph of nodes for the given group,
+    then partition into the set of leaf and non-leaf nodes.
     
+    Note: Obviously, 'edges' must include the complete merge graph for each body,
+          not merely an equivalence mapping or a label-to-body mapping.
+    """
+    group_edges = edges_for_group(edges, group_id)
     return find_all_leaf_nodes(group_edges.values)
 
 def find_all_leaf_nodes(edges):
