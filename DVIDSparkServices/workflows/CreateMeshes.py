@@ -135,7 +135,7 @@ class CreateMeshes(Workflow):
         "maximum-segment-size": {
             "description": "Segments larger than this voxel count will not be processed. (Useful for avoiding processing errors.)",
             "type": "number",
-            "default": 1.9e9
+            "default": 1e100 # unbounded by default
         },
         "minimum-agglomerated-size": {
             "description": "Agglomerated groups smaller than this voxel count will not be processed.",
