@@ -243,7 +243,7 @@ class CreateMeshes(Workflow):
             new_items = []
             for item in items:
                 segment_label, (box, mask, _count) = item
-            new_items.append( (segment_label, (box, mask)) )
+                new_items.append( (segment_label, (box, mask)) )
             return new_items
         segments_and_masks = segments_and_masks.flatMap( drop_count )
         
