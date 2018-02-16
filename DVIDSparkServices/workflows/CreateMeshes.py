@@ -246,6 +246,11 @@ class CreateMeshes(Workflow):
                 new_items.append( (segment_label, (box, mask)) )
             return new_items
         segments_and_masks = segments_and_masks.flatMap( drop_count )
+
+        bad_segments = mask_stats_df[['segment', 'compressed_bytes']].query('compressed_bytes > 1.9e9')['segment']
+        if len(bad_segments) > 0:
+            logger.error(f"SOME SEGMENTS (N={len(bad_segments)}) ARE TOO BIG TO PROCESS.  Skipping segments: {list(bad_segments)}.")
+            segments_and_masks = segments_and_masks.filter( lambda seg_mask: seg_mask[0] not in bad_segments.values )
         
         # (segment, (box, mask))
         #   --> (segment, boxes_and_masks)
