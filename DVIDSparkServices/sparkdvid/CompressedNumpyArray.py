@@ -101,7 +101,9 @@ class CompressedNumpyArray(object):
         if self.is_labels(numpy_array):
             self.compressed_label_blocks = serialize_uint64_blocks(numpy_array)
         elif self.dtype == np.bool and numpy_array.ndim == 3:
-            self.compressed_mask_array = encode_mask_array(numpy_array)
+            # It turns out that encode_mask_array + lz4.compress is better than
+            # lz4.compression alone (even multiple rounds of lz4 alone)
+            self.compressed_mask_array = lz4.compress(encode_mask_array(numpy_array))
         else:
 
             if numpy_array.ndim <= 1:
@@ -158,7 +160,7 @@ class CompressedNumpyArray(object):
             # label compression was used.
             numpy_array = deserialize_uint64_blocks(self.compressed_label_blocks, self.shape)
         elif self.compressed_mask_array is not None:
-            numpy_array, _, _ = decode_mask_array(self.compressed_mask_array, self.shape)
+            numpy_array, _, _ = decode_mask_array(lz4.uncompress(self.compressed_mask_array), self.shape)
             numpy_array = np.asarray(numpy_array, order='C')
         else:
             numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
