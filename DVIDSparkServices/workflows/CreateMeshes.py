@@ -441,11 +441,10 @@ class CreateMeshes(Workflow):
             full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
 
             if config["options"]["force-uniform-downsampling"]:
-                body_downsample_factors = full_stats_df[['body', 'downsample_factor']].groupby('body').max()
-                assert body_downsample_factors['downsample_factor'].dtype == np.uint8
-                full_stats_df['downsample_factor'] = full_stats_df[['body']].merge(body_downsample_factors, 'inner', left_on='body', right_index=True)
-                full_stats_df['downsample_factor'] = full_stats_df.astype(np.uint8)
-            
+                body_downsample_factors = full_stats_df[['body', 'downsample_factor']].groupby('body', as_index=False).max()
+                adjusted_downsample_factors = full_stats_df[['body']].merge(body_downsample_factors, 'left', on='body')
+                full_stats_df['downsample_factor'] = adjusted_downsample_factors['downsample_factor'].astype(np.uint8)
+
             # For offline analysis, write body stats to a file
             output_path = self.config_dir + '/body-stats.csv'
             logger.info(f"Saving body statistics to {output_path}")

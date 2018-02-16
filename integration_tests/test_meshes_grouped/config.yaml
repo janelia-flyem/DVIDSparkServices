@@ -28,7 +28,7 @@
         "minimum-downsample-factor": 2,
         "minimum-segment-size": 10000,
         "minimum-agglomerated-size": 10000,
-        "max-analysis-volume": 1e5,
+        "max-analysis-volume": 2e5,
         "force-uniform-downsampling": true,
 
         "resource-server": "driver",
