@@ -140,7 +140,12 @@ class CreateMeshes(Workflow):
         "minimum-agglomerated-size": {
             "description": "Agglomerated groups smaller than this voxel count will not be processed.",
             "type": "number",
-            "default": 10e6
+            "default": 1e6 # 1 Megavoxel
+        },
+        "maximum-agglomerated-size": {
+            "description": "Agglomerated groups larger than this voxel count will not be processed.",
+            "type": "number",
+            "default": 10e9 # 10 Gigavoxels
         },
         "minimum-downsample-factor": {
             "description": "Minimum factor by which to downsample bodies before processing.\n"
@@ -463,8 +468,8 @@ class CreateMeshes(Workflow):
             full_stats_df['body'] = full_stats_df['segment']
             full_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
         
-        #logger.info(f"{full_stats_df}")
-        full_stats_df['keep_body'] = (full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size'])
+        full_stats_df['keep_body'] = ((full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
+                                      (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) )
 
         # Sort for convenience of viewing output
         with Timer("Sorting segment stats", logger):
