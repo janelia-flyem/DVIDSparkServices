@@ -11,7 +11,109 @@ class BrickWall:
     Manages a (lazy) set of bricks within a Grid.
     Mostly just a convenience wrapper to simplify pipelines of transformations over RDDs of bricks.
     """
+    ##
+    ## Generic Constructor (See also: convenience constructors below) 
+    ##
+
+    def __init__(self, bounding_box, grid, bricks):
+        """
+        bounding_box: (start, stop)
+        grid: Grid
+        bricks: RDD of Bricks
+        """
+        self.bounding_box = np.array(bounding_box)
+        self.grid = grid
+        self.bricks = bricks
     
+    ##
+    ## Convenience Constructors
+    ##
+
+    @classmethod
+    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None):
+        """
+        Convenience constructor, taking an arbitrary volume_accessor_func.
+        
+        Args:
+            bounding_box:
+                (start, stop)
+     
+            grid:
+                Grid (see brick.py)
+     
+            volume_accessor_func:
+                Callable with signature: f(box) -> ndarray
+                Note: The callable will be unpickled only once per partition, so initialization
+                      costs after unpickling are only incurred once per partition.
+     
+            sc:
+                SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
+     
+            target_partition_size_voxels:
+                Optional. If provided, the RDD partition lengths (i.e. the number of bricks per RDD partition)
+                will be chosen to have (approximately) this many total voxels in each partition.
+        """
+        if target_partition_size_voxels is None:
+            if sc:
+                num_threads = num_worker_nodes() * cpus_per_worker()
+            else:
+                # See RDDtools -- for now, non-spark pseudo-RDDs are just a single partition.
+                num_threads = 1
+            total_voxels = np.prod(bounding_box[1] - bounding_box[0])
+            voxels_per_thread = total_voxels / num_threads
+            target_partition_size_voxels = (voxels_per_thread // 2) # Arbitrarily aim for 2 partitions per thread
+
+        block_size_voxels = np.prod(grid.block_shape)
+        rdd_partition_length = target_partition_size_voxels // block_size_voxels
+        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length)
+        return BrickWall( bounding_box, grid, bricks )
+
+
+    @classmethod
+    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None):
+        """
+        Convenience constructor, initialized from a VolumeService object.
+        
+        Args:
+            volume_service:
+                An instance of a VolumeService
+        
+            bounding_box_zyx:
+                (start, stop) Optional.
+                If not provided, volume_service.bounding_box_zyx is used.
+     
+            grid:
+                Grid (see brick.py)
+     
+            sc:
+                SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
+     
+            target_partition_size_voxels:
+                Optional. If provided, the RDD partition lengths (i.e. the number of bricks per RDD partition)
+                will be chosen to have (approximately) this many total voxels in each partition.
+        """
+        grid = Grid(volume_service.preferred_message_shape, (0,0,0))
+        
+        downsampled_box = bounding_box_zyx
+        if downsampled_box is None:
+            full_box = volume_service.bounding_box_zyx
+            downsampled_box = np.zeros((2,3), dtype=int)
+            downsampled_box[0] = full_box[0] // 2**scale # round down
+            
+            # Proper downsampled bounding-box would round up here...
+            #downsampled_box[1] = (full_box[1] + 2**scale - 1) // 2**scale
+            
+            # ...but some some services probably don't do that, so we'll
+            # round down to avoid out-of-bounds errors for higher scales. 
+            downsampled_box[1] = full_box[1] // 2**scale
+
+        return BrickWall.from_accessor_func( downsampled_box,
+                                             grid,
+                                             lambda box: volume_service.get_subvolume(box, scale),
+                                             sc,
+                                             target_partition_size_voxels )
+
+
     ##
     ## Operations
     ##
@@ -26,7 +128,7 @@ class BrickWall:
         Returns: A a new BrickWall, with a new internal RDD for bricks.
         """
         new_logical_boxes_and_bricks = realign_bricks_to_new_grid( new_grid, self.bricks )
-        new_wall = BrickWall( self.bounding_box, self.grid, _bricks=rt.values(new_logical_boxes_and_bricks) )
+        new_wall = BrickWall( self.bounding_box, self.grid, rt.values(new_logical_boxes_and_bricks) )
         return new_wall
 
     def fill_missing(self, volume_accessor_func, padding_grid=None):
@@ -36,7 +138,9 @@ class BrickWall:
         
         Args:
             volume_accessor_func:
-                See __init__, above.
+                Callable with signature: f(box) -> ndarray
+                Note: The callable will be unpickled only once per partition, so initialization
+                      costs after unpickling are only incurred once per partition.
             
             padding_grid:
                 (Optional.) Need not be identical to the BrickWall's native grid,
@@ -49,7 +153,7 @@ class BrickWall:
             return pad_brick_data_from_volume_source(padding_grid, volume_accessor_func, brick)
         
         padded_bricks = rt.map( pad_brick, self.bricks )
-        new_wall = BrickWall( self.bounding_box, self.grid, _bricks=padded_bricks )
+        new_wall = BrickWall( self.bounding_box, self.grid, padded_bricks )
         return new_wall
 
     def apply_labelmap(self, labelmap_config, working_dir, unpersist_original=False):
@@ -75,7 +179,7 @@ class BrickWall:
             A new BrickWall, with remapped bricks.
         """
         remapped_bricks = apply_labelmap_to_bricks(self.bricks, labelmap_config, working_dir, unpersist_original)
-        return BrickWall( self.bounding_box, self.grid, _bricks=remapped_bricks )
+        return BrickWall( self.bounding_box, self.grid, remapped_bricks )
 
     def translate(self, offset_zyx):
         """
@@ -93,7 +197,7 @@ class BrickWall:
         
         new_bounding_box = self.bounding_box + offset_zyx
         new_grid = Grid( self.grid.block_shape, self.grid.offset + offset_zyx )
-        return BrickWall( new_bounding_box, new_grid, _bricks=translated_bricks )
+        return BrickWall( new_bounding_box, new_grid, translated_bricks )
 
     def persist_and_execute(self, description, logger=None, storage=None):
         self.bricks = rt.persist_and_execute( self.bricks, description, logger, storage )
@@ -129,91 +233,13 @@ class BrickWall:
         new_grid = Grid( self.grid.block_shape // factor, self.grid.offset // factor )
         new_bricks = rt.map( downsample_brick, self.bricks )
         
-        return BrickWall( new_bounding_box, new_grid, _bricks=new_bricks )
+        return BrickWall( new_bounding_box, new_grid, new_bricks )
 
     def copy(self):
         """
         Return a duplicate of this BrickWall, with a new bricks RDD (which not persisted).
         """
-        return BrickWall( self.bounding_box, self.grid, _bricks=rt.map( lambda x:x, self.bricks ) )
+        return BrickWall( self.bounding_box, self.grid, rt.map( lambda x:x, self.bricks ) )
 
-    ##
-    ## Convenience Constructor
-    ##
 
-    @classmethod
-    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None):
-        grid = Grid(volume_service.preferred_message_shape, (0,0,0))
-        
-        downsampled_box = bounding_box_zyx
-        if downsampled_box is None:
-            full_box = volume_service.bounding_box_zyx
-            downsampled_box = np.zeros((2,3), dtype=int)
-            downsampled_box[0] = full_box[0] // 2**scale # round down
-            
-            # Proper downsampled bounding-box would round up here...
-            #downsampled_box[1] = (full_box[1] + 2**scale - 1) // 2**scale
-            
-            # ...but some some services probably don't do that, so we'll
-            # round down to avoid out-of-bounds errors for higher scales. 
-            downsampled_box[1] = full_box[1] // 2**scale
 
-        return BrickWall( downsampled_box,
-                          grid,
-                          lambda box: volume_service.get_subvolume(box, scale),
-                          sc,
-                          target_partition_size_voxels )
-
-    ##
-    ## Generic Constructor
-    ##
-
-    def __init__(self, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, _bricks=None):
-        """
-        Generic constructor, taking an arbitrary volume_accessor_func.
-        Specific convenience constructors for various DVID/Brainmaps/slices sources are below.
-        
-        Args:
-            bounding_box:
-                (start, stop)
-     
-            grid:
-                Grid (see brick.py)
-     
-            volume_accessor_func:
-                Callable with signature: f(box) -> ndarray
-                Note: The callable will be unpickled only once per partition, so initialization
-                      costs after unpickling are only incurred once per partition.
-     
-            sc:
-                SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
-     
-            target_partition_size_voxels:
-                Optional. If provided, the RDD partition lengths (i.e. the number of bricks per RDD partition)
-                will be chosen to have (approximately) this many total voxels in each partition.
-        """
-        self.grid = grid
-        self.bounding_box = bounding_box
-
-        if _bricks:
-            assert sc is None
-            assert target_partition_size_voxels is None
-            assert volume_accessor_func is None
-            self.bricks = _bricks
-        else:
-            assert volume_accessor_func is not None
-            rdd_partition_length = None
-            if target_partition_size_voxels is None:
-                if sc:
-                    num_threads = num_worker_nodes() * cpus_per_worker()
-                else:
-                    # See RDDtools -- for now, non-spark pseudo-RDDs are just a single partition.
-                    num_threads = 1
-                total_voxels = np.prod(bounding_box[1] - bounding_box[0])
-                voxels_per_thread = total_voxels / num_threads
-                target_partition_size_voxels = (voxels_per_thread // 2) # Arbitrarily aim for 2 partitions per thread
-
-            block_size_voxels = np.prod(grid.block_shape)
-            rdd_partition_length = target_partition_size_voxels // block_size_voxels
-
-            self.bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length)
