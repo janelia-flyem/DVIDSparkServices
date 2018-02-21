@@ -12,7 +12,10 @@ import logging
 from itertools import starmap, product
 from datetime import timedelta
 import json
+import getpass
+import threading
 
+import requests
 import psutil
 import numpy as np
 from skimage.util import view_as_blocks
@@ -27,6 +30,29 @@ logger = logging.getLogger(__name__)
 
 def cpus_per_worker():
     return 16
+
+DEFAULT_DVID_SESSIONS = {}
+DEFAULT_APPNAME = "DVIDSparkServices" # Workflows should overwrite this in their constructors.
+
+def default_dvid_session(appname=None):
+    """
+    Return a default requests.Session() object that automatically appends the
+    'u' and 'app' query string parameters to every request.
+    """
+    if appname is None:
+        appname = DEFAULT_APPNAME
+    # Technically, request sessions are not threadsafe,
+    # so we keep one for each thread.
+    thread_id = threading.current_thread().ident
+    try:
+        s = DEFAULT_DVID_SESSIONS[(appname, thread_id)]
+    except KeyError:
+        s = requests.Session()
+        s.params = { 'u': getpass.getuser(),
+                     'app': DEFAULT_APPNAME }
+        DEFAULT_DVID_SESSIONS[(appname, thread_id)] = s
+
+    return s
 
 def num_worker_nodes():
     if "NUM_SPARK_WORKERS" not in os.environ:

@@ -1,4 +1,5 @@
 from __future__ import division
+from DVIDSparkServices.util import default_dvid_session
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -72,13 +73,13 @@ class CreatePyramid(DVIDWorkflow):
         server = str(self.config_data["dvid-info"]["dvid-server"])
         uuid = str(self.config_data["dvid-info"]["uuid"])
         source = str(self.config_data["dvid-info"]["source"])
-        
-        import requests
+
+        session = default_dvid_session()        
         # determine grayscale blk extants
         if not server.startswith("http://"):
             server = "http://" + server
 
-        req = requests.get(server + "/api/node/" + uuid + "/" + source + "/info")
+        req = session.get(server + "/api/node/" + uuid + "/" + source + "/info")
         sourcemeta = req.json()
        
         # xmin, ymin, zmin not being used explicitly yet
@@ -123,7 +124,7 @@ class CreatePyramid(DVIDWorkflow):
                 newsourceext = {}
                 newsourceext["MinPoint"] = [0,0,0] # for now no offset
                 newsourceext["MaxPoint"] = [((xspan-1) // 2+1)*BLKSIZE-1,((yspan-1) // 2+1)*BLKSIZE-1,((zspan-1) // 2+1)*BLKSIZE-1]
-                requests.post(server + "/api/node/" + uuid + "/" + currsource + "/extents", json=newsourceext)
+                session.post(server + "/api/node/" + uuid + "/" + currsource + "/extents", json=newsourceext)
 
             # determine number of requests
             maxxrun = xspan

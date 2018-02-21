@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 from libdvid import SubstackZYX, DVIDException
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths
+from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths, default_dvid_session
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
@@ -49,12 +49,12 @@ def retrieve_node_service(server, uuid, resource_server, resource_port, appname=
         
         import os
         if not os.path.exists("/tmp/reloaded.hack"):
-            import requests
             addr = server + "/api/server/reload-metadata"
             if not server.startswith("http://"):
                 addr = "http://" + addr
 
-            requests.post(addr)
+            session = default_dvid_session()
+            session.post(addr)
             open("/tmp/reloaded.hack", 'w').close()
     """
 
@@ -170,12 +170,14 @@ class sparkdvid(object):
         since DVID sometimes returns strange 503 errors and DVIDNodeService.get_roi()
         doesn't know how to handle them.
         """
+        session = default_dvid_session()
+
         # grab roi blocks (should use libdvid but there are problems handling 206 status)
         import requests
         addr = self.dvid_server + "/api/node/" + str(self.uuid) + "/" + str(roi) + "/roi"
         if not self.dvid_server.startswith("http://"):
             addr = "http://" + addr
-        data = requests.get(addr)
+        data = session.get(addr)
         roi_blockruns = data.json()
         
         roi_blocks = []
@@ -507,11 +509,11 @@ class sparkdvid(object):
               which is much less efficient than the newer 'blocks' format
               (but it's easy enough to parse that we can do it in Python).
         """
-        import requests
+        session = default_dvid_session()
         if not server.startswith('http://'):
             server = 'http://' + server
             
-        r = requests.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol/{body_id}?format=rles&scale={scale}')
+        r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol/{body_id}?format=rles&scale={scale}')
         r.raise_for_status()
         
         descriptor = r.content[0]

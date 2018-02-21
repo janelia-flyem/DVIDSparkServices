@@ -1,6 +1,7 @@
 from __future__ import print_function, absolute_import
 from __future__ import division
 from io import BytesIO
+from DVIDSparkServices.util import default_dvid_session
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -82,8 +83,8 @@ class CreateTiles(DVIDWorkflow):
         if not server.startswith("http://"):
             server = "http://" + server
 
-        import requests
-        req = requests.get(server + "/api/node/" + uuid + "/" + grayname + "/info")
+        session = default_dvid_session()
+        req = session.get(server + "/api/node/" + uuid + "/" + grayname + "/info")
         graymeta = req.json()
         
         xmin, ymin, zmin = graymeta["Extended"]["MinIndex"] 
@@ -94,7 +95,7 @@ class CreateTiles(DVIDWorkflow):
 
         imformat = str(self.config_data["options"]["format"])
         # create tiles type and meta
-        requests.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "source": grayname, "format": imformat})
+        session.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "source": grayname, "format": imformat})
 
         MinTileCoord = [xmin*BLKSIZE/TILESIZE, ymin*BLKSIZE/TILESIZE, zmin*BLKSIZE/TILESIZE]
         MaxTileCoord = [xmax*BLKSIZE/TILESIZE, ymax*BLKSIZE/TILESIZE, zmax*BLKSIZE/TILESIZE]
@@ -115,7 +116,7 @@ class CreateTiles(DVIDWorkflow):
             tilemeta["Levels"][str(level)] = { "Resolution" : [currres, currres, currres], "TileSize": [TILESIZE, TILESIZE, TILESIZE]}
             currres *= 2
         
-        requests.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
+        session.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
         
         numiters = zmax+1
         axis = str(self.config_data["options"]["axis"])
@@ -182,7 +183,7 @@ class CreateTiles(DVIDWorkflow):
             from scipy import ndimage
             import io
             import numpy
-            s = requests.Session()
+            s = default_dvid_session()
 
             # create thread pool for parallel
             from multiprocessing.dummy import Pool as ThreadPool

@@ -1,5 +1,6 @@
 from __future__ import division
 from io import BytesIO
+from DVIDSparkServices.util import default_dvid_session
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -99,15 +100,16 @@ class CreateTiles2(DVIDWorkflow):
         
         # open image
         from PIL import Image
-        import requests
         import numpy
+        
+        session = default_dvid_session()
         
         img = Image.open(basename % minslice) 
         xmax, ymax, zmax = img.width, img.height, maxslice
 
         # create tiles type and meta
         imformat = str(self.config_data["options"]["format"])
-        requests.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "source": grayname, "format": imformat})
+        session.post(server + "/api/repo/" + uuid + "/instance", json={"typename": "imagetile", "dataname": tilename, "source": grayname, "format": imformat})
 
         MinTileCoord = [xmin // TILESIZE, ymin // TILESIZE, zmin // TILESIZE]
         MaxTileCoord = [xmax // TILESIZE, ymax // TILESIZE, zmax // TILESIZE]
@@ -126,7 +128,7 @@ class CreateTiles2(DVIDWorkflow):
             tilemeta["Levels"][str(level)] = { "Resolution" : [currres, currres, currres], "TileSize": [TILESIZE, TILESIZE, TILESIZE]}
             currres *= 2
         
-        requests.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
+        session.post(server + "/api/node/" + uuid + "/" + tilename + "/metadata", json=tilemeta)
        
         # make each image a separate task
         imgs = self.sparkdvid_context.sc.parallelize(list(range(minslice, maxslice+1)), maxslice-minslice+1)
@@ -158,7 +160,7 @@ class CreateTiles2(DVIDWorkflow):
             def loadTile(reqpair):
                 urlreq, reqbuff = reqpair 
                 node_service.custom_request(urlreq, reqbuff, ConnectionMethod.POST) 
-                #requests.post(urlreq , data=reqbuff)
+                #session.post(urlreq , data=reqbuff)
                 
 
             work_queue = []

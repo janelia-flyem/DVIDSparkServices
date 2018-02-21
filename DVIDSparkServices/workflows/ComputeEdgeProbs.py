@@ -436,13 +436,13 @@ class ComputeEdgeProbs(DVIDWorkflow):
 
         UPLOAD_TO_DVID = True
         if UPLOAD_TO_DVID:
-            import requests
             # load entire graph into DVID
             node_service.create_graph(str(self.config_data["dvid-info"]["graph-name"]))
             server = str(self.config_data["dvid-info"]["dvid-server"])
             #if not server.startswith("http://"):
             #    server = "http://" + server
-            #requests.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
+            #session = default_dvid_session()
+            #session.post(server + "/api/node/" + str(self.config_data["dvid-info"]["uuid"]) + "/" + str(self.config_data["dvid-info"]["graph-name"]) + "/subgraph", json=graph)
             #self.workflow_entry_exit_printer.write_data("Wrote DVID graph") # write to logger after spark job
 
 

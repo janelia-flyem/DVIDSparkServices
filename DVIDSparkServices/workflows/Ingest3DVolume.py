@@ -29,7 +29,7 @@ from DVIDSparkServices.io_util.dvidSrc import dvidSrc
 from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, create_labelarray, Compression,
                                               extend_list_value, update_extents, reload_server_metadata ) 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
-from DVIDSparkServices.util import Timer, runlength_encode
+from DVIDSparkServices.util import Timer, runlength_encode, default_dvid_session
 
 class Ingest3DVolumeDirect(object):
     """Called by Ingest3DVolume (see below for detailed documentation).
@@ -347,6 +347,7 @@ class Ingest3DVolume(Workflow):
         Execute spark workflow.
         """
         self._sanitize_config()
+        session = default_dvid_session()
 
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
@@ -547,20 +548,20 @@ class Ingest3DVolume(Workflow):
                 currres *= 2
 
             if options["create-tiles"]:
-                requests.post("{dvid-server}/api/repo/{uuid}/instance".format(**dvid_info),
+                session.post("{dvid-server}/api/repo/{uuid}/instance".format(**dvid_info),
                               json={"typename": "imagetile",
                                     "dataname": dvid_info["dataname"]+self.TILENAME,
                                     "source": dvid_info["dataname"],
                                     "format": "png"})
-                requests.post("{dvid-server}/api/repo/{uuid}/{dataname}{tilename}/metadata".format(tilename=self.TILENAME, **dvid_info), json=tilemeta)
+                session.post("{dvid-server}/api/repo/{uuid}/{dataname}{tilename}/metadata".format(tilename=self.TILENAME, **dvid_info), json=tilemeta)
 
             if options["create-tiles-jpeg"]:
-                requests.post("{dvid-server}/api/repo/{uuid}/instance".format(**dvid_info),
+                session.post("{dvid-server}/api/repo/{uuid}/instance".format(**dvid_info),
                               json={ "typename": "imagetile",
                                      "dataname": dvid_info["dataname"]+self.JPEGTILENAME,
                                      "source": dvid_info["dataname"],
                                      "format": "jpg"} )
-                requests.post("{dvid-server}/api/repo/{uuid}/{dataname_jpeg_tile}/metadata"
+                session.post("{dvid-server}/api/repo/{uuid}/{dataname_jpeg_tile}/metadata"
                               .format( dataname_jpeg_tile=dvid_info["dataname"]+self.JPEGTILENAME, **dvid_info ),
                               json=tilemeta)
 
@@ -812,8 +813,7 @@ class Ingest3DVolume(Workflow):
             from PIL import Image
             from scipy import ndimage
             import io
-            import requests
-            s = requests.Session()
+            s = default_dvid_session()
     
             # pad data with delimiter if needed
             timslice = vol[0, :, :]

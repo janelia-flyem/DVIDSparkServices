@@ -1,5 +1,6 @@
 from __future__ import print_function, absolute_import
 from __future__ import division
+from DVIDSparkServices.util import default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 
@@ -378,11 +379,11 @@ class IngestGrayscale(Workflow):
 
         if "output-dir" not in self.config_data or self.config_data["output-dir"] == "":
             # update metadata
-            import requests
             grayext = {}
             grayext["MinPoint"] = [xoffset*self.BLKSIZE,yoffset*self.BLKSIZE,zoffset*self.BLKSIZE+minslice]
             grayext["MaxPoint"] = [xoffset*self.BLKSIZE + width-1, yoffset*self.BLKSIZE + height-1, zoffset*self.BLKSIZE+minslice + self.config_data["maxslice"]]
             if not server.startswith("http://"):
                 server = "http://" + server
-            requests.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
+            session = default_dvid_session()
+            session.post(server + "/api/node/" + uuid + "/" + grayname + "/extents", json=grayext)
 

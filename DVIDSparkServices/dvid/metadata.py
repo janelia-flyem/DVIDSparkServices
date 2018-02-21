@@ -14,6 +14,7 @@ from libdvid import ConnectionMethod
 from libdvid import DVIDConnection
 from libdvid._dvid_python import DVIDException
 
+from DVIDSparkServices.util import default_dvid_session
 from DVIDSparkServices.auto_retry import auto_retry
 
 """Defines label and raw array types currently supported.
@@ -62,7 +63,8 @@ def is_datainstance(dvid_server, uuid, name):
 
 def is_node_locked(dvid_server, uuid):
     # Verify that the node is open for writing!
-    r = requests.get(f'{dvid_server}/api/node/{uuid}/commit')
+    session = default_dvid_session()
+    r = session.get(f'{dvid_server}/api/node/{uuid}/commit')
     r.raise_for_status()
     return r.json()["Locked"]
 
@@ -162,7 +164,8 @@ def create_rawarray8(dvid_server, uuid, name, blocksize=(64,64,64),
 
 @auto_retry(3, 5.0, __name__)
 def reload_server_metadata(dvid_server):
-    r = requests.post("{}/api/server/reload-metadata".format(dvid_server))
+    session = default_dvid_session()
+    r = session.post("{}/api/server/reload-metadata".format(dvid_server))
     r.raise_for_status()
 
 
@@ -178,6 +181,7 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
                          If provided, data extents will be at least this large (possibly larger).
                          (The max extent should use python conventions, i.e. the MaxPoint + 1)
     """
+    session = default_dvid_session()
     minimal_extents_zyx = np.array(minimal_extents_zyx, dtype=int)
     assert minimal_extents_zyx.shape == (2,3), \
         "Minimal extents must be provided as a 3D bounding box: [(z0,y0,x0), (z1,y1,x1)]"
@@ -186,7 +190,7 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
     minimal_extents_xyz = minimal_extents_zyx[:, ::-1].copy()
     
     # Fetch original extents.
-    r = requests.get('{dvid_server}/api/node/{uuid}/{name}/info'.format(**locals()))
+    r = session.get('{dvid_server}/api/node/{uuid}/{name}/info'.format(**locals()))
     r.raise_for_status()
 
     info = r.json()
@@ -211,7 +215,7 @@ def update_extents(dvid_server, uuid, name, minimal_extents_zyx):
 
         url = '{dvid_server}/api/node/{uuid}/{name}/extents'.format(**locals())
         logger.debug("Posting new extents: {}".format( json.dumps(extents_json) ))
-        r = requests.post( url, json=extents_json )
+        r = session.post( url, json=extents_json )
         r.raise_for_status()
 
 def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
@@ -221,21 +225,22 @@ def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
     """
     assert isinstance(new_list, list)
     old_list = []
+    session = default_dvid_session()
 
-    r = requests.get('{dvid_server}/api/node/{uuid}/{kv_instance}/keys'.format(**locals()))
+    r = session.get('{dvid_server}/api/node/{uuid}/{kv_instance}/keys'.format(**locals()))
     if r.status_code not in (200,400):
         r.raise_for_status()
     
     if r.status_code == 400:
         # Create the keyvalue instance first
-        r_post = requests.post('{dvid_server}/api/repo/{uuid}/instance'.format(**locals()),
+        r_post = session.post('{dvid_server}/api/repo/{uuid}/instance'.format(**locals()),
                                json={ "typename": "keyvalue", 
                                       "dataname": kv_instance } )
         r_post.raise_for_status()
 
     elif key in r.json():
         # Fetch original value
-        r = requests.get('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()))
+        r = session.get('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()))
         r.raise_for_status()
         old_list = r.json()
         assert isinstance(old_list, list)
@@ -243,7 +248,7 @@ def extend_list_value(dvid_server, uuid, kv_instance, key, new_list):
     new_list = list(set(old_list + new_list))
     if set(new_list) != set(old_list):
         logger.debug("Updating '{}/{}' list from: {} to: {}".format( kv_instance, key, old_list, new_list ))
-        r = requests.post('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()),
+        r = session.post('{dvid_server}/api/node/{uuid}/{kv_instance}/key/{key}'.format(**locals()),
                           json=new_list)
         r.raise_for_status()
     

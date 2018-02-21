@@ -28,6 +28,7 @@ from quilted.filelock import FileLock
 from dvid_resource_manager.server import DEFAULT_CONFIG as DEFAULT_RESOURCE_MANAGER_CONFIG
 
 from DVIDSparkServices import cleanup_faulthandler
+import DVIDSparkServices.util
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
 from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults
 from DVIDSparkServices.workflow.logger import WorkflowLogger
@@ -159,6 +160,7 @@ class Workflow(object):
             }
         }
     }
+        
     
     def __init__(self, jsonfile, schema, appname):
         """Initialization of workflow object.
@@ -169,7 +171,8 @@ class Workflow(object):
             appname (str): name of the spark application
 
         """
-
+        DVIDSparkServices.util.DEFAULT_APPNAME = appname
+        
         if not jsonfile.startswith('http'):
             jsonfile = os.path.abspath(jsonfile)
         self.config_path = jsonfile
@@ -600,7 +603,6 @@ class Workflow(object):
         """Children must provide their own execution code"""
         
         raise WorkflowError("No execution function provided")
-
 
     @classmethod
     def schema(cls):
