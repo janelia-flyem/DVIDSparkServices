@@ -192,9 +192,9 @@ def init_dvid_database(test_dir, reuse_last=False):
     data = json.loads(repoinfo)
     uuid2 = data["root"]
 
-    # create labelblk instance for two uuids
+    # create labelarray instance for two uuids
     create_instance = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
-    typedata = "{\"typename\": \"labelblk\", \"dataname\" : \"labels\"}"
+    typedata = "{\"typename\": \"labelarray\", \"dataname\" : \"labels\"}"
     
     create_instance1_command = (create_instance % uuid1).split()
     create_instance2_command = (create_instance % uuid2).split()
