@@ -7,7 +7,6 @@ from io import BytesIO
 from contextlib import closing
 
 import numpy as np
-import requests
 
 from vol2mesh.mesh_from_array import mesh_from_array
 
@@ -16,15 +15,17 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service 
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
 from DVIDSparkServices.dvid.metadata import is_node_locked
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
+from DVIDSparkServices.io_util.brick import SparseBlockMask
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
+from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,13 @@ class CreateMeshes(Workflow):
                     },
                     
                     "labelmap": copy.copy(LabelMapSchema), # Only used by the 'labelmap' grouping-scheme
+
+                    "subset-bodies": {
+                        "description": "(Optional.) Instead of generating meshes for all meshes in the volume,\n"
+                                       "only generate meshes for a subset of the bodies in the volume.\n",
+                        "type": "array",
+                        "default": []
+                    },
                     
                     "skip-groups": {
                         "description": "For 'labelmap grouping scheme, optionally skip writing of this list of groups (tarballs).'",
@@ -226,8 +234,11 @@ class CreateMeshes(Workflow):
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-
-        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels)
+        
+        # This will return None if we're not using sparse blocks
+        sparse_block_mask = self._get_sparse_block_mask(volume_service)
+        
+        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sparse_block_mask)
         brick_wall.persist_and_execute("Downloading segmentation", logger)
 
         # brick -> [ (segment_label, (box, mask, count)),
@@ -309,7 +320,7 @@ class CreateMeshes(Workflow):
             persist_and_execute(segments_meshes_counts, f"Computing meshes at decimation {simplification_ratio:.2f}", logger)
     
             with Timer("Computing mesh statistics", logger):
-                mask_and_mesh_stats_df = self.append_mesh_stats( mask_stats_df, segments_meshes_counts, f'{simplification_ratio:.1f}' )
+                mask_and_mesh_stats_df = self.append_mesh_stats( mask_stats_df, segments_meshes_counts, f'{simplification_ratio:.2f}' )
     
             # Update the 'keep_body' column: Skip meshes that are too big.
             huge_bodies = (mask_and_mesh_stats_df['body_mesh_bytes'] > 1.9e9)
@@ -342,7 +353,57 @@ class CreateMeshes(Workflow):
             unpersist(grouped_body_ids_segments_meshes)
             del grouped_body_ids_segments_meshes
             
+    def _get_sparse_block_mask(self, volume_service):
+        """
+        If the user's config specified a sparse subset of bodies to process,
+        Return a SparseBlockMask object indicating where those bodies reside.
+        
+        If the user did not specify a 'subset-bodies' list, returns None, indicating
+        that all segmentation blocks in the volume should be read.
+        
+        Also, if the input volume is not from a DvidVolumeService, return None.
+        (In that case, the 'subset-bodies' feature can be used, but it isn't as efficient.)
+        """
+        import pandas as pd
+        config = self.config_data
+        
+        sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
+        if not sparse_body_ids:
+            return None
 
+        if not isinstance(volume_service.base_service, DvidVolumeService):
+            # We only know how to retrieve sparse blocks for DVID volumes.
+            # For other volume sources, we'll just have to fetch everything and filter
+            # out the unwanted bodies at the mask aggregation step.
+            return None
+        
+        grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
+        assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
+            f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
+        
+        if grouping_scheme in ('no-groups', 'singletons'):
+            # The 'body ids' are identical to segment ids
+            sparse_segment_ids = sparse_body_ids
+        elif grouping_scheme == 'labelmap':
+            # We need to convert the body ids into sparse segment ids        
+            mapping_pairs = self.load_labelmap()
+            segments, bodies = mapping_pairs.transpose()
+            
+            # pandas.Series permits duplicate index values,
+            # which is convenient for this reverse lookup
+            reverse_lookup = pd.Series(index=bodies, data=segments)
+            sparse_segment_ids = reverse_lookup.loc[sparse_body_ids].values
+
+        # Fetch the sparse mask of blocks that the sparse segments belong to        
+        dvid_service = volume_service.base_service
+        block_mask, lowres_box, block_shape = \
+            sparkdvid.get_union_block_mask_for_bodies( dvid_service.server,
+                                                       dvid_service.uuid,
+                                                       dvid_service.instance_name,
+                                                       sparse_segment_ids )
+
+        fullres_box = lowres_box * block_shape
+        return SparseBlockMask(block_mask, fullres_box, block_shape)
 
     def compute_mask_stats(self, segments_and_masks):
         """
@@ -471,6 +532,15 @@ class CreateMeshes(Workflow):
         full_stats_df['keep_body'] = ((full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
                                       (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) )
 
+        # If subset-bodies were given, exclude all others.
+        sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
+        if sparse_body_ids:
+            for body_id in sparse_body_ids:
+                if not full_stats_df[full_stats_df['body'] == body_id]['keep_body'].all():
+                    logger.error(f"You explicitly listed body {body_id} in subset-bodies, "
+                                 "but it will be excluded due to your other config settings.")
+            full_stats_df['keep_body'] &= full_stats_df.eval('body in @sparse_body_ids')
+
         # Sort for convenience of viewing output
         with Timer("Sorting segment stats", logger):
             full_stats_df.sort_values(['body_voxel_count', 'segment_voxel_count'], ascending=False, inplace=True)
@@ -524,6 +594,11 @@ class CreateMeshes(Workflow):
         return mask_and_mesh_stats_df
 
     def load_labelmap(self):
+        """
+        Load the labelmap for aggregating segments into bodies.
+        Note that this is NOT the same as the labelmap (if any) that may
+        be involved in the original segment source.
+        """
         if self._labelmap is None:
             config = self.config_data
             grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]

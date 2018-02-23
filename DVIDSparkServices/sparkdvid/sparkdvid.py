@@ -33,7 +33,7 @@ from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths, default_dvid_session
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
-from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance
+from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance, get_blocksize
 
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
@@ -508,23 +508,69 @@ class sparkdvid(object):
         Note: This function requests the data from DVID in the legacy 'rles' format,
               which is much less efficient than the newer 'blocks' format
               (but it's easy enough to parse that we can do it in Python).
+
+        Return an array of coordinates of the form:
+    
+            [[Z,Y,X],
+             [Z,Y,X],
+             [Z,Y,X],
+             ...
+            ]
         """
-        session = default_dvid_session()
         if not server.startswith('http://'):
             server = 'http://' + server
-            
+        session = default_dvid_session()
         r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol/{body_id}?format=rles&scale={scale}')
         r.raise_for_status()
         
-        descriptor = r.content[0]
-        ndim = r.content[1]
-        run_dimension = r.content[2]
+        return cls._parse_rle_response( r.content )
+
+    @classmethod
+    def get_coarse_sparsevol(cls, server, uuid, instance_name, body_id):
+        """
+        Return the 'coarse sparsevol' representation of a given body.
+        This is similar to the sparsevol representation at scale=6,
+        EXCEPT that it is generated from the label index, so no blocks
+        are lost from downsampling.
+
+        Return an array of coordinates of the form:
+    
+            [[Z,Y,X],
+             [Z,Y,X],
+             [Z,Y,X],
+             ...
+            ]
+        """
+        if not server.startswith('http://'):
+            server = 'http://' + server
+        session = default_dvid_session()
+        r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol-coarse/{body_id}')
+        r.raise_for_status()
+        
+        return cls._parse_rle_response( r.content )
+
+    @classmethod
+    def _parse_rle_response(cls, response_bytes):
+        """
+        Parse the (legacy) RLE response from DVID's 'sparsevol' and 'sparsevol-coarse' endpoints.
+        
+        Return an array of coordinates of the form:
+    
+            [[Z,Y,X],
+             [Z,Y,X],
+             [Z,Y,X],
+             ...
+            ]
+        """
+        descriptor = response_bytes[0]
+        ndim = response_bytes[1]
+        run_dimension = response_bytes[2]
 
         assert descriptor == 0, f"Don't know how to handle this payload. (descriptor: {descriptor})"
         assert ndim == 3, "Expected XYZ run-lengths"
         assert run_dimension == 0, "FIXME, we assume the run dimension is X"
 
-        content_as_int32 = np.frombuffer(r.content, np.int32)
+        content_as_int32 = np.frombuffer(response_bytes, np.int32)
         _voxel_count = content_as_int32[1]
         run_count = content_as_int32[2]
         rle_items = content_as_int32[3:].reshape(-1,4)
@@ -545,10 +591,51 @@ class sparkdvid(object):
         #    f"Voxel count ({voxel_count}) doesn't match expected sum of run-lengths ({rle_lengths.sum()})"
 
         dense_coords = runlength_decode_from_lengths(rle_starts_zyx, rle_lengths)
-        assert rle_lengths.sum() == len(dense_coords), \
-            "Got the wrong number of coordinates!"
-        return dense_coords
         
+        assert rle_lengths.sum() == len(dense_coords), "Got the wrong number of coordinates!"
+        return dense_coords
+
+
+    @classmethod
+    def get_union_block_mask_for_bodies( cls, server, uuid, instance_name, body_ids ):
+        """
+        Given a list of body IDs, fetch their sparse blocks from DVID and
+        return a mask of all blocks touched by those bodies.
+        A binary image is returned, in which each voxel of the result
+        corresponds to a block in DVID.
+        
+        Returns: mask, box, block_shape
+            Where mask is a binary image (each voxel represents a block),
+            box is the bounding box of the mask, in BLOCK coordinates,
+            and block_shape is the DVID server's native block shape (usually (64,64,64)).
+        """
+        all_block_coords = {} # { body : coord_list }
+        
+        union_box = None
+        
+        for body_id in body_ids:
+            block_coords = cls.get_coarse_sparsevol( server, uuid, instance_name, body_id )
+            
+            all_block_coords[body_id] = block_coords
+            
+            min_coord = block_coords.min(axis=0)
+            max_coord = block_coords.max(axis=0)
+
+            if union_box is None:
+                union_box = np.array( (min_coord, max_coord+1) )
+            else:
+                union_box[0] = np.minimum( min_coord, union_box[0] )
+                union_box[1] = np.maximum( max_coord+1, union_box[1] )
+
+        union_shape = union_box[1] - union_box[0]
+        union_mask = np.zeros( union_shape, bool )
+
+        for body_id, block_coords in all_block_coords.items():
+            block_coords[:] -= union_box[0]
+            union_mask[tuple(block_coords.transpose())] = True
+
+        return union_mask, union_box, get_blocksize(server, uuid, instance_name)
+
 
     def get_volume_accessor(self, instance_name, scale=0):
         """
