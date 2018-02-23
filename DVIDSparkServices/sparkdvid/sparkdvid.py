@@ -536,6 +536,10 @@ class sparkdvid(object):
         rle_starts_zyx = rle_starts_xyz[:,::-1]
         rle_lengths = rle_items[:,3]
 
+        # Sadly, the decode function requires contiguous arrays, so we must copy.
+        rle_starts_zyx = rle_starts_zyx.copy('C')
+        rle_lengths = rle_lengths.copy('C')
+
         # For now, DVID always returns a voxel_count of 0, so we can't make this assertion.
         #assert rle_lengths.sum() == _voxel_count,\
         #    f"Voxel count ({voxel_count}) doesn't match expected sum of run-lengths ({rle_lengths.sum()})"
