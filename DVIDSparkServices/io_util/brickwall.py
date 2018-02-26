@@ -117,6 +117,7 @@ class BrickWall:
             # round down to avoid out-of-bounds errors for higher scales. 
             downsampled_box[1] = full_box[1] // 2**scale
 
+        sparse_boxes = None
         if sparse_block_mask is not None:
             assert isinstance(sparse_block_mask, SparseBlockMask)
             sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid) # Halo is applied later, not here.
