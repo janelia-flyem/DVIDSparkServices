@@ -51,7 +51,15 @@ class ScaledVolumeService(VolumeServiceReader):
 
     @property
     def preferred_message_shape(self):
-        return (self.original_volume_service.preferred_message_shape // 2**self.scale_delta).astype(np.uint32)
+        # We return the preferred_message_shape for scale 0.
+        # If we're able to make a direct call to the original service (i.e. we don't have to downample it ourselves),
+        # then just return the native preferred_message_shape
+        #
+        # This is a bit ugly.  See TODO in get_subvolume().
+        if self.scale_delta in self.original_volume_service.available_scales:
+            return self.original_volume_service.preferred_message_shape
+        else:
+            return (self.original_volume_service.preferred_message_shape // 2**self.scale_delta).astype(np.uint32)
 
     @property
     def bounding_box_zyx(self):
