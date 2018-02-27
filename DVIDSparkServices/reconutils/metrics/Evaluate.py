@@ -429,11 +429,11 @@ class Evaluate(object):
             lpairs_splits.persist()
         for (metric, config) in self.custommetrics:
             custommetric = metric(**config)
-            summarystats2, bodystats2, allsubvolume_metrics2 = custommetric.custom_worfklow(lpairs_splits)
+            summarystats2, bodystats2, allsubvolume_metrics2 = custommetric.custom_workflow(lpairs_splits)
             summarystats.extend(summarystats2)
             bodystats.extend(bodystats2)
 
-            for (sid, stats) in allvolume_metrics2:
+            for (sid, stats) in allsubvolume_metrics2.items():
                 if sid in allsubvolume_metrics:
                     allsubvolume_metrics[sid].extend(stats)
                 else:

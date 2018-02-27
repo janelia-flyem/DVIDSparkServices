@@ -18,7 +18,7 @@ class StatType:
         """
         return False
 
-    def custom_workflow(segroichunks_rdd):
+    def custom_workflow(self, segroichunks_rdd):
         """Takes RDD of segmentation and produces stats.
 
         Args:

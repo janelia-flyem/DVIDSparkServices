@@ -1,10 +1,12 @@
 from .stat import *
+import math
 
 """Class finds orphan bodies in volume.
 """
 class orphans_stat(StatType):
     def __init__(self):
         super(orphans_stat, self).__init__()
+        self.supported_types = ["voxels", "synapse"]
 
     @staticmethod 
     def iscustom_workflow():
@@ -14,7 +16,7 @@ class orphans_stat(StatType):
     
     # special passes for orphan counts per roi
     # (first pass to get total count and filter, second pass for substack stats)
-    def custom_workflow(segroichunks_rdd):
+    def custom_workflow(self, segroichunks_rdd):
         # extract segstats rdd
         allstats = segroichunks_rdd.map(lambda x: x[1][0]) 
         allstats.persist()
@@ -24,7 +26,7 @@ class orphans_stat(StatType):
         def combinestats(stat1, stat2):
             stat1.merge_stats(stat2, False)
             return stat1
-        segstats_accum = allstats.treeReduce(combinestats, int(math.log(len(allstats.getNumPartitions()),2)))
+        segstats_accum = allstats.treeReduce(combinestats, int(math.log(allstats.getNumPartitions(),2)))
 
         # should not be called in sparse mode
         summary_stats = []
@@ -34,6 +36,8 @@ class orphans_stat(StatType):
         bigbodies_gt = []
         bigbodies_seg = []
         for onum, gotable in enumerate(segstats_accum.gt_overlaps):
+            if gotable.get_comparison_type() not in self.supported_types:
+                continue
             # filter that determines when something is an orphan
             body_threshold = segstats_accum.ptfilter
             if gotable.get_comparison_type() == "voxels":
@@ -50,7 +54,7 @@ class orphans_stat(StatType):
                     total += overlap
                 if total >= body_threshold:
                     bigbodies.add(gt)
-                elif gt in segstats.boundarybodies:
+                elif gt in segstats_accum.boundarybodies:
                     # completely ignore small bodies on boundary
                     pass
                 else:
@@ -60,7 +64,7 @@ class orphans_stat(StatType):
             if not segstats_accum.selfcompare:
                 sotable = segstats_accum.seg_overlaps[onum]
                 segsmallbodies = 0
-      
+     
                 for seg, overlapset in sotable.overlap_map.items():
                     total = 0
                     for gt, overlap in overlapset:
@@ -68,7 +72,7 @@ class orphans_stat(StatType):
                             total += overlap
                     if total >= body_threshold:
                         segbigbodies.add(seg)
-                    elif seg in segstats.boundarybodies2:
+                    elif seg in segstats_accum.boundarybodies2:
                         # completely ignore small bodies on boundary
                         pass
                     else:
@@ -92,6 +96,8 @@ class orphans_stat(StatType):
             summary_stats = []
             subval = {}
             for onum, gotable in enumerate(stat.gt_overlaps):
+                if gotable.get_comparison_type() not in self.supported_types:
+                    continue
                 # create subvolume stat
                 # (hide if small)
                 num_gtorphans = 0
@@ -112,8 +118,9 @@ class orphans_stat(StatType):
                     ignoresubvolume = True    
 
 
-                if not segstats_accum.selfcompare:
+                if not stat.selfcompare:
                     num_segorphans = 0
+                    sotable = stat.seg_overlaps[onum]
                     for seg, overlapset in sotable.overlap_map.items():
                         if seg not in bigbodies_seg and seg not in stat.boundarybodies2:
                             # small bodies not touching the edge
@@ -140,9 +147,9 @@ class orphans_stat(StatType):
         maxvals = {}
         minvals = {} 
         for (sid, subval, sumstats) in subvolres:
-            subvol_metrics[sid] = subvolstat
+            subvol_metrics[sid] = sumstats 
             for typename, val in subval.items():
-                val2 = 0
+                val2 = -999999999999
                 if typename in maxvals:
                     (sidold, val2) = maxvals[typename]
                 if val > val2:
@@ -155,11 +162,11 @@ class orphans_stat(StatType):
                         
         for typename, (sid, val) in maxvals.items():
             sumstat = {"name": "S-WRST-orphans", "typename": typename, "val": val, "higher-better": False}
-            sumstat["description"] = "Num ophans in worst substack (%d)" % sid 
+            sumstat["description"] = "Num orphans in worst substack (Subvolume=%d)" % sid 
             summary_stats.append(sumstat)
         for typename, (sid, val) in minvals.items():
             sumstat = {"name": "S-BEST-orphans", "typename": typename, "val": val, "higher-better": False}
-            sumstat["description"] = "Num ophans in best substack (%d)" % sid 
+            sumstat["description"] = "Num ophans in best substack (Subvolume=%d)" % sid 
             summary_stats.append(sumstat)
 
         return summary_stats, [], subvol_metrics
