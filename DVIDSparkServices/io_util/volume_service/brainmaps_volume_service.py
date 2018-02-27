@@ -15,7 +15,7 @@ BrainMapsSegmentationServiceSchema = \
     "type": "object",
     "required": ["project", "dataset", "volume-id", "change-stack-id"],
     "default": {},
-    "additionalProperties": False,
+    #"additionalProperties": False, # Can't use this in conjunction with 'oneOf' schema feature
     "properties": {
         "project": {
             "description": "Project ID",
@@ -48,7 +48,7 @@ BrainMapsVolumeSchema = \
     "description": "Describes a segmentation volume from BrainMaps.",
     "type": "object",
     "default": {},
-    "additionalProperties": False,
+#    "additionalProperties": False,
     "properties": {
         "slice-files": BrainMapsSegmentationServiceSchema,
         "geometry": GeometrySchema

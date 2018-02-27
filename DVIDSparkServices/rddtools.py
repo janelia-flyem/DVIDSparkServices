@@ -82,7 +82,7 @@ def frugal_group_by_key(iterable):
             left_list.extend(right_list)
             return left_list
         
-        return iterable.combineByKey( create_combiner, merge_value, merge_combiners )
+        return iterable.combineByKey( create_combiner, merge_value, merge_combiners, numPartitions=iterable.getNumPartitions() )
     else:
         # FIXME: Just call the regular group_by_key
         return group_by_key(iterable)

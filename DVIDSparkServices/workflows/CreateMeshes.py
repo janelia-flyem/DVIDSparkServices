@@ -7,24 +7,25 @@ from io import BytesIO
 from contextlib import closing
 
 import numpy as np
-import requests
 
 from vol2mesh.mesh_from_array import mesh_from_array
 
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker
+from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service 
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels, assemble_masks
 from DVIDSparkServices.dvid.metadata import is_node_locked
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
+from DVIDSparkServices.io_util.brick import SparseBlockMask
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
+from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +50,20 @@ class CreateMeshes(Workflow):
         "additionalProperties": False,
         "default": {},
         "properties": {
-            "simplify-ratio": {
-                "description": "Mesh simplification aims to reduce the number of \n"
-                               "mesh vertices in the mesh to a fraction of the original mesh. \n"
-                               "This ratio is the fraction to aim for.  To disable simplification, use 1.0.\n",
-                "type": "number",
-                "minimum": 0.0000001,
-                "maximum": 1.0,
-                "default": 0.2 # Set to 1.0 to disable.
+            "simplify-ratios": {
+                "description": "Meshes will be generated multiple times, at different simplification settings, based on this list.",
+                "type": "array",
+                "minItems": 1,
+                "default": [0.2],
+                "items": {
+                    "description": "Mesh simplification aims to reduce the number of \n"
+                                   "mesh vertices in the mesh to a fraction of the original mesh. \n"
+                                   "This ratio is the fraction to aim for.  To disable simplification, use 1.0.\n",
+                    "type": "number",
+                    "minimum": 0.0000001,
+                    "maximum": 1.0,
+                    "default": 0.2 # Set to 1.0 to disable.
+                }
             },
             "step-size": {
                 "description": "Passed to skimage.measure.marching_cubes_lewiner().\n"
@@ -98,6 +105,13 @@ class CreateMeshes(Workflow):
                     },
                     
                     "labelmap": copy.copy(LabelMapSchema), # Only used by the 'labelmap' grouping-scheme
+
+                    "subset-bodies": {
+                        "description": "(Optional.) Instead of generating meshes for all meshes in the volume,\n"
+                                       "only generate meshes for a subset of the bodies in the volume.\n",
+                        "type": "array",
+                        "default": []
+                    },
                     
                     "skip-groups": {
                         "description": "For 'labelmap grouping scheme, optionally skip writing of this list of groups (tarballs).'",
@@ -129,12 +143,17 @@ class CreateMeshes(Workflow):
         "maximum-segment-size": {
             "description": "Segments larger than this voxel count will not be processed. (Useful for avoiding processing errors.)",
             "type": "number",
-            "default": 1.9e9
+            "default": 1e100 # unbounded by default
         },
         "minimum-agglomerated-size": {
             "description": "Agglomerated groups smaller than this voxel count will not be processed.",
             "type": "number",
-            "default": 10e6
+            "default": 1e6 # 1 Megavoxel
+        },
+        "maximum-agglomerated-size": {
+            "description": "Agglomerated groups larger than this voxel count will not be processed.",
+            "type": "number",
+            "default": 10e9 # 10 Gigavoxels
         },
         "minimum-downsample-factor": {
             "description": "Minimum factor by which to downsample bodies before processing.\n"
@@ -210,13 +229,16 @@ class CreateMeshes(Workflow):
         resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
         volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
 
-        self._init_meshes_instance()
+        self._init_meshes_instances()
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-
-        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels)
+        
+        # This will return None if we're not using sparse blocks
+        sparse_block_mask = self._get_sparse_block_mask(volume_service)
+        
+        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sparse_block_mask)
         brick_wall.persist_and_execute("Downloading segmentation", logger)
 
         # brick -> [ (segment_label, (box, mask, count)),
@@ -237,9 +259,14 @@ class CreateMeshes(Workflow):
             new_items = []
             for item in items:
                 segment_label, (box, mask, _count) = item
-            new_items.append( (segment_label, (box, mask)) )
+                new_items.append( (segment_label, (box, mask)) )
             return new_items
         segments_and_masks = segments_and_masks.flatMap( drop_count )
+
+        bad_segments = mask_stats_df[['segment', 'compressed_bytes']].query('compressed_bytes > 1.9e9')['segment']
+        if len(bad_segments) > 0:
+            logger.error(f"SOME SEGMENTS (N={len(bad_segments)}) ARE TOO BIG TO PROCESS.  Skipping segments: {list(bad_segments)}.")
+            segments_and_masks = segments_and_masks.filter( lambda seg_mask: seg_mask[0] not in bad_segments.values )
         
         # (segment, (box, mask))
         #   --> (segment, boxes_and_masks)
@@ -278,43 +305,105 @@ class CreateMeshes(Workflow):
         # Aggregate
         # --> (segment_label, (box, mask, downsample_factor))
         segment_box_mask_factor = masks_by_segment_id.mapValues( partial(combine_masks, config) )
+        persist_and_execute(segment_box_mask_factor, "Assembling masks", logger)
 
-        def _generate_mesh(box_mask_factor):
-            box, mask, factor = box_mask_factor
-            return generate_mesh(config, box, mask, factor)
+        #
+        # Re-compute meshes once for every simplification ratio in the config
+        #
+        for instance_name, simplification_ratio in zip(self.mesh_instances, config["mesh-config"]["simplify-ratios"]):
+            def _generate_mesh(box_mask_factor):
+                box, mask, factor = box_mask_factor
+                return generate_mesh(config, simplification_ratio, box, mask, factor)
+    
+            # --> (segment_label, (mesh_bytes, vertex_count))
+            segments_meshes_counts = segment_box_mask_factor.mapValues( _generate_mesh )
+            persist_and_execute(segments_meshes_counts, f"Computing meshes at decimation {simplification_ratio:.2f}", logger)
+    
+            with Timer("Computing mesh statistics", logger):
+                mask_and_mesh_stats_df = self.append_mesh_stats( mask_stats_df, segments_meshes_counts, f'{simplification_ratio:.2f}' )
+    
+            # Update the 'keep_body' column: Skip meshes that are too big.
+            huge_bodies = (mask_and_mesh_stats_df['body_mesh_bytes'] > 1.9e9)
+            if huge_bodies.any():
+                logger.error("SOME BODY MESH GROUPS ARE TOO BIG TO PROCESS.  See dumped DataFrame for details.")
+                mask_and_mesh_stats_df['keep_body'] &= ~huge_bodies
+    
+                # Drop them from the processing list
+                segments_in_huge_bodies = mask_and_mesh_stats_df['segment'][huge_bodies].values
+                segments_meshes_counts = segments_meshes_counts.filter(lambda seg_and_values: not (seg_and_values[0] in segments_in_huge_bodies))
+    
+            # --> (segment_label, mesh_bytes)
+            def drop_vcount(item):
+                segment_label, (mesh_bytes, _vertex_count) = item
+                return (segment_label, mesh_bytes)
+            segments_and_meshes = segments_meshes_counts.map(drop_vcount)
+    
+            # Group by body ID
+            # --> ( body_id ( segment_label, mesh_bytes ) )
+            grouped_body_ids_segments_meshes = self.group_by_body(segments_and_meshes)
+            unpersist(segments_and_meshes)
+            del segments_and_meshes
+    
+            unpersist(segments_meshes_counts)
+            del segments_meshes_counts
 
-        # --> (segment_label, (mesh_bytes, vertex_count))
-        segments_meshes_counts = segment_box_mask_factor.mapValues( _generate_mesh )
-        persist_and_execute(segments_meshes_counts, "Computing meshes", logger)
+            with Timer("Writing meshes to DVID", logger):
+                grouped_body_ids_segments_meshes.foreachPartition( partial(post_meshes_to_dvid, config, instance_name) )
+            
+            unpersist(grouped_body_ids_segments_meshes)
+            del grouped_body_ids_segments_meshes
+            
+    def _get_sparse_block_mask(self, volume_service):
+        """
+        If the user's config specified a sparse subset of bodies to process,
+        Return a SparseBlockMask object indicating where those bodies reside.
+        
+        If the user did not specify a 'subset-bodies' list, returns None, indicating
+        that all segmentation blocks in the volume should be read.
+        
+        Also, if the input volume is not from a DvidVolumeService, return None.
+        (In that case, the 'subset-bodies' feature can be used, but it isn't as efficient.)
+        """
+        import pandas as pd
+        config = self.config_data
+        
+        sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
+        if not sparse_body_ids:
+            return None
 
-        with Timer("Computing mesh statistics", logger):
-            mask_stats_df = self.append_mesh_stats( mask_stats_df, segments_meshes_counts )
+        if not isinstance(volume_service.base_service, DvidVolumeService):
+            # We only know how to retrieve sparse blocks for DVID volumes.
+            # For other volume sources, we'll just have to fetch everything and filter
+            # out the unwanted bodies at the mask aggregation step.
+            return None
+        
+        grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
+        assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
+            f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
+        
+        if grouping_scheme in ('no-groups', 'singletons'):
+            # The 'body ids' are identical to segment ids
+            sparse_segment_ids = sparse_body_ids
+        elif grouping_scheme == 'labelmap':
+            # We need to convert the body ids into sparse segment ids        
+            mapping_pairs = self.load_labelmap()
+            segments, bodies = mapping_pairs.transpose()
+            
+            # pandas.Series permits duplicate index values,
+            # which is convenient for this reverse lookup
+            reverse_lookup = pd.Series(index=bodies, data=segments)
+            sparse_segment_ids = reverse_lookup.loc[sparse_body_ids].values
 
-        # Update the 'keep_body' column: Skip meshes that are too big.
-        huge_bodies = (mask_stats_df['body_mesh_bytes'] > 1.9e9)
-        if huge_bodies.any():
-            logger.error("SOME BODY MESH GROUPS ARE TOO BIG TO PROCESS.  See dumped DataFrame for details.")
-            mask_stats_df['keep_body'] &= ~huge_bodies
+        # Fetch the sparse mask of blocks that the sparse segments belong to        
+        dvid_service = volume_service.base_service
+        block_mask, lowres_box, block_shape = \
+            sparkdvid.get_union_block_mask_for_bodies( dvid_service.server,
+                                                       dvid_service.uuid,
+                                                       dvid_service.instance_name,
+                                                       sparse_segment_ids )
 
-            # Drop them from the processing list
-            segments_in_huge_bodies = mask_stats_df['segment'][huge_bodies].values
-            segments_meshes_counts = segments_meshes_counts.filter(lambda seg_and_values: not (seg_and_values[0] in segments_in_huge_bodies))
-
-        # --> (segment_label, mesh_bytes)
-        def drop_vcount(item):
-            segment_label, (mesh_bytes, _vertex_count) = item
-            return (segment_label, mesh_bytes)
-        segments_and_meshes = segments_meshes_counts.map(drop_vcount)
-
-        # Group by body ID
-        # --> ( body_id ( segment_label, mesh_bytes ) )
-        grouped_body_ids_segments_meshes = self.group_by_body(segments_and_meshes)
-        unpersist(segments_and_meshes)
-        del segments_and_meshes
-
-        with Timer("Writing meshes to DVID", logger):
-            grouped_body_ids_segments_meshes.foreachPartition( partial(post_meshes_to_dvid, config) )
-
+        fullres_box = lowres_box * block_shape
+        return SparseBlockMask(block_mask, fullres_box, block_shape)
 
     def compute_mask_stats(self, segments_and_masks):
         """
@@ -423,11 +512,10 @@ class CreateMeshes(Workflow):
             full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
 
             if config["options"]["force-uniform-downsampling"]:
-                body_downsample_factors = full_stats_df[['body', 'downsample_factor']].groupby('body').max()
-                assert body_downsample_factors['downsample_factor'].dtype == np.uint8
-                full_stats_df['downsample_factor'] = full_stats_df[['body']].merge(body_downsample_factors, 'inner', left_on='body', right_index=True)
-                full_stats_df['downsample_factor'] = full_stats_df.astype(np.uint8)
-            
+                body_downsample_factors = full_stats_df[['body', 'downsample_factor']].groupby('body', as_index=False).max()
+                adjusted_downsample_factors = full_stats_df[['body']].merge(body_downsample_factors, 'left', on='body')
+                full_stats_df['downsample_factor'] = adjusted_downsample_factors['downsample_factor'].astype(np.uint8)
+
             # For offline analysis, write body stats to a file
             output_path = self.config_dir + '/body-stats.csv'
             logger.info(f"Saving body statistics to {output_path}")
@@ -441,8 +529,17 @@ class CreateMeshes(Workflow):
             full_stats_df['body'] = full_stats_df['segment']
             full_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
         
-        #logger.info(f"{full_stats_df}")
-        full_stats_df['keep_body'] = (full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size'])
+        full_stats_df['keep_body'] = ((full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
+                                      (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) )
+
+        # If subset-bodies were given, exclude all others.
+        sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
+        if sparse_body_ids:
+            for body_id in sparse_body_ids:
+                if not full_stats_df[full_stats_df['body'] == body_id]['keep_body'].all():
+                    logger.error(f"You explicitly listed body {body_id} in subset-bodies, "
+                                 "but it will be excluded due to your other config settings.")
+            full_stats_df['keep_body'] &= full_stats_df.eval('body in @sparse_body_ids')
 
         # Sort for convenience of viewing output
         with Timer("Sorting segment stats", logger):
@@ -463,7 +560,7 @@ class CreateMeshes(Workflow):
         return full_stats_df
 
 
-    def append_mesh_stats(self, mask_stats_df, segments_meshes_counts):
+    def append_mesh_stats(self, mask_stats_df, segments_meshes_counts, tag=''):
         # Add mesh sizes to stats columns
         def mesh_stat_row(item):
             segment_label, (mesh_bytes, vertex_count) = item
@@ -473,26 +570,35 @@ class CreateMeshes(Workflow):
         mesh_stats_df = pd.DataFrame(segments_meshes_counts.map( mesh_stat_row ).collect(),
                                       columns=['segment', 'mesh_bytes', 'vertexes'])
                     
-        mask_stats_df = mask_stats_df.merge(mesh_stats_df, 'left', on='segment', copy=False)
+        mask_and_mesh_stats_df = mask_stats_df.merge(mesh_stats_df, 'left', on='segment')
 
         # Calculate body mesh size (in total bytes, not including tar overhead)
-        body_mesh_bytes = mask_stats_df[['body', 'mesh_bytes']].groupby('body').sum()
+        body_mesh_bytes = mask_and_mesh_stats_df[['body', 'mesh_bytes']].groupby('body').sum()
         body_mesh_bytes_df = pd.DataFrame({ 'body': body_mesh_bytes.index,
                                             'body_mesh_bytes': body_mesh_bytes['mesh_bytes'] })
         
         # Add body mesh bytes column
-        mask_stats_df = mask_stats_df.merge(body_mesh_bytes_df, 'left', on='body', copy=False)
+        mask_and_mesh_stats_df = mask_and_mesh_stats_df.merge(body_mesh_bytes_df, 'left', on='body', copy=False)
 
-        stats_gb = mask_stats_df.memory_usage().sum() / 1e9
+        stats_gb = mask_and_mesh_stats_df.memory_usage().sum() / 1e9
 
         # Write the Stats DataFrame to a file for offline analysis.
-        output_path = self.config_dir + '/mesh-stats-dataframe.pkl.xz'
+        if tag:
+            output_path = self.config_dir + f'/mesh-stats-{tag}-dataframe.pkl.xz'
+        else:
+            output_path = self.config_dir + '/mesh-stats-dataframe.pkl.xz'
+            
         logger.info(f"Saving mesh statistics ({stats_gb:.3f} GB) to {output_path}")
-        mask_stats_df.to_pickle(output_path)
+        mask_and_mesh_stats_df.to_pickle(output_path)
 
-        return mask_stats_df
+        return mask_and_mesh_stats_df
 
     def load_labelmap(self):
+        """
+        Load the labelmap for aggregating segments into bodies.
+        Note that this is NOT the same as the labelmap (if any) that may
+        be involved in the original segment source.
+        """
         if self._labelmap is None:
             config = self.config_data
             grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
@@ -551,7 +657,7 @@ class CreateMeshes(Workflow):
         return grouped_body_ids_and_meshes
         
 
-    def _init_meshes_instance(self):
+    def _init_meshes_instances(self):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
         if is_node_locked(dvid_info["dvid"]["server"], dvid_info["dvid"]["uuid"]):
@@ -562,7 +668,14 @@ class CreateMeshes(Workflow):
                                               options["resource-server"],
                                               options["resource-port"] )
 
-        node_service.create_keyvalue(dvid_info["dvid"]["meshes-destination"])
+        self.mesh_instances = []
+        for simplification_ratio in self.config_data["mesh-config"]["simplify-ratios"]:
+            instance_name = dvid_info["dvid"]["meshes-destination"]
+            if len(self.config_data["mesh-config"]["simplify-ratios"]) > 1:
+                instance_name += f"_dec{simplification_ratio:.2f}"
+
+            node_service.create_keyvalue( instance_name )
+            self.mesh_instances.append( instance_name )
 
 
 def compute_segment_masks(config, brick):
@@ -650,7 +763,7 @@ def combine_masks(config, dsf_and_boxes_and_masks ):
     return (combined_box, combined_mask_downsampled, downsample_factor)
 
 
-def generate_mesh(config, combined_box, combined_mask, downsample_factor):
+def generate_mesh(config, simplification_ratio, combined_box, combined_mask, downsample_factor):
     # This config factor is an option to artificially scale the meshes up before
     # writing them, on top of whatever amount the data was downsampled.
     rescale_factor = config["options"]["rescale-before-write"]
@@ -660,28 +773,26 @@ def generate_mesh(config, combined_box, combined_mask, downsample_factor):
     mesh_bytes, vertex_count = mesh_from_array( combined_mask,
                                                 combined_box[0],
                                                 downsample_factor,
-                                                config["mesh-config"]["simplify-ratio"],
+                                                simplification_ratio,
                                                 config["mesh-config"]["step-size"],
                                                 config["mesh-config"]["storage"]["format"],
                                                 return_vertex_count=True)
     return mesh_bytes, vertex_count
 
 
-def post_meshes_to_dvid(config, partition_items):
+def post_meshes_to_dvid(config, instance_name, partition_items):
     """
     Send the given meshes (either .obj or .drc) as key/value pairs to DVID.
     
     Args:
         config: The CreateMeshes workflow config data
+        
+        instance_name: key-value instance to post to
             
-        items: tuple (segment_id, mesh_data, error_text)
-                      If mesh_data is None or error_text is NOT None, then nothing is posted.
-                      (We could have filtered out such items upstream, but it's convenient to just handle it here.)
-
-        session: A requests.Session object to re-use for posting data.                      
+        partition_items: tuple (group_id, [(segment_id, mesh_data), (segment_id, mesh_data)])
     """
     # Re-use session for connection pooling.
-    session = requests.Session()
+    session = default_dvid_session()
 
     # Re-use resource manager client connections, too.
     # (If resource-server is empty, this will return a "dummy client")    
@@ -690,7 +801,6 @@ def post_meshes_to_dvid(config, partition_items):
 
     dvid_server = config["dvid-info"]["dvid"]["server"]
     uuid = config["dvid-info"]["dvid"]["uuid"]
-    instance = config["dvid-info"]["dvid"]["meshes-destination"]
     
     grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
     mesh_format = config["mesh-config"]["storage"]["format"]
@@ -702,8 +812,8 @@ def post_meshes_to_dvid(config, partition_items):
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def write_mesh():
                     with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
-                        session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{segment_id}', mesh_data)
-                        session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{segment_id}_info', json={ 'format': mesh_format })
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}', mesh_data)
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}_info', json={ 'format': mesh_format })
                 
                 write_mesh()
     else:
@@ -724,7 +834,7 @@ def post_meshes_to_dvid(config, partition_items):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def write_tar():
                 with resource_client.access_context(dvid_server, False, 1, len(tar_bytes)):
-                    session.post(f'{dvid_server}/api/node/{uuid}/{instance}/key/{tar_name}', tar_bytes)
+                    session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{tar_name}', tar_bytes)
             
             write_tar()
 

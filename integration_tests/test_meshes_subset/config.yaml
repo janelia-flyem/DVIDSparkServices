@@ -4,7 +4,7 @@
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
-        "meshes-destination": "labels_grouped_meshes"
+        "meshes-destination": "labels_single_mesh"
       },
       "geometry": {
         "bounding-box": [[0,0,0], [256,256,256]],
@@ -12,7 +12,7 @@
       }
     },
     "mesh-config": {
-        "simplify-ratios": [1.0, 0.5, 0.2, 0.1, 0.05, 0.01],
+        "simplify-ratios": [0.2],
         "step-size": 1,
         "storage": {
           format: drc,
@@ -22,6 +22,7 @@
             "file": ../mod-10-labelmap.csv, # Relative to temp_data/config.json
             "file-type": label-to-body
           },
+          "subset-bodies": [1,5]
         }
     },
     "options": {

@@ -1,0 +1,78 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/temp_data/logs', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/temp_data/logs
+None
+INFO [2018-02-23 18:11:00,097] Started logserver on 10.101.10.93:3000
+INFO [2018-02-23 18:11:00,100] Starting resource manager on the driver (10.101.10.93)
+INFO [2018-02-23 18:11:00,105] Started resource manager
+CreateMeshes: Started [2018-02-23 18:11:00]
+INFO [2018-02-23 18:11:00,729] Loading label-to-body mapping from /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/mod-10-labelmap.csv
+INFO [2018-02-23 18:11:00,732] Loading mapping...
+INFO [2018-02-23 18:11:00,738] Loading mapping took 0:00:00.004526
+INFO [2018-02-23 18:11:02,738] Downloading segmentation...
+INFO [2018-02-23 18:11:08,529] Downloading segmentation (N=16) took 0:00:05.788528
+INFO [2018-02-23 18:11:08,533] Computing brick-local segment masks...
+INFO [2018-02-23 18:11:18,925] Computing brick-local segment masks (N=16) took 0:00:10.388331
+INFO [2018-02-23 18:11:18,974] Computing segment statistics...
+INFO [2018-02-23 18:11:20,947] Saving body statistics to /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/temp_data/body-stats.csv
+INFO [2018-02-23 18:11:21,019] Sorting segment stats...
+INFO [2018-02-23 18:11:21,026] Sorting segment stats took 0:00:00.002953
+INFO [2018-02-23 18:11:21,033] Saving segment statistics (0.000 GB) to /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/temp_data/segment-stats-dataframe.pkl.xz
+INFO [2018-02-23 18:11:21,142] Computing segment statistics took 0:00:02.163580
+INFO [2018-02-23 18:11:21,184] Grouping segment masks by segment label ID...
+INFO [2018-02-23 18:11:22,655] Grouping segment masks by segment label ID (N=300) took 0:00:01.466743
+INFO [2018-02-23 18:11:22,680] Filtering masks by segment and size...
+INFO [2018-02-23 18:11:23,588] Filtering masks by segment and size (N=19) took 0:00:00.902926
+INFO [2018-02-23 18:11:23,599] Assembling masks...
+INFO [2018-02-23 18:11:28,651] Assembling masks (N=19) took 0:00:05.046188
+INFO [2018-02-23 18:11:28,658] Computing meshes at decimation 0.20...
+INFO [2018-02-23 18:11:30,726] Computing meshes at decimation 0.20 (N=19) took 0:00:02.062932
+INFO [2018-02-23 18:11:30,732] Computing mesh statistics...
+INFO [2018-02-23 18:11:31,181] Saving mesh statistics (0.000 GB) to /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/temp_data/mesh-stats-0.20-dataframe.pkl.xz
+INFO [2018-02-23 18:11:31,264] Computing mesh statistics took 0:00:00.526244
+INFO [2018-02-23 18:11:31,297] Grouping meshes with scheme: 'labelmap'...
+INFO [2018-02-23 18:11:32,494] Grouping meshes with scheme: 'labelmap' (N=2) took 0:00:01.193297
+INFO [2018-02-23 18:11:32,505] Writing meshes to DVID...
+INFO [2018-02-23 18:11:32,934] Writing meshes to DVID took 0:00:00.419890
+CreateMeshes: Finished [2018-02-23 18:11:32]
+INFO [2018-02-23 18:11:32,947] No worker init processes to kill
+INFO [2018-02-23 18:11:32,953] No driver init process to kill
+INFO [2018-02-23 18:11:32,958] Terminating resource manager (PID 16129)
+Resource manager killed via external signal: KeyboardInterrupt
+INFO [2018-02-23 18:11:34,969] Successfully interrupted process 16129
+INFO [2018-02-23 18:11:34,973] Interrupted process was: /miniforge/envs/flyem-forge/bin/python /miniforge/envs/flyem-forge/bin/dvid_resource_manager 4000 --config-file=/tmp/bergs/driver-resource-server-config.json
+INFO [2018-02-23 18:11:34,995] Terminating logserver (PID 16128)
+Log server killed via external signal: SystemExit
+Traceback (most recent call last):
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 240, in <module>
+    app.run(host='0.0.0.0', port=args.port, debug=args.debug_mode)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/site-packages/flask/app.py", line 841, in run
+    run_simple(host, port, self, **options)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/site-packages/werkzeug/serving.py", line 739, in run_simple
+    inner()
+  File "/miniforge/envs/flyem-forge/lib/python3.6/site-packages/werkzeug/serving.py", line 702, in inner
+    srv.serve_forever()
+  File "/miniforge/envs/flyem-forge/lib/python3.6/site-packages/werkzeug/serving.py", line 539, in serve_forever
+    HTTPServer.serve_forever(self)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/socketserver.py", line 236, in serve_forever
+    ready = selector.select(poll_interval)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/selectors.py", line 376, in select
+    fd_event_list = self._poll.poll(timeout)
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 232, in <lambda>
+    signal.signal(signal.SIGTERM, lambda signum, stack_frame: exit(1))
+  File "/miniforge/envs/flyem-forge/lib/python3.6/_sitebuiltins.py", line 26, in __call__
+    raise SystemExit(code)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 193, in _run_module_as_main
+    "__main__", mod_spec)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 85, in _run_code
+    exec(code, run_globals)
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 254, in <module>
+    print("Log server killed via external signal: {}".format(ex.__class__.__name__))
+KeyboardInterrupt
+INFO [2018-02-23 18:11:37,000] Successfully interrupted process 16128
+INFO [2018-02-23 18:11:37,000] Interrupted process was: /miniforge/envs/flyem-forge/bin/python -m logcollector.logserver --log-dir=/Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_meshes_subset/temp_data/logs --port=3000

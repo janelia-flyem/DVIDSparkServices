@@ -1,9 +1,12 @@
 import logging
 from itertools import starmap
 from functools import partial
+import collections
 
 import numpy as np
-from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection
+
+from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection,\
+    box_to_slicing
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
@@ -32,24 +35,70 @@ class Grid:
         return (self.block_shape == other_grid.block_shape).all() and \
                (self.modulus_offset == other_grid.modulus_offset).all()
 
+    def compute_logical_box(self, point):
+        """
+        Return the logical box that encompasses the given point.
+        """
+        block_index = (point - self.offset) // self.block_shape
+        block_start = self.offset + (block_index * self.block_shape)
+        return np.asarray( (block_start, block_start + self.block_shape) )
+
+class SparseBlockMask:
+    """
+    Tiny class to hold a low-resolution binary mask and the box it corresponds to.
+    """
+    def __init__(self, lowres_mask, box, resolution):
+        """
+        Args:
+            lowres_mask:
+                boolean ndarray, where each voxel represents a block of full-res data.
+            box:
+                The volume of space covered by the mask, in FULL-RES coordinates
+            resolution:
+                The width (or shape) of each lowres voxel in FULL-RES coordinates.
+        """
+        self.lowres_mask = lowres_mask.astype(bool, copy=False)
+        self.box = np.asarray(box)
+        self.resolution = resolution
+        if isinstance(self.resolution, collections.Iterable):
+            self.resolution = np.asarray(resolution)
+            
+        assert (((self.box[1] - self.box[0]) // self.resolution) == self.lowres_mask.shape).all(), \
+            f"Inconsistent mask shape ({lowres_mask}) and box {box.tolist()} for the given resolution ({resolution}).\n"\
+            "Note: box should be specified in FULL resolution coordinates."
+
 class Brick:
     """
-    A Brick occupies one full block of a grid, but the volume
-    data it contains might not span the entire grid block.
+    Conceptually, bricks are intended to populate (or sparsely populate)
+    a Grid, with up to one Brick per grid block.
     
-    Therefore, a Brick tracks it's logical_box (the entire grid block),
-    and it's physical_box (the box its volume data actually occupies
-    within the grid block.)
+    The particular Grid block in which a Brick lives is indicated by it's logical_box,
+    which corresponds to an exact (complete) grid block region.
+    
+    But for some Bricks, there may not be enough data to fill the entire Grid block
+    (e.g. for Bricks that lie on the edge of a large volume's bounding-box).
+    In that case, the Brick.volume array might only span a subregion within the logical_box.
+    That region is indicated by the Brick's physical_box.
+
+    In fact, a Brick's physical_box may even be *larger* than it's logical_box,
+    which is useful for operations in which Brick data needs to be padded with some 'halo'.
+    
+    In Summary, a Brick consists of three items:
+
+        - volume: An array of voxels, i.e. the actual data for the Brick
+
+        - physical_box: The region in space that those voxels inhabit.
+                        By definition, `volume.shape == (physical_box[1] - physical_box[0])`
+
+        - logical_box: The Brick's logical address within some abstract Grid in space.
      
-    Note: Both boxes are always stored in GLOBAL coordinates.
+        Note: Both boxes (logical and physical) are always stored in GLOBAL coordinates.
     """
     def __init__(self, logical_box, physical_box, volume):
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
         self._volume = volume
-        assert (self.physical_box[1] - self.physical_box[0] == self.volume.shape).all()
-        assert (self.physical_box[0] >= self.logical_box[0]).all()
-        assert (self.physical_box[1] <= self.logical_box[1]).all()
+        assert ((self.physical_box[1] - self.physical_box[0]) == self.volume.shape).all()
         
         # Used for pickling.
         self._compressed_volume = None
@@ -94,7 +143,7 @@ class Brick:
         d['_volume'] = None
         return d
 
-def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None ):
+def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None, sparse_boxes=None, halo=0 ):
     """
     Generate an RDD or iterable of Bricks for the given bounding box and grid.
      
@@ -115,15 +164,56 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
  
         rdd_partition_length:
             Optional. If provided, the RDD will have (approximately) this many bricks per partition.
+        
+        sparse_boxes:
+            Optional.
+            A pre-calculated list of boxes to use instead of instead of calculating
+            the complete (dense) list of grid boxes within the bounding box.
+            If provided, should be a list of physical boxes, and no two should occupy
+            the same logical box, as defined by their midpoints.
+            Note: They will still be clipped to the overall bounding_box.
+        
+        halo: An integer or shape indicating how much halo to add to each Brick's physical_box.
+              The halo is applied in both 'dense' and 'sparse' cases.
     """
-    logical_and_physical_boxes = ( (box, box_intersection(box, bounding_box))
-                                  for box in boxes_from_grid(bounding_box, grid) )
+    if sparse_boxes is None:
+        # Generate boxes from densely populated grid
+        logical_and_physical_boxes = ( (box, box_intersection(box, bounding_box))
+                                      for box in boxes_from_grid(bounding_box, grid, halo) )
+    else:
+        halo_shape = np.zeros((3,), dtype=np.int32)
+        halo_shape[:] = halo
+
+        # User provided list of physical boxes.
+        # Clip them to the bounding box and calculate the logical boxes.
+        if not hasattr(sparse_boxes, '__len__'):
+            sparse_boxes = list( sparse_boxes )
+        physical_boxes = np.asarray( sparse_boxes )
+        assert physical_boxes.ndim == 3 and physical_boxes.shape[1:3] == (2,3)
+
+        def logical_and_clipped( box ):
+            midpoint = (box[0] + box[1]) // 2
+            logical_box = grid.compute_logical_box( midpoint )
+            box += (-halo_shape, halo_shape)
+            # Note: Non-intersecting boxes will have non-positive shape after clipping
+            clipped_box = box_intersection(box, bounding_box)
+            return ( logical_box, clipped_box )
+
+        logical_and_physical_boxes = map(logical_and_clipped, physical_boxes)
+
+        # Drop any boxes that fall completely outside the bounding box
+        # Check that physical box doesn't completely fall outside its logical_box
+        def is_valid(logical_and_physical):
+            logical_box, physical_box = logical_and_physical
+            return (physical_box[1] > logical_box[0]).all() and (physical_box[0] < logical_box[1]).all()
+        logical_and_physical_boxes = filter(is_valid, logical_and_physical_boxes )
 
     if sc:
         num_rdd_partitions = None
         if rdd_partition_length is not None:
             rdd_partition_length = max(1, rdd_partition_length)
-            logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
+            if not hasattr(logical_and_physical_boxes, '__len__'):
+                logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
         logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
@@ -148,6 +238,20 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
 
     return bricks
 
+def clip_to_logical( brick ):
+    """
+    Truncate the given brick so that it's volume does not exceed the bounds of its logical_box.
+    (Useful if the brick was originally constructed with a halo.)
+    """
+    intersection = box_intersection(brick.physical_box, brick.logical_box)
+    assert (intersection[1] > intersection[0]).all(), \
+        f"physical_box ({brick.physical_box}) does not intersect logical_box ({brick.logical_box})"
+    
+    intersection_within_physical = intersection - brick.physical_box[0]
+    new_vol = brick.volume[ box_to_slicing(*intersection_within_physical) ]
+    return Brick( brick.logical_box, intersection, new_vol )
+
+
 def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick ):
     """
     Expand the given Brick's data until its physical_box is aligned with the given padding_grid.
@@ -155,7 +259,7 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
     
     Note: padding_grid need not be identical to the grid the Brick was created with,
           but it must divide evenly into that grid. 
-
+    
     For instance, if padding_grid happens to be the same as the brick's own native grid,
     then the phyiscal_box is expanded to align perfectly with the logical_box on all sides: 
     
@@ -173,6 +277,9 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
 
     Returns: Brick
     
+    Note: It is not legal to call this function unless the Brick's physical_box
+          lies completely within the logical_box (i.e. no halos allowed).
+
     Note: If no padding is necessary, then the original Brick is returned (no copy is made).
     """
     block_shape = padding_grid.block_shape
@@ -337,11 +444,21 @@ def split_brick(new_grid, original_brick):
     The brick fragments are returned as Bricks themselves, but with relatively
     small volume and physical_box members.
     
+    Note: It is probably a mistake to call this function for Bricks which have
+          a larger physical_box than logical_box, so that is currently forbidden.
+          (It would work here, but it implies that you will end up with some voxels
+          represented multiple times in a given RDD of Bricks, with undefined results
+          as to which ones are kept after you consolidate them into a new alignment.
+    
     Returns: [(box,Brick), (box, Brick), ....],
             where each Brick is a fragment (to be assembled later into the new grid's bricks),
             and 'box' is the logical_box of the Brick into which this fragment should be assembled.
     """
     new_logical_boxes_and_fragments = []
+    
+    # Forbid out-of-bounds physical_boxes. (See note above.)
+    assert ((original_brick.physical_box[0] >= original_brick.logical_box[0]).all() and
+            (original_brick.physical_box[1] <= original_brick.logical_box[1]).all())
     
     # Iterate over the new boxes that intersect with the original brick
     for new_logical_box in boxes_from_grid(original_brick.physical_box, new_grid):
@@ -411,7 +528,7 @@ def assemble_brick_fragments( fragments ):
     return Brick( final_logical_box, final_physical_box, final_volume )
 
 
-def boxes_from_grid(bounding_box, grid):
+def boxes_from_grid(bounding_box, grid, halo=0):
     """
     Generator.
     
@@ -425,16 +542,16 @@ def boxes_from_grid(bounding_box, grid):
     
     if grid.offset is None or not any(grid.offset):
         # Shortcut
-        yield from _boxes_from_grid_no_offset(bounding_box, grid.block_shape)
+        yield from _boxes_from_grid_no_offset(bounding_box, grid.block_shape, halo)
     else:
         grid_offset = np.asarray(grid.offset)
         bounding_box = bounding_box - grid.offset
-        for box in _boxes_from_grid_no_offset(bounding_box, grid.block_shape):
+        for box in _boxes_from_grid_no_offset(bounding_box, grid.block_shape, halo):
             box += grid_offset
             yield box
 
 
-def _boxes_from_grid_no_offset(bounding_box, block_shape):
+def _boxes_from_grid_no_offset(bounding_box, block_shape, halo=0):
     """
     Generator.
     
@@ -448,16 +565,19 @@ def _boxes_from_grid_no_offset(bounding_box, block_shape):
     """
     bounding_box = np.asarray(bounding_box, dtype=int)
     block_shape = np.asarray(block_shape)
+    halo_shape = np.zeros((len(block_shape),), dtype=np.int32)
+    halo_shape[:] = halo
 
     # round down, round up
     aligned_start = ((bounding_box[0]) // block_shape) * block_shape
     aligned_stop = ((bounding_box[1] + block_shape-1) // block_shape) * block_shape
 
     for block_start in ndrange( aligned_start, aligned_stop, block_shape ):
-        yield np.array((block_start, block_start + block_shape))
+        yield np.array((block_start - halo_shape,
+                        block_start + halo_shape + block_shape))
 
 
-def clipped_boxes_from_grid(bounding_box, grid):
+def clipped_boxes_from_grid(bounding_box, grid, halo=0):
     """
     Generator.
     
@@ -467,7 +587,7 @@ def clipped_boxes_from_grid(bounding_box, grid):
     Returned boxes that would intersect the edge of the bounding_box are clipped so as not
     to extend beyond the bounding_box.
     """
-    for box in boxes_from_grid(bounding_box, grid):
+    for box in boxes_from_grid(bounding_box, grid, halo):
         yield box_intersection(box, bounding_box)
 
 def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out', slab_cutting_axis=0 ):
@@ -505,19 +625,8 @@ def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out
     assert scaling_policy in ('round-out', 'round-in', 'round-down')
     full_res_box = np.asarray(full_res_box)
 
-    scaled_input_bb_zyx = np.zeros((2,3), dtype=int)
-    
-    if scaling_policy == 'round-out':
-        scaled_input_bb_zyx[0] = full_res_box[0] // 2**scale                  # round down
-        scaled_input_bb_zyx[1] = (full_res_box[1] + 2**scale - 1) // 2**scale # round up
-        
-    elif scaling_policy == 'round-in':
-        scaled_input_bb_zyx[0] = (full_res_box[0] + 2**scale - 1) // 2**scale  # round up
-        scaled_input_bb_zyx[1] = full_res_box[1] // 2**scale                   # round down
-
-    elif scaling_policy == 'round-down':
-        scaled_input_bb_zyx[0] = full_res_box[0] // 2**scale  # round down
-        scaled_input_bb_zyx[1] = full_res_box[1] // 2**scale  # round down
+    round_method = scaling_policy[len('round-'):]
+    scaled_input_bb_zyx = round_box(full_res_box, 2**scale, round_method) // 2**scale
 
     slab_shape_zyx = scaled_input_bb_zyx[1] - scaled_input_bb_zyx[0]
     slab_shape_zyx[slab_cutting_axis] = slab_depth
@@ -530,3 +639,107 @@ def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out
     slab_boxes = clipped_boxes_from_grid(scaled_input_bb_zyx, slab_grid)
     
     return slab_boxes
+
+def round_coord(coord, grid_spacing, how):
+    """
+    Round the given coordinate up or down to the nearest grid position.
+    """
+    assert how in ('down', 'up')
+    if how == 'down':
+        return (coord // grid_spacing) * grid_spacing
+    if how == 'up':
+        return ((coord + grid_spacing - 1) // grid_spacing) * grid_spacing
+
+def round_box(box, grid_spacing, how='out'):
+    """
+    Expand/shrink the given box out to align it to a grid.
+
+    box: (start, stop)
+    grid_spacing: int or shape
+    how: One of ['out', 'in', 'down', 'up'].
+         Determines which direction the box corners are moved.
+    """
+    directions = { 'out':  ('down', 'up'),
+                   'in':   ('up', 'down'),
+                   'down': ('down', 'down'),
+                   'up':   ('up', 'up') }
+
+    assert how in directions.keys()
+    return np.array( [ round_coord(box[0], grid_spacing, directions[how][0]),
+                       round_coord(box[1], grid_spacing, directions[how][1]) ] )
+
+def sparse_boxes_from_block_mask( sparse_block_mask, brick_grid, halo=0, return_logical_boxes=False ):
+    """
+    Given a sparsely populated binary image (block_mask), overlay a brick_grid
+    and extract the list of non-empty bricks (specified as boxes).
+
+    TODO: Implement an alternative version of this function that accepts a
+          list of coordinates, instead of a mask, and groups coordinates via pandas operations.
+          (It would be more expensive for relatively dense masks, but cheaper for very sparse masks.)
+
+    Args:
+        sparse_block_mask:
+            SparseBlockMask
+
+        brick_grid:
+            The desired grid to use for the output.
+        
+        halo:
+            If nonzero, expand each box by the given width in all dimensions.
+            Note: This will result in boxes that are wider than the brick grid's native block shape.
+        
+        return_logical_boxes:
+            If True, the result is returned as a list of full-size "logical" boxes.
+            Otherwise, each box is shrunken to the minimal size while still
+            encompassing all data with its grid box (i.e. a physical box), plus halo, if given.
+            Note: It is not valid to use this option if halo is nonzero.
+
+    Returns:
+        boxes, shape=(N,2,3) of non-empty bricks, as indicated by block_mask.    
+    """
+    assert isinstance(sparse_block_mask, SparseBlockMask)
+    assert (brick_grid.modulus_offset == (0,0,0)).all(), \
+        "TODO: This function doesn't yet support brick grids with non-zero offsets"
+    assert ((brick_grid.block_shape % sparse_block_mask.resolution) == 0).all(), \
+        "Brick grid must be a multiple of the block grid"
+    assert not (halo > 0 and return_logical_boxes), \
+        "The return_logical_boxes option makes no sense if halo > 0"
+
+    block_mask_box = np.asarray(sparse_block_mask.box)
+    
+    lowres_brick_grid = Grid( brick_grid.block_shape // sparse_block_mask.resolution )
+    lowres_block_mask_box = block_mask_box // sparse_block_mask.resolution
+    
+    lowres_logical_and_clipped_boxes = ( (box, box_intersection(box, lowres_block_mask_box))
+                                   for box in boxes_from_grid(lowres_block_mask_box, lowres_brick_grid) )
+
+    lowres_boxes = []
+    
+    for logical_lowres_box, clipped_lowres_box in lowres_logical_and_clipped_boxes:
+        box_within_mask = clipped_lowres_box - lowres_block_mask_box[0]
+        brick_mask = sparse_block_mask.lowres_mask[box_to_slicing(*box_within_mask)]
+        brick_coords = np.transpose(brick_mask.nonzero()).astype(np.int32)
+        if len(brick_coords) == 0:
+            continue
+        if return_logical_boxes:
+            lowres_boxes.append( logical_lowres_box )
+        else:
+            physical_lowres_box = ( brick_coords.min(axis=0),
+                                    brick_coords.max(axis=0) + 1 )
+            
+            physical_lowres_box += box_within_mask[0] + lowres_block_mask_box[0]
+            
+            lowres_boxes.append( physical_lowres_box )
+    
+    
+    if len(lowres_boxes) == 0:
+        nonempty_boxes = np.zeros((0,2,3), dtype=np.int32)
+    else:
+        nonempty_boxes = np.array(lowres_boxes, dtype=np.int32) * sparse_block_mask.resolution
+
+        halo_shape = np.zeros((3,), dtype=np.int32)
+        halo_shape[:] = halo
+        if halo_shape.any():
+            nonempty_boxes[:] += (-halo_shape, halo_shape)
+    
+    return nonempty_boxes

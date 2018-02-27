@@ -77,7 +77,9 @@ class BrainMapsVolume:
     def from_volume_uri(cls, uri):
         """
         Convenience constructor.
-        Construct from 
+        Construct from a BrainMaps volume URI, such as:
+        
+            brainmaps://274750196357:hemibrain:my_volume_name:some_changestack_name
         """
         assert uri.startswith('brainmaps://')
         

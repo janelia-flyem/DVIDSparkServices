@@ -16,7 +16,7 @@ from vol2mesh.mesh_from_array import mesh_from_array
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker
+from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
@@ -678,7 +678,7 @@ def post_swcs_to_dvid(config, items):
                (We could have filtered out such items upstream, but it's convenient to just handle it here.)
     """
     # Re-use session for connection pooling.
-    session = requests.Session()
+    session = default_dvid_session()
 
     # Re-use resource manager client connections, too.
     # (If resource-server is empty, this will return a "dummy client")    
@@ -767,11 +767,9 @@ def post_meshes_to_dvid(config, partition_items):
         items: tuple (body_id, mesh_data, error_text)
                       If mesh_data is None or error_text is NOT None, then nothing is posted.
                       (We could have filtered out such items upstream, but it's convenient to just handle it here.)
-
-        session: A requests.Session object to re-use for posting data.                      
     """
     # Re-use session for connection pooling.
-    session = requests.Session()
+    session = default_dvid_session()
 
     # Re-use resource manager client connections, too.
     # (If resource-server is empty, this will return a "dummy client")    
