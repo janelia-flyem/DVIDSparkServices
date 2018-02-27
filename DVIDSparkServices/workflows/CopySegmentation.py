@@ -173,10 +173,12 @@ class CopySegmentation(Workflow):
 
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
         slab_depth = self.config_data["options"]["slab-depth"]
-        logger.info(f"Processing data in slabs of depth: {slab_depth} for {pyramid_depth} pyramid levels")
         
         # Process data in Z-slabs
         output_slab_boxes = list( slabs_from_box(output_bb_zyx, slab_depth) )
+        max_depth = max(map(lambda box: box[1][0] - box[0][0], output_slab_boxes))
+        logger.info(f"Processing data in {len(output_slab_boxes)} slabs (max depth={max_depth}) for {pyramid_depth} pyramid levels")
+
         for slab_index, output_slab_box in enumerate( output_slab_boxes ):
             with Timer() as timer:
                 self._process_slab(slab_index, output_slab_box)

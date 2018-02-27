@@ -216,6 +216,11 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
                 logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
+        def brick_size(log_phys):
+            _logical, physical = log_phys
+            return np.uint64(np.prod(physical[1] - physical[0]))
+        total_volume = sum(map(brick_size, logical_and_physical_boxes))
+        logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks with total volume {total_volume/1e9:.1f} Gvox")
         logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
 
     # Use map_partitions instead of map(), to be explicit about
