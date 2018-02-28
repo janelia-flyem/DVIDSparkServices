@@ -6,7 +6,8 @@ import numpy as np
 import vigra
 import dvidutils
 
-from DVIDSparkServices.util import bb_to_slicing
+from DVIDSparkServices.io_util.brick import box_intersection
+from DVIDSparkServices.util import box_to_slicing, Timer
 from DVIDSparkServices.reconutils.downsample import downsample_binary_3d_suppress_zero
 
 BLOCK_WIDTH = 64
@@ -102,7 +103,7 @@ def merge_stats_dfs(*stats_dfs):
     return grouped_df
 
 
-def stats_df_from_brick(column_names, brick, exclude_zero=True):
+def stats_df_from_brick(column_names, brick, exclude_zero=True, exclude_halo=True):
     """
     For a given brick, return a DataFrame of statistics for the segments it contains.
     
@@ -118,6 +119,9 @@ def stats_df_from_brick(column_names, brick, exclude_zero=True):
         
         exclude_zero (bool):
             Discard statistics for segment=0.
+        
+        exclude_halo (bool):
+            Exclude voxels that lie outside the Brick's logical_box.
     
     Returns:
         pd.DataFrame, with df.columns == column_names
@@ -125,18 +129,24 @@ def stats_df_from_brick(column_names, brick, exclude_zero=True):
     import pandas as pd
     assert column_names[0] == 'segment'
 
+    volume = brick.volume
+    if exclude_halo and (brick.physical_box != brick.logical_box).any():
+        internal_box = box_intersection( brick.logical_box, brick.physical_box ) - brick.physical_box[0]
+        volume = volume[box_to_slicing(*internal_box)]
+        volume = np.asarray(volume, order='C')
+
     # We always compute segment and voxel_count
     TRIVIAL_COLUMNS = set(['segment', 'voxel_count'])
-    counts = pd.Series(brick.volume.ravel('K')).value_counts(sort=False)
+    counts = pd.Series(volume.ravel('K')).value_counts(sort=False)
     segment_ids = counts.index.values
-    assert segment_ids.dtype == brick.volume.dtype
+    assert segment_ids.dtype == volume.dtype
     
     # Other columns are computed only if needed
     if set(column_names) - TRIVIAL_COLUMNS:
         # Must remap to consecutive segments before calling extractRegionFeatures()
         remapped_ids = np.arange(len(segment_ids), dtype=np.uint32)
         mapper = dvidutils.LabelMapper( segment_ids, remapped_ids )
-        remapped_vol = mapper.apply(brick.volume)
+        remapped_vol = mapper.apply(volume)
         assert remapped_vol.dtype == np.uint32
         remapped_vol = vigra.taggedView( remapped_vol, 'zyx' )
 
@@ -156,7 +166,7 @@ def stats_df_from_brick(column_names, brick, exclude_zero=True):
             block_lists = []
             for remapped_id, start, stop in zip(remapped_ids, local_bb_starts, local_bb_stops):
                 local_box = np.array((start, stop))
-                binary = (remapped_vol[bb_to_slicing(*local_box)] == remapped_id)
+                binary = (remapped_vol[box_to_slicing(*local_box)] == remapped_id)
                 
                 # This downsample function respects block-alignment, since we're providing the local_box
                 reduced, block_bb = downsample_binary_3d_suppress_zero(binary, BLOCK_WIDTH, local_box)
