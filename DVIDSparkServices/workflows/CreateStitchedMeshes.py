@@ -7,6 +7,7 @@ from io import BytesIO
 from contextlib import closing
 
 import numpy as np
+import pandas as pd
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
 
@@ -176,27 +177,6 @@ class CreateStitchedMeshes(Workflow):
             "type": "number",
             "default": 10e9 # 10 Gigavoxels
         },
-        "minimum-downsample-factor": {
-            "description": "Minimum factor by which to downsample bodies before processing.\n"
-                           "NOTE: If the object is larger than max-analysis-volume, even after \n"
-                           "downsampling, then it will be downsampled even further before processing. \n"
-                           "The comments in the generated SWC file will indicate the final-downsample-factor. \n",
-            "type": "integer",
-            "default": 1
-        },
-        "force-uniform-downsampling": {
-            "description": "If true, force all segments in each group to be downsampled at the same level before meshification.\n"
-                           "That is, small supervoxels will be downsampled to the same resolution as the largest supervoxel in the body.\n",
-            "type": "boolean",
-            "default": False
-        },
-
-        "max-analysis-volume": {
-            "description": "The above downsample-factor will be overridden if the body would still \n"
-                           "be too large to process, as defined by this setting.\n",
-            "type": "number",
-            "default": 1e9 # 1 GB max
-        },
         "rescale-before-write": {
             "description": "How much to rescale the meshes before writing to DVID.\n"
                            "Specified as a multiplier, not power-of-2 'scale'.\n",
@@ -247,7 +227,6 @@ class CreateStitchedMeshes(Workflow):
     
 
     def execute(self):
-        import pandas as pd
         self._sanitize_config()
 
         config = self.config_data
@@ -282,24 +261,29 @@ class CreateStitchedMeshes(Workflow):
             aligned_wall.persist_and_execute("Aligning bricks to mesh task grid...")
             brick_wall.unpersist()
             brick_wall = aligned_wall
-            
-        with Timer(f"Computing segmentation statistics", logger):
-            seg_stats = aggregate_segment_stats_from_bricks( brick_wall.bricks, ['segment', 'voxel_count'] )
-        output_path = self.config_dir + f'/segment-stats-dataframe.pkl.xz'
-        write_stats(seg_stats, output_path, logger)
 
-        # TODO HERE: Filter out segments we don't care about.
-        kept_segment_ids = None
+        full_stats_df = self.compute_segment_and_body_stats(brick_wall.bricks)
+        keep_col = full_stats_df['keep_segment'] & full_stats_df['keep_body']
+        if keep_col.all():
+            segments_to_keep = None # keep everything
+        else:
+            # Note: This array will be broadcasted to the workers.
+            #       It will be potentially quite large if we're keeping most (but not all) segments.
+            #       Broadcast expense should be minimal thanks to lz4 compression,
+            #       but RAM usage will be high.
+            segments_to_keep = full_stats_df['segment'][keep_col].values
+            if segments_to_keep.max() < np.iinfo(np.uint32).max:
+                segments_to_keep = segments_to_keep.astype(np.uint32) # Save some RAM
         
         def generate_meshes_for_brick( brick ):
-            if kept_segment_ids is None:
+            if segments_to_keep is None:
                 filtered_volume = brick.volume
             else:
                 # Mask out segments we don't want to process
                 filtered_volume = brick.volume.copy('C')
                 filtered_flat = filtered_volume.reshape(-1)
                 s = pd.Series(filtered_flat)
-                filter_mask = ~s.isin(kept_segment_ids).values
+                filter_mask = ~s.isin(segments_to_keep).values
                 filtered_flat[filter_mask] = 0
 
             ids_and_mesh_datas = []
@@ -329,6 +313,13 @@ class CreateStitchedMeshes(Workflow):
             mesh.simplify(decimation_fraction)
             return mesh
         segment_id_and_mesh = segment_id_and_mesh.mapValues(decimate)
+
+        rescale_factor = config["options"]["rescale-before-write"]
+        if rescale_factor != 1.0:
+            def rescale(mesh):
+                mesh.vertices_zyx *= rescale_factor
+                return mesh
+            segment_id_and_mesh = segment_id_and_mesh.mapValues(rescale)
 
         # Serialize
         # --> (segment_id, mesh_bytes)
@@ -431,8 +422,87 @@ class CreateStitchedMeshes(Workflow):
             self._labelmap = load_labelmap( config["mesh-config"]["storage"]["labelmap"], self.config_dir )
         return self._labelmap
 
+    def compute_segment_and_body_stats(self, bricks):
+        config = self.config_data
+        
+        with Timer(f"Computing segment statistics", logger):
+            full_stats_df = aggregate_segment_stats_from_bricks( bricks, ['segment', 'voxel_count'] )
+            full_stats_df.columns = ['segment', 'segment_voxel_count']
+        
+        ##
+        ## If grouping segments into bodies (for tarballs),
+        ## also append body stats
+        ##
+        grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
+        if grouping_scheme != "labelmap":
+            # Not grouping -- Just duplicate segment stats into body columns
+            full_stats_df['body'] = full_stats_df['segment']
+            full_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
+        else:
+            # Add body column
+            segment_to_body_df = pd.DataFrame( self.load_labelmap(), columns=['segment', 'body'] )
+            full_stats_df = full_stats_df.merge(segment_to_body_df, 'left', on='segment', copy=False)
 
-    def group_by_body(self, segments_and_meshes):
+            # Missing segments in the labelmap are assumed to be identity-mapped
+            full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
+            full_stats_df['body'] = full_stats_df['body'].astype(np.uint64)
+
+            # Calculate body voxel sizes
+            body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
+            body_stats_df.columns = ['body_segment_count', 'body_voxel_count']
+            body_stats_df['body'] = body_stats_df.index
+
+            full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
+
+            # For offline analysis, write body stats to a file
+            output_path = self.config_dir + '/body-stats.csv'
+            logger.info(f"Saving body statistics to {output_path}")
+            body_stats_df = body_stats_df[['body', 'body_segment_count', 'body_voxel_count']] # Set col order
+            body_stats_df.columns = ['body', 'segment_count', 'voxel_count'] # rename columns for csv
+            body_stats_df.sort_values('voxel_count', ascending=False, inplace=True)
+            body_stats_df.to_csv(output_path, header=True, index=False)
+            
+        full_stats_df['keep_segment'] = ((full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size']) &
+                                         (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
+
+        full_stats_df['keep_body'] = ((full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
+                                      (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) )
+
+        # If subset-bodies were given, exclude all others.
+        sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
+        if sparse_body_ids:
+            for body_id in sparse_body_ids:
+                if not full_stats_df[full_stats_df['body'] == body_id]['keep_body'].all():
+                    logger.error(f"You explicitly listed body {body_id} in subset-bodies, "
+                                 "but it will be excluded due to your other config settings.")
+            full_stats_df['keep_body'] &= full_stats_df.eval('body in @sparse_body_ids')
+
+        # Sort for convenience of viewing output
+        with Timer("Sorting segment stats", logger):
+            full_stats_df.sort_values(['body_voxel_count', 'segment_voxel_count'], ascending=False, inplace=True)
+
+        #import pandas as pd
+        #pd.set_option('expand_frame_repr', False)
+        #logger.info(f"FULL_STATS:\n{full_stats_df}")
+        
+        stats_bytes = full_stats_df.memory_usage().sum()
+        stats_gb = stats_bytes / 1e9
+        
+        # Write the Stats DataFrame to a file for offline analysis.
+        output_path = self.config_dir + '/segment-stats-dataframe.pkl.xz'
+        logger.info(f"Saving segment statistics ({stats_gb:.3f} GB) to {output_path}")
+        full_stats_df.to_pickle(output_path)
+        
+        return full_stats_df
+
+
+    def group_by_body(self, segment_id_and_mesh_bytes):
+        """
+        For the RDD with items: (segment_id, mesh_bytes),
+        group the items by the body (a.k.a. group) that each segment is in.
+        
+        Returns: RDD with items: (body_id, [(segment_id, mesh_bytes), (segment_id, mesh_bytes), ...]
+        """
         config = self.config_data
 
         # Group according to scheme
@@ -441,46 +511,34 @@ class CreateStitchedMeshes(Workflow):
 
         if grouping_scheme in "hundreds":
             def last_six_digits( id_mesh ):
-                body_id, _mesh = id_mesh
-                group_id = body_id - (body_id % 100)
-                return group_id
-            grouped_body_ids_and_meshes = segments_and_meshes.groupBy(last_six_digits, numPartitions=n_partitions)
+                segment_id, _mesh = id_mesh
+                body_id = segment_id - (segment_id % 100)
+                return body_id
+            grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.groupBy(last_six_digits, numPartitions=n_partitions)
 
         elif grouping_scheme == "labelmap":
-            import pandas as pd
             mapping_pairs = self.load_labelmap()
 
-            def prepend_mapped_group_id( id_mesh_partition ):
-                df = pd.DataFrame( mapping_pairs, columns=["body_id", "group_id"] )
+            df = pd.DataFrame( mapping_pairs, columns=["segment_id", "body_id"] )
+            def body_id_from_segment_id( id_mesh ):
+                segment_id, _mesh = id_mesh
+                rows = df.loc[df.segment_id == segment_id]
+                if len(rows) == 0:
+                    # If missing from labelmap,
+                    # we assume an implicit identity mapping
+                    return segment_id
+                return rows['body_id'].iloc[0]
 
-                new_partition = []
-                for id_mesh in id_mesh_partition:
-                    body_id, mesh = id_mesh
-                    rows = df.loc[df.body_id == body_id]
-                    if len(rows) == 0:
-                        # If missing from labelmap,
-                        # we assume an implicit identity mapping
-                        group_id = body_id
-                    else:
-                        group_id = rows['group_id'].iloc[0]
-                    new_partition.append( (group_id, (body_id, mesh)) )
-                return new_partition
-            
-            # We do this via mapPartitions().groupByKey() instead of a simple groupBy()
-            # to save time constructing the DataFrame inside the closure above.
-            # (TODO: Figure out why the dataframe isn't pickling properly...)
-            skip_groups = set(config["mesh-config"]["storage"]["skip-groups"])
-            grouped_body_ids_and_meshes = segments_and_meshes.mapPartitions( prepend_mapped_group_id ) \
-                                                             .filter(lambda item: item[0] not in skip_groups) \
-                                                             .groupByKey(numPartitions=n_partitions)
+            grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.groupBy( body_id_from_segment_id )
+
         elif grouping_scheme in ("singletons", "no-groups"):
             # Create 'groups' of one item each, re-using the body ID as the group id.
             # (The difference between 'singletons', and 'no-groups' is in how the mesh is stored, below.)
-            grouped_body_ids_and_meshes = segments_and_meshes.map( lambda id_mesh: (id_mesh[0], [(id_mesh[0], id_mesh[1])]) )
+            grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.map( lambda id_mesh: (id_mesh[0], [id_mesh]) )
 
-        persist_and_execute(grouped_body_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
-        return grouped_body_ids_and_meshes
-        
+        persist_and_execute(grouped_segment_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
+        return grouped_segment_ids_and_meshes
+
 
 def post_meshes_to_dvid(config, instance_name, partition_items):
     """

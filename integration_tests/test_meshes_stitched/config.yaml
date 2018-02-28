@@ -4,7 +4,7 @@
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
-        "meshes-destination": "labels_grouped_meshes"
+        "meshes-destination": "labels_grouped_stitched_meshes"
       },
       "geometry": {
         "bounding-box": [[0,0,0], [256,256,256]],
@@ -17,8 +17,8 @@
         "simplify-ratios": [0.1],
         "step-size": 1,
         "storage": {
-          #format: drc,
-          format: obj,
+          format: drc,
+          #format: obj,
           naming-scheme: "neu3-level-0",
           "grouping-scheme": "labelmap",
           "labelmap": {
@@ -28,11 +28,8 @@
         }
     },
     "options": {
-        "minimum-downsample-factor": 2,
         "minimum-segment-size": 10000,
         "minimum-agglomerated-size": 10000,
-        "max-analysis-volume": 2e5,
-        "force-uniform-downsampling": true,
 
         "resource-server": "driver",
         "resource-port": 4000,
