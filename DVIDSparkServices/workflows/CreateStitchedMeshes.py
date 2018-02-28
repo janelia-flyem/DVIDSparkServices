@@ -1,4 +1,3 @@
-import os
 import copy
 import tarfile
 import logging
@@ -14,7 +13,7 @@ from vol2mesh.mesh import Mesh, concatenate_meshes
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker, default_dvid_session
+from DVIDSparkServices.util import Timer, persist_and_execute, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service 
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels
@@ -28,7 +27,7 @@ from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 
-from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, merge_stats_dfs, write_stats
+from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks
 
 logger = logging.getLogger(__name__)
 
@@ -83,15 +82,15 @@ class CreateStitchedMeshes(Workflow):
                                    "This ratio is the fraction to aim for.  To disable simplification, use 1.0.\n",
                     "type": "number",
                     "minimum": 0.0000001,
-                    "maximum": 1.0,
-                    "default": 0.2 # Set to 1.0 to disable.
+                    "maximum": 1.0, # 1.0 == disable
+                    "default": 0.2
                 }
             },
-            "step-size": {
-                "description": "Passed to skimage.measure.marching_cubes_lewiner().\n"
-                               "Larger values result in coarser results via faster computation.\n",
-                "type": "integer",
-                "default": 1
+            "rescale-before-write": {
+                "description": "How much to rescale the meshes before writing to DVID.\n"
+                               "Specified as a multiplier, not power-of-2 'scale'.\n",
+                "type": "number",
+                "default": 1.0
             },
             "storage": {
                 "description": "Options to group meshes in tarballs, if desired",
@@ -133,14 +132,7 @@ class CreateStitchedMeshes(Workflow):
                                        "only generate meshes for a subset of the bodies in the volume.\n",
                         "type": "array",
                         "default": []
-                    },
-                    
-                    "skip-groups": {
-                        "description": "For 'labelmap grouping scheme, optionally skip writing of this list of groups (tarballs).'",
-                        "type": "array",
-                        "items": { "type": "integer" },
-                        "default": []
-                    },
+                    }
                 }
             }
         }
@@ -176,12 +168,6 @@ class CreateStitchedMeshes(Workflow):
             "description": "Agglomerated groups larger than this voxel count will not be processed.",
             "type": "number",
             "default": 10e9 # 10 Gigavoxels
-        },
-        "rescale-before-write": {
-            "description": "How much to rescale the meshes before writing to DVID.\n"
-                           "Specified as a multiplier, not power-of-2 'scale'.\n",
-            "type": "number",
-            "default": 1.0
         }
     })
     
@@ -314,7 +300,7 @@ class CreateStitchedMeshes(Workflow):
             return mesh
         segment_id_and_mesh = segment_id_and_mesh.mapValues(decimate)
 
-        rescale_factor = config["options"]["rescale-before-write"]
+        rescale_factor = config["mesh-config"]["rescale-before-write"]
         if rescale_factor != 1.0:
             def rescale(mesh):
                 mesh.vertices_zyx *= rescale_factor
@@ -367,7 +353,6 @@ class CreateStitchedMeshes(Workflow):
         Also, if the input volume is not from a DvidVolumeService, return None.
         (In that case, the 'subset-bodies' feature can be used, but it isn't as efficient.)
         """
-        import pandas as pd
         config = self.config_data
         
         sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
@@ -422,7 +407,22 @@ class CreateStitchedMeshes(Workflow):
             self._labelmap = load_labelmap( config["mesh-config"]["storage"]["labelmap"], self.config_dir )
         return self._labelmap
 
+
     def compute_segment_and_body_stats(self, bricks):
+        """
+        For the given RDD of Brick objects, compute the statistics for all
+        segments and their associated bodies (if using the labelmap grouping scheme).
+        
+        The returned DataFrame will contain the following columns:
+        
+        segment, segment_voxel_count, body, body_voxel_count, keep_segment, keep_body.
+        
+        Note that "keep_segment" and "keep_body" are computed independently.
+        A segment should only be kept if BOTH of those columns are True for
+        that segment's row in the DataFrame.
+        
+        Before returning, the DataFrame is also written to disk.
+        """
         config = self.config_data
         
         with Timer(f"Computing segment statistics", logger):

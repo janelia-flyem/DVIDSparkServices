@@ -15,7 +15,6 @@
         #"task-block-shape": [64, 64, 64],
         "task-block-halo": 2,
         "simplify-ratios": [0.1],
-        "step-size": 1,
         "storage": {
           format: drc,
           #format: obj,
@@ -25,11 +24,12 @@
             "file": ../mod-10-labelmap.csv, # Relative to temp_data/config.json
             "file-type": label-to-body
           },
+          "subset-bodies": [1,3,5,7,9]
         }
     },
     "options": {
         "minimum-segment-size": 10000,
-        "minimum-agglomerated-size": 10000,
+        "minimum-agglomerated-size": 100000,
 
         "resource-server": "driver",
         "resource-port": 4000,
