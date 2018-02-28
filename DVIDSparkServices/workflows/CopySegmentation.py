@@ -25,7 +25,7 @@ from DVIDSparkServices.io_util.volume_service import ( VolumeService, VolumeServ
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 from DVIDSparkServices.io_util.brick import slabs_from_box
 
-from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, merge_stats_dfs
+from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, merge_stats_dfs, write_stats
 
 logger = logging.getLogger(__name__)
 
@@ -211,15 +211,10 @@ class CopySegmentation(Workflow):
         logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
 
         # Write statistics to files
-        for output_index, (full_stats_df, output_service) in enumerate(zip(full_stats_list, self.output_services)):
+        for full_stats_df, output_service in zip(full_stats_list, self.output_services):
             seg_name = output_service.base_service.instance_name
-            
-            stats_bytes = full_stats_df.memory_usage().sum()
-            stats_gb = stats_bytes / 1e9
-            with Timer(f"Output {output_index}: Saving segment statistics", logger):
-                output_path = self.config_dir + f'/{seg_name}-segment-stats-dataframe.pkl.xz'
-                logger.info(f"Writing stats ({stats_gb:.3f} GB) to {output_path}")
-                full_stats_df.to_pickle(output_path)
+            output_path = self.config_dir + f'/{seg_name}-segment-stats-dataframe.pkl.xz'
+            write_stats( full_stats_df, output_path, logger )
 
     def _init_services(self):
         """

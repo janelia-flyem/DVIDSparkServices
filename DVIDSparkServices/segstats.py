@@ -1,3 +1,4 @@
+import logging
 from itertools import chain
 from functools import partial
 from collections import namedtuple
@@ -227,3 +228,15 @@ def stats_df_from_rows(column_names, rows):
 
     return df
 
+def write_stats( stats_df, output_path, logger=None ):
+    if not output_path.endswith('.pkl.xz'):
+        output_path += '.pkl.xz'
+
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    stats_bytes = stats_df.memory_usage().sum()
+    stats_gb = stats_bytes / 1e9
+    with Timer(f"Saving segment statistics", logger):
+        logger.info(f"Writing stats ({stats_gb:.3f} GB) to {output_path}")
+        stats_df.to_pickle(output_path)
