@@ -12,6 +12,7 @@ from vol2mesh.mesh import Mesh, concatenate_meshes
 
 from dvid_resource_manager.client import ResourceManagerClient
 
+import DVIDSparkServices.rddtools as rt
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import Timer, persist_and_execute, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -168,6 +169,11 @@ class CreateStitchedMeshes(Workflow):
             "description": "Agglomerated groups larger than this voxel count will not be processed.",
             "type": "number",
             "default": 10e9 # 10 Gigavoxels
+        },
+        "force-evaluation-checkpoints": {
+            "description": "Debugging feature. Force persistence of RDDs after every map step, for better logging.",
+            "type": "boolean",
+            "default": True
         }
     })
     
@@ -217,6 +223,7 @@ class CreateStitchedMeshes(Workflow):
 
         config = self.config_data
         options = config["options"]
+        force_checkpoints = options["force-evaluation-checkpoints"]
         
         resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
         volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
@@ -283,14 +290,24 @@ class CreateStitchedMeshes(Workflow):
         # Compute meshes per-block
         # --> (segment_id, mesh_for_one_block)
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
+        if force_checkpoints:
+            rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
         
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
         mesh_blocks_grouped_by_segment = segment_ids_and_mesh_blocks.groupByKey()
+        rt.persist_and_execute(mesh_blocks_grouped_by_segment, "Grouping block segment meshes", logger)
+        rt.unpersist(segment_ids_and_mesh_blocks)
+        del segment_ids_and_mesh_blocks
         
         # Concatenate into a single mesh per segment
         # --> (segment_id, mesh)
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
+        
+        if force_checkpoints:
+            rt.persist_and_execute(segment_id_and_mesh, "Concatenating block segment meshes", logger)
+        rt.unpersist(mesh_blocks_grouped_by_segment)
+        del mesh_blocks_grouped_by_segment
 
         # Decimate
         # --> (segment_id, mesh)
@@ -298,19 +315,34 @@ class CreateStitchedMeshes(Workflow):
         def decimate(mesh):
             mesh.simplify(decimation_fraction)
             return mesh
-        segment_id_and_mesh = segment_id_and_mesh.mapValues(decimate)
+        segment_id_and_decimated_mesh = segment_id_and_mesh.mapValues(decimate)
+
+        if force_checkpoints:
+            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating segment meshes", logger)
+        rt.unpersist(segment_id_and_mesh)
+        del segment_id_and_mesh
 
         rescale_factor = config["mesh-config"]["rescale-before-write"]
         if rescale_factor != 1.0:
             def rescale(mesh):
                 mesh.vertices_zyx *= rescale_factor
                 return mesh
-            segment_id_and_mesh = segment_id_and_mesh.mapValues(rescale)
+            segment_id_and_rescaled_mesh = segment_id_and_decimated_mesh.mapValues(rescale)
+            
+            if force_checkpoints:
+                rt.persist_and_execute(segment_id_and_rescaled_mesh, "Rescaling segment meshes", logger)
+            rt.unpersist(segment_id_and_decimated_mesh)
+            segment_id_and_decimated_mesh = segment_id_and_rescaled_mesh
 
         # Serialize
         # --> (segment_id, mesh_bytes)
         fmt = config["mesh-config"]["storage"]["format"]
-        segment_id_and_mesh_bytes = segment_id_and_mesh.mapValues( lambda mesh: mesh.serialize(fmt) )
+        segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( lambda mesh: mesh.serialize(fmt) )
+
+        if force_checkpoints:
+            rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
+        rt.unpersist(segment_id_and_decimated_mesh)
+        del segment_id_and_decimated_mesh
 
         # Group by body ID
         # --> ( body_id, [( segment_id, mesh_bytes ), ( segment_id, mesh_bytes ), ...] )
