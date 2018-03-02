@@ -337,7 +337,10 @@ class CreateStitchedMeshes(Workflow):
         # Serialize
         # --> (segment_id, mesh_bytes)
         fmt = config["mesh-config"]["storage"]["format"]
-        segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( lambda mesh: mesh.serialize(fmt) )
+        @self.collect_log(lambda _mesh: 'serialize')
+        def serialize(mesh):
+            return mesh.serialize(fmt=fmt)
+        segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize )
 
         if force_checkpoints:
             rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
