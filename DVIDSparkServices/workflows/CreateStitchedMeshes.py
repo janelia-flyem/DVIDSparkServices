@@ -296,6 +296,15 @@ class CreateStitchedMeshes(Workflow):
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
         rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
         
+        segments_and_counts = segment_ids_and_mesh_blocks.map( lambda seg_mesh: (seg_mesh[0], len(seg_mesh[1].vertices_zyx) ) ) \
+                                                         .groupByKey() \
+                                                         .map( lambda seg_counts: (seg_counts[0], sum(seg_counts[1])) ) \
+                                                         .collect()
+
+        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'blocks_total_vertex_count'] )
+        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
+        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
+        
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
         mesh_blocks_grouped_by_segment = segment_ids_and_mesh_blocks.groupByKey()
