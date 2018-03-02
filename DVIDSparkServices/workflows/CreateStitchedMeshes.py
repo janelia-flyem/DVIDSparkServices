@@ -342,7 +342,8 @@ class CreateStitchedMeshes(Workflow):
             import vol2mesh.mesh
             vol2mesh.mesh.DEBUG_DRACO = True
             return mesh.serialize(fmt=fmt)
-        segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize )
+        segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize ) \
+                                                                 .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
 
         if force_checkpoints:
             rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
