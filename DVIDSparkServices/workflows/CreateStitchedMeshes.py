@@ -71,7 +71,11 @@ class CreateStitchedMeshes(Workflow):
                 "type": "integer",
                 "default": 2
             },
-            
+            "smoothing-iterations": {
+                "description": "How many iterations of smoothing to apply to the mesh before simplification.",
+                "type": "integer",
+                "default": 1
+            },
             "simplify-ratios": {
                 "description": "Meshes will be generated multiple times, at different simplification settings, based on this list.",
                 "type": "array",
@@ -309,18 +313,31 @@ class CreateStitchedMeshes(Workflow):
         rt.unpersist(mesh_blocks_grouped_by_segment)
         del mesh_blocks_grouped_by_segment
 
+        # Smooth
+        # --> (segment_id, mesh)
+        smoothing_iterations = config["mesh-config"]["smoothing-iterations"]
+        def smooth(mesh):
+            mesh.laplacian_smooth(smoothing_iterations)
+            return mesh
+        segment_id_and_snoothed_mesh = segment_id_and_mesh.mapValues( smooth )
+
+        if force_checkpoints:
+            rt.persist_and_execute(segment_id_and_snoothed_mesh, "Smoothing segment meshes", logger)
+        rt.unpersist(segment_id_and_mesh)
+        del segment_id_and_mesh
+
         # Decimate
         # --> (segment_id, mesh)
         decimation_fraction = config["mesh-config"]["simplify-ratios"][0]
         def decimate(mesh):
             mesh.simplify(decimation_fraction)
             return mesh
-        segment_id_and_decimated_mesh = segment_id_and_mesh.mapValues(decimate)
+        segment_id_and_decimated_mesh = segment_id_and_snoothed_mesh.mapValues(decimate)
 
         if force_checkpoints:
             rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating segment meshes", logger)
-        rt.unpersist(segment_id_and_mesh)
-        del segment_id_and_mesh
+        rt.unpersist(segment_id_and_snoothed_mesh)
+        del segment_id_and_snoothed_mesh
 
         rescale_factor = config["mesh-config"]["rescale-before-write"]
         if rescale_factor != 1.0:
