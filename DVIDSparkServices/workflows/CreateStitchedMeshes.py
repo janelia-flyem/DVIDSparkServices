@@ -339,6 +339,8 @@ class CreateStitchedMeshes(Workflow):
         fmt = config["mesh-config"]["storage"]["format"]
         @self.collect_log(lambda _mesh: 'serialize')
         def serialize(mesh):
+            import vol2mesh.mesh
+            vol2mesh.mesh.DEBUG_DRACO = True
             return mesh.serialize(fmt=fmt)
         segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize )
 
