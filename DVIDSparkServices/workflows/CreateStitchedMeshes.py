@@ -28,7 +28,7 @@ from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 
-from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks
+from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, write_stats
 
 logger = logging.getLogger(__name__)
 
@@ -294,8 +294,7 @@ class CreateStitchedMeshes(Workflow):
         # Compute meshes per-block
         # --> (segment_id, mesh_for_one_block)
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
-        if force_checkpoints:
-            rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
+        rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
         
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
@@ -308,10 +307,15 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
         
-        if force_checkpoints:
-            rt.persist_and_execute(segment_id_and_mesh, "Concatenating block segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_mesh, "Concatenating block segment meshes", logger)
         rt.unpersist(mesh_blocks_grouped_by_segment)
         del mesh_blocks_grouped_by_segment
+
+        # Get pre-smoothing vertex count and ovewrite stats file
+        segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
+        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'unsmoothed_vertex_count'] )
+        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
+        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
 
         # Smooth
         # --> (segment_id, mesh)
@@ -321,10 +325,15 @@ class CreateStitchedMeshes(Workflow):
             return mesh
         segment_id_and_snoothed_mesh = segment_id_and_mesh.mapValues( smooth )
 
-        if force_checkpoints:
-            rt.persist_and_execute(segment_id_and_snoothed_mesh, "Smoothing segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_snoothed_mesh, "Smoothing segment meshes", logger)
         rt.unpersist(segment_id_and_mesh)
         del segment_id_and_mesh
+
+        # Get post-smoothing vertex count and ovewrite stats file
+        segments_and_counts = segment_id_and_snoothed_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
+        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'smoothed_vertex_count'] )
+        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
+        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
 
         # Decimate
         # --> (segment_id, mesh)
@@ -334,10 +343,15 @@ class CreateStitchedMeshes(Workflow):
             return mesh
         segment_id_and_decimated_mesh = segment_id_and_snoothed_mesh.mapValues(decimate)
 
-        if force_checkpoints:
-            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating segment meshes", logger)
         rt.unpersist(segment_id_and_snoothed_mesh)
         del segment_id_and_snoothed_mesh
+
+        # Get post-decimation vertex count and ovewrite stats file
+        segments_and_counts = segment_id_and_decimated_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
+        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'decimated_vertex_count'] )
+        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
+        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
 
         rescale_factor = config["mesh-config"]["rescale-before-write"]
         if rescale_factor != 1.0:
@@ -346,8 +360,7 @@ class CreateStitchedMeshes(Workflow):
                 return mesh
             segment_id_and_rescaled_mesh = segment_id_and_decimated_mesh.mapValues(rescale)
             
-            if force_checkpoints:
-                rt.persist_and_execute(segment_id_and_rescaled_mesh, "Rescaling segment meshes", logger)
+            rt.persist_and_execute(segment_id_and_rescaled_mesh, "Rescaling segment meshes", logger)
             rt.unpersist(segment_id_and_decimated_mesh)
             segment_id_and_decimated_mesh = segment_id_and_rescaled_mesh
 
@@ -362,8 +375,7 @@ class CreateStitchedMeshes(Workflow):
         segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize ) \
                                                                  .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
 
-        if force_checkpoints:
-            rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
         rt.unpersist(segment_id_and_decimated_mesh)
         del segment_id_and_decimated_mesh
 
