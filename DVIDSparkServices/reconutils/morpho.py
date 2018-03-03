@@ -360,7 +360,7 @@ def object_masks_for_labels( segmentation, box=None, minimum_object_size=1, alwa
 
     segmentation = vigra.taggedView(segmentation, 'zyx')
     consecutive_seg = np.empty_like(segmentation, dtype=np.uint32)
-    _, maxlabel, bodies_to_consecutive = vigra.analysis.relabelConsecutive(segmentation, out=consecutive_seg)
+    _, maxlabel, bodies_to_consecutive = vigra.analysis.relabelConsecutive(segmentation, out=consecutive_seg) # preserves zeros by default
     consecutive_to_bodies = { v:k for k,v in bodies_to_consecutive.items() }
     del segmentation
     

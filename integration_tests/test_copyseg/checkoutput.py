@@ -2,6 +2,7 @@ import sys
 import glob
 import yaml
 import numpy as np
+import pandas as pd
 from libdvid import DVIDNodeService
 
 dirpath = sys.argv[1]
@@ -21,6 +22,9 @@ input_shape = input_bb_zyx[1] - input_bb_zyx[0]
 input_volume = input_service.get_labels3D(input_name, input_shape, input_bb_zyx[0])
 
 for index in range(len(config['outputs'])):
+    ##
+    ## Check actual segmentation
+    ##
     output_service = DVIDNodeService( str(config['outputs'][index]['dvid']['server']),
                                       str(config['outputs'][index]['dvid']['uuid']))
     output_name = config['outputs'][index]['dvid']['segmentation-name']
@@ -33,6 +37,34 @@ for index in range(len(config['outputs'])):
     if not (input_volume == output_volume).all():
         print(f"DEBUG: FAIL: output volume {index} does not correspond to input volume!")
         sys.exit(1)
+
+    ##
+    ## Check exported statistics
+    ##
+    stats_file = dirpath + f'/temp_data/{output_name}-segment-stats-dataframe.pkl.xz'
+    df = pd.read_pickle(stats_file)
+
+    def check_segment_stats(segment):
+        binary = (output_volume == segment)
+        row = df[df.segment == segment].iloc[0]
+        assert row['voxel_count'] == binary.sum()
+
+        coords = np.transpose(binary.nonzero())
+        assert (row['bounding_box_start'] == coords.min(axis=0)).all()
+        assert (row['bounding_box_stop'] == 1+coords.max(axis=0)).all()
+        
+        if 'block_list' in df.columns:
+            block_indexes = coords // 64
+            sorted_blocks = 64*np.array(sorted(set(map(tuple, block_indexes))))
+            assert (row['block_list'] == sorted_blocks).all()
+
+    # Check the 10 largest and 10 smallest segments
+    sorted_df = df.sort_values('voxel_count', ascending=False)
+    largest_segments = list(sorted_df['segment'][:10])
+    smallest_segments = list(sorted_df['segment'][-10:])
+    for segment in largest_segments + smallest_segments:
+        if segment != 0:
+            check_segment_stats(segment)
 
 print("DEBUG: CopySegmentation test passed.")
 sys.exit(0)

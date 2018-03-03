@@ -4,6 +4,7 @@ import json
 import logging
 import socket
 from functools import partial
+from itertools import starmap
 
 import numpy as np
 import h5py
@@ -24,7 +25,11 @@ from DVIDSparkServices.io_util.volume_service import ( VolumeService, VolumeServ
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 from DVIDSparkServices.io_util.brick import slabs_from_box
 
+from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, merge_stats_dfs, write_stats
+
 logger = logging.getLogger(__name__)
+
+SEGMENT_STATS_COLUMNS = ['segment', 'voxel_count', 'bounding_box_start', 'bounding_box_stop'] #, 'block_list']
 
 class CopySegmentation(Workflow):
     """
@@ -173,15 +178,30 @@ class CopySegmentation(Workflow):
 
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
         slab_depth = self.config_data["options"]["slab-depth"]
-        logger.info(f"Processing data in slabs of depth: {slab_depth} for {pyramid_depth} pyramid levels")
+        
+        # This list will contain one stats DataFrame per output
+        # TODO: Optionally initialize from a previous run (for restarts)
+        full_stats_list = []
         
         # Process data in Z-slabs
         output_slab_boxes = list( slabs_from_box(output_bb_zyx, slab_depth) )
+        max_depth = max(map(lambda box: box[1][0] - box[0][0], output_slab_boxes))
+        logger.info(f"Processing data in {len(output_slab_boxes)} slabs (max depth={max_depth}) for {pyramid_depth} pyramid levels")
+
         for slab_index, output_slab_box in enumerate( output_slab_boxes ):
             with Timer() as timer:
-                self._process_slab(slab_index, output_slab_box)
+                slab_stats_list = self._process_slab(slab_index, output_slab_box)
             logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
             logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
+
+            if not full_stats_list:
+                full_stats_list = slab_stats_list
+            else:
+                # Merge slab stats; overwrite list
+                full_stats_list = list( starmap( merge_stats_dfs,
+                                                 zip( full_stats_list, slab_stats_list ) ) )
+
+            # TODO: Optionally write incremental stats to file (for restarts)
             
             delay_minutes = self.config_data["options"]["delay-minutes-between-slabs"]
             if delay_minutes > 0 and slab_index != len(output_slab_boxes)-1:
@@ -190,6 +210,11 @@ class CopySegmentation(Workflow):
 
         logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
 
+        # Write statistics to files
+        for full_stats_df, output_service in zip(full_stats_list, self.output_services):
+            seg_name = output_service.base_service.instance_name
+            output_path = self.config_dir + f'/{seg_name}-segment-stats-dataframe.pkl.xz'
+            write_stats( full_stats_df, output_path, logger )
 
     def _init_services(self):
         """
@@ -400,6 +425,8 @@ class CopySegmentation(Workflow):
         aligned_input_wall = self._consolidate_and_pad(slab_index, translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
+        output_slab_stats = []
+
         for output_index, output_service in enumerate(self.output_services):
             if output_index < len(self.output_services) - 1:
                 # Copy to a new RDD so the input can be re-used for subsequent outputs
@@ -407,6 +434,10 @@ class CopySegmentation(Workflow):
             else:
                 # No copy needed for the last one
                 aligned_output_wall = aligned_input_wall
+
+            with Timer(f"Slab {slab_index}: Computing slab statistics", logger):
+                scale_0_stats_df = aggregate_segment_stats_from_bricks( aligned_input_wall.bricks, SEGMENT_STATS_COLUMNS )
+                output_slab_stats.append( scale_0_stats_df )
 
             # Pad internally to block-align.
             # Here, we assume that any output labelmaps are idempotent,
@@ -440,6 +471,7 @@ class CopySegmentation(Workflow):
                 del consolidated_wall
             del padded_wall
 
+        return output_slab_stats
 
     def _consolidate_and_pad(self, slab_index, input_wall, scale, output_service, align=True, pad=True):
         """
