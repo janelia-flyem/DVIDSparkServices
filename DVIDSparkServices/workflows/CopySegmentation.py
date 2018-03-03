@@ -8,7 +8,6 @@ import sqlite3
 from functools import partial
 
 import numpy as np
-import h5py
 
 import pandas as pd
 
@@ -16,7 +15,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount,\
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, \
     replace_default_entries, box_intersection, box_to_slicing
 
 from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
@@ -56,32 +55,6 @@ class CopySegmentation(Workflow):
     - As a convenience, size of each label 'body' in the copied volume is also
       calculated and exported in an HDF5 file, sorted by body size.
     """
-    
-    BodySizesOptionsSchema = \
-    {
-        "type": "object",
-        "additionalProperties": False,
-        "default": {},
-        "properties": {
-            "compute": {
-                "type": "boolean",
-                "default": True
-            },
-            "minimum-size" : {
-                "description": "Minimum size to include in the body size HDF5 output.\n"
-                               "Smaller bodies are omitted.",
-                "type": "integer",
-                "default": 1000
-            },
-            "method" : {
-                "description": "(For performance experiments)\n"
-                               "Whether to perform the body size computation via reduceByKey.",
-                "type": "string",
-                "enum": ["reduce-by-key", "reduce-with-pandas"],
-                "default": "reduce-with-pandas"
-            }
-        }
-    }
 
     OptionsSchema = copy.deepcopy(Workflow.OptionsSchema)
     OptionsSchema["additionalProperties"] = False
@@ -95,8 +68,6 @@ class CopySegmentation(Workflow):
             "default": "block-statistics.sqlite"
         },
 
-        "body-sizes": BodySizesOptionsSchema,
-        
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate \n"
                            "(-1 means choose automatically, 0 means no pyramid)",
@@ -517,10 +488,6 @@ class CopySegmentation(Workflow):
             padded_wall = self._consolidate_and_pad(slab_index, aligned_output_wall, 0, output_service, align=False, pad=True)
             del aligned_output_wall
     
-            # Compute body sizes and write to HDF5
-            # FIXME: Needs to be fixed now that we copy data slab-by-slab
-            #self._write_body_sizes( padded_wall, output_service )
-    
             # Write scale 0 to DVID
             if not options["skip-scale-0-write"]:
                 self._write_bricks( slab_index, padded_wall, 0, output_service )
@@ -644,117 +611,6 @@ class CopySegmentation(Workflow):
             brick_wall.bricks.foreach(write_brick)
         logger.info(f"Slab {slab_index}: Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
 
-    
-    def _write_body_sizes( self, brick_wall, output_service ):
-        """
-        Calculate the size (in voxels) of all label bodies in the volume,
-        and write the results to an HDF5 file.
-        
-        NOTE: For now, we implement two alternative methods of computing this result,
-              for the sake of performance comparisons between the two methods.
-              The method used is determined by the ['body-sizes]['method'] option.
-        """
-        if not self.config_data["options"]["body-sizes"]["compute"]:
-            logger.info("Skipping body size calculation.")
-            return
-
-        logger.info("Computing body sizes...")
-        with Timer() as timer:
-            body_labels, body_sizes = self._compute_body_sizes(brick_wall)
-        logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
-
-        min_size = self.config_data["options"]["body-sizes"]["minimum-size"]
-
-        nonzero_start = 0
-        if body_labels[0] == 0:
-            nonzero_start = 1
-        nonzero_count = body_sizes[nonzero_start:].sum()
-        logger.info(f"Final volume contains {nonzero_count} nonzero voxels")
-
-        if min_size > 1:
-            logger.info(f"Omitting body sizes below {min_size} voxels...")
-            valid_rows = body_sizes >= min_size
-            body_labels = body_labels[valid_rows]
-            body_sizes = body_sizes[valid_rows]
-        assert body_labels.shape == body_sizes.shape
-
-        with Timer() as timer:
-            logger.info(f"Sorting {len(body_labels)} bodies by size...")
-            sort_indices = np.argsort(body_sizes)[::-1]
-            body_sizes = body_sizes[sort_indices]
-            body_labels = body_labels[sort_indices]
-        logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
-
-        suffix = output_service.base_service.instance_name
-        output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
-        with Timer() as timer:
-            logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
-            with h5py.File(output_path, 'w') as f:
-                f.create_dataset('labels', data=body_labels, chunks=True)
-                f.create_dataset('sizes', data=body_sizes, chunks=True)
-                f['total_nonzero_voxels'] = nonzero_count
-        logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
-
-
-    def _compute_body_sizes(self, brick_wall):
-        if self.config_data["options"]["body-sizes"]["method"] == "reduce-by-key":
-            body_labels, body_sizes = self._compute_body_sizes_via_reduce_by_key(brick_wall)
-        else:
-            body_labels, body_sizes = self._compute_body_sizes_via_pandas_dataframes(brick_wall)
-        return body_labels, body_sizes
-        
-
-    def _compute_body_sizes_via_reduce_by_key(self, brick_wall):
-        # Reduce using reduceByKey and simply concatenating the results
-        from operator import add
-        def transpose(labels_and_sizes):
-            labels, sizes = labels_and_sizes
-            return np.array( (labels, sizes) ).transpose()
-
-        def reduce_to_array( pair_list_1, pair_list_2 ):
-            return np.concatenate( (pair_list_1, pair_list_2) )
-
-        labels_and_sizes = ( brick_wall.bricks.map( lambda br: br.volume )
-                                              .map( nonconsecutive_bincount )
-                                              .flatMap( transpose )
-                                              .reduceByKey( add )
-                                              .map( lambda pair: [pair] )
-                                              .treeReduce( reduce_to_array, depth=4 ) )
-
-        body_labels, body_sizes = np.transpose( labels_and_sizes )
-        return body_labels, body_sizes
-        
-
-    def _compute_body_sizes_via_pandas_dataframes(self, brick_wall):
-        import pandas as pd
-
-        #@self.collect_log(lambda *_args: 'merge_label_counts')
-        def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
-            labels_A, counts_A = labels_and_counts_A
-            labels_B, counts_B = labels_and_counts_B
-            
-            # Fast path
-            if len(labels_A) == 0:
-                return (labels_B, counts_B)
-            if len(labels_B) == 0:
-                return (labels_A, counts_A)
-            
-            series_A = pd.Series(index=labels_A, data=counts_A)
-            series_B = pd.Series(index=labels_B, data=counts_B)
-            combined = series_A.add(series_B, fill_value=0)
-            
-            #logger = logging.getLogger(__name__)
-            #logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
-            #            f" = {len(combined)} took {timer.seconds} seconds")
-
-            return (combined.index, combined.values.astype(np.uint64))
-
-        # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
-        body_labels, body_sizes = ( brick_wall.bricks.map( lambda br: br.volume )
-                                                     .map( nonconsecutive_bincount )
-                                                     .treeReduce( merge_label_counts, depth=4 ) )
-            
-        return body_labels, body_sizes
 
 BLOCK_STATS_COLUMNS = ['segment_id', 'z', 'y', 'x', 'count']
 def block_stats_from_brick(block_shape, brick):
