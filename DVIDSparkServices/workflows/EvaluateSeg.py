@@ -4,6 +4,7 @@ from __future__ import print_function, absolute_import
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.util import NumpyConvertingEncoder
+from libdvid import ConnectionMethod
 
 class EvaluateSeg(DVIDWorkflow):
     # schema for evaluating segmentation
@@ -36,7 +37,7 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "string" 
         },
         "point-lists": {
-          "description": "List of keyvalue DVID locations that contains seletive ponts (e.g., annotations/synapses)",
+          "description": "List of keyvalue DVID locations (or location of annotation datatype) that contains seletive ponts (e.g., annotations/synapses)",
           "type": "array",
           "items": { "type": "string", "minLength": 2 },
           "minItems": 0,
@@ -305,18 +306,48 @@ class EvaluateSeg(DVIDWorkflow):
         for point_list_name in self.config_data["dvid-info"]["point-lists"]:
             # grab point list from DVID
             keyvalue = point_list_name.split('/')
-            if len(keyvalue) != 2:
-                raise Exception(str(point_list_name) + "point list key value not properly specified")
+            pointname = ""
 
-            # is this too large to broadcast?? -- default lz4 should help quite a bit
-            # TODO: send only necessary data to each job through join might help
-            point_data[keyvalue[1]] = node_service.get_json(str(keyvalue[0]),
-                    str(keyvalue[1]))
-            
+            if len(keyvalue) == 2:
+                # is this too large to broadcast?? -- default lz4 should help quite a bit
+                # TODO: send only necessary data to each job through join might help
+                point_data[keyvalue[1]] = node_service.get_json(str(keyvalue[0]),
+                        str(keyvalue[1]))
+                pointname = keyvalue[1]
+            elif len(keyvalue) == 1:    
+                # assume dvid annotation datatype and always treat as a synapse type
+                # TODO: split this up into many small calls so that it scales
+                syndata = node_service.custom_request(str(keyvalue[0]) + "/roi/" + str(self.config_data["dvid-info"]["roi"]), "".encode(), ConnectionMethod.GET) 
+                synjson = json.loads(syndata)
+                synindex = {}
+                synspot = 0
+                # grab index positions
+                for synapse in synjson:
+                    synindex[tuple(synapse["Pos"])] = synspot
+                    synspot += 1
+               
+                # load point data
+                pointlist = [] 
+                for synapse in synjson:
+                    pointrel = synapse["Pos"]
+                    if synapse["Rels"] is not None:
+                        for rel in synapse["Rels"]:
+                            if rel["Rel"] == "PreSynTo":
+                                # only add relations within ROI
+                                if tuple(rel["To"]) in synindex:
+                                    index = synindex[tuple(rel["To"])]
+                                    pointrel.append(index)
+                    pointlist.append(pointrel)
+                pointinfo = {"type": "synapse", "sparse": False, "point-list": pointlist}
+                point_data[keyvalue[0]] = pointinfo
+                pointname = keyvalue[0]
+            else:
+               raise Exception(str(point_list_name) + "point list key value not properly specified")
+
             # Generate per substack and global stats for given points.
             # Querying will just be done on the local labels stored.
             # (preserve partitioner)
-            lpairs_proc = evaluator.calcoverlap_pts(lpairs_proc, keyvalue[1], point_data[keyvalue[1]])
+            lpairs_proc = evaluator.calcoverlap_pts(lpairs_proc, pointname, point_data[pointname])
 
         # Extract stats by retrieving substacks and stats info and
         # loading into data structures on the driver.

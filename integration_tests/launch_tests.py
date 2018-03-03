@@ -229,7 +229,16 @@ def init_dvid_database(test_dir, reuse_last=False):
     # load synapses
     load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/annotations/key/syn --data-binary @%s/resources/synapse_small.json' % (uuid1, test_dir)).split()
     subprocess.check_call(load_synapse_command)
+
+    # create synapse annotation 
+    create_synapse_command = f'curl -X POST 127.0.0.1:8000/api/repo/{uuid1}/instance -d'
+    create_synapse_command+= """ '{"typename": "annotation", "dataname" : "syn"}' """
+    subprocess.check_call(create_synapse_command, shell=True)
     
+    # load synapse annotations
+    load_synapse_command = ('curl -X POST 127.0.0.1:8000/api/node/%s/syn/elements --data-binary @%s/resources/synapse_small2.json' % (uuid1, test_dir)).split()
+    subprocess.check_call(load_synapse_command)
+
     # create grayscale data
     create_gray = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
     typedata = "{\"typename\": \"uint8blk\", \"dataname\" : \"grayscale\"}"

@@ -4,7 +4,7 @@
         "uuid": "UUID1",
         "label-name": "labels",
         "roi": "temproi",
-        "point-lists": ["annotations/syn"],
+        "point-lists": ["syn"],
         "stats-location": "off1.seg"
     },
     "dvid-info-comp": {

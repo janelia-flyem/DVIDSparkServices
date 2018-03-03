@@ -1,0 +1,164 @@
+[
+    {
+        "Pos":[10, 10, 11],
+        "Kind":"PreSyn",
+        "Rels":[
+            {"Rel":"PreSynTo", "To":[10, 12, 11]},
+            {"Rel":"PreSynTo", "To":[10, 13, 11]},
+            {"Rel":"PreSynTo", "To":[10, 14, 11]},
+            {"Rel":"PreSynTo", "To":[10, 15, 11]},
+            {"Rel":"PreSynTo", "To":[11, 10, 11]},
+            {"Rel":"PreSynTo", "To":[12, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[10, 12, 11],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[10, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[10, 13, 11],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[10, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[10, 14, 11],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[10, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[10, 15, 11],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[10, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[11, 10, 11],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[10, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[12, 10, 11],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[10, 10, 11]}
+        ]
+    },
+    {
+        "Pos":[21, 21, 15],
+        "Kind":"PreSyn",
+        "Rels":[
+            {"Rel":"PreSynTo", "To":[21, 21, 16]},
+            {"Rel":"PreSynTo", "To":[21, 21, 17]},
+            {"Rel":"PreSynTo", "To":[21, 21, 18]},
+            {"Rel":"PreSynTo", "To":[21, 21, 19]},
+            {"Rel":"PreSynTo", "To":[21, 22, 16]},
+            {"Rel":"PreSynTo", "To":[21, 22, 17]},
+            {"Rel":"PreSynTo", "To":[21, 22, 18]},
+            {"Rel":"PreSynTo", "To":[2122, 2212, 1117]}
+        ]
+    },
+    {
+        "Pos":[21, 21, 16],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    },
+    {
+        "Pos":[21, 21, 17],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    },
+    {
+        "Pos":[21, 21, 18],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    },
+    {
+        "Pos":[21, 21, 19],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    },
+    {
+        "Pos":[21, 22, 16],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    },
+    {
+        "Pos":[21, 22, 17],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    },
+
+    {
+        "Pos":[21, 22, 18],
+        "Kind":"PreSyn",
+        "Rels":[
+            {"Rel":"PreSynTo", "To":[70, 22, 17]}
+        ]
+    },
+    {
+        "Pos":[70, 22, 17],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 22, 18]}
+        ]
+    },
+    {
+        "Pos":[70, 23, 17],
+        "Kind":"PostSyn"
+    },
+    {
+        "Pos":[70, 22, 18],
+        "Kind":"PostSyn"
+    },
+    {
+        "Pos":[70, 24, 17],
+        "Kind":"PostSyn"
+    },
+    {
+        "Pos":[71, 22, 17],
+        "Kind":"PostSyn"
+    },
+    {
+        "Pos":[2231, 2322, 1118],
+        "Kind":"PreSyn",
+        "Rels":[
+            {"Rel":"PreSynTo", "To":[57, 43, 99]}
+        ]
+    },
+    {
+        "Pos":[57, 43, 99],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[2231, 2322, 1118]}
+        ]
+    },
+    {
+        "Pos":[2122, 2212, 1117],
+        "Kind":"PostSyn",
+        "Rels":[
+            {"Rel":"PostSynTo", "To":[21, 21, 15]}
+        ]
+    }
+]
