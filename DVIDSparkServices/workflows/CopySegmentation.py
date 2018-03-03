@@ -243,6 +243,10 @@ class CopySegmentation(Workflow):
             assert not isinstance( output_service, TransposedVolumeService )
             assert not isinstance( output_service, ScaledVolumeService )
 
+            assert output_service.base_service.disable_indexing, \
+                "During ingestion, indexing should be disabled.\n" \
+                "Please add 'disable-indexing':true to your output dvid config."
+
             logger.info(f"Output {i} bounding box (xyz) is: {output_service.bounding_box_zyx[:,::-1].tolist()}")
             self.output_services.append( output_service )
 

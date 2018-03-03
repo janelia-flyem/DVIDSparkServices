@@ -53,8 +53,8 @@ segment_counts_from_output_seg = pd.Series(output_volume.reshape(-1)).value_coun
 segment_counts_from_output_seg = segment_counts_from_output_seg[segment_counts_from_output_seg.index != 0]
 segment_counts_from_output_seg.sort_index(inplace=True)
 
-from IPython.core.debugger import set_trace
-set_trace()
+#from IPython.core.debugger import set_trace
+#set_trace()
 
 assert (segment_counts_from_output_seg == segment_counts_from_stats).all()
 

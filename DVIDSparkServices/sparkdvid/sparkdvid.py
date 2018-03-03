@@ -474,7 +474,10 @@ class sparkdvid(object):
     def post_voxels( cls, server, uuid, instance_name, scale,
                      instance_type, is_labels,
                      subvolume, offset,
-                     resource_server="", resource_port=0, throttle="auto", node_service=None):
+                     resource_server="", resource_port=0,
+                     throttle="auto",
+                     disable_indexing=False,
+                     node_service=None):
 
         if node_service is None:
             node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
@@ -484,12 +487,14 @@ class sparkdvid(object):
         
         if instance_type == 'labelarray' and (np.array(offset) % 64 == 0).all() and (np.array(subvolume.shape) % 64 == 0).all():
             # Labelarray data can be posted very efficiently if the request is block-aligned
-            node_service.put_labelblocks3D( instance_name, subvolume, offset, throttle, scale)
+            node_service.put_labelblocks3D( instance_name, subvolume, offset, throttle, scale, disable_indexing)
         elif is_labels:
+            assert disable_indexing == False, "Can't use put_labels3D in ingestion mode."
             assert scale == 0, "FIXME: put_labels3D() doesn't support scale yet!"
             # labelblk (or non-aligned labelarray) must be posted the old-fashioned way
             node_service.put_labels3D( instance_name, subvolume, offset, throttle)
         else:
+            assert disable_indexing == False, "put_gray3D() is not aware of indexing."
             assert scale == 0, "FIXME: put_gray3D() doesn't support scale yet!"
             node_service.put_gray3D( instance_name, subvolume, offset, throttle)
 

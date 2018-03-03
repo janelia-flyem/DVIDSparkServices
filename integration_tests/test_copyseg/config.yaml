@@ -20,6 +20,7 @@
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
           "segmentation-name": "labels-copy-translated",
+          "disable-indexing": true
         },
         "geometry": {
           "bounding-box": [[0, 0, 0], [256, 256, 256]]

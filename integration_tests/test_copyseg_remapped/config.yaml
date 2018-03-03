@@ -25,7 +25,8 @@
         "dvid": {
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
-          "segmentation-name": "labels-remapped200"
+          "segmentation-name": "labels-remapped200",
+          "disable-indexing": true
         },
         # Mapping adds 200 input pixels, which were already remapped by +100
         "apply-labelmap": {
@@ -43,7 +44,8 @@
         "dvid": {
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
-          "segmentation-name": "labels-remapped400"
+          "segmentation-name": "labels-remapped400",
+          "disable-indexing": true
         },
         # Mapping adds 400 input pixels, which were already remapped by +100
         "apply-labelmap": {
@@ -60,7 +62,8 @@
         "dvid": {
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
-          "segmentation-name": "labels-complete-merge"
+          "segmentation-name": "labels-complete-merge",
+          "disable-indexing": true
         },
         # This is an edge-equivalency mapping.
         # In this mapping, the edges form a giant cycle, resulting in a completely merged volume.

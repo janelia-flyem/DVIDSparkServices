@@ -75,6 +75,13 @@ DvidSegmentationServiceSchema = \
                            "Instance may be either googlevoxels, labelblk, or labelarray.",
             "type": "string",
             "minLength": 1
+        },
+        "disable-indexing": {
+            "description": "Tell the server not to update the label index after POST blocks.\n"
+                           "Useful during initial volume ingestion, in which label\n"
+                           "indexes will be sent by the client later on.\n",
+            "type": "boolean",
+            "default": False
         }
     }
 }
@@ -152,6 +159,11 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             else:
                 self._instance_type = 'uint8blk'
                 self._is_labels = False
+
+        if "disable-indexing" in volume_config["dvid"]:
+            self.disable_indexing = volume_config["dvid"]["disable-indexing"]
+        else:
+            self.disable_indexing = False
 
         ##
         ## Block width
@@ -305,6 +317,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
                                           scale, self._instance_type, self._is_labels,
                                           subvolume, offset_zyx,
                                           throttle=throttle,
+                                          disable_indexing=self.disable_indexing,
                                           node_service=self.node_service )
 
     def __getstate__(self):

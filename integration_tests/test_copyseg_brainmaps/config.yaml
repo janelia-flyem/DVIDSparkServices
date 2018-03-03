@@ -17,7 +17,8 @@
       "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID2",
-        "segmentation-name": "labels-from-brainmaps"
+        "segmentation-name": "labels-from-brainmaps",
+        "disable-indexing": true
       },
       "geometry": {
         "bounding-box": [[0, 0, 0], [512, 512, 512]],
