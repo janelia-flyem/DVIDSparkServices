@@ -26,7 +26,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.io_util.partitionSchema import volumePartition, VolumeOffset, PartitionDims, partitionSchema
 from DVIDSparkServices.io_util.imagefileSrc import imagefileSrc
 from DVIDSparkServices.io_util.dvidSrc import dvidSrc
-from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, create_labelarray, Compression,
+from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, create_label_instance, Compression,
                                               extend_list_value, update_extents, reload_server_metadata ) 
 from DVIDSparkServices.reconutils.downsample import downsample_raw, downsample_3Dlabels
 from DVIDSparkServices.util import Timer, runlength_encode, default_dvid_session
@@ -415,7 +415,7 @@ class Ingest3DVolume(Workflow):
                                           dvid_info["dataname"],
                                           block_shape )
                     else:
-                        create_labelarray( dvid_info["dvid-server"],
+                        create_label_instance( dvid_info["dvid-server"],
                                            dvid_info["uuid"],
                                            dvid_info["dataname"],
                                            0,
@@ -486,7 +486,7 @@ class Ingest3DVolume(Workflow):
                                           downname,
                                           block_shape )
                     else:
-                        create_labelarray( dvid_info["dvid-server"],
+                        create_label_instance( dvid_info["dvid-server"],
                                            dvid_info["uuid"],
                                            downname,
                                            0,

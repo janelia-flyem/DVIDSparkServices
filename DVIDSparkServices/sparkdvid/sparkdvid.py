@@ -33,7 +33,7 @@ from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths, default_dvid_session
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
-from DVIDSparkServices.dvid.metadata import create_labelarray, DataInstance, get_blocksize
+from DVIDSparkServices.dvid.metadata import create_label_instance, DataInstance, get_blocksize
 
 
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
@@ -252,7 +252,7 @@ class sparkdvid(object):
                                   grid,
                                   target_partition_size_voxels ):
         """
-        Create an RDD for the given data instance (of either grayscale, labelblk, or labelarray),
+        Create an RDD for the given data instance (of either grayscale, labelblk, labelarray, or labelmap),
         within the given bounding_box (start_zyx, stop_zyx) and split into blocks of the given shape.
         The RDD parallelism will be set to include approximately target_partition_size_voxels in total.
         """
@@ -451,7 +451,7 @@ class sparkdvid(object):
         if throttle == "auto":
             throttle = (resource_server == "")
         
-        if instance_type == 'labelarray':
+        if instance_type in ('labelarray', 'labelmap'):
             # Labelarray data can be fetched very efficiently if the request is block-aligned
             # So, block-align the request no matter what.
             aligned_start = np.array(offset) // 64 * 64
@@ -485,7 +485,7 @@ class sparkdvid(object):
         if throttle == "auto":
             throttle = (resource_server == "")
         
-        if instance_type == 'labelarray' and (np.array(offset) % 64 == 0).all() and (np.array(subvolume.shape) % 64 == 0).all():
+        if instance_type in ('labelarray', 'labelmap') and (np.array(offset) % 64 == 0).all() and (np.array(subvolume.shape) % 64 == 0).all():
             # Labelarray data can be posted very efficiently if the request is block-aligned
             node_service.put_labelblocks3D( instance_name, subvolume, offset, throttle, scale, disable_indexing)
         elif is_labels:
@@ -827,7 +827,7 @@ class sparkdvid(object):
         resource_port = self.workflow.resource_port
 
         # Create labelarray instance if necessary
-        create_labelarray(server, uuid, label_name)
+        create_label_instance(server, uuid, label_name)
         
         def writer(subvolume_seg):
             _key, (subvolume, seg) = subvolume_seg

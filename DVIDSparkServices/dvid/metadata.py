@@ -69,8 +69,8 @@ def is_node_locked(dvid_server, uuid):
     return r.json()["Locked"]
 
 
-def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
-                      compression=Compression.DEFAULT, enable_index=True ):
+def create_label_instance(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
+                          compression=Compression.DEFAULT, enable_index=True, typename='labelarray' ):
     """
     Create 64 bit labels data structure.
 
@@ -98,7 +98,6 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
         transferred to the caller, except for the 'already exists' exception.
     """
     conn = DVIDConnection(dvid_server) 
-    typename = "labelarray"
 
     logger.info("Creating {typename} instance: {uuid}/{name}".format( **locals() ))
 
@@ -352,10 +351,10 @@ class DataInstance(object):
         self.datatype = str(self.info["Base"]["TypeName"])
 
     def is_array(self):
-        """Checks if data instance is a raw or label array.
+        """Checks if data instance is a raw or label volume.
         """
 
-        return self.datatype in ("uint8blk", "labelblk", "labelarray", "googlevoxels")
+        return self.datatype in ("uint8blk", "labelblk", "labelarray", "labelmap", "googlevoxels")
 
     def is_labels(self):
         """Checks if data instance is label array type.
@@ -366,7 +365,7 @@ class DataInstance(object):
         if self.datatype == 'uint8blk':
             return False
 
-        if self.datatype in ('labelblk', 'labelarray'):
+        if self.datatype in ('labelblk', 'labelarray', 'labelmap'):
             return True
         
         if self.datatype == 'googlevoxels':

@@ -14,7 +14,7 @@ import pandas as pd
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
+from DVIDSparkServices.dvid.metadata import create_label_instance, is_datainstance
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, \
     replace_default_entries, box_intersection, box_to_slicing
 
@@ -49,7 +49,7 @@ class CopySegmentation(Workflow):
       suitable default can be chosen for you.)
       
     - This workflow uses DvidVolumeService to write the segmentation blocks,
-      which is able to send them to DVID in the pre-encoded 'labelarray' block format.
+      which is able to send them to DVID in the pre-encoded 'labelarray' or 'labelmap' block format.
       This saves CPU resources on the DVID server.
     
     - As a convenience, size of each label 'body' in the copied volume is also
@@ -102,8 +102,14 @@ class CopySegmentation(Workflow):
             "type": "integer",
             "default": 0,
         },
-        "enable-indexing": {
-            "description": "Enable indexing on the new labelarray instance.\n"
+        "instance-creation-type": {
+            "description": "What type of label instance to create.\n",
+            "type": "string",
+            "enum": ["labelarray", "labelmap"],
+            "default": "labelmap"
+        },
+        "create-with-indexing-enabled": {
+            "description": "Enable indexing on the new labelarray or labelmap instance.\n"
                            "(Should normally be left as the default (true), except for benchmarking purposes.)",
             "type": "boolean",
             "default": True
@@ -282,12 +288,13 @@ class CopySegmentation(Workflow):
                     pyramid_depth = choose_pyramid_depth(input_bb_zyx, 512)
         
                 # create new label array with correct number of pyramid scales
-                create_labelarray( base_service.server,
-                                   base_service.uuid,
-                                   base_service.instance_name,
-                                   pyramid_depth,
-                                   3*(base_service.block_width,),
-                                   enable_index=self.config_data["options"]["enable-indexing"] )
+                create_label_instance( base_service.server,
+                                       base_service.uuid,
+                                       base_service.instance_name,
+                                       pyramid_depth,
+                                       3*(base_service.block_width,),
+                                       enable_index=self.config_data["options"]["create-with-indexing-enabled"],
+                                       typename=self.config_data["options"]["instance-creation-type"] )
 
 
     def _read_pyramid_depth(self):

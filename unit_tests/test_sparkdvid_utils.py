@@ -24,7 +24,7 @@ class Test_get_union_block_mask_for_bodies(unittest.TestCase):
         cls.labels[50, 60:200, 30] = 2
         
         ns = DVIDNodeService( TEST_DVID_SERVER, cls.uuid )
-        ns.create_labelarray(cls.instance, 64)
+        ns.create_label_instance(cls.instance, 64)
         ns.put_labels3D(cls.instance, cls.labels, (0,0,0))
     
     def test_get_union_mask_for_bodies(self):

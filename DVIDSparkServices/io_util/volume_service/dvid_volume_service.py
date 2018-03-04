@@ -154,7 +154,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         except ValueError:
             # Instance doesn't exist yet -- we are going to create it.
             if "segmentation-name" in volume_config["dvid"]:
-                self._instance_type = 'labelarray'
+                self._instance_type = 'labelarray' # get_voxels doesn't really care if it's labelarray or labelmap...
                 self._is_labels = True
             else:
                 self._instance_type = 'uint8blk'

@@ -22,7 +22,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
+from DVIDSparkServices.dvid.metadata import create_label_instance, is_datainstance
 from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute, NumpyConvertingEncoder
 from DVIDSparkServices.auto_retry import auto_retry
 
