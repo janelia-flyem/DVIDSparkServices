@@ -676,17 +676,19 @@ def block_stats_from_brick(block_shape, brick):
         block_vol = brick.volume[box_to_slicing(*clipped_box)]
         counts = pd.Series(block_vol.reshape(-1)).value_counts(sort=False)
         segment_ids = counts.index.values
+        counts = counts.values.astype(np.uint32)
 
-        block_df = pd.DataFrame( { 'segment_id': segment_ids, 'count': counts } )
+        box = box.astype(np.int32)
+
+        block_df = pd.DataFrame( { 'segment_id': segment_ids,
+                                   'count': counts,
+                                   'z': box[0][0],
+                                   'y': box[0][1],
+                                   'x': box[0][2] } )
 
         # Exclude segment 0 from output        
         block_df = block_df[block_df['segment_id'] != 0]
 
-        block_df['z'] = 0
-        block_df['y'] = 0
-        block_df['x'] = 0
-        block_df[['z', 'y', 'x']] = box[0].astype(np.int32)
-        
         block_dfs.append(block_df)
 
     brick_df = pd.concat(block_dfs, ignore_index=True)
