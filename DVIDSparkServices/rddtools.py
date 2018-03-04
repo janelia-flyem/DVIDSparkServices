@@ -53,6 +53,13 @@ def values(iterable):
     else:
         return ( v for (k,v) in iterable )
 
+builtin_filter = filter
+def filter(f, iterable):
+    if isinstance(iterable, _RDD):
+        return iterable.filter(f)
+    else:
+        return builtin_filter(f, iterable)
+
 def group_by_key(iterable):
     if isinstance(iterable, _RDD):
         return iterable.groupByKey()
