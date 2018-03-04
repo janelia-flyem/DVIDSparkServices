@@ -379,7 +379,8 @@ class CopySegmentation(Workflow):
 
         with sqlite3.connect(stats_path) as conn:
             cumulative_block_stats_df = pd.read_sql('SELECT * from block_stats', conn)
-        assert list(cumulative_block_stats_df.columns) == BLOCK_STATS_COLUMNS
+        assert list(cumulative_block_stats_df.columns) == BLOCK_STATS_COLUMNS, \
+            f"Unexpected column list: {list(cumulative_block_stats_df.columns)}"
         
         # Ensure proper (minimal width) dtypes
         # Sadly, pd.read_sql() will return everything as int64, which may induce significant RAM overhead.
@@ -429,7 +430,7 @@ class CopySegmentation(Workflow):
 
                 # Overwrite
                 with sqlite3.connect(stats_path) as conn:
-                    cumulative_block_stats_df.to_sql('block_stats', conn, if_exists='replace')
+                    cumulative_block_stats_df.to_sql('block_stats', conn, if_exists='replace', index=False)
             
         return cumulative_block_stats_df
 
