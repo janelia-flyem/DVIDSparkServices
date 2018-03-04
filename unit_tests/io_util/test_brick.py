@@ -8,8 +8,7 @@ from DVIDSparkServices.io_util.brick import ( Grid, Brick, SparseBlockMask, boxe
                                               realign_bricks_to_new_grid, split_brick, assemble_brick_fragments,
                                               pad_brick_data_from_volume_source, sparse_boxes_from_block_mask )
 
-class TestBrickFunctions(unittest.TestCase):
-
+class TextBoxFunctions(unittest.TestCase):
     def test_boxes_from_grid_0(self):
         # Simple: bounding_box starts at zero, no offset
         grid = Grid( (10,20), (0,0) )
@@ -85,6 +84,7 @@ class TestBrickFunctions(unittest.TestCase):
         
         assert (np.array(slabs) == expected).all()
 
+class TestSparseBrickFunctions(unittest.TestCase):
     def test_sparse_brick_boxes_from_block_mask_NO_OFFSET(self):
         block_mask = np.zeros((5,6,7), dtype=bool)
         
@@ -148,6 +148,8 @@ class TestBrickFunctions(unittest.TestCase):
                                    [[0, 10, 60], [10, 20, 70]],
                                    [[0, 20, 30], [10, 30, 60]]]).all() 
 
+    
+class TestBrickFunctions(unittest.TestCase):
 
     def test_generate_bricks(self):
         grid = Grid( (10,20), (12,3) )
@@ -306,6 +308,106 @@ class TestBrickFunctions(unittest.TestCase):
         padded_brick = pad_brick_data_from_volume_source( padding_grid, partial(extract_subvol, source_volume), brick )
 
         assert padded_brick is brick, "Expected to get the same brick back."
+
+class TestBrickFunctionsWithHalo(unittest.TestCase):
+
+    def test_generate_bricks(self):
+        halo = 1
+        halo_shape = np.array([1,1])
+        grid = Grid( (10,20), (12,3), halo )
+        bounding_box = np.array([(15,30), (95,290)])
+        volume = np.random.randint(0,10, (100,300) )
+
+        bricks = generate_bricks_from_volume_source( bounding_box, grid, partial(extract_subvol, volume) )
+
+        bricks = list(bricks)
+        assert len(bricks) == 9 * 14
+        
+        for brick in bricks:
+            assert isinstance( brick, Brick )
+            assert brick.logical_box.shape == (2,2)
+            assert brick.physical_box.shape == (2,2)
+
+            # logical_box must be exactly one block
+            assert ((brick.logical_box[1] - brick.logical_box[0]) == grid.block_shape).all()
+            
+            # Must be grid-aligned
+            assert ((brick.logical_box - grid.offset) % grid.block_shape == 0).all()
+            
+            # Physical == logical+halo, except for bounding-box edges
+            assert (brick.physical_box == box_intersection( brick.logical_box + (-halo_shape, halo_shape), bounding_box )).all()
+            
+            # Volume shape must match
+            assert (brick.volume.shape == brick.physical_box[1] - brick.physical_box[0]).all()
+            
+            # Volume data must match
+            assert (brick.volume == extract_subvol( volume, brick.physical_box )).all()
+
+    def test_split_brick(self):
+        halo = 1
+        grid = Grid( (10,20), (12,3), halo )
+        volume = np.random.randint(0,10, (100,300) )
+        
+        # Test with the first brick in the grid
+        physical_start = np.array(grid.offset)
+        logical_start = physical_start // grid.block_shape * grid.block_shape
+        logical_stop = logical_start + grid.block_shape
+        
+        physical_stop = logical_stop+halo # Not always true, but happens to be true in this case.
+        
+        logical_box = np.array([logical_start, logical_stop])
+        physical_box = np.array([physical_start, physical_stop])
+        
+        assert (logical_box == [(10,0), (20,20)]).all()
+        assert (physical_box == [(12,3), (21,21)]).all()
+
+        original_brick = Brick( logical_box, physical_box, extract_subvol(volume, physical_box) )
+
+        # New grid scheme
+        new_grid = Grid((2,10), (0,0))
+        
+        try:
+            _boxes_and_fragments = split_brick(new_grid, original_brick)
+        except AssertionError:
+            pass # Expected failure: Forbidden to split bricks that have a halo
+        else:
+            assert False, "Did not encounter the expected assertion.  split_brick() should fail for bricks that have a halo."
+
+
+    def test_realign_bricks_to_new_grid(self):
+        grid = Grid( (10,20), (12,3) )
+        bounding_box = np.array([(15,30), (95,290)])
+        volume = np.random.randint(0,10, (100,300) )
+
+        original_bricks = generate_bricks_from_volume_source( bounding_box, grid, partial(extract_subvol, volume) )
+
+        halo = 1
+        halo_shape = np.array([1,1])
+        new_grid = Grid((20,10), (0,0), halo)
+        boxes_and_bricks = realign_bricks_to_new_grid(new_grid, original_bricks)
+
+        new_logical_boxes, new_bricks = list(zip(*boxes_and_bricks))
+
+        assert len(new_bricks) == 5 * 26 # from (0,30) -> (100,290)
+        
+        for logical_box, brick in zip(new_logical_boxes, new_bricks):
+            assert isinstance( brick, Brick )
+            assert (brick.logical_box == logical_box).all()
+
+            # logical_box must be exactly one block
+            assert ((brick.logical_box[1] - brick.logical_box[0]) == new_grid.block_shape).all()
+            
+            # Must be grid-aligned
+            assert ((brick.logical_box - new_grid.offset) % new_grid.block_shape == 0).all()
+            
+            # Should match logical_box+halo, except for edges
+            assert (brick.physical_box == box_intersection( brick.logical_box + (-halo_shape, halo_shape), bounding_box )).all()
+            
+            # Volume shape must match
+            assert (brick.volume.shape == brick.physical_box[1] - brick.physical_box[0]).all()
+            
+            # Volume data must match
+            assert (brick.volume == extract_subvol( volume, brick.physical_box )).all()
 
 
 if __name__ == "__main__":

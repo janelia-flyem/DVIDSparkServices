@@ -32,7 +32,7 @@ class BrickWall:
     ##
 
     @classmethod
-    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, sparse_boxes=None, halo=0):
+    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, sparse_boxes=None):
         """
         Convenience constructor, taking an arbitrary volume_accessor_func.
         
@@ -75,12 +75,12 @@ class BrickWall:
         block_size_voxels = np.prod(grid.block_shape)
         rdd_partition_length = target_partition_size_voxels // block_size_voxels
 
-        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length, sparse_boxes, halo)
+        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length, sparse_boxes)
         return BrickWall( bounding_box, grid, bricks )
 
 
     @classmethod
-    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None, sparse_block_mask=None, halo=0):
+    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None, sparse_block_mask=None):
         """
         Convenience constructor, initialized from a VolumeService object.
         
@@ -120,15 +120,14 @@ class BrickWall:
         sparse_boxes = None
         if sparse_block_mask is not None:
             assert isinstance(sparse_block_mask, SparseBlockMask)
-            sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid) # Halo is applied later, not here.
+            sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid)
 
         return BrickWall.from_accessor_func( downsampled_box,
                                              grid,
                                              lambda box: volume_service.get_subvolume(box, scale),
                                              sc,
                                              target_partition_size_voxels,
-                                             sparse_boxes,
-                                             halo )
+                                             sparse_boxes )
 
     ##
     ## Operations
