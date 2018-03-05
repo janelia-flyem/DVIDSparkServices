@@ -394,8 +394,8 @@ class CopySegmentation(Workflow):
                 logger.info(f"Appending to pre-existing block statistics: {stats_path}")
                 cumulative_block_stats_df = pd.read_csv(stats_path)
             else:
-                # Initialize with header
-                cumulative_block_stats_df.to_csv(stats_path, index=False)
+                # Initialize (just the header)
+                cumulative_block_stats_df.to_csv(stats_path, index=False, header=True)
         else:
             raise RuntimeError(f"Unknown file format: {stats_path}")
 
@@ -434,23 +434,32 @@ class CopySegmentation(Workflow):
         # If we started from a pre-existing statistics file,
         # it's possible that the processed bounding box overlaps with the bounding box from previous runs.
         # Drop them.
-        duplicates_found = False
-        if drop_duplicates:
-            duplicate_rows = cumulative_block_stats_df.duplicated(['segment_id', 'z', 'y', 'x'], keep='last')
-            if duplicate_rows.any():
-                logger.warning(f"Duplicate rows found, implying bounding box overlaps previous runs! Deleting duplicates...")
-                cumulative_block_stats_df = cumulative_block_stats_df[~duplicate_rows]
-                duplicates_found = True
+        def _check_dupes(stats_df):
+            """
+            Return a filtered DataFrame if we found duplicates,
+            or None otherwise.
+            (We don't check at all if drop_duplicates=False.)
+            """
+            if not drop_duplicates:
+                return None
+            duplicate_rows = stats_df.duplicated(['segment_id', 'z', 'y', 'x'], keep='last')
+            if not duplicate_rows.any():
+                return None
+            logger.warning(f"Duplicate rows found, implying bounding box overlaps previous runs! Deleting duplicates...")
+            stats_df = stats_df[~duplicate_rows]
+            return stats_df
 
         if stats_path.endswith('.sqlite'):        
-            if duplicates_found:
-                # Overwrite
+            # Always append first (in case of MemoryError below)
+            with sqlite3.connect(stats_path) as conn:
+                slab_stats_df.to_sql('block_stats', conn, if_exists='append', index=False)
+
+            # Overwrite if duplicates detected
+            updated_df = _check_dupes(cumulative_block_stats_df)
+            if updated_df is not None:
+                cumulative_block_stats_df = updated_df
                 with sqlite3.connect(stats_path) as conn:
                     cumulative_block_stats_df.to_sql('block_stats', conn, if_exists='replace', index=False)
-            else:
-                # Append
-                with sqlite3.connect(stats_path) as conn:
-                    slab_stats_df.to_sql('block_stats', conn, if_exists='append', index=False)
 
         elif stats_path.endswith('.pkl.xz'):
             # Can't append, so always overwrite
@@ -459,12 +468,14 @@ class CopySegmentation(Workflow):
             cumulative_block_stats_df.to_pickle(stats_path)
 
         elif stats_path.endswith('.csv'):
-            if duplicates_found:
-                # Overwrite
-                cumulative_block_stats_df.to_csv(stats_path, header=False, index=False, mode='w')
-            else:
-                # Append
-                slab_stats_df.to_csv(stats_path, header=False, index=False, mode='a')
+            # Always append first (in case of MemoryError below)
+            slab_stats_df.to_csv(stats_path, header=False, index=False, mode='a')
+
+            # Overwrite if duplicates detected
+            updated_df = _check_dupes(cumulative_block_stats_df)
+            if updated_df is not None:
+                cumulative_block_stats_df = updated_df
+                cumulative_block_stats_df.to_csv(stats_path, header=True, index=False, mode='w')
 
         else:
             raise RuntimeError(f"Unknown file format: {stats_path}")
@@ -508,16 +519,15 @@ class CopySegmentation(Workflow):
         aligned_input_wall = self._consolidate_and_pad(slab_index, translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
+        # Compute stats on input (pre-padding), but don't write them to disk
+        # until after we've completed the download/downsampling.
+        # Note: Since this is pre-padding, the stats on the border blocks
+        #       will be wrong unless the bounding-box is block-aligned.
         with Timer(f"Slab {slab_index}: Computing slab block statistics", logger):
             block_shape = 3*[self.output_services[0].base_service.block_width]
             input_slab_block_stats_per_brick = aligned_input_wall.bricks.map( partial(block_stats_from_brick, block_shape) ).collect()
             input_slab_block_stats_df = pd.concat(input_slab_block_stats_per_brick, ignore_index=True)
             del input_slab_block_stats_per_brick
-
-        with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
-            cumulative_block_stats_df = self._append_slab_statistics( cumulative_block_stats_df,
-                                                                      input_slab_block_stats_df,
-                                                                      drop_duplicates=is_last_slab )
 
         for output_index, output_service in enumerate(self.output_services):
             if output_index < len(self.output_services) - 1:
@@ -554,6 +564,12 @@ class CopySegmentation(Workflow):
                 padded_wall = consolidated_wall
                 del consolidated_wall
             del padded_wall
+
+        # Now that processing is complete, commit the stats to disk.
+        with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
+            cumulative_block_stats_df = self._append_slab_statistics( cumulative_block_stats_df,
+                                                                      input_slab_block_stats_df,
+                                                                      drop_duplicates=is_last_slab )
         
         return cumulative_block_stats_df
 
