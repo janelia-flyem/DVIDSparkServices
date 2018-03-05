@@ -42,9 +42,17 @@ if not (input_volume == output_volume).all():
 ##
 ## Check exported statistics
 ##
-stats_path = dirpath + f'/temp_data/block-statistics.sqlite'
-with sqlite3.connect(stats_path) as conn:
-    df = pd.read_sql('SELECT * from block_stats', conn)
+stats_path = dirpath + f'/temp_data/block-statistics.csv'
+df = pd.read_csv(stats_path)
+
+# Must deduplicate ourselves (workflow doesn't do it)
+duplicate_rows = df.duplicated(['segment_id', 'z', 'y', 'x'], keep='last')
+df = df[~duplicate_rows]
+
+# Overwrite the duplicate-less version just to keep this test
+# file size limited after several sequential tests.
+df.to_csv(stats_path, header=True, index=False)
+
 segment_counts_from_stats = df[['segment_id', 'count']].groupby('segment_id').sum()['count']
 assert 0 not in segment_counts_from_stats, "Segment 0 should not be included in block statistics"
 segment_counts_from_stats.sort_index(inplace=True)

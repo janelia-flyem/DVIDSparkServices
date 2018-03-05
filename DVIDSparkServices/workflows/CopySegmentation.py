@@ -376,7 +376,6 @@ class CopySegmentation(Workflow):
 
         if stats_path.endswith('.sqlite'):
             if os.path.exists(stats_path):
-                logger.info(f"Appending to pre-existing block statistics: {stats_path}")
                 with sqlite3.connect(stats_path) as conn:
                     cumulative_block_stats_df = pd.read_sql('SELECT * from block_stats', conn)
             else:
@@ -386,18 +385,19 @@ class CopySegmentation(Workflow):
 
         elif stats_path.endswith('.pkl.xz'):
             if os.path.exists(stats_path):
-                logger.info(f"Appending to pre-existing block statistics: {stats_path}")
                 cumulative_block_stats_df = pd.read_pickle(stats_path)
 
         elif stats_path.endswith('.csv'):
             if os.path.exists(stats_path):
-                logger.info(f"Appending to pre-existing block statistics: {stats_path}")
                 cumulative_block_stats_df = pd.read_csv(stats_path)
             else:
                 # Initialize (just the header)
                 cumulative_block_stats_df.to_csv(stats_path, index=False, header=True)
         else:
             raise RuntimeError(f"Unknown file format: {stats_path}")
+
+        if cumulative_block_stats_df.shape[0] > 0:
+            logger.info(f"Starting with {len(cumulative_block_stats_df)} pre-existing block statistics: {stats_path}")
 
         assert list(cumulative_block_stats_df.columns) == BLOCK_STATS_COLUMNS, \
             f"Unexpected column list: {list(cumulative_block_stats_df.columns)}"
@@ -412,18 +412,17 @@ class CopySegmentation(Workflow):
 
         return cumulative_block_stats_df
 
-    def _append_slab_statistics(self, cumulative_block_stats_df, slab_stats_df, drop_duplicates):
+    def _append_slab_statistics(self, cumulative_block_stats_df, slab_stats_df):
         """
         Append the rows of the given slab statistics DataFrame to the given cumulative
-        statistics DataFrame, optionally dropping duplicate rows afterwards.
-        Duplicates are defined by the segment and coordinates (not count).
-        If duplicates are found, the all but the last are discarded, and a warning is logged.
+        statistics DataFrame. No attempt is made to drop duplicate rows
+        (e.g. if you started from pre-existing statistics and the new
+        bounding-box overlaps with the previous run's).
         
         Args:
             cumulative_block_stats_df: DataFrame with rows ['segment_id', 'z', 'y', 'x']
             slab_stats_df: Similar DataFrame, to be appended
             write: If True, write to disk after concatenation
-            drop_duplicates: If True, check for duplicate rows as described above.
         
         Returns:
             DataFrame after concatenation
@@ -431,35 +430,9 @@ class CopySegmentation(Workflow):
         stats_path = self.relpath_to_abspath(self.config_data["options"]["block-statistics-file"])
         cumulative_block_stats_df = pd.concat( (cumulative_block_stats_df, slab_stats_df), ignore_index=True )
 
-        # If we started from a pre-existing statistics file,
-        # it's possible that the processed bounding box overlaps with the bounding box from previous runs.
-        # Drop them.
-        def _check_dupes(stats_df):
-            """
-            Return a filtered DataFrame if we found duplicates,
-            or None otherwise.
-            (We don't check at all if drop_duplicates=False.)
-            """
-            if not drop_duplicates:
-                return None
-            duplicate_rows = stats_df.duplicated(['segment_id', 'z', 'y', 'x'], keep='last')
-            if not duplicate_rows.any():
-                return None
-            logger.warning(f"Duplicate rows found, implying bounding box overlaps previous runs! Deleting duplicates...")
-            stats_df = stats_df[~duplicate_rows]
-            return stats_df
-
         if stats_path.endswith('.sqlite'):        
-            # Always append first (in case of MemoryError below)
             with sqlite3.connect(stats_path) as conn:
                 slab_stats_df.to_sql('block_stats', conn, if_exists='append', index=False)
-
-            # Overwrite if duplicates detected
-            updated_df = _check_dupes(cumulative_block_stats_df)
-            if updated_df is not None:
-                cumulative_block_stats_df = updated_df
-                with sqlite3.connect(stats_path) as conn:
-                    cumulative_block_stats_df.to_sql('block_stats', conn, if_exists='replace', index=False)
 
         elif stats_path.endswith('.pkl.xz'):
             # Can't append, so always overwrite
@@ -468,14 +441,7 @@ class CopySegmentation(Workflow):
             cumulative_block_stats_df.to_pickle(stats_path)
 
         elif stats_path.endswith('.csv'):
-            # Always append first (in case of MemoryError below)
             slab_stats_df.to_csv(stats_path, header=False, index=False, mode='a')
-
-            # Overwrite if duplicates detected
-            updated_df = _check_dupes(cumulative_block_stats_df)
-            if updated_df is not None:
-                cumulative_block_stats_df = updated_df
-                cumulative_block_stats_df.to_csv(stats_path, header=True, index=False, mode='w')
 
         else:
             raise RuntimeError(f"Unknown file format: {stats_path}")
@@ -568,8 +534,7 @@ class CopySegmentation(Workflow):
         # Now that processing is complete, commit the stats to disk.
         with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
             cumulative_block_stats_df = self._append_slab_statistics( cumulative_block_stats_df,
-                                                                      input_slab_block_stats_df,
-                                                                      drop_duplicates=is_last_slab )
+                                                                      input_slab_block_stats_df )
         
         return cumulative_block_stats_df
 
