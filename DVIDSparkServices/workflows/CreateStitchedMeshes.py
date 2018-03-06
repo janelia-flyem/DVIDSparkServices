@@ -227,7 +227,6 @@ class CreateStitchedMeshes(Workflow):
 
         config = self.config_data
         options = config["options"]
-        force_checkpoints = options["force-evaluation-checkpoints"]
         
         resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
         volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
@@ -242,8 +241,7 @@ class CreateStitchedMeshes(Workflow):
         sparse_block_mask = self._get_sparse_block_mask(volume_service)
         
         # Bricks have a halo of 1 to ensure that there will be no gaps between meshes from different blocks
-        halo = config["mesh-config"]["task-block-halo"]
-        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sparse_block_mask, halo=halo)
+        brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sparse_block_mask)
         brick_wall.persist_and_execute("Downloading segmentation", logger)
 
         mesh_task_shape = np.array(config["mesh-config"]["task-block-shape"])
@@ -251,9 +249,8 @@ class CreateStitchedMeshes(Workflow):
             assert (mesh_task_shape < 1).all()
             mesh_task_shape = volume_service.preferred_message_shape
         
-        mesh_task_grid = Grid( mesh_task_shape )
+        mesh_task_grid = Grid( mesh_task_shape, halo=config["mesh-config"]["task-block-halo"] )
         if not brick_wall.grid.equivalent_to( mesh_task_grid ):
-            assert halo == 0, "FIXME: If you require a halo, you're not allowed to change the task grid.  I will fix this later."
             aligned_wall = brick_wall.realign_to_new_grid(mesh_task_grid)
             aligned_wall.persist_and_execute("Aligning bricks to mesh task grid...")
             brick_wall.unpersist()
@@ -285,9 +282,10 @@ class CreateStitchedMeshes(Workflow):
 
             ids_and_mesh_datas = []
             for (segment_id, (box, mask, _count)) in object_masks_for_labels(filtered_volume, brick.physical_box):
-                mesh_data = Mesh.from_binary_vol(mask, box)
-                #assert isinstance(mesh_data, Mesh)
-                ids_and_mesh_datas.append( (segment_id, mesh_data) )
+                mesh = Mesh.from_binary_vol(mask, box)
+                mesh.normals_zyx = np.zeros((0,3), np.float32) # discard normals; they will be discarded later, anyway
+                #assert isinstance(mesh, Mesh)
+                ids_and_mesh_datas.append( (segment_id, mesh) )
 
             return ids_and_mesh_datas
 
@@ -330,7 +328,7 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         smoothing_iterations = config["mesh-config"]["smoothing-iterations"]
         def smooth(mesh):
-            mesh.laplacian_smooth(smoothing_iterations)
+            mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
             return mesh
         segment_id_and_snoothed_mesh = segment_id_and_mesh.mapValues( smooth )
 
@@ -348,7 +346,7 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         decimation_fraction = config["mesh-config"]["simplify-ratios"][0]
         def decimate(mesh):
-            mesh.simplify(decimation_fraction)
+            mesh.simplify(decimation_fraction, recompute_normals=False)
             return mesh
         segment_id_and_decimated_mesh = segment_id_and_snoothed_mesh.mapValues(decimate)
 
@@ -378,8 +376,7 @@ class CreateStitchedMeshes(Workflow):
         fmt = config["mesh-config"]["storage"]["format"]
         @self.collect_log(lambda _mesh: 'serialize')
         def serialize(mesh):
-            import vol2mesh.mesh
-            vol2mesh.mesh.DEBUG_DRACO = True
+            mesh.recompute_normals()
             return mesh.serialize(fmt=fmt)
         segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize ) \
                                                                  .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
