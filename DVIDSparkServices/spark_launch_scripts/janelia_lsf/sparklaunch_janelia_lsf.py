@@ -19,7 +19,7 @@ import argparse
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices
-from .lsf_utils import Bjob, kill_job
+from .lsf_utils import Bjob, kill_job, get_hostgraph_url
 
 ## NOTE: LSF jobs will inherit all of these environment variables by default. 
 
@@ -82,6 +82,10 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
         assert queue_name == 'spark', f"Unexpected queue name for master job: {queue_name}"
 
         print(f'...master ({master_job_id}) is running on http://{master_hostname}:8080\n')
+        
+        rtm_url = get_hostgraph_url(master_job_id)
+        print(f"Cluster host graphs:\n{rtm_url}")
+        
         return master_job_id, master_hostname
 
     except KeyboardInterrupt:
