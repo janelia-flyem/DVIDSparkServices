@@ -249,8 +249,8 @@ def deserialize_uint64_blocks(compressed_blocks, shape):
     if shape == tuple(aligned_shape):
         volume = aligned_volume
     else:
-        # Not C-contiguous!
-        volume = aligned_volume[box_to_slicing((0,0,0), shape)]
+        # Trim
+        volume = np.asarray(aligned_volume[box_to_slicing((0,0,0), shape)], order='C')
 
     return volume
         

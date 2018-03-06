@@ -1,4 +1,3 @@
-import copy
 import logging
 from itertools import starmap
 from functools import partial
@@ -117,10 +116,11 @@ class Brick:
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
         self._volume = volume
-        assert ((self.physical_box[1] - self.physical_box[0]) == self.volume.shape).all()
+        assert ((self.physical_box[1] - self.physical_box[0]) == self._volume.shape).all()
         
         # Used for pickling.
         self._compressed_volume = None
+        self._destroyed = False
 
     def __hash__(self):
         return hash(tuple(self.logical_box[0]))
@@ -136,10 +136,25 @@ class Brick:
         The volume is decompressed lazily.
         See __getstate__() for explanation.
         """
+        if self._destroyed:
+            raise RuntimeError("Attempting to access data for a brick that has already been explicitly destroyed:\n"
+                               f"{self}")
         if self._volume is None:
             assert self._compressed_volume is not None
             self._volume = self._compressed_volume.deserialize()
         return self._volume
+    
+    def compress(self):
+        """
+        Compress the volume.
+        Will be uncompressed again automatically on first access.
+        """
+        if self._destroyed:
+            raise RuntimeError("Attempting to compress data for a brick that has already been explicitly destroyed:\n"
+                               f"{self}")
+        if self._volume is not None:
+            self._compressed_volume = CompressedNumpyArray(self._volume)
+            self._volume = None
     
     def __getstate__(self):
         """
@@ -155,12 +170,19 @@ class Brick:
         This avoids decompression during certain Spark operations that don't
         require actual manipulation of the voxels, notably groupByKey().
         """
+        if self._destroyed:
+            raise RuntimeError("Attempting to pickle a brick that has already been explicitly destroyed:\n"
+                               f"{self}")
         if self._volume is not None:
             self._compressed_volume = CompressedNumpyArray(self._volume)
 
         d = self.__dict__.copy()
         d['_volume'] = None
         return d
+
+    def destroy(self):
+        self._volume = None
+        self._destroyed = True
 
 def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None, sparse_boxes=None ):
     """
@@ -565,7 +587,12 @@ def assemble_brick_fragments( fragments ):
         internal_box = frag.physical_box - final_physical_box[0]
         overwrite_subvol(final_volume, internal_box, frag.volume)
 
-    return Brick( final_logical_box, final_physical_box, final_volume )
+        # Destroy original to save RAM
+        frag.destroy()
+
+    brick = Brick( final_logical_box, final_physical_box, final_volume )
+    brick.compress()
+    return brick
 
 
 def boxes_from_grid(bounding_box, grid, include_halos=True):
