@@ -69,7 +69,7 @@ class CreateStitchedMeshes(Workflow):
                                "A halo of 1 pixel suffices if no decimation will be applied.\n"
                                "When using decimation, a halo of 2 or more is better to avoid artifacts.",
                 "type": "integer",
-                "default": 2
+                "default": 1
             },
             "smoothing-iterations": {
                 "description": "How many iterations of smoothing to apply to the mesh before simplification.",
@@ -252,7 +252,7 @@ class CreateStitchedMeshes(Workflow):
         mesh_task_grid = Grid( mesh_task_shape, halo=config["mesh-config"]["task-block-halo"] )
         if not brick_wall.grid.equivalent_to( mesh_task_grid ):
             aligned_wall = brick_wall.realign_to_new_grid(mesh_task_grid)
-            aligned_wall.persist_and_execute("Aligning bricks to mesh task grid...")
+            aligned_wall.persist_and_execute("Aligning bricks to mesh task grid...", logger)
             brick_wall.unpersist()
             brick_wall = aligned_wall
 
@@ -311,6 +311,10 @@ class CreateStitchedMeshes(Workflow):
         
         # Concatenate into a single mesh per segment
         # --> (segment_id, mesh)
+        def concatentate_and_stitch(meshes):
+            concatenated_mesh = concatenate_meshes(meshes)
+            concatenated_mesh.stitch_aligned_faces()
+            return concatenated_mesh
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
         
         rt.persist_and_execute(segment_id_and_mesh, "Concatenating block segment meshes", logger)

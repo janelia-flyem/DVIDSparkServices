@@ -13,11 +13,13 @@
     },
     "mesh-config": {
         #"task-block-shape": [64, 64, 64],
-        "task-block-halo": 2,
+        "task-block-halo": 1,
         "simplify-ratios": [0.1],
+        smoothing-iterations: 3,
+        
         "storage": {
-          format: drc,
-          #format: obj,
+          #format: drc,
+          format: obj,
           naming-scheme: "neu3-level-0",
           "grouping-scheme": "labelmap",
           "labelmap": {
