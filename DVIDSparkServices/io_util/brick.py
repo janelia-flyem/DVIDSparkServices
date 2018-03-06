@@ -459,7 +459,7 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
     
     # Re-assemble fragments into the new grid structure.
     new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)
-    new_logical_boxes_and_bricks = rt.filter( lambda brick: brick is not None, new_logical_boxes_and_bricks )
+    new_logical_boxes_and_bricks = rt.filter( lambda key_brick: key_brick[1] is not None, new_logical_boxes_and_bricks )
     
     return new_logical_boxes_and_bricks
 
@@ -493,14 +493,16 @@ def split_brick(new_grid, original_brick):
             (original_brick.physical_box[1] <= original_brick.logical_box[1]).all())
     
     # Iterate over the new boxes that intersect with the original brick
-    for new_logical_box in boxes_from_grid(original_brick.physical_box, new_grid, include_halos=False):
+    for destination_box in boxes_from_grid(original_brick.physical_box, new_grid, include_halos=True):
         # Physical intersection of original with new
-        destination_box = new_logical_box + [-new_grid.halo_shape, new_grid.halo_shape]
         split_box = box_intersection(destination_box, original_brick.physical_box)
         
         # Extract portion of original volume data that belongs to this new box
         split_box_internal = split_box - original_brick.physical_box[0]
         fragment_vol = extract_subvol(original_brick.volume, split_box_internal)
+
+        # Subtract out halo to get logical_box
+        new_logical_box = destination_box - (-new_grid.halo_shape, new_grid.halo_shape)
 
         # Append key (new_logical_box) and new brick fragment,
         # to be assembled into the final brick in a later stage.
@@ -612,8 +614,8 @@ def _boxes_from_grid_no_offset(bounding_box, block_shape, halo):
     halo_shape[:] = halo
 
     # round down, round up
-    aligned_start = ((bounding_box[0]) // block_shape) * block_shape
-    aligned_stop = ((bounding_box[1] + block_shape-1) // block_shape) * block_shape
+    aligned_start = ((bounding_box[0] - halo_shape) // block_shape) * block_shape
+    aligned_stop = ((bounding_box[1] + halo_shape + block_shape-1) // block_shape) * block_shape
 
     for block_start in ndrange( aligned_start, aligned_stop, block_shape ):
         yield np.array((block_start - halo_shape,
@@ -630,7 +632,7 @@ def clipped_boxes_from_grid(bounding_box, grid, include_halos=True):
     Returned boxes that would intersect the edge of the bounding_box are clipped so as not
     to extend beyond the bounding_box.
     """
-    for box in boxes_from_grid(bounding_box, grid, include_halos=True):
+    for box in boxes_from_grid(bounding_box, grid, include_halos):
         yield box_intersection(box, bounding_box)
 
 def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out', slab_cutting_axis=0 ):

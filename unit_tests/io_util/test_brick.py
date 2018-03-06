@@ -43,10 +43,10 @@ class TextBoxFunctions(unittest.TestCase):
         aligned_bounding_box = (  bounding_box[0]                          // grid.block_shape * grid.block_shape,
                                  (bounding_box[1] + grid.block_shape - 1 ) // grid.block_shape * grid.block_shape )
         
-        algined_bb_shape = aligned_bounding_box[1] - aligned_bounding_box[0]
+        aligned_bb_shape = aligned_bounding_box[1] - aligned_bounding_box[0]
         
         boxes = np.array(list(boxes_from_grid(bounding_box, grid)))
-        assert boxes.shape == (np.prod( algined_bb_shape / grid.block_shape ), 2, 2)
+        assert boxes.shape == (np.prod( aligned_bb_shape / grid.block_shape ), 2, 2)
         
         # Boxes should be offset by grid.offset.
         assert ((boxes - grid.offset) % grid.block_shape == 0).all()
@@ -388,10 +388,10 @@ class TestBrickFunctionsWithHalo(unittest.TestCase):
 
         new_logical_boxes, new_bricks = list(zip(*boxes_and_bricks))
 
-        assert len(new_bricks) == 5 * 26 # from (0,30) -> (100,290)
+        assert len(new_bricks) == 5 * 26, f"{len(new_bricks)}" # from (0,30) -> (100,290)
         
         for logical_box, brick in zip(new_logical_boxes, new_bricks):
-            assert isinstance( brick, Brick )
+            assert isinstance( brick, Brick ), f"Got {type(brick)}"
             assert (brick.logical_box == logical_box).all()
 
             # logical_box must be exactly one block
