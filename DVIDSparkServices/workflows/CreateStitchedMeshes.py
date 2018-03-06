@@ -314,7 +314,7 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         def concatentate_and_stitch(meshes):
             concatenated_mesh = concatenate_meshes(meshes)
-            concatenated_mesh.stitch_aligned_faces()
+            concatenated_mesh.stitch_adjacent_faces()
             return concatenated_mesh
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
         
