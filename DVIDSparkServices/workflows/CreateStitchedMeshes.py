@@ -242,6 +242,7 @@ class CreateStitchedMeshes(Workflow):
         
         # Bricks have a halo of 1 to ensure that there will be no gaps between meshes from different blocks
         brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sparse_block_mask)
+        brick_wall.drop_empty()
         brick_wall.persist_and_execute("Downloading segmentation", logger)
 
         mesh_task_shape = np.array(config["mesh-config"]["task-block-shape"])

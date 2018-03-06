@@ -132,6 +132,12 @@ class BrickWall:
     ##
     ## Operations
     ##
+    def drop_empty(self):
+        """
+        Remove all empty (completely zero) bricks from the BrickWall.
+        """
+        filtered_bricks = rt.filter(lambda brick: brick.volume.any(), self.bricks)
+        return BrickWall( self.bounding_box, self.grid, filtered_bricks )
 
     def realign_to_new_grid(self, new_grid):
         """
