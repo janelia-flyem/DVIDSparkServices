@@ -7,6 +7,13 @@ def nice_call(*popenargs, timeout=None, **kwargs):
     """
     Like subprocess.call(), but give the child process time to
     clean up and communicate if a KeyboardInterrupt is raised.
+    
+    This is to work around a regression in Python 3.x that will be fixed in 3.7.
+    
+    See:
+    - Issue:      https://bugs.python.org/issue25942
+    - Discussion: https://github.com/python/cpython/pull/4283
+    - Fix:        https://github.com/python/cpython/pull/5026
     """
     with Popen(*popenargs, **kwargs) as p:
         try:
@@ -231,3 +238,8 @@ def wait_for_job_start(job_id):
 
 def kill_job(job_id):
     nice_check_call(f"bkill {job_id}", shell=True)
+
+if __name__ == "__main__":
+    import os
+    job_id = os.environ["LSB_JOBID"]
+    print(f"Job hostgraphs for this job ({job_id}) can be found at:\n" + get_hostgraph_url(job_id))
