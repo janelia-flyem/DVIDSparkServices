@@ -284,7 +284,6 @@ class CreateStitchedMeshes(Workflow):
             for (segment_id, (box, mask, _count)) in object_masks_for_labels(filtered_volume, brick.physical_box):
                 mesh = Mesh.from_binary_vol(mask, box)
                 mesh.normals_zyx = np.zeros((0,3), np.float32) # discard normals; they will be discarded later, anyway
-                #assert isinstance(mesh, Mesh)
                 ids_and_mesh_datas.append( (segment_id, mesh) )
 
             return ids_and_mesh_datas
