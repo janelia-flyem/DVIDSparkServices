@@ -67,30 +67,62 @@ class CreateStitchedMeshes(Workflow):
                                "This setting specifies the width of the halo around each block,\n"
                                "to ensure overlapping coverage of the computed meshes.\n"
                                "A halo of 1 pixel suffices if no decimation will be applied.\n"
-                               "When using decimation, a halo of 2 or more is better to avoid artifacts.",
+                               "When using smoothing and/or decimation, a halo of 2 or more is better to avoid artifacts.",
                 "type": "integer",
                 "default": 1
             },
-            "smoothing-iterations": {
-                "description": "How many iterations of smoothing to apply to the mesh before simplification.",
+            "pre-stitch-smoothing-iterations": {
+                "description": "How many iterations of smoothing to apply to the mesh BEFORE the block meshes are stitched",
                 "type": "integer",
-                "default": 1
+                "default": 0
             },
-            "simplify-ratios": {
-                "description": "Meshes will be generated multiple times, at different simplification settings, based on this list.",
-                "type": "array",
-                "minItems": 1,
-                "default": [0.2],
-                "items": {
-                    "description": "Mesh simplification aims to reduce the number of \n"
-                                   "mesh vertices in the mesh to a fraction of the original mesh. \n"
-                                   "This ratio is the fraction to aim for.  To disable simplification, use 1.0.\n",
-                    "type": "number",
-                    "minimum": 0.0000001,
-                    "maximum": 1.0, # 1.0 == disable
-                    "default": 0.2
-                }
+
+            "post-stitch-smoothing-iterations": {
+                "description": "How many iterations of smoothing to apply to the mesh AFTER the block meshes are stitched together",
+                "type": "integer",
+                "default": 3
             },
+            
+            "pre-stitch-decimation": {
+                "description": "Mesh decimation aims to reduce the number of \n"
+                               "mesh vertices in the mesh to a fraction of the original mesh. \n"
+                               "This setting is the fraction to aim for BEFORE stitching block meshes together.\n"
+                               "To disable decimation, use 1.0.\n",
+                "type": "number",
+                "minimum": 0.0000001,
+                "maximum": 1.0, # 1.0 == disable
+                "default": 0.1
+            },
+
+            "post-stitch-decimation": {
+                "description": "Mesh decimation aims to reduce the number of \n"
+                               "mesh vertices in the mesh to a fraction of the original mesh. \n"
+                               "This setting is the fraction to aim for AFTER stitching block meshes together.\n"
+                               "To disable decimation, use 1.0.\n",
+                "type": "number",
+                "minimum": 0.0000001,
+                "maximum": 1.0, # 1.0 == disable
+                "default": 0.1
+            },
+
+            "stitch-method": {
+                "description": "How to combine each segment's blockwise meshes into a single file.",
+                "type": "string",
+                "enum": ["simple-concatenate", # Just dump the vertices and faces into the same file
+                                               # (renumber the faces to match the vertices, but don't unify identical vertices.)
+                                               # If using this setting it is important to use a task-block-halo of > 2 to hide
+                                               # the seams, even if smoothing is used.
+
+                         "stitch",             # Search for duplicate vertices and remap the corresponding face corners,
+                                               # so that the duplicate entries are not used. Topologically stitches adjacent faces.
+                                               # Will be ineffective unless you used a task-block-halo of at least 1, and no
+                                               # pre-stitch smoothing or decimation.
+
+                         "stitch-and-filter"], # Same as above, but also filter out duplicate vertices and deduplicate faces.
+                
+                "default": "simple-concatenate",
+            },
+
             "rescale-before-write": {
                 "description": "How much to rescale the meshes before writing to DVID.\n"
                                "Specified as a multiplier, not power-of-2 'scale'.\n",
@@ -218,9 +250,6 @@ class CreateStitchedMeshes(Workflow):
                 suffix = "_meshes_tars"
             dvid_info["dvid"]["meshes-destination"] = dvid_info["dvid"]["segmentation-name"] + suffix
 
-        assert len(mesh_config["simplify-ratios"]) == 1, \
-            "FIXME: The current version of the workflow only supports a single output decimation"
-    
 
     def execute(self):
         self._sanitize_config()
@@ -231,7 +260,7 @@ class CreateStitchedMeshes(Workflow):
         resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
         volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
 
-        self._init_meshes_instances()
+        self._init_meshes_instance()
 
         # Aim for 2 GB RDD partitions
         GB = 2**30
@@ -284,7 +313,7 @@ class CreateStitchedMeshes(Workflow):
             ids_and_mesh_datas = []
             for (segment_id, (box, mask, _count)) in object_masks_for_labels(filtered_volume, brick.physical_box):
                 mesh = Mesh.from_binary_vol(mask, box)
-                mesh.normals_zyx = np.zeros((0,3), np.float32) # discard normals; they will be discarded later, anyway
+                mesh.normals_zyx = np.zeros((0,3), np.float32) # discard normals now; they would be discarded later, anyway
                 mesh_compressed_size = mesh.compress()
                 ids_and_mesh_datas.append( (segment_id, (mesh, mesh_compressed_size)) )
 
@@ -307,7 +336,35 @@ class CreateStitchedMeshes(Workflow):
         del segments_and_counts_and_size
         
         # Drop size
-        segment_ids_and_mesh_blocks = segment_ids_and_mesh_blocks.map(lambda a_b_c: (a_b_c[0], a_b_c[1][0]))
+        segment_ids_and_mesh_blocks = segment_ids_and_mesh_blocks.map(lambda a_bc: (a_bc[0], a_bc[1][0]))
+        
+        # Pre-stitch smoothing
+        # --> (segment_id, mesh_for_one_block)
+        smoothing_iterations = config["mesh-config"]["pre-stitch-smoothing-iterations"]
+        if smoothing_iterations > 0:
+            def smooth(mesh):
+                mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
+                return mesh
+            segment_id_and_smoothed_mesh = segment_ids_and_mesh_blocks.mapValues( smooth )
+    
+            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing block meshes", logger)
+            rt.unpersist(segment_ids_and_mesh_blocks)
+            segment_ids_and_mesh_blocks = segment_id_and_smoothed_mesh
+            del segment_id_and_smoothed_mesh
+
+        # Pre-stitch decimation
+        # --> (segment_id, mesh_for_one_block)
+        decimation_fraction = config["mesh-config"]["pre-stitch-decimation"]
+        if decimation_fraction < 1.0:
+            def decimate(mesh):
+                mesh.simplify(decimation_fraction, recompute_normals=False)
+                return mesh
+            segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.mapValues(decimate)
+
+            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating block meshes", logger)
+            rt.unpersist(segment_ids_and_mesh_blocks)
+            segment_ids_and_mesh_blocks = segment_id_and_decimated_mesh
+            del segment_id_and_decimated_mesh
         
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
@@ -318,16 +375,31 @@ class CreateStitchedMeshes(Workflow):
         
         # Concatenate into a single mesh per segment
         # --> (segment_id, mesh)
+        stitch_method = config["mesh-config"]["stitch-method"]
+        @self.collect_log()
         def concatentate_and_stitch(meshes):
-            concatenated_mesh = concatenate_meshes(meshes)
-            for mesh in meshes:
-                mesh.destroy() # Save RAM -- we're done with the block meshes at this point
-            concatenated_mesh.stitch_adjacent_faces()
-            concatenated_mesh.compress()
-            return concatenated_mesh
+            def _impl():
+                concatenated_mesh = concatenate_meshes(meshes)
+                for mesh in meshes:
+                    mesh.destroy() # Save RAM -- we're done with the block meshes at this point
+    
+                if stitch_method == "stitch":
+                    concatenated_mesh.stitch_adjacent_faces(False, False)
+                elif stitch_method == "stitch-and-filter":
+                    concatenated_mesh.stitch_adjacent_faces(True, True)
+    
+                concatenated_mesh.compress()
+                return concatenated_mesh
+            
+            total_vertices = sum(len(mesh.vertices_zyx) for mesh in meshes)
+            if (total_vertices) < 10e6:
+                return _impl()
+            with Timer(f"Concatenating a big mesh ({total_vertices} vertices)", logging.getLogger(__name__)):
+                return _impl()
+            
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
         
-        rt.persist_and_execute(segment_id_and_mesh, "Concatenating block segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_mesh, "Stitching block segment meshes", logger)
         rt.unpersist(mesh_blocks_grouped_by_segment)
         del mesh_blocks_grouped_by_segment
 
@@ -337,38 +409,36 @@ class CreateStitchedMeshes(Workflow):
         full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
 
-        # Smooth
+        # Post-stitch Smoothing
         # --> (segment_id, mesh)
-        smoothing_iterations = config["mesh-config"]["smoothing-iterations"]
-        def smooth(mesh):
-            mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
-            return mesh
-        segment_id_and_smoothed_mesh = segment_id_and_mesh.mapValues( smooth )
+        smoothing_iterations = config["mesh-config"]["post-stitch-smoothing-iterations"]
+        if smoothing_iterations > 0:
+            def smooth(mesh):
+                mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
+                return mesh
+            segment_id_and_smoothed_mesh = segment_id_and_mesh.mapValues( smooth )
+    
+            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing stitched meshes", logger)
+            rt.unpersist(segment_id_and_mesh)
+            segment_id_and_mesh = segment_id_and_smoothed_mesh
+            del segment_id_and_smoothed_mesh
 
-        rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing segment meshes", logger)
-        rt.unpersist(segment_id_and_mesh)
-        del segment_id_and_mesh
-
-        # Get post-smoothing vertex count and ovewrite stats file
-        segments_and_counts = segment_id_and_smoothed_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
-        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'smoothed_vertex_count'] )
-        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
-        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
-
-        # Decimate
+        # Post-stitch decimation
         # --> (segment_id, mesh)
-        decimation_fraction = config["mesh-config"]["simplify-ratios"][0]
-        def decimate(mesh):
-            mesh.simplify(decimation_fraction, recompute_normals=False)
-            return mesh
-        segment_id_and_decimated_mesh = segment_id_and_smoothed_mesh.mapValues(decimate)
+        decimation_fraction = config["mesh-config"]["post-stitch-decimation"]
+        if decimation_fraction < 1.0:
+            def decimate(mesh):
+                mesh.simplify(decimation_fraction, recompute_normals=False)
+                return mesh
+            segment_id_and_decimated_mesh = segment_id_and_mesh.mapValues(decimate)
 
-        rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating segment meshes", logger)
-        rt.unpersist(segment_id_and_smoothed_mesh)
-        del segment_id_and_smoothed_mesh
+            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating stitched meshes", logger)
+            rt.unpersist(segment_id_and_mesh)
+            segment_id_and_mesh = segment_id_and_decimated_mesh
+            del segment_id_and_decimated_mesh
 
         # Get post-decimation vertex count and ovewrite stats file
-        segments_and_counts = segment_id_and_decimated_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
+        segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
         counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'decimated_vertex_count'] )
         full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
@@ -378,25 +448,35 @@ class CreateStitchedMeshes(Workflow):
             def rescale(mesh):
                 mesh.vertices_zyx *= rescale_factor
                 return mesh
-            segment_id_and_rescaled_mesh = segment_id_and_decimated_mesh.mapValues(rescale)
+            segment_id_and_rescaled_mesh = segment_id_and_mesh.mapValues(rescale)
             
             rt.persist_and_execute(segment_id_and_rescaled_mesh, "Rescaling segment meshes", logger)
-            rt.unpersist(segment_id_and_decimated_mesh)
-            segment_id_and_decimated_mesh = segment_id_and_rescaled_mesh
+            rt.unpersist(segment_id_and_mesh)
+            segment_id_and_mesh = segment_id_and_rescaled_mesh
+            del segment_id_and_rescaled_mesh
 
         # Serialize
         # --> (segment_id, mesh_bytes)
         fmt = config["mesh-config"]["storage"]["format"]
         @self.collect_log(lambda _mesh: 'serialize')
         def serialize(mesh):
-            mesh.recompute_normals()
-            return mesh.serialize(fmt=fmt)
-        segment_id_and_mesh_bytes = segment_id_and_decimated_mesh.mapValues( serialize ) \
+            def _impl():
+                # Normals were generally ignored/discarded above.
+                # Compute them now, just before serialization.
+                mesh.recompute_normals()
+                return mesh.serialize(fmt=fmt)
+            if len(mesh.vertices_zyx) < 10e6:
+                return _impl()
+        
+            with Timer(f"Serializing a big mesh ({len(mesh.vertices_zyx)} vertices)", logging.getLogger(__name__)):
+                return _impl()
+
+        segment_id_and_mesh_bytes = segment_id_and_mesh.mapValues( serialize ) \
                                                                  .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
 
         rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
-        rt.unpersist(segment_id_and_decimated_mesh)
-        del segment_id_and_decimated_mesh
+        rt.unpersist(segment_id_and_mesh)
+        del segment_id_and_mesh
 
         # Group by body ID
         # --> ( body_id, [( segment_id, mesh_bytes ), ( segment_id, mesh_bytes ), ...] )
@@ -407,7 +487,7 @@ class CreateStitchedMeshes(Workflow):
             segment_id_and_mesh_bytes_grouped_by_body.foreachPartition( partial(post_meshes_to_dvid, config, instance_name) )
 
             
-    def _init_meshes_instances(self):
+    def _init_meshes_instance(self):
         dvid_info = self.config_data["dvid-info"]
         options = self.config_data["options"]
         if is_node_locked(dvid_info["dvid"]["server"], dvid_info["dvid"]["uuid"]):
@@ -418,14 +498,8 @@ class CreateStitchedMeshes(Workflow):
                                               options["resource-server"],
                                               options["resource-port"] )
 
-        self.mesh_instances = []
-        for simplification_ratio in self.config_data["mesh-config"]["simplify-ratios"]:
-            instance_name = dvid_info["dvid"]["meshes-destination"]
-            if len(self.config_data["mesh-config"]["simplify-ratios"]) > 1:
-                instance_name += f"_dec{simplification_ratio:.2f}"
-
-            node_service.create_keyvalue( instance_name )
-            self.mesh_instances.append( instance_name )
+        instance_name = dvid_info["dvid"]["meshes-destination"]
+        node_service.create_keyvalue( instance_name )
 
 
     def _get_sparse_block_mask(self, volume_service):

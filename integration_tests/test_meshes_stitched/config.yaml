@@ -12,10 +12,16 @@
       }
     },
     "mesh-config": {
-        #"task-block-shape": [64, 64, 64],
-        "task-block-halo": 1,
-        "simplify-ratios": [0.1],
-        smoothing-iterations: 3,
+        task-block-shape: [64, 64, 64],
+        task-block-halo: 2,
+
+        pre-stitch-smoothing-iterations: 3,
+        pre-stitch-decimation: 0.1,
+
+        stitch-method: simple-concatenate,
+
+        post-stitch-smoothing-iterations: 0, # None
+        post-stitch-decimation: 1.0, # None
         
         "storage": {
           #format: drc,
