@@ -101,6 +101,9 @@ class BrickWall:
             target_partition_size_voxels:
                 Optional. If provided, the RDD partition lengths (i.e. the number of bricks per RDD partition)
                 will be chosen to have (approximately) this many total voxels in each partition.
+            
+            sparse_block_mask:
+                Instance of SparseBlockMask
         """
         grid = Grid(volume_service.preferred_message_shape, (0,0,0))
         
@@ -120,6 +123,7 @@ class BrickWall:
         sparse_boxes = None
         if sparse_block_mask is not None:
             assert isinstance(sparse_block_mask, SparseBlockMask)
+            assert scale == 0, "FIXME: I don't think the sparse feature works with scales other than 0."
             sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid)
 
         return BrickWall.from_accessor_func( downsampled_box,
