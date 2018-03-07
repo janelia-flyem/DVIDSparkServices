@@ -314,7 +314,10 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         def concatentate_and_stitch(meshes):
             concatenated_mesh = concatenate_meshes(meshes)
+            for mesh in meshes:
+                mesh.destroy() # Save RAM -- we're done with the block meshes at this point
             concatenated_mesh.stitch_adjacent_faces()
+            concatenated_mesh.compress()
             return concatenated_mesh
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
         
