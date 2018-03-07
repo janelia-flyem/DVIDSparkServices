@@ -297,7 +297,7 @@ class Workflow(object):
         mkdir_p(log_dir)
 
 
-    def collect_log(self, task_key_factory=lambda *args, **kwargs: args[0]):
+    def collect_log(self, task_key_factory=lambda *args, **kwargs: DRIVER_LOGNAME):
         """
         Use this as a decorator for functions that are executed in spark workers.
         
