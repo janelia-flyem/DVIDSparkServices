@@ -285,7 +285,8 @@ class CreateStitchedMeshes(Workflow):
             for (segment_id, (box, mask, _count)) in object_masks_for_labels(filtered_volume, brick.physical_box):
                 mesh = Mesh.from_binary_vol(mask, box)
                 mesh.normals_zyx = np.zeros((0,3), np.float32) # discard normals; they will be discarded later, anyway
-                ids_and_mesh_datas.append( (segment_id, mesh) )
+                mesh_compressed_size = mesh.compress()
+                ids_and_mesh_datas.append( (segment_id, (mesh, mesh_compressed_size)) )
 
             return ids_and_mesh_datas
 
@@ -294,14 +295,19 @@ class CreateStitchedMeshes(Workflow):
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
         rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
         
-        segments_and_counts = segment_ids_and_mesh_blocks.map( lambda seg_mesh: (seg_mesh[0], len(seg_mesh[1].vertices_zyx) ) ) \
-                                                         .groupByKey() \
-                                                         .map( lambda seg_counts: (seg_counts[0], sum(seg_counts[1])) ) \
-                                                         .collect()
+        segments_and_counts_and_size = segment_ids_and_mesh_blocks \
+                                       .map( lambda seg_mesh_size: (seg_mesh_size[0], (len(seg_mesh_size[1][0].vertices_zyx), seg_mesh_size[1][1]) ) ) \
+                                       .groupByKey() \
+                                       .map( lambda seg_counts_size: (seg_counts_size[0], *np.array(list(seg_counts_size[1])).sum(axis=0) ) ) \
+                                       .collect()
 
-        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'blocks_total_vertex_count'] )
+        counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'total_vertex_count', 'total_compressed_size'] )
         full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
+        del segments_and_counts_and_size
+        
+        # Drop size
+        segment_ids_and_mesh_blocks = segment_ids_and_mesh_blocks.map(lambda a_b_c: (a_b_c[0], a_b_c[1][0]))
         
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
@@ -337,14 +343,14 @@ class CreateStitchedMeshes(Workflow):
         def smooth(mesh):
             mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
             return mesh
-        segment_id_and_snoothed_mesh = segment_id_and_mesh.mapValues( smooth )
+        segment_id_and_smoothed_mesh = segment_id_and_mesh.mapValues( smooth )
 
-        rt.persist_and_execute(segment_id_and_snoothed_mesh, "Smoothing segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing segment meshes", logger)
         rt.unpersist(segment_id_and_mesh)
         del segment_id_and_mesh
 
         # Get post-smoothing vertex count and ovewrite stats file
-        segments_and_counts = segment_id_and_snoothed_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
+        segments_and_counts = segment_id_and_smoothed_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
         counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'smoothed_vertex_count'] )
         full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
@@ -355,11 +361,11 @@ class CreateStitchedMeshes(Workflow):
         def decimate(mesh):
             mesh.simplify(decimation_fraction, recompute_normals=False)
             return mesh
-        segment_id_and_decimated_mesh = segment_id_and_snoothed_mesh.mapValues(decimate)
+        segment_id_and_decimated_mesh = segment_id_and_smoothed_mesh.mapValues(decimate)
 
         rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating segment meshes", logger)
-        rt.unpersist(segment_id_and_snoothed_mesh)
-        del segment_id_and_snoothed_mesh
+        rt.unpersist(segment_id_and_smoothed_mesh)
+        del segment_id_and_smoothed_mesh
 
         # Get post-decimation vertex count and ovewrite stats file
         segments_and_counts = segment_id_and_decimated_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
