@@ -521,12 +521,12 @@ def split_brick(new_grid, original_brick):
         # Subtract out halo to get logical_box
         new_logical_box = destination_box - (-new_grid.halo_shape, new_grid.halo_shape)
 
-        # Append key (new_logical_box) and new brick fragment,
-        # to be assembled into the final brick in a later stage.
-        key = box_as_tuple(new_logical_box)
         fragment_brick = Brick(new_logical_box, split_box, fragment_vol)
         fragment_brick.compress()
 
+        # Append key (an index tuple generated from new_logical_box) and new
+        # brick fragment, to be assembled into the final brick in a later stage.
+        key = tuple(new_logical_box[0] / new_grid.block_shape)
         new_logical_boxes_and_fragments.append( (key, fragment_brick) )
 
     return new_logical_boxes_and_fragments
