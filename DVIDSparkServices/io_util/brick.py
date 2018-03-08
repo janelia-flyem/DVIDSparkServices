@@ -123,7 +123,7 @@ class Brick:
         self._destroyed = False
 
     def __hash__(self):
-        return hash(tuple(self.logical_box[0]))
+        return rt.better_hash(tuple(self.logical_box[0].tolist()))
 
     def __str__(self):
         if (self.logical_box == self.physical_box).all():
