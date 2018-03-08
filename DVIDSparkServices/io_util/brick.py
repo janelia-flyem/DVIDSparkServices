@@ -268,17 +268,12 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
                     f"(over {num_rdd_partitions} partitions) with total volume {total_volume/1e9:.1f} Gvox")
         logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
 
-    # Use map_partitions instead of map(), to be explicit about
-    # the fact that the function is re-used within each partition.
-    def make_bricks( logical_and_physical_boxes ):
-        logical_and_physical_boxes = list(logical_and_physical_boxes)
-        if not logical_and_physical_boxes:
-            return []
-        logical_boxes, physical_boxes = zip( *logical_and_physical_boxes )
-        volumes = map( volume_accessor_func, physical_boxes )
-        return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
+    def make_bricks( logical_and_physical_box ):
+        logical_box, physical_box = logical_and_physical_box
+        volume = volume_accessor_func(physical_box)
+        return Brick(logical_box, physical_box, volume)
     
-    bricks = rt.map_partitions( make_bricks, logical_and_physical_boxes )
+    bricks = rt.map( make_bricks, logical_and_physical_boxes )
 
     return bricks
 
