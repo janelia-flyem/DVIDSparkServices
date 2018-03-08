@@ -543,6 +543,7 @@ class CreateStitchedMeshes(Workflow):
         assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
             f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
         
+        logger.info("Reading sparse block mask for body subset...")
         if grouping_scheme in ('no-groups', 'singletons'):
             # The 'body ids' are identical to segment ids
             sparse_segment_ids = sparse_body_ids
