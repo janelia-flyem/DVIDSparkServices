@@ -30,6 +30,8 @@ from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVol
 
 from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, write_stats
 
+from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
+
 logger = logging.getLogger(__name__)
 
 class CreateStitchedMeshes(Workflow):
@@ -357,8 +359,9 @@ class CreateStitchedMeshes(Workflow):
         decimation_fraction = config["mesh-config"]["pre-stitch-decimation"]
         if decimation_fraction < 1.0:
             def decimate(mesh):
-                mesh.simplify(decimation_fraction, recompute_normals=False)
-                return mesh
+                subproc_decimator = execute_in_subprocess(10.0, logging.getLogger(__name__))(decimate_mesh)
+                return subproc_decimator(decimation_fraction, mesh)
+
             segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.mapValues(decimate)
 
             rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating block meshes", logger)
@@ -699,6 +702,9 @@ class CreateStitchedMeshes(Workflow):
         persist_and_execute(grouped_segment_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
         return grouped_segment_ids_and_meshes
 
+def decimate_mesh(decimation_fraction, mesh):
+    mesh.simplify(decimation_fraction, recompute_normals=False)
+    return mesh
 
 def post_meshes_to_dvid(config, instance_name, partition_items):
     """
