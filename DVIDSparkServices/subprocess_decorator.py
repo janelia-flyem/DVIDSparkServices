@@ -164,11 +164,11 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
                     os.close( stderr_from_child )
                 except OSError:
                     pass
-                
+
                 record_logging_thread.stop_and_join()
                 if stream_logger:
-                    stdout_logging_thread.join()
-                    stderr_logging_thread.join()
+                    stdout_logging_thread.join(1.0)
+                    stderr_logging_thread.join(1.0)
 
                 stop_event.set()
 
@@ -185,12 +185,13 @@ def execute_in_subprocess(timeout=None, stream_logger=None):
 
             # Let the subprocess exit.
             stop_event.set()
-            child.join()
+            child.join(1.0)
+                
 
             record_logging_thread.stop_and_join()
             if stream_logger:
-                stdout_logging_thread.join()
-                stderr_logging_thread.join()
+                stdout_logging_thread.join(1.0)
+                stderr_logging_thread.join(1.0)
             return result
         return wrapper
     return decorator
@@ -359,7 +360,7 @@ class _ChildLogEchoThread(threading.Thread):
 
     def stop_and_join(self):
         self.__stop = True
-        self.join()
+        self.join(1.0)
 
 
 class _ChildStreamLoggingThread(threading.Thread):
