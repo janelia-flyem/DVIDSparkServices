@@ -1,6 +1,7 @@
 import copy
 import time
 import tarfile
+import socket
 import logging
 from functools import partial
 from io import BytesIO
@@ -360,6 +361,7 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh_for_one_block)
         decimation_fraction = config["mesh-config"]["pre-stitch-decimation"]
         if decimation_fraction < 1.0:
+            @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
             def decimate(mesh):
                 subproc_decimator = execute_in_subprocess(10.0, logging.getLogger(__name__))(decimate_mesh)
                 try:
@@ -368,7 +370,8 @@ class CreateStitchedMeshes(Workflow):
                 except TimeoutError:
                     bad_mesh_export_path = f'/nrs/flyem/bergs/bad-meshes/bad-mesh-{time.time()}.obj'
                     mesh.serialize(f'{bad_mesh_export_path}')
-                    raise RuntimeError(f"Timed out while decimating a block mesh! Wrote bad mesh to {bad_mesh_export_path}")
+                    logging.getLogger(__name__).error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
+                    return mesh
 
             segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.mapValues(decimate)
 
