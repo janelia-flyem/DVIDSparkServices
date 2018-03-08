@@ -53,12 +53,10 @@ def better_hash(x):
 
     if x is None:
         return 0
-    if isinstance(x, int):
-        return hash(sqrt(x) if x > 0 else -sqrt(-x))
     if isinstance(x, tuple):
         h = 0x345678
         for i in x:
-            h ^= better_hash(i)
+            h ^= better_hash(i) ^ better_hash(repr(i))
             h *= 1000003
             h &= sys.maxsize
         h ^= len(x)
@@ -66,7 +64,6 @@ def better_hash(x):
             h = -2
         return int(h)
     return hash(x)
-        
 
 #
 # Functions for working with either PySpark RDDs or ordinary Python iterables.
@@ -118,10 +115,7 @@ def filter(f, iterable):
 
 def group_by_key(iterable):
     if isinstance(iterable, _RDD):
-        r = iterable.groupByKey(partitionFunc=better_hash)
-        # Force a shuffle (why doesn't this happen by default?)
-        r.repartition(r.getNumPartitions())
-        return r
+        return iterable.groupByKey(partitionFunc=better_hash)
     else:
         # Note: pure-python version is not lazy!
         partitions = defaultdict(lambda: [])
