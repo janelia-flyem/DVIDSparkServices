@@ -472,21 +472,27 @@ class CreateStitchedMeshes(Workflow):
         # Serialize
         # --> (segment_id, mesh_bytes)
         fmt = config["mesh-config"]["storage"]["format"]
-        @self.collect_log(lambda _mesh: 'serialize')
-        def serialize(mesh):
+        @self.collect_log()
+        def serialize(id_mesh):
+            segment_id, mesh = id_mesh
             def _impl():
-                # Normals were generally ignored/discarded above.
-                # Compute them now, just before serialization.
-                mesh.recompute_normals()
-                return mesh.serialize(fmt=fmt)
+                try:
+                    subproc_serializer = execute_in_subprocess(60.0, logging.getLogger(__name__))(mesh.serialize)
+                    mesh_bytes = subproc_serializer(fmt=fmt, add_normals=True)
+                    return (segment_id, mesh_bytes)
+                except:
+                    output_path = f'/nrs/flyem/bergs/bad-meshes/{segment_id}.obj'
+                    mesh.serialize(output_path, add_normals=True)
+                    logging.getLogger(f"Failed to serialize a mesh {segment_id}.  Wrote to {output_path}")
+                    return (segment_id, b'')
             if len(mesh.vertices_zyx) < 10e6:
                 return _impl()
         
             with Timer(f"Serializing a big mesh ({len(mesh.vertices_zyx)} vertices)", logging.getLogger(__name__)):
                 return _impl()
 
-        segment_id_and_mesh_bytes = segment_id_and_mesh.mapValues( serialize ) \
-                                                                 .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
+        segment_id_and_mesh_bytes = segment_id_and_mesh.map( serialize ) \
+                                                       .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
 
         rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
         rt.unpersist(segment_id_and_mesh)
