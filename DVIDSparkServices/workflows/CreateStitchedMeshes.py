@@ -543,7 +543,6 @@ class CreateStitchedMeshes(Workflow):
         assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
             f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
         
-        logger.info("Reading sparse block mask for body subset...")
         if grouping_scheme in ('no-groups', 'singletons'):
             # The 'body ids' are identical to segment ids
             sparse_segment_ids = sparse_body_ids
@@ -557,7 +556,8 @@ class CreateStitchedMeshes(Workflow):
             reverse_lookup = pd.Series(index=bodies, data=segments)
             sparse_segment_ids = reverse_lookup.loc[sparse_body_ids].values
 
-        # Fetch the sparse mask of blocks that the sparse segments belong to        
+        logger.info("Reading sparse block mask for body subset...")
+        # Fetch the sparse mask of blocks that the sparse segments belong to
         dvid_service = volume_service.base_service
         block_mask, lowres_box, block_shape = \
             sparkdvid.get_union_block_mask_for_bodies( dvid_service.server,
