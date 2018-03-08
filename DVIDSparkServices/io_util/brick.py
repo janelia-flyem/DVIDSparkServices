@@ -255,11 +255,17 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
                 logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
+        # If we're working with a tiny volume (e.g. testing),
+        # make sure we at least parallelize across all cores.
+        if num_rdd_partitions is not None and (num_rdd_partitions < cpus_per_worker() * num_worker_nodes()):
+            num_rdd_partitions = cpus_per_worker() * num_worker_nodes()
+
         def brick_size(log_phys):
             _logical, physical = log_phys
             return np.uint64(np.prod(physical[1] - physical[0]))
         total_volume = sum(map(brick_size, logical_and_physical_boxes))
-        logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks with total volume {total_volume/1e9:.1f} Gvox")
+        logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks "
+                    f"(over {num_rdd_partitions} partitions) with total volume {total_volume/1e9:.1f} Gvox")
         logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
 
     # Use map_partitions instead of map(), to be explicit about
@@ -273,12 +279,6 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
         return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
     
     bricks = rt.map_partitions( make_bricks, logical_and_physical_boxes )
-
-    if sc:
-        # If we're working with a tiny volume (e.g. testing),
-        # make sure we at least parallelize across all cores.
-        if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
-            bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
 
     return bricks
 
@@ -477,7 +477,7 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
 
     # Group fragments according to their new homes
     #grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
-    grouped_brick_fragments = rt.frugal_group_by_key( new_logical_boxes_and_brick_fragments )
+    grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
     new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)

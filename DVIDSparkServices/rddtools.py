@@ -74,6 +74,7 @@ def frugal_group_by_key(iterable):
     """
     Like group_by_key, but uses combineByKey(),
     which involves more steps but is more RAM-efficient in Spark.
+    Edit: I'm no longer sure that this makes any difference...
     """
     if isinstance(iterable, _RDD):
         # Use combineByKey to avoid loading
