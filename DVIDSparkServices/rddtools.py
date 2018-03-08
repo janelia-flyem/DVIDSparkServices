@@ -119,12 +119,14 @@ def persist_and_execute(rdd, description, logger=None, storage=None):
 
             rdd.persist(storage)
             count = rdd.count() # force eval
+            parts = rdd.getNumPartitions()
         else:
             rdd = list(rdd) # force eval and 'persist' in a new list
             count = len(rdd)
+            parts = 1
     
     if logger:
-        logger.info(f"{description} (N={count}) took {timer.timedelta}")
+        logger.info(f"{description} (N={count}, P={parts}) took {timer.timedelta}")
     
     return rdd
 
