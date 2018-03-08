@@ -1,4 +1,5 @@
 import copy
+import time
 import tarfile
 import logging
 from functools import partial
@@ -31,6 +32,7 @@ from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVol
 from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, write_stats
 
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
+from multiprocessing import TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +362,13 @@ class CreateStitchedMeshes(Workflow):
         if decimation_fraction < 1.0:
             def decimate(mesh):
                 subproc_decimator = execute_in_subprocess(10.0, logging.getLogger(__name__))(decimate_mesh)
-                return subproc_decimator(decimation_fraction, mesh)
+                try:
+                    mesh = subproc_decimator(decimation_fraction, mesh)
+                    return mesh
+                except TimeoutError:
+                    bad_mesh_export_path = f'/nrs/flyem/bergs/bad-meshes/bad-mesh-{time.time()}.obj'
+                    mesh.serialize(f'{bad_mesh_export_path}')
+                    raise RuntimeError(f"Timed out while decimating a block mesh! Wrote bad mesh to {bad_mesh_export_path}")
 
             segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.mapValues(decimate)
 
