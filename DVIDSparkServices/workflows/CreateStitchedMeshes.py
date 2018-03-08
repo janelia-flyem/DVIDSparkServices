@@ -363,7 +363,7 @@ class CreateStitchedMeshes(Workflow):
         if decimation_fraction < 1.0:
             @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
             def decimate(mesh):
-                subproc_decimator = execute_in_subprocess(10.0, logging.getLogger(__name__))(decimate_mesh)
+                subproc_decimator = execute_in_subprocess(60.0, logging.getLogger(__name__))(decimate_mesh)
                 try:
                     mesh = subproc_decimator(decimation_fraction, mesh)
                     return mesh
