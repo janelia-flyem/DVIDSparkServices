@@ -374,7 +374,8 @@ class CreateStitchedMeshes(Workflow):
             @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
             def decimate(id_mesh):
                 segment_id, mesh = id_mesh
-                subproc_decimator = execute_in_subprocess(60.0, logging.getLogger(__name__))(decimate_mesh)
+                timeout = 300.0 # 5 minutes
+                subproc_decimator = execute_in_subprocess(timeout, logging.getLogger(__name__))(decimate_mesh)
                 try:
                     mesh = subproc_decimator(decimation_fraction, mesh)
                     return (segment_id, mesh)
@@ -488,7 +489,14 @@ class CreateStitchedMeshes(Workflow):
             segment_id, mesh = id_mesh
             def _impl():
                 try:
-                    subproc_serializer = execute_in_subprocess(60.0, logging.getLogger(__name__))(mesh.serialize)
+                    # Based on one un-scientific experiment,
+                    # encoding 100 million vertices takes about 6 minutes,
+                    # but the vast majority of that is just disk I/O.
+                    approximate_throughput = (100e6 / 6*60)
+                    timeout = len(mesh.vertices_zyx) / approximate_throughput
+                    timeout *= 4 # fudge factor
+                    timeout = min(timeout, 120.0) # At least 2 minutes
+                    subproc_serializer = execute_in_subprocess(timeout, logging.getLogger(__name__))(mesh.serialize)
                     mesh_bytes = subproc_serializer(fmt=fmt, add_normals=True)
                     return (segment_id, mesh_bytes)
                 except:
