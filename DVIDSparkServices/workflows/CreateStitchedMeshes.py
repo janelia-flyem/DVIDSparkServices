@@ -1,3 +1,4 @@
+import os
 import copy
 import time
 import tarfile
@@ -261,6 +262,9 @@ class CreateStitchedMeshes(Workflow):
 
         config = self.config_data
         options = config["options"]
+        bad_mesh_dir = f"{self.config_dir}/bad-meshes"
+        os.makedirs(bad_mesh_dir, exist_ok=True)
+
         
         resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
         volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
@@ -362,18 +366,19 @@ class CreateStitchedMeshes(Workflow):
         decimation_fraction = config["mesh-config"]["pre-stitch-decimation"]
         if decimation_fraction < 1.0:
             @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
-            def decimate(mesh):
+            def decimate(id_mesh):
+                segment_id, mesh = id_mesh
                 subproc_decimator = execute_in_subprocess(60.0, logging.getLogger(__name__))(decimate_mesh)
                 try:
                     mesh = subproc_decimator(decimation_fraction, mesh)
-                    return mesh
+                    return (segment_id, mesh)
                 except TimeoutError:
-                    bad_mesh_export_path = f'/nrs/flyem/bergs/bad-meshes/bad-mesh-{time.time()}.obj'
+                    bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.1f}-{segment_id}.obj'
                     mesh.serialize(f'{bad_mesh_export_path}')
                     logging.getLogger(__name__).error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
-                    return mesh
+                    return (segment_id, mesh)
 
-            segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.mapValues(decimate)
+            segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.map(decimate)
 
             rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating block meshes", logger)
             rt.unpersist(segment_ids_and_mesh_blocks)
@@ -481,7 +486,7 @@ class CreateStitchedMeshes(Workflow):
                     mesh_bytes = subproc_serializer(fmt=fmt, add_normals=True)
                     return (segment_id, mesh_bytes)
                 except:
-                    output_path = f'/nrs/flyem/bergs/bad-meshes/{segment_id}.obj'
+                    output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
                     mesh.serialize(output_path, add_normals=True)
                     logging.getLogger(f"Failed to serialize a mesh {segment_id}.  Wrote to {output_path}")
                     return (segment_id, b'')
