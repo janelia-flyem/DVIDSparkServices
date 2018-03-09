@@ -366,6 +366,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_meshes_subset"] = "CreateMeshes"
 
     tests["test_meshes_stitched"] = "CreateStitchedMeshes"
+    tests["test_meshes_stitched_body"] = "CreateStitchedMeshes"
     
     tests["test_cc"] = "ConnectedComponents"
     tests["test_comp"] = "EvaluateSeg"
