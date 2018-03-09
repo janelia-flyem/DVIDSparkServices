@@ -335,7 +335,7 @@ class CreateStitchedMeshes(Workflow):
             return ids_and_mesh_datas
 
         # Compute meshes per-block
-        # --> (segment_id, mesh_for_one_block)
+        # --> (segment_id, (mesh_for_one_block, compressed_size))
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
         rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
         
@@ -351,6 +351,7 @@ class CreateStitchedMeshes(Workflow):
         del segments_and_counts_and_size
         
         # Drop size
+        # --> (segment_id, mesh_for_one_block)
         segment_ids_and_mesh_blocks = segment_ids_and_mesh_blocks.map(lambda a_bc: (a_bc[0], a_bc[1][0]))
         
         # Pre-stitch smoothing
@@ -423,7 +424,7 @@ class CreateStitchedMeshes(Workflow):
             with Timer(f"Concatenating a big mesh ({total_vertices} vertices)", logging.getLogger(__name__)):
                 return _impl()
             
-        segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatenate_meshes)
+        segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatentate_and_stitch)
         
         rt.persist_and_execute(segment_id_and_mesh, "Stitching block segment meshes", logger)
         rt.unpersist(mesh_blocks_grouped_by_segment)
