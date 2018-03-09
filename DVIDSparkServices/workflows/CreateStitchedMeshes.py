@@ -376,14 +376,15 @@ class CreateStitchedMeshes(Workflow):
             def decimate(id_mesh):
                 segment_id, mesh = id_mesh
                 timeout = 300.0 # 5 minutes
-                subproc_decimator = execute_in_subprocess(timeout, logging.getLogger(__name__))(decimate_mesh)
+                logger = logging.getLogger(__name__)
+                subproc_decimator = execute_in_subprocess(timeout, logger)(decimate_mesh)
                 try:
                     mesh = subproc_decimator(decimation_fraction, mesh)
                     return (segment_id, mesh)
                 except TimeoutError:
                     bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.1f}-{segment_id}.obj'
                     mesh.serialize(f'{bad_mesh_export_path}', add_normals=False)
-                    logging.getLogger(__name__).error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
+                    logger.error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
 
             segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.map(decimate)
@@ -489,21 +490,22 @@ class CreateStitchedMeshes(Workflow):
         def serialize(id_mesh):
             segment_id, mesh = id_mesh
             def _impl():
+                logger = logging.getLogger(__name__)
                 try:
                     # Based on one un-scientific experiment,
                     # encoding 100 million vertices takes about 6 minutes,
                     # but the vast majority of that is just disk I/O.
-                    approximate_throughput = (100e6 / 6*60)
+                    approximate_throughput = (100e6 / (6*60))
                     timeout = len(mesh.vertices_zyx) / approximate_throughput
-                    timeout *= 4 # fudge factor
-                    timeout = min(timeout, 120.0) # At least 2 minutes
-                    subproc_serializer = execute_in_subprocess(timeout, logging.getLogger(__name__))(mesh.serialize)
+                    timeout *= 10 # fudge factor
+                    timeout = max(timeout, 120.0) # At least 2 minutes
+                    subproc_serializer = execute_in_subprocess(timeout, logger)(mesh.serialize)
                     mesh_bytes = subproc_serializer(fmt=fmt, add_normals=True)
                     return (segment_id, mesh_bytes)
                 except:
                     output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
                     mesh.serialize(output_path, add_normals=False)
-                    logging.getLogger(f"Failed to serialize a mesh {segment_id}.  Wrote to {output_path}")
+                    logger.error(f"Failed to serialize mesh {segment_id} within timeout ({timeout}).  Wrote to {output_path}")
                     return (segment_id, b'')
             if len(mesh.vertices_zyx) < 10e6:
                 return _impl()
