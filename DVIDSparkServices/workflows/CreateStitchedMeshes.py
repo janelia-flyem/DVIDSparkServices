@@ -381,7 +381,7 @@ class CreateStitchedMeshes(Workflow):
                     return (segment_id, mesh)
                 except TimeoutError:
                     bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.1f}-{segment_id}.obj'
-                    mesh.serialize(f'{bad_mesh_export_path}')
+                    mesh.serialize(f'{bad_mesh_export_path}', add_normals=False)
                     logging.getLogger(__name__).error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
 
@@ -501,7 +501,7 @@ class CreateStitchedMeshes(Workflow):
                     return (segment_id, mesh_bytes)
                 except:
                     output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
-                    mesh.serialize(output_path, add_normals=True)
+                    mesh.serialize(output_path, add_normals=False)
                     logging.getLogger(f"Failed to serialize a mesh {segment_id}.  Wrote to {output_path}")
                     return (segment_id, b'')
             if len(mesh.vertices_zyx) < 10e6:
