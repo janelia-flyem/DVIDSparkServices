@@ -1,6 +1,5 @@
 import os
 import copy
-import time
 import tarfile
 import socket
 import logging
@@ -23,7 +22,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_servi
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels
 from DVIDSparkServices.dvid.metadata import is_node_locked
 
-from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema
+from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
 from DVIDSparkServices.io_util.brick import Grid, SparseBlockMask
@@ -175,6 +174,13 @@ class CreateStitchedMeshes(Workflow):
                                        "only generate meshes for a subset of the bodies in the volume.\n",
                         "type": "array",
                         "default": []
+                    },
+                    "input-is-mapped-supervoxels": {
+                        "description": "When using 'subset-bodies' option, we need to know how to fetch sparse blocks from dvid.\n"
+                                       "If the input is a pre-mapped supervoxel volume, we'll have to use the supervoxel IDs (not body ids) when fetching from DVID.\n"
+                                       "This option will probably become unnecessary once dvid's native 'labelmap' datatype is ready, since we'll always have a 'materialized' segmentation to use.",
+                        "type": "boolean",
+                        "default": False
                     }
                 }
             }
@@ -276,13 +282,13 @@ class CreateStitchedMeshes(Workflow):
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
         
         # This will return None if we're not using sparse blocks
-        sparse_block_mask = self._get_sparse_block_mask(volume_service)
+        sparse_block_mask = self._get_sparse_block_mask(volume_service, config["mesh-config"]["storage"]["input-is-mapped-supervoxels"])
         
         # Bricks have a halo of 1 to ensure that there will be no gaps between meshes from different blocks
         brick_wall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sparse_block_mask)
         brick_wall.drop_empty()
         brick_wall.persist_and_execute("Downloading segmentation", logger)
-
+        
         mesh_task_shape = np.array(config["mesh-config"]["task-block-shape"])
         if (mesh_task_shape < 1).any():
             assert (mesh_task_shape < 1).all()
@@ -527,7 +533,7 @@ class CreateStitchedMeshes(Workflow):
         node_service.create_keyvalue( instance_name )
 
 
-    def _get_sparse_block_mask(self, volume_service):
+    def _get_sparse_block_mask(self, volume_service, use_service_labelmap=False):
         """
         If the user's config specified a sparse subset of bodies to process,
         Return a SparseBlockMask object indicating where those bodies reside.
@@ -544,28 +550,34 @@ class CreateStitchedMeshes(Workflow):
         if not sparse_body_ids:
             return None
 
-        if not isinstance(volume_service.base_service, DvidVolumeService):
-            # We only know how to retrieve sparse blocks for DVID volumes.
-            # For other volume sources, we'll just have to fetch everything and filter
-            # out the unwanted bodies at the mask aggregation step.
-            return None
+        assert isinstance(volume_service.base_service, DvidVolumeService), \
+            "Can't use subset-bodies feature for non-DVID sources" 
+
+        assert (volume_service.base_service.bounding_box_zyx == volume_service.bounding_box_zyx).all(), \
+            "Can't use subset-bodies feature with transposed or rescaled services"
         
         grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
         assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
             f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
-        
-        if grouping_scheme in ('no-groups', 'singletons'):
-            # The 'body ids' are identical to segment ids
-            sparse_segment_ids = sparse_body_ids
+
+        mapping_pairs = None
+        if use_service_labelmap:
+            assert isinstance(volume_service, LabelmappedVolumeService), \
+                "Cant' use service labelmap: The input isn't a LabelmappedVolumeService"
+            mapping_pairs = volume_service.mapping_pairs
         elif grouping_scheme == 'labelmap':
-            # We need to convert the body ids into sparse segment ids        
             mapping_pairs = self.load_labelmap()
+
+        if mapping_pairs is not None:
             segments, bodies = mapping_pairs.transpose()
             
             # pandas.Series permits duplicate index values,
             # which is convenient for this reverse lookup
             reverse_lookup = pd.Series(index=bodies, data=segments)
             sparse_segment_ids = reverse_lookup.loc[sparse_body_ids].values
+        else:
+            # No labelmap: The 'body ids' are identical to segment ids
+            sparse_segment_ids = sparse_body_ids
 
         logger.info("Reading sparse block mask for body subset...")
         # Fetch the sparse mask of blocks that the sparse segments belong to
