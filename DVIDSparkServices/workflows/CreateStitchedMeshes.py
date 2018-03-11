@@ -109,6 +109,13 @@ class CreateStitchedMeshes(Workflow):
                 "maximum": 1.0, # 1.0 == disable
                 "default": 0.1
             },
+            
+            "compute-normals": {
+                "description": "Compute vertex normals and include them in the uploaded results.",
+                "type": "boolean",
+                "default": False # Default is false for now because Neu3 doesn't read them properly.
+            },
+    
 
             "stitch-method": {
                 "description": "How to combine each segment's blockwise meshes into a single file.",
@@ -359,7 +366,7 @@ class CreateStitchedMeshes(Workflow):
         smoothing_iterations = config["mesh-config"]["pre-stitch-smoothing-iterations"]
         if smoothing_iterations > 0:
             def smooth(mesh):
-                mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
+                mesh.laplacian_smooth(smoothing_iterations)
                 return mesh
             segment_id_and_smoothed_mesh = segment_ids_and_mesh_blocks.mapValues( smooth )
     
@@ -383,7 +390,7 @@ class CreateStitchedMeshes(Workflow):
                     return (segment_id, mesh)
                 except TimeoutError:
                     bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.1f}-{segment_id}.obj'
-                    mesh.serialize(f'{bad_mesh_export_path}', add_normals=False)
+                    mesh.serialize(f'{bad_mesh_export_path}')
                     logger.error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
 
@@ -393,6 +400,19 @@ class CreateStitchedMeshes(Workflow):
             rt.unpersist(segment_ids_and_mesh_blocks)
             segment_ids_and_mesh_blocks = segment_id_and_decimated_mesh
             del segment_id_and_decimated_mesh
+        
+        if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
+            # Compute normals
+            def recompute_normals(mesh):
+                mesh.recompute_normals()
+                return mesh
+            
+            segment_id_and_mesh_with_normals = segment_ids_and_mesh_blocks.map(decimate)
+
+            rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing block mesh normals", logger)
+            rt.unpersist(segment_ids_and_mesh_blocks)
+            segment_ids_and_mesh_blocks = segment_id_and_mesh_with_normals
+            del segment_id_and_mesh_with_normals
         
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
@@ -442,7 +462,7 @@ class CreateStitchedMeshes(Workflow):
         smoothing_iterations = config["mesh-config"]["post-stitch-smoothing-iterations"]
         if smoothing_iterations > 0:
             def smooth(mesh):
-                mesh.laplacian_smooth(smoothing_iterations, recompute_normals=False)
+                mesh.laplacian_smooth(smoothing_iterations)
                 return mesh
             segment_id_and_smoothed_mesh = segment_id_and_mesh.mapValues( smooth )
     
@@ -456,7 +476,7 @@ class CreateStitchedMeshes(Workflow):
         decimation_fraction = config["mesh-config"]["post-stitch-decimation"]
         if decimation_fraction < 1.0:
             def decimate(mesh):
-                mesh.simplify(decimation_fraction, recompute_normals=False)
+                mesh.simplify(decimation_fraction)
                 return mesh
             segment_id_and_decimated_mesh = segment_id_and_mesh.mapValues(decimate)
 
@@ -470,6 +490,19 @@ class CreateStitchedMeshes(Workflow):
         counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'decimated_vertex_count'] )
         full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
+
+        # Post-stitch normals
+        # --> (segment_id, mesh)
+        if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
+            def decimate(mesh):
+                mesh.recompute_normals()
+                return mesh
+            segment_id_and_mesh_with_normals = segment_id_and_mesh.mapValues(decimate)
+
+            rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing stitched mesh normals", logger)
+            rt.unpersist(segment_id_and_mesh)
+            segment_id_and_mesh = segment_id_and_mesh_with_normals
+            del segment_id_and_mesh_with_normals
 
         rescale_factor = config["mesh-config"]["rescale-before-write"]
         if rescale_factor != 1.0:
@@ -500,11 +533,11 @@ class CreateStitchedMeshes(Workflow):
                     timeout *= 10 # fudge factor
                     timeout = max(timeout, 120.0) # At least 2 minutes
                     subproc_serializer = execute_in_subprocess(timeout, logger)(mesh.serialize)
-                    mesh_bytes = subproc_serializer(fmt=fmt, add_normals=True)
+                    mesh_bytes = subproc_serializer(fmt=fmt)
                     return (segment_id, mesh_bytes)
                 except:
                     output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
-                    mesh.serialize(output_path, add_normals=False)
+                    mesh.serialize(output_path)
                     logger.error(f"Failed to serialize mesh {segment_id} within timeout ({timeout}).  Wrote to {output_path}")
                     return (segment_id, b'')
             if len(mesh.vertices_zyx) < 10e6:
@@ -749,7 +782,7 @@ class CreateStitchedMeshes(Workflow):
         return grouped_segment_ids_and_meshes
 
 def decimate_mesh(decimation_fraction, mesh):
-    mesh.simplify(decimation_fraction, recompute_normals=False)
+    mesh.simplify(decimation_fraction)
     return mesh
 
 def post_meshes_to_dvid(config, instance_name, partition_items):
