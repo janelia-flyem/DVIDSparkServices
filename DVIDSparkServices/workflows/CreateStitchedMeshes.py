@@ -519,7 +519,7 @@ class CreateStitchedMeshes(Workflow):
         # Serialize
         # --> (segment_id, mesh_bytes)
         fmt = config["mesh-config"]["storage"]["format"]
-        @self.collect_log()
+        @self.collect_log(echo_threshold=logging.INFO)
         def serialize(id_mesh):
             segment_id, mesh = id_mesh
             def _impl():

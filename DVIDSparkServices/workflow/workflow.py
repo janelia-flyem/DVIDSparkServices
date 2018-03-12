@@ -297,7 +297,7 @@ class Workflow(object):
         mkdir_p(log_dir)
 
 
-    def collect_log(self, task_key_factory=lambda *args, **kwargs: DRIVER_LOGNAME):
+    def collect_log(self, task_key_factory=lambda *args, **kwargs: DRIVER_LOGNAME, echo_threshold=logging.ERROR):
         """
         Use this as a decorator for functions that are executed in spark workers.
         
@@ -327,7 +327,7 @@ class Workflow(object):
         if port == 0:
             return noop_decorator
         else:
-            return make_log_collecting_decorator(driver_ip_addr, port)(task_key_factory)
+            return make_log_collecting_decorator(driver_ip_addr, port, echo_threshold)(task_key_factory)
 
 
     def _start_logserver(self):
@@ -346,8 +346,9 @@ class Workflow(object):
         # Start the log server in a separate process
         logserver = subprocess.Popen([sys.executable, '-m', 'logcollector.logserver',
                                       '--log-dir={}'.format(self.log_dir),
-                                      '--port={}'.format(log_port)],
+                                      '--port={}'.format(log_port),
                                       #'--debug=True', # See note below about terminate() in debug mode...
+                                      ],
                                       stderr=subprocess.STDOUT)
         
         # Wait for the server to actually start up before proceeding...
@@ -364,6 +365,7 @@ class Workflow(object):
         # Send all driver log messages to the server, too.
         formatter = logging.Formatter('%(levelname)s [%(asctime)s] %(module)s %(message)s')
         handler = HTTPHandlerWithExtraData( { 'task_key': DRIVER_LOGNAME },
+                                              logging.CRITICAL+1, # Never echo driver messages to the console -- we already wrote them to the console!
                                               "0.0.0.0:{}".format(log_port),
                                               '/logsink', 'POST' )
         handler.setFormatter(formatter)
