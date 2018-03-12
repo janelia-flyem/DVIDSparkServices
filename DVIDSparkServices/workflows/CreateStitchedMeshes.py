@@ -522,29 +522,19 @@ class CreateStitchedMeshes(Workflow):
         @self.collect_log(echo_threshold=logging.INFO)
         def serialize(id_mesh):
             segment_id, mesh = id_mesh
-            def _impl():
-                logger = logging.getLogger(__name__)
-                try:
-                    # Based on one un-scientific experiment,
-                    # encoding 100 million vertices takes about 6 minutes,
-                    # but the vast majority of that is just disk I/O.
-                    approximate_throughput = (100e6 / (6*60))
-                    timeout = len(mesh.vertices_zyx) / approximate_throughput
-                    timeout *= 10 # fudge factor
-                    timeout = max(timeout, 120.0) # At least 2 minutes
-                    subproc_serializer = execute_in_subprocess(timeout, logger)(mesh.serialize)
-                    mesh_bytes = subproc_serializer(fmt=fmt)
-                    return (segment_id, mesh_bytes)
-                except:
-                    output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
-                    mesh.serialize(output_path)
-                    logger.error(f"Failed to serialize mesh {segment_id} within timeout ({timeout}).  Wrote to {output_path}")
-                    return (segment_id, b'')
-            if len(mesh.vertices_zyx) < 10e6:
-                return _impl()
-        
-            with Timer(f"Serializing a big mesh ({len(mesh.vertices_zyx)} vertices)", logging.getLogger(__name__)):
-                return _impl()
+            try:
+                if len(mesh.vertices_zyx) < 10e6:
+                    return (segment_id, mesh.serialize(fmt=fmt))
+            
+                with Timer(f"Serializing a big mesh ({len(mesh.vertices_zyx)} vertices)", logging.getLogger(__name__)):
+                    return (segment_id, mesh.serialize(fmt=fmt))
+            except:
+                # This assumes that we can still it serialize in obj format...
+                output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
+                mesh.serialize(output_path)
+                logger = logger.getLogger(__name__)
+                logger.error(f"Failed to serialize mesh.  Wrote to {output_path}")
+                return (segment_id, b'')
 
         segment_id_and_mesh_bytes = segment_id_and_mesh.map( serialize ) \
                                                        .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
