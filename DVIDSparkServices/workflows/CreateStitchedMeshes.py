@@ -389,7 +389,7 @@ class CreateStitchedMeshes(Workflow):
                     mesh = subproc_decimator(decimation_fraction, mesh)
                     return (segment_id, mesh)
                 except TimeoutError:
-                    bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.1f}-{segment_id}.obj'
+                    bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.2f}-{segment_id}.obj'
                     mesh.serialize(f'{bad_mesh_export_path}')
                     logger.error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
