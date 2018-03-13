@@ -110,6 +110,13 @@ class CreateStitchedMeshes(Workflow):
                 "default": 0.1
             },
             
+            "post-stitch-max-vertices": {
+                "description": "After stitching, further decimate the mesh (if necessary) to have no more than this vertex count.\n"
+                               "For 'no max', set to -1",
+                "type": "number",
+                "default": -1 # No max
+            },
+            
             "compute-normals": {
                 "description": "Compute vertex normals and include them in the uploaded results.",
                 "type": "boolean",
@@ -474,11 +481,20 @@ class CreateStitchedMeshes(Workflow):
         # Post-stitch decimation
         # --> (segment_id, mesh)
         decimation_fraction = config["mesh-config"]["post-stitch-decimation"]
-        if decimation_fraction < 1.0:
-            def decimate(mesh):
-                mesh.simplify(decimation_fraction)
-                return mesh
-            segment_id_and_decimated_mesh = segment_id_and_mesh.mapValues(decimate)
+        max_vertices = config["mesh-config"]["post-stitch-max-vertices"]
+        if decimation_fraction < 1.0 or max_vertices > 0:
+            @self.collect_log(lambda *_a, **_kw: 'post-stitch-decimation', logging.WARNING)
+            def decimate(seg_and_mesh):
+                segment_id, mesh = seg_and_mesh
+                final_decimation = decimation_fraction
+                if (final_decimation * mesh.vertices_zyx.shape[0]) > max_vertices:
+                    final_decimation = max_vertices / mesh.vertices_zyx.shape[0]
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Segment {segment_id} had {mesh.vertices_zyx.shape[0]} vertices after stitching. Applying extra decimation ({final_decimation:.3f})")
+                if final_decimation < 1.0:
+                    mesh.simplify(final_decimation)
+                return (segment_id, mesh)
+            segment_id_and_decimated_mesh = segment_id_and_mesh.map(decimate)
 
             rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating stitched meshes", logger)
             rt.unpersist(segment_id_and_mesh)

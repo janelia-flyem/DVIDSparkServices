@@ -26,6 +26,7 @@
 
         post-stitch-smoothing-iterations: 0, # None
         post-stitch-decimation: 1.0, # None
+        post-stitch-max-vertices: 10000,
         
         "storage": {
           #format: drc,
