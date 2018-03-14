@@ -55,6 +55,7 @@ requirements:
     - z5py
     - google-cloud-storage
     - tblib
+    - dvidutils >=0.0.post44
     
     # Needed for brainmaps support:
     - httplib2

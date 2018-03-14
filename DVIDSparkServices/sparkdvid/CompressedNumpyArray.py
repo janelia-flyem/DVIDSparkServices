@@ -117,8 +117,8 @@ class CompressedNumpyArray(object):
                     numpy_array = numpy_array.copy(order='C')
                 self.raw_buffer = bytearray(numpy_array)
             else:
-                # For 1D or 0D arrays, serialize everything in one buffer.
-                if numpy_array.ndim <= 1:
+                # For 2D, 1D or 0D arrays, serialize everything in one buffer.
+                if numpy_array.ndim <= 2:
                     self.serialized_subarrays.append( self.serialize_subarray(numpy_array) )
                 else:
                     # For ND arrays, serialize each slice independently, to ease RAM usage
@@ -165,8 +165,8 @@ class CompressedNumpyArray(object):
         else:
             numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
             
-            # See serialization of 1D and 0D arrays, above.
-            if numpy_array.ndim <= 1:
+            # See serialization of 2D, 1D and 0D arrays, above.
+            if numpy_array.ndim <= 2:
                 buf = lz4.uncompress(self.serialized_subarrays[0])
                 numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
             else:
