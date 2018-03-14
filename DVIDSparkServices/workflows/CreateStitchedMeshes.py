@@ -291,9 +291,9 @@ class CreateStitchedMeshes(Workflow):
 
         self._init_meshes_instance()
 
-        # Aim for 2 GB RDD partitions
+        # Aim for 10 GB RDD partitions -- too many partitions causes a crash on the DRIVER because Spark is not good at its job.
         GB = 2**30
-        target_partition_size_voxels = 2 * GB // np.uint64().nbytes
+        target_partition_size_voxels = 10 * GB // np.uint64().nbytes
         
         # This will return None if we're not using sparse blocks
         sparse_block_mask = self._get_sparse_block_mask(volume_service, config["mesh-config"]["storage"]["input-is-mapped-supervoxels"])
