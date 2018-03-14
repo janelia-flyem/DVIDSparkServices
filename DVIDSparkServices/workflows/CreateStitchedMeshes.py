@@ -346,6 +346,8 @@ class CreateStitchedMeshes(Workflow):
                 mesh_compressed_size = mesh.compress()
                 ids_and_mesh_datas.append( (segment_id, (mesh, mesh_compressed_size)) )
 
+            # We're done with the segmentation at this point. Save some RAM.
+            brick.destroy()
             return ids_and_mesh_datas
 
         # Compute meshes per-block
