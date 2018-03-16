@@ -129,7 +129,12 @@ def main():
             args.last_mutid = 0
 
     with Timer("Loading supervoxel block statistics file", logger):
-        block_sv_stats_df = pd.read_csv(args.supervoxel_block_stats_csv, engine='c')
+        dtypes = { 'segment_id': np.uint64,
+                   'z': np.int32,
+                   'y': np.int32,
+                   'x':np.int32,
+                   'count': np.uint32 }
+        block_sv_stats_df = pd.read_csv(args.supervoxel_block_stats_csv, engine='c', dtype=dtypes)
 
     with Timer(f"Grouping {len(block_sv_stats_df)} blockwise supervoxel counts and loading LabelSetIndexes", logger):
         ingest_label_indexes( args.server,
