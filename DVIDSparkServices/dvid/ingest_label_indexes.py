@@ -17,9 +17,9 @@ from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
 
 from DVIDSparkServices.dvid.metadata import DataInstance
 
-# The labelindex_pb2 file was generated with the following command: 
-# $ protoc --python_out=. labelindex.proto
-from .labelindex_pb2 import LabelSetIndex
+# The labelops_pb2 file was generated with the following command: 
+# $ protoc --python_out=. labelops.proto
+from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex
 
 logger = logging.getLogger(__name__)
 
