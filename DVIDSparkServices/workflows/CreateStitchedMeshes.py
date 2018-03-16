@@ -698,6 +698,9 @@ class CreateStitchedMeshes(Workflow):
         with Timer(f"Computing segment statistics", logger):
             full_stats_df = aggregate_segment_stats_from_bricks( bricks, ['segment', 'voxel_count'] )
             full_stats_df.columns = ['segment', 'segment_voxel_count']
+
+            logger.info("debugging: Saving BRICK stats...")            
+            full_stats_df.to_csv(self.relpath_to_abspath('brick-stats.csv'), index=False)
         
         ##
         ## If grouping segments into bodies (for tarballs),
@@ -711,11 +714,21 @@ class CreateStitchedMeshes(Workflow):
         else:
             # Add body column
             segment_to_body_df = pd.DataFrame( self.load_labelmap(), columns=['segment', 'body'] )
+            
+            logger.info("debugging: Saving loaded labelmap")
+            segment_to_body_df.to_csv(self.relpath_to_abspath('loaded-labelmap.csv', index=False))
+            
             full_stats_df = full_stats_df.merge(segment_to_body_df, 'left', on='segment', copy=False)
+
+            logger.info("debugging: Saving stats AFTER merging body column")
+            full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-col.csv', index=False))
 
             # Missing segments in the labelmap are assumed to be identity-mapped
             full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
             full_stats_df['body'] = full_stats_df['body'].astype(np.uint64)
+
+            logger.info("debugging: Saving stats AFTER casting body dtype")
+            full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-dtype-cast.csv', index=False))
 
             # Calculate body voxel sizes
             body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
