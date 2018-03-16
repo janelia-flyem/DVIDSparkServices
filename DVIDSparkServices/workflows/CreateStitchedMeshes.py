@@ -233,6 +233,12 @@ class CreateStitchedMeshes(Workflow):
             "type": "number",
             "default": 10e9 # 10 Gigavoxels
         },
+        "minimum-agglomerated-segment-count": {
+            "description": "Don't bother with any meshes that are part of a body with fewer segments than this setting.",
+            "type": "integer",
+            "default": 0
+        },
+        
         "force-evaluation-checkpoints": {
             "description": "Debugging feature. Force persistence of RDDs after every map step, for better logging.",
             "type": "boolean",
@@ -721,7 +727,8 @@ class CreateStitchedMeshes(Workflow):
                                          (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
 
         full_stats_df['keep_body'] = ((full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
-                                      (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) )
+                                      (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) &
+                                      (full_stats_df['body_segment_count'] >= config['options']['minimum-agglomerated-segment-count']))
 
         # If subset-bodies were given, exclude all others.
         sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
