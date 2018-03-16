@@ -3,8 +3,12 @@ import glob
 import yaml
 import numpy as np
 import pandas as pd
+
 from libdvid import DVIDNodeService
-from IPython.core.history import sqlite3
+
+import DVIDSparkServices
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
+from DVIDSparkServices.dvid.ingest_label_indexes import ingest_label_indexes
 
 dirpath = sys.argv[1]
 
@@ -66,31 +70,50 @@ segment_counts_from_output_seg.sort_index(inplace=True)
 
 assert (segment_counts_from_output_seg == segment_counts_from_stats).all()
 
-#     
-#     ##
-#     ## Check exported statistics
-#     ##
-#     def check_segment_stats(segment):
-#         binary = (output_volume == segment)
-#         row = df[df.segment == segment].iloc[0]
-#         assert row['voxel_count'] == binary.sum()
+##
+## Now ingest label indexes (for the first output), and try a sparsevol query to prove that it works.
+##
+block_stats_path = dirpath + '/temp_data/block-statistics.csv'
+dvid_config = config['outputs'][0]['dvid']
+
+dtypes = { 'segment_id': np.uint64,
+           'z': np.int32,
+           'y': np.int32,
+           'x':np.int32,
+           'count': np.uint32 }
+
+block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
+block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
+last_mutid = 0
+
+
+ingest_label_indexes( dvid_config['server'],
+                      dvid_config['uuid'],
+                      dvid_config['segmentation-name'],
+                      last_mutid,
+                      block_sv_stats_df )
+
+# Find segment with the most blocks touched (not necessarily the most voxels)
+largest_sv = block_sv_stats_df['segment_id'].value_counts(ascending=False).argmax()
+print(f"Fetching sparsevol for label {largest_sv}")
+
+# Fetch the /sparsevol-coarse representation for it.
+fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
+                                                       dvid_config['uuid'],
+                                                       dvid_config['segmentation-name'],
+                                                       largest_sv )
+
+fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
+expected_block_coords = block_sv_stats_df.query('segment_id == @largest_sv')[['z', 'y', 'x']].sort_values(['z', 'y', 'x']).values
+expected_block_coords //= 64 # dvid block width
+
+# print("EXPECTED BLOCKS:")
+# print(expected_block_coords)
 # 
-#         coords = np.transpose(binary.nonzero())
-#         assert (row['bounding_box_start'] == coords.min(axis=0)).all()
-#         assert (row['bounding_box_stop'] == 1+coords.max(axis=0)).all()
-#         
-#         if 'block_list' in df.columns:
-#             block_indexes = coords // 64
-#             sorted_blocks = 64*np.array(sorted(set(map(tuple, block_indexes))))
-#             assert (row['block_list'] == sorted_blocks).all()
-# 
-#     # Check the 10 largest and 10 smallest segments
-#     sorted_df = df.sort_values('voxel_count', ascending=False)
-#     largest_segments = list(sorted_df['segment'][:10])
-#     smallest_segments = list(sorted_df['segment'][-10:])
-#     for segment in largest_segments + smallest_segments:
-#         if segment != 0:
-#             check_segment_stats(segment)
+# print("FETCHED BLOCKS:")
+# print(fetched_block_coords)
+
+assert (fetched_block_coords == expected_block_coords).all()
 
 print("DEBUG: CopySegmentation test passed.")
 sys.exit(0)
