@@ -760,7 +760,6 @@ class CreateStitchedMeshes(Workflow):
         output_path = self.config_dir + '/segment-stats-dataframe.csv'
         logger.info(f"Saving segment statistics to {output_path}")
         full_stats_df.to_csv(output_path, index=False)
-        full_stats_df.to_pickle(output_path)
         
         return full_stats_df
 
