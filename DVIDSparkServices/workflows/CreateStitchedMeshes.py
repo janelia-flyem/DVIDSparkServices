@@ -30,7 +30,7 @@ from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
 
-from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, write_stats
+from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks
 
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
 from multiprocessing import TimeoutError
@@ -111,7 +111,8 @@ class CreateStitchedMeshes(Workflow):
             },
             
             "post-stitch-max-vertices": {
-                "description": "After stitching, further decimate the mesh (if necessary) to have no more than this vertex count.\n"
+                "description": "After stitching, further decimate the mesh (if necessary) "
+                               "to have no more than this vertex count in the ENTIRE BODY.\n"
                                "For 'no max', set to -1",
                 "type": "number",
                 "default": -1 # No max
@@ -361,10 +362,11 @@ class CreateStitchedMeshes(Workflow):
                                        .map( lambda seg_counts_size: (seg_counts_size[0], *np.array(list(seg_counts_size[1])).sum(axis=0) ) ) \
                                        .collect()
 
-        counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'total_vertex_count', 'total_compressed_size'] )
-        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
-        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
+        counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'prestitch_vertex_count', 'total_compressed_size'] )
         del segments_and_counts_and_size
+        counts_df.to_csv(self.relpath_to_abspath('prestitch-vertex-counts.csv'), index=False)
+        with Timer("Merging prestitch_vertex_count onto segment stats", logger):
+            full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         
         # Drop size
         # --> (segment_id, mesh_for_one_block)
@@ -460,12 +462,6 @@ class CreateStitchedMeshes(Workflow):
         rt.unpersist(mesh_blocks_grouped_by_segment)
         del mesh_blocks_grouped_by_segment
 
-        # Get pre-smoothing vertex count and ovewrite stats file
-        segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
-        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'unsmoothed_vertex_count'] )
-        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
-        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
-
         # Post-stitch Smoothing
         # --> (segment_id, mesh)
         smoothing_iterations = config["mesh-config"]["post-stitch-smoothing-iterations"]
@@ -484,17 +480,27 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         decimation_fraction = config["mesh-config"]["post-stitch-decimation"]
         max_vertices = config["mesh-config"]["post-stitch-max-vertices"]
+        
+        # body is the INDEX
+        body_vertex_counts = full_stats_df[['body', 'prestitch_vertex_count']].groupby('body').sum()
+        body_vertex_counts.columns = ['body_prestitch_vertex_count']
+        full_stats_df = full_stats_df.merge(body_vertex_counts, 'inner', left_on='body', right_index=True, copy=False)
+        
+        # segment is the INDEX
+        body_prestitch_vertex_counts_df = full_stats_df[['segment', 'body_prestitch_vertex_count']].set_index('segment')
+        
         if decimation_fraction < 1.0 or max_vertices > 0:
             @self.collect_log(lambda *_a, **_kw: 'post-stitch-decimation', logging.WARNING)
             def decimate(seg_and_mesh):
                 segment_id, mesh = seg_and_mesh
                 final_decimation = decimation_fraction
-                if (final_decimation * mesh.vertices_zyx.shape[0]) > max_vertices:
-                    final_decimation = max_vertices / mesh.vertices_zyx.shape[0]
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"Segment {segment_id} had {mesh.vertices_zyx.shape[0]} vertices after stitching. Applying extra decimation ({final_decimation:.3f})")
-                if final_decimation < 1.0:
-                    mesh.simplify(final_decimation)
+
+                # If the total vertex count of all segments in this segment's
+                # body would be too large, apply further decimation.                
+                body_prestitch_vertex_count = body_prestitch_vertex_counts_df[segment_id]
+                if final_decimation * body_prestitch_vertex_count > max_vertices:
+                    final_decimation = max_vertices / body_prestitch_vertex_count
+                mesh.simplify(final_decimation)
                 return (segment_id, mesh)
             segment_id_and_decimated_mesh = segment_id_and_mesh.map(decimate)
 
@@ -505,9 +511,8 @@ class CreateStitchedMeshes(Workflow):
 
         # Get post-decimation vertex count and ovewrite stats file
         segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
-        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'decimated_vertex_count'] )
-        full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
-        write_stats(full_stats_df, self.config_dir + '/segment-stats-dataframe.pkl.xz', logger)
+        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'post_stitch_decimated_vertex_count'] )
+        counts_df.to_csv(self.relpath_to_abspath('poststitch-vertex-counts.csv'),  index=False)
 
         # Post-stitch normals
         # --> (segment_id, mesh)
@@ -734,13 +739,11 @@ class CreateStitchedMeshes(Workflow):
         #import pandas as pd
         #pd.set_option('expand_frame_repr', False)
         #logger.info(f"FULL_STATS:\n{full_stats_df}")
-        
-        stats_bytes = full_stats_df.memory_usage().sum()
-        stats_gb = stats_bytes / 1e9
-        
+                
         # Write the Stats DataFrame to a file for offline analysis.
-        output_path = self.config_dir + '/segment-stats-dataframe.pkl.xz'
-        logger.info(f"Saving segment statistics ({stats_gb:.3f} GB) to {output_path}")
+        output_path = self.config_dir + '/segment-stats-dataframe.csv'
+        logger.info(f"Saving segment statistics to {output_path}")
+        full_stats_df.to_csv(output_path, index=False)
         full_stats_df.to_pickle(output_path)
         
         return full_stats_df
