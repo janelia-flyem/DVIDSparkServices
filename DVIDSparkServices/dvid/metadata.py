@@ -341,7 +341,7 @@ class DataInstance(object):
         self.server = dvidserver
         self.uuid = uuid
         self.name = dataname
-
+        
         # check DVID existence and get meta
         try:  
             node_service = DVIDNodeService(str(dvidserver), str(uuid))
@@ -350,10 +350,15 @@ class DataInstance(object):
             raise ValueError("Instance not available")        
         self.datatype = str(self.info["Base"]["TypeName"])
 
+    @property
+    def blockshape_zyx(self):
+        assert self.is_array(), f"Instance is not an array type: {self.datatype}"
+        x,y,z = self.info["Extended"]["BlockSize"] # DVID ordered x,y,z
+        return np.array((z,y,x))
+
     def is_array(self):
         """Checks if data instance is a raw or label volume.
         """
-
         return self.datatype in ("uint8blk", "labelblk", "labelarray", "labelmap", "googlevoxels")
 
     def is_labels(self):

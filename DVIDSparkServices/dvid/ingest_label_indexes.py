@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 SUPERVOXEL_STATS_COLUMNS = ['segment_id', 'z', 'y', 'x', 'count']
 AGGLO_MAP_COLUMNS = ['segment_id', 'body_id']
 
-def gen_labelset_indexes(block_sv_stats_df, segment_to_body_df=None, last_mut_id=0):
+def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=None, last_mutid=0):
     assert list(block_sv_stats_df.columns) == SUPERVOXEL_STATS_COLUMNS
 
     if segment_to_body_df is None:
@@ -51,27 +51,39 @@ def gen_labelset_indexes(block_sv_stats_df, segment_to_body_df=None, last_mut_id
     user = os.environ["USER"]
     mod_time = datetime.datetime.now().isoformat()
 
-    for body_group_df in block_sv_stats_df.groupby('body_id'):
-        body_id = body_group_df.iloc[0]['body_id']
-        
+    for body_id, body_group_df in block_sv_stats_df.groupby('body_id'):
         group_entries_total = 0
-        label_set_index = LabelSetIndex()
-        label_set_index.last_mut_id = last_mut_id
+        label_set_index = LabelIndex()
+        label_set_index.last_mutid = last_mutid
         label_set_index.last_mod_user = user
         label_set_index.last_mod_time = mod_time
         
-        for block_df in body_group_df.groupby(['z', 'y', 'x']):
-            coord_zyx = block_df.iloc[0][['z', 'y', 'x']].values.astype(np.int32)
+        for coord_zyx, block_df in body_group_df.groupby(['z', 'y', 'x']):
+            assert not (coord_zyx % blockshape_zyx).any()
+            block_index_zyx = (np.array(coord_zyx) // blockshape_zyx).astype(np.int32)
+
+            # Must leave room for the sign bit!
+            assert (np.abs(block_index_zyx) < 2**20).all()
+            
+            # block key is encoded as 3 21-bit (signed) integers packed into a uint64
+            # (leaving the MSB set to 0)
+            encoded_block_index = np.uint64(0)
+            encoded_block_index |= np.uint64(block_index_zyx[0] << 42)
+            encoded_block_index |= np.uint64(block_index_zyx[1] << 21)
+            encoded_block_index |= np.uint64(block_index_zyx[2] << 0)
+            
             for sv, count in zip(block_df['segment_id'], block_df['count']):
-                label_set_index.blocks[coord_zyx].counts[sv] = count
+                label_set_index.blocks[encoded_block_index].counts[sv] = count
 
             group_entries_total += len(block_df)
         yield (body_id, label_set_index, group_entries_total)
 
-def ingest_label_indexes(server, uuid, instance_name, last_mut_id, block_sv_stats_df, segment_to_body_df=None, show_progress_bar=True):
+def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats_df, segment_to_body_df=None, show_progress_bar=True):
     instance_info = DataInstance(server, uuid, instance_name)
     if instance_info.datatype != 'labelmap':
         raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
+    
+    blockshape_zyx = instance_info.blockshape_zyx
     
     session = requests.Session()
     
@@ -79,7 +91,7 @@ def ingest_label_indexes(server, uuid, instance_name, last_mut_id, block_sv_stat
         server = 'http://' + server
 
     with tqdm(len(block_sv_stats_df), disable=not show_progress_bar) as progress_bar:
-        for body_id, label_set_index, group_entries_total in gen_labelset_indexes(block_sv_stats_df, segment_to_body_df, last_mut_id):
+        for body_id, label_set_index, group_entries_total in gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df, last_mutid):
             payload = label_set_index.SerializeToString()
             r = session.post(f'{server}/api/node/{uuid}/{instance_name}/index/{body_id}', data=payload)
             r.raise_for_status()
@@ -91,7 +103,7 @@ def main():
     logger.setLevel(logging.INFO)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--last-mut-id', '-i', required=False)
+    parser.add_argument('--last-mutid', '-i', required=False)
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
                         help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
     parser.add_argument('server')
@@ -108,13 +120,13 @@ def main():
             mapping_pairs = load_edge_csv(args.agglomeration_mapping)
             segment_to_body_df = pd.DataFrame(mapping_pairs, columns=AGGLO_MAP_COLUMNS)
 
-    if args.last_mut_id is None:
+    if args.last_mutid is None:
         # By default, use 0 if we're ingesting supervoxels (no agglomeration),
         # otherwise use 1
         if args.agglomeration_mapping:
-            args.last_mut_id = 1
+            args.last_mutid = 1
         else:
-            args.last_mut_id = 0
+            args.last_mutid = 0
 
     with Timer("Loading supervoxel block statistics file", logger):
         block_sv_stats_df = pd.read_csv(args.supervoxel_block_stats_csv, engine='c')
@@ -123,7 +135,7 @@ def main():
         ingest_label_indexes( args.server,
                               args.uuid,
                               args.labelmap_instance,
-                              args.last_mut_id,
+                              args.last_mutid,
                               block_sv_stats_df,
                               segment_to_body_df,
                               True )
@@ -131,4 +143,18 @@ def main():
     logger.info(f"DONE.")
 
 if __name__ == "__main__":
+    DEBUG = False
+    if DEBUG:
+        import yaml
+        import DVIDSparkServices
+        test_dir = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/test_copyseg/temp_data'
+        with open(f'{test_dir}/config.yaml', 'r') as f:
+            config = yaml.load(f)
+
+        dvid_config = config['outputs'][0]['dvid']
+        sys.argv += f"{dvid_config['server']} {dvid_config['uuid']} {dvid_config['segmentation-name']} {test_dir}/block-statistics.csv".split()
     main()
+
+
+
+
