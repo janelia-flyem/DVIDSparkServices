@@ -207,6 +207,11 @@ def stats_df_from_brick(column_names, brick, exclude_zero=True, exclude_halo=Tru
     if exclude_zero:
         df.drop(df.index[df.segment == 0], inplace=True)
 
+    if df['segment'].max() > 2**32:
+        stats_max = df['segment'].max()
+        real_max = brick.volume.max()
+        raise RuntimeError(f"DEBUGGING: Weird stats retrieved for brick: {brick}. (stats_max = {stats_max}, real_max = {real_max})")
+
     return df
 
 def stats_df_from_rows(column_names, rows):
