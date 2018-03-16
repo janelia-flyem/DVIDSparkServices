@@ -336,6 +336,7 @@ class CreateStitchedMeshes(Workflow):
                 segments_to_keep = segments_to_keep.astype(np.uint32) # Save some RAM
         
         def generate_meshes_for_brick( brick ):
+            import DVIDSparkServices # Ensure faulthandler logging is active.
             if segments_to_keep is None:
                 filtered_volume = brick.volume
             else:
@@ -383,6 +384,7 @@ class CreateStitchedMeshes(Workflow):
         smoothing_iterations = config["mesh-config"]["pre-stitch-smoothing-iterations"]
         if smoothing_iterations > 0:
             def smooth(mesh):
+                import DVIDSparkServices # Ensure faulthandler logging is active.
                 mesh.laplacian_smooth(smoothing_iterations)
                 return mesh
             segment_id_and_smoothed_mesh = segment_ids_and_mesh_blocks.mapValues( smooth )
@@ -398,6 +400,7 @@ class CreateStitchedMeshes(Workflow):
         if decimation_fraction < 1.0:
             @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
             def decimate(id_mesh):
+                import DVIDSparkServices # Ensure faulthandler logging is active.
                 segment_id, mesh = id_mesh
                 timeout = 300.0 # 5 minutes
                 logger = logging.getLogger(__name__)
@@ -421,6 +424,7 @@ class CreateStitchedMeshes(Workflow):
         if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
             # Compute normals
             def recompute_normals(mesh):
+                import DVIDSparkServices # Ensure faulthandler logging is active.
                 mesh.recompute_normals()
                 return mesh
             
@@ -443,6 +447,7 @@ class CreateStitchedMeshes(Workflow):
         stitch_method = config["mesh-config"]["stitch-method"]
         @self.collect_log()
         def concatentate_and_stitch(meshes):
+            import DVIDSparkServices # Ensure faulthandler logging is active.
             def _impl():
                 concatenated_mesh = concatenate_meshes(meshes)
                 for mesh in meshes:
@@ -473,6 +478,7 @@ class CreateStitchedMeshes(Workflow):
         smoothing_iterations = config["mesh-config"]["post-stitch-smoothing-iterations"]
         if smoothing_iterations > 0:
             def smooth(mesh):
+                import DVIDSparkServices # Ensure faulthandler logging is active.
                 mesh.laplacian_smooth(smoothing_iterations)
                 return mesh
             segment_id_and_smoothed_mesh = segment_id_and_mesh.mapValues( smooth )
@@ -498,6 +504,7 @@ class CreateStitchedMeshes(Workflow):
         if decimation_fraction < 1.0 or max_vertices > 0:
             @self.collect_log(lambda *_a, **_kw: 'post-stitch-decimation', logging.WARNING)
             def decimate(seg_and_mesh):
+                import DVIDSparkServices # Ensure faulthandler logging is active.
                 segment_id, mesh = seg_and_mesh
                 final_decimation = decimation_fraction
 
@@ -524,6 +531,7 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh)
         if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
             def decimate(mesh):
+                import DVIDSparkServices # Ensure faulthandler logging is active.
                 mesh.recompute_normals()
                 return mesh
             segment_id_and_mesh_with_normals = segment_id_and_mesh.mapValues(decimate)
@@ -550,6 +558,7 @@ class CreateStitchedMeshes(Workflow):
         fmt = config["mesh-config"]["storage"]["format"]
         @self.collect_log(echo_threshold=logging.INFO)
         def serialize(id_mesh):
+            import DVIDSparkServices # Ensure faulthandler logging is active.
             segment_id, mesh = id_mesh
             try:
                 if len(mesh.vertices_zyx) < 10e6:
