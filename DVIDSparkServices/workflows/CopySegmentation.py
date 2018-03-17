@@ -369,9 +369,6 @@ class CopySegmentation(Workflow):
         slab_depth = options["slab-depth"]
         if slab_depth == -1:
             slab_depth = block_width * 2**pyramid_depth
-        elif slab_depth % ( block_width * 2**pyramid_depth ) != 0:
-            raise RuntimeError(f"Slab depth ({slab_depth}) is not aligned properly.\n"
-                               "Downsampled data blocks would span multiple slabs.")
         options["slab-depth"] = slab_depth
 
     def _init_stats_file(self):
