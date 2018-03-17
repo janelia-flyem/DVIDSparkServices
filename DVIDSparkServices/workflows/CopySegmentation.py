@@ -88,7 +88,13 @@ class CopySegmentation(Workflow):
                            "you just want to generate the rest of the pyramid to the same instance.\n",
             "type": "boolean",
             "default": False
-        },        
+        },
+        "download-pre-downsampled": {
+            "description": "Instead of downsampling the data, just download the pyramid from the server (if it's available).\n"
+                           "Will not work unless you add the 'available-scales' setting to the input service's geometry config.",
+            "type": "boolean",
+            "default": True
+        },
         "slab-depth": {
             "description": "The data is downloaded and processed in Z-slabs.\n"
                            "This setting determines how thick each Z-slab is.\n"
@@ -514,11 +520,17 @@ class CopySegmentation(Workflow):
                 self._write_bricks( slab_index, padded_wall, 0, output_service )
     
             for new_scale in range(1, 1+pyramid_depth):
-                # Compute downsampled (results in smaller bricks)
-                downsampled_wall = padded_wall.label_downsample( (2,2,2) )
-                downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
-                padded_wall.unpersist()
-                del padded_wall
+                if options["download-pre-downsampled"] and new_scale in self.input_service.available_scales:
+                    padded_wall.unpersist()
+                    del padded_wall
+                    downsampled_wall = BrickWall.from_volume_service(self.input_service, new_scale, input_slab_box, self.sc, self.target_partition_size_voxels)
+                    downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downloading pre-downsampled bricks", logger)
+                else:
+                    # Compute downsampled (results in smaller bricks)
+                    downsampled_wall = padded_wall.label_downsample( (2,2,2) )
+                    downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
+                    padded_wall.unpersist()
+                    del padded_wall
 
                 # Consolidate to full-size bricks and pad internally to block-align
                 consolidated_wall = self._consolidate_and_pad(slab_index, downsampled_wall, new_scale, output_service, align=True, pad=True)
