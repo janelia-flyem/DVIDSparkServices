@@ -699,8 +699,16 @@ class CreateStitchedMeshes(Workflow):
             full_stats_df = aggregate_segment_stats_from_bricks( bricks, ['segment', 'voxel_count'] )
             full_stats_df.columns = ['segment', 'segment_voxel_count']
 
-            logger.info("debugging: Saving BRICK stats...")
-            full_stats_df.to_csv(self.relpath_to_abspath('brick-stats.csv'), index=False)
+            MAX_SAFE_INT = 2**53    # Above this number, double-precision floats may not exactly represent integers
+                                    # The pandas manipulations below temporarily store body IDs as doubles during the
+                                    # merge() step.
+                                    # (FWIW, this is the same reason JavaScript integers aren't safe above 2**53.)
+            if full_stats_df['segment'].max() > MAX_SAFE_INT:
+                logger.error("Some segments in the volume have higher IDs than 2**53. "
+                             "Those will not be mapped to the correct bodies, even if they are the only segment in the body.")
+
+            #logger.info("debugging: Saving BRICK stats...")
+            #full_stats_df.to_csv(self.relpath_to_abspath('brick-stats.csv'), index=False)
         
         ##
         ## If grouping segments into bodies (for tarballs),
@@ -715,20 +723,25 @@ class CreateStitchedMeshes(Workflow):
             # Add body column
             segment_to_body_df = pd.DataFrame( self.load_labelmap(), columns=['segment', 'body'] )
             
-            logger.info("debugging: Saving loaded labelmap")
-            segment_to_body_df.to_csv(self.relpath_to_abspath('loaded-labelmap.csv'), index=False)
+            if (segment_to_body_df['segment'].max() > MAX_SAFE_INT) or (segment_to_body_df['body'].max() > MAX_SAFE_INT):
+                # See comment above regarding MAX_SAFE_INT.
+                logger.error("Some segments or bodies in the label-to-body mapping have higher IDs than 2**53. "
+                             "Those will not be mapped to the correct bodies, even if they are the only segment in the body.")
+            
+            #logger.info("debugging: Saving loaded labelmap")
+            #segment_to_body_df.to_csv(self.relpath_to_abspath('loaded-labelmap.csv'), index=False)
             
             full_stats_df = full_stats_df.merge(segment_to_body_df, 'left', on='segment', copy=False)
 
-            logger.info("debugging: Saving stats AFTER merging body column")
-            full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-col.csv'), index=False)
+            #logger.info("debugging: Saving stats AFTER merging body column")
+            #full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-col.csv'), index=False)
 
             # Missing segments in the labelmap are assumed to be identity-mapped
             full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
             full_stats_df['body'] = full_stats_df['body'].astype(np.uint64)
 
-            logger.info("debugging: Saving stats AFTER casting body dtype")
-            full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-dtype-cast.csv'), index=False)
+            #logger.info("debugging: Saving stats AFTER casting body dtype")
+            #full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-dtype-cast.csv'), index=False)
 
             # Calculate body voxel sizes
             body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
