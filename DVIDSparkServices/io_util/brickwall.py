@@ -90,10 +90,14 @@ class BrickWall:
         
             bounding_box_zyx:
                 (start, stop) Optional.
+                Bounding box to restrict the region of fetched blocks, always
+                specified in FULL-RES coordinates, even if you are passing scale > 0
                 If not provided, volume_service.bounding_box_zyx is used.
      
-            grid:
-                Grid (see brick.py)
+            scale:
+                Brick data will be fetched at this scale.
+                (Note: The bricks' sizes will still be the the full volume_service.preferred_message_shape,
+                       but the overall bounding-box of the BrickWall be scaled down.) 
      
             sc:
                 SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
@@ -107,8 +111,9 @@ class BrickWall:
         """
         grid = Grid(volume_service.preferred_message_shape, (0,0,0))
         
-        downsampled_box = bounding_box_zyx
-        if downsampled_box is None:
+        if scale == 0:
+            downsampled_box = bounding_box_zyx
+        else:
             full_box = volume_service.bounding_box_zyx
             downsampled_box = np.zeros((2,3), dtype=int)
             downsampled_box[0] = full_box[0] // 2**scale # round down
