@@ -148,7 +148,7 @@ def load_edge_csv(csv_path):
             _header = next(rows)
         
         # We only care about the first two columns
-        df = pd.read_csv(csv_file, usecols=[0,1], header=None, columns=['u', 'v'], dtype=np.uint64, engine='c')
+        df = pd.read_csv(csv_file, usecols=[0,1], header=None, names=['u', 'v'], dtype=np.uint64, engine='c')
         edges = df.values
         assert edges.dtype == np.uint64
         assert edges.shape[1] == 2
