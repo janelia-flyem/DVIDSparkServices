@@ -161,7 +161,7 @@ class BrickWall:
         Returns: A a new BrickWall, with a new internal RDD for bricks.
         """
         new_logical_boxes_and_bricks = realign_bricks_to_new_grid( new_grid, self.bricks )
-        new_wall = BrickWall( self.bounding_box, self.grid, rt.values(new_logical_boxes_and_bricks) )
+        new_wall = BrickWall( self.bounding_box, new_grid, rt.values(new_logical_boxes_and_bricks) )
         return new_wall
 
     def fill_missing(self, volume_accessor_func, padding_grid=None):
@@ -244,7 +244,6 @@ class BrickWall:
 
         factor = block_shape[0]
         def downsample_brick(brick):
-            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
             assert (brick.physical_box % factor == 0).all()
             assert (brick.logical_box % factor == 0).all()
         
@@ -255,6 +254,7 @@ class BrickWall:
             #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
         
             # Even Newer: C++ downsampling (note: only works on aligned data.)
+            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
             downsampled_volume = downsample_labels(brick.volume, factor, suppress_zero=True)
         
             downsampled_logical_box = brick.logical_box // factor

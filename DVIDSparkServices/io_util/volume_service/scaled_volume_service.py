@@ -47,7 +47,9 @@ class ScaledVolumeService(VolumeServiceReader):
 
     @property
     def block_width(self):
-        return int(self.original_volume_service.block_width // 2.**self.scale_delta)
+        bw = int(self.original_volume_service.block_width // 2.**self.scale_delta)
+        bw = max(1, bw) # Never shrink below width of 1
+        return bw
 
     @property
     def preferred_message_shape(self):
@@ -59,11 +61,17 @@ class ScaledVolumeService(VolumeServiceReader):
         if self.scale_delta in self.original_volume_service.available_scales:
             return self.original_volume_service.preferred_message_shape
         else:
-            return (self.original_volume_service.preferred_message_shape // 2**self.scale_delta).astype(np.uint32)
+            ms = (self.original_volume_service.preferred_message_shape // 2**self.scale_delta).astype(np.uint32)
+            ms = np.maximum(ms, 1) # Never shrink below 1 pixel in each dimension
+            return ms
 
     @property
     def bounding_box_zyx(self):
-        return (self.original_volume_service.bounding_box_zyx // 2**self.scale_delta).astype(np.uint32)
+        bb = (self.original_volume_service.bounding_box_zyx // 2**self.scale_delta).astype(np.uint32)
+        
+        # Avoid shrinking the bounding box to 0 pixels in any dimension.
+        bb[1] = np.maximum(bb[1], bb[0]+1)
+        return bb
 
     @property
     def available_scales(self):

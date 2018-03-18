@@ -31,14 +31,17 @@ class Grid:
         if offset is None:
             offset = (0,)*len(block_shape)
         assert len(block_shape) == len(offset)
+
         self.block_shape = np.asarray(block_shape)
+        assert (self.block_shape > 0).all(), f"block_shape must be non-zero, not {self.block_shape}"
+
         self.offset = np.asarray(offset)
         self.modulus_offset = self.offset % block_shape
         
         self.halo_shape = np.zeros_like(self.block_shape)
         self.halo_shape[:] = halo
         assert (self.halo_shape < self.block_shape).all(), \
-            "Halo shape must be smaller than the block shape in all dimensions"
+            f"Halo shape must be smaller than the block shape in all dimensions: {self.halo_shape} vs {self.block_shape}"
 
     def equivalent_to(self, other_grid):
         """
