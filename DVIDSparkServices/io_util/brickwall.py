@@ -111,6 +111,9 @@ class BrickWall:
         """
         grid = Grid(volume_service.preferred_message_shape, (0,0,0))
         
+        if bounding_box_zyx is None:
+            bounding_box_zyx = volume_service.bounding_box_zyx
+        
         if scale == 0:
             downsampled_box = bounding_box_zyx
         else:
