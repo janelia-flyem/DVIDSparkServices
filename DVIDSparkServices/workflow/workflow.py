@@ -249,10 +249,17 @@ class Workflow(object):
         conf = SparkConf()
         conf.setAppName(appname)
         conf.setAll(list(spark_config.items()))
+        
+        from pyspark_flame import FlameProfiler
+        flamegraph_dir = f'{self.config_dir}/flamegraphs'
+        os.makedirs(flamegraph_dir, exist_ok=True)
+        conf.set("spark.python.profile.dump", flamegraph_dir)
+        conf.set("spark.python.profile", "true")
+        worker_env['pyspark_flame.interval'] = 0.25 # Default is 0.2 seconds
 
         # Auto-batching heuristic doesn't work well with our auto-compressed numpy array pickling scheme.
         # Therefore, disable batching with batchSize=1
-        return SparkContext(conf=conf, batchSize=1, environment=worker_env)
+        return SparkContext(conf=conf, batchSize=1, environment=worker_env, profiler_cls=FlameProfiler)
 
     def relpath_to_abspath(self, relpath):
         """
