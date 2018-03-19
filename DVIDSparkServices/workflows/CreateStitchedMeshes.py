@@ -294,6 +294,7 @@ class CreateStitchedMeshes(Workflow):
 
 
     def execute(self):
+        from pyspark import StorageLevel
         self._sanitize_config()
 
         config = self.config_data
@@ -370,7 +371,7 @@ class CreateStitchedMeshes(Workflow):
         # Compute meshes per-block
         # --> (segment_id, (mesh_for_one_block, compressed_size))
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
-        rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger)
+        rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger, StorageLevel.MEMORY_AND_DISK)
         
         segments_and_counts_and_size = segment_ids_and_mesh_blocks \
                                        .map( lambda seg_mesh_size: (seg_mesh_size[0], (len(seg_mesh_size[1][0].vertices_zyx), seg_mesh_size[1][1]) ) ) \
@@ -403,7 +404,7 @@ class CreateStitchedMeshes(Workflow):
                 return mesh
             segment_id_and_smoothed_mesh = segment_ids_and_mesh_blocks.mapValues( smooth )
     
-            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing block meshes", logger)
+            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing block meshes", logger, StorageLevel.MEMORY_AND_DISK)
             rt.unpersist(segment_ids_and_mesh_blocks)
             segment_ids_and_mesh_blocks = segment_id_and_smoothed_mesh
             del segment_id_and_smoothed_mesh
