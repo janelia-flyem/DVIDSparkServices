@@ -424,9 +424,6 @@ class CreateStitchedMeshes(Workflow):
             def decimate(id_mesh):
                 import DVIDSparkServices # Ensure faulthandler logging is active.
                 segment_id, mesh = id_mesh
-                timeout = 300.0 # 5 minutes
-                logger = logging.getLogger(__name__)
-                subproc_decimator = execute_in_subprocess(timeout, logger)(decimate_mesh)
                 try:
                     final_decimation = decimation_fraction
     
@@ -436,13 +433,14 @@ class CreateStitchedMeshes(Workflow):
                     if final_decimation * body_initial_vertex_count > max_vertices:
                         final_decimation = max_vertices / body_initial_vertex_count
                     
-                    mesh = subproc_decimator(final_decimation, mesh)
+                    mesh.simplify(final_decimation, in_memory=False, timeout=600) # 10 minutes
                     mesh.drop_normals()
                     mesh.compress()
                     return (segment_id, mesh)
                 except TimeoutError:
                     bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{final_decimation:.2f}-{segment_id}.obj'
                     mesh.serialize(f'{bad_mesh_export_path}')
+                    logger = logging.getLogger(__name__)
                     logger.error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
 
@@ -537,7 +535,7 @@ class CreateStitchedMeshes(Workflow):
                 ##body_prestitch_vertex_count = body_prestitch_vertex_counts_df[segment_id]
                 ##if final_decimation * body_prestitch_vertex_count > max_vertices:
                 ##    final_decimation = max_vertices / body_prestitch_vertex_count
-                mesh.simplify(final_decimation)
+                mesh.simplify(final_decimation, in_memory=False, timeout=600)
                 return (segment_id, mesh)
             segment_id_and_decimated_mesh = segment_id_and_mesh.map(decimate)
 
@@ -554,11 +552,11 @@ class CreateStitchedMeshes(Workflow):
         # Post-stitch normals
         # --> (segment_id, mesh)
         if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
-            def decimate(mesh):
+            def compute_normals(mesh):
                 import DVIDSparkServices # Ensure faulthandler logging is active.
                 mesh.recompute_normals()
                 return mesh
-            segment_id_and_mesh_with_normals = segment_id_and_mesh.mapValues(decimate)
+            segment_id_and_mesh_with_normals = segment_id_and_mesh.mapValues(compute_normals)
 
             rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing stitched mesh normals", logger)
             rt.unpersist(segment_id_and_mesh)
@@ -862,11 +860,6 @@ class CreateStitchedMeshes(Workflow):
 
         persist_and_execute(grouped_segment_ids_and_meshes, f"Grouping meshes with scheme: '{grouping_scheme}'", logger)
         return grouped_segment_ids_and_meshes
-
-
-def decimate_mesh(decimation_fraction, mesh):
-    mesh.simplify(decimation_fraction)
-    return mesh
 
 
 def post_meshes_to_dvid(config, instance_name, partition_items):
