@@ -11,8 +11,8 @@ from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.ingest_label_indexes import ingest_label_indexes
 
 dirpath = sys.argv[1]
-# import os
-# dirpath = os.path.dirname(__file__)
+#import os
+#dirpath = os.path.dirname(__file__)
 
 configs = glob.glob(dirpath + "/temp_data/config.*")
 assert len(configs) == 1, "Why does the temp_dir have more than one config.* file?"
@@ -118,7 +118,9 @@ expected_block_coords //= 64 # dvid block width
 ##
 ## We use fake label-to-body mapping for this test: It's just a table of mod-10 values for each object.
 ##
-segment_to_body_df = pd.read_csv(f'{dirpath}/LABEL-TO-BODY-mod-100-labelmap.csv', header=False)
+block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
+block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
+segment_to_body_df = pd.read_csv(f'{dirpath}/LABEL-TO-BODY-mod-100-labelmap.csv', names=['segment_id', 'body_id'], header=None)
 
 last_mutid = 1
 ingest_label_indexes( dvid_config['server'],
@@ -129,16 +131,19 @@ ingest_label_indexes( dvid_config['server'],
                       segment_to_body_df )
 
 # Use label 42 for this test.
-print(f"Fetching sparsevol for label 42")
+BODY_ID = 42
+print(f"Fetching sparsevol for label {BODY_ID}")
 
 # Fetch the /sparsevol-coarse representation for it.
 fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
                                                        dvid_config['uuid'],
                                                        dvid_config['segmentation-name'],
-                                                       largest_sv )
+                                                       BODY_ID )
 
 fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
-expected_block_coords = block_sv_stats_df.query('segment_id % 100 == 42')[['z', 'y', 'x']].sort_values(['z', 'y', 'x']).values
+expected_block_coords = ( block_sv_stats_df.query('segment_id % 100 == @BODY_ID')[['z', 'y', 'x']]
+                          .drop_duplicates()
+                          .sort_values(['z', 'y', 'x']).values )
 expected_block_coords //= 64 # dvid block width
 
 
