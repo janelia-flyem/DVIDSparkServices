@@ -813,15 +813,15 @@ class CreateStitchedMeshes(Workflow):
                                  "but it will be excluded due to your other config settings.")
             full_stats_df['keep_body'] &= full_stats_df.eval('body in @sparse_body_ids')
 
-        # Sort for convenience of viewing output
-        with Timer("Sorting segment stats", logger):
-            full_stats_df.sort_values(['body_voxel_count', 'segment_voxel_count'], ascending=False, inplace=True)
-
         #import pandas as pd
         #pd.set_option('expand_frame_repr', False)
         #logger.info(f"FULL_STATS:\n{full_stats_df}")
                 
         if not config["options"]["skip-stats-export"]:
+            # Sort for convenience of viewing output
+            with Timer("Sorting segment stats", logger):
+                full_stats_df.sort_values(['body_voxel_count', 'segment_voxel_count'], ascending=False, inplace=True)
+    
             # Write the Stats DataFrame to a file for offline analysis.
             output_path = self.config_dir + '/segment-stats-dataframe.csv'
             logger.info(f"Saving segment statistics to {output_path}")
