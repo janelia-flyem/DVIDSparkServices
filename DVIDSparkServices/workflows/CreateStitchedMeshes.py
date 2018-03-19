@@ -252,6 +252,11 @@ class CreateStitchedMeshes(Workflow):
             "description": "Debugging feature. Force persistence of RDDs after every map step, for better logging.",
             "type": "boolean",
             "default": True
+        },
+        "skip-stats-export": {
+            "description": "Segment stats must be computed for grouping and dynamic decimation.  But SAVING them to a file can be disabled, as a debugging feature.",
+            "type": "boolean",
+            "default": False
         }
     })
     
@@ -379,11 +384,13 @@ class CreateStitchedMeshes(Workflow):
                                        .map( lambda seg_counts_size: (seg_counts_size[0], *np.array(list(seg_counts_size[1])).sum(axis=0) ) ) \
                                        .collect()
 
+        
         counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'initial_vertex_count', 'total_compressed_size'] )
         del segments_and_counts_and_size
-        counts_df.to_csv(self.relpath_to_abspath('initial-vertex-counts.csv'), index=False)
         with Timer("Merging initial_vertex_count onto segment stats", logger):
             full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
+        if not config["options"]["skip-stats-export"]:
+            counts_df.to_csv(self.relpath_to_abspath('initial-vertex-counts.csv'), index=False)
         
         # Drop size
         # --> (segment_id, mesh_for_one_block)
@@ -545,9 +552,10 @@ class CreateStitchedMeshes(Workflow):
             del segment_id_and_decimated_mesh
 
         # Get post-decimation vertex count and ovewrite stats file
-        segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
-        counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'post_stitch_decimated_vertex_count'] )
-        counts_df.to_csv(self.relpath_to_abspath('poststitch-vertex-counts.csv'),  index=False)
+        if not config["options"]["skip-stats-export"]:
+            segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
+            counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'post_stitch_decimated_vertex_count'] )
+            counts_df.to_csv(self.relpath_to_abspath('poststitch-vertex-counts.csv'),  index=False)
 
         # Post-stitch normals
         # --> (segment_id, mesh)
@@ -600,14 +608,14 @@ class CreateStitchedMeshes(Workflow):
         rt.unpersist(segment_id_and_mesh)
         del segment_id_and_mesh
 
-        # Record final mesh file sizes
-        # (Will need to be grouped by body to compute tarball size        
-        mesh_file_sizes = segment_id_and_mesh_bytes.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1])) ).collect()
-        mesh_file_sizes_df = pd.DataFrame(mesh_file_sizes, columns=['segment', 'file_size'])
-        del mesh_file_sizes
-        mesh_file_sizes_df.to_csv(self.relpath_to_abspath('file-sizes.csv'), index=False)
-        del mesh_file_sizes_df
-        
+        if not config["options"]["skip-stats-export"]:
+            # Record final mesh file sizes
+            # (Will need to be grouped by body to compute tarball size        
+            mesh_file_sizes = segment_id_and_mesh_bytes.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1])) ).collect()
+            mesh_file_sizes_df = pd.DataFrame(mesh_file_sizes, columns=['segment', 'file_size'])
+            del mesh_file_sizes
+            mesh_file_sizes_df.to_csv(self.relpath_to_abspath('file-sizes.csv'), index=False)
+            del mesh_file_sizes_df
 
         # Group by body ID
         # --> ( body_id, [( segment_id, mesh_bytes ), ( segment_id, mesh_bytes ), ...] )
@@ -771,20 +779,23 @@ class CreateStitchedMeshes(Workflow):
             #logger.info("debugging: Saving stats AFTER casting body dtype")
             #full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-dtype-cast.csv'), index=False)
 
+            output_path = self.config_dir + '/body-stats.csv'
+            logger.info(f"Computing body statistics and saving to {output_path}")
+
             # Calculate body voxel sizes
             body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
             body_stats_df.columns = ['body_segment_count', 'body_voxel_count']
             body_stats_df['body'] = body_stats_df.index
 
             full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
+    
+            if not config["options"]["skip-stats-export"]:
+                # For offline analysis, write body stats to a file
+                body_stats_df = body_stats_df[['body', 'body_segment_count', 'body_voxel_count']] # Set col order
+                body_stats_df.columns = ['body', 'segment_count', 'voxel_count'] # rename columns for csv
+                body_stats_df.sort_values('voxel_count', ascending=False, inplace=True)
 
-            # For offline analysis, write body stats to a file
-            output_path = self.config_dir + '/body-stats.csv'
-            logger.info(f"Saving body statistics to {output_path}")
-            body_stats_df = body_stats_df[['body', 'body_segment_count', 'body_voxel_count']] # Set col order
-            body_stats_df.columns = ['body', 'segment_count', 'voxel_count'] # rename columns for csv
-            body_stats_df.sort_values('voxel_count', ascending=False, inplace=True)
-            body_stats_df.to_csv(output_path, header=True, index=False)
+                body_stats_df.to_csv(output_path, header=True, index=False)
             
         full_stats_df['keep_segment'] = ((full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size']) &
                                          (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
@@ -810,10 +821,11 @@ class CreateStitchedMeshes(Workflow):
         #pd.set_option('expand_frame_repr', False)
         #logger.info(f"FULL_STATS:\n{full_stats_df}")
                 
-        # Write the Stats DataFrame to a file for offline analysis.
-        output_path = self.config_dir + '/segment-stats-dataframe.csv'
-        logger.info(f"Saving segment statistics to {output_path}")
-        full_stats_df.to_csv(output_path, index=False)
+        if not config["options"]["skip-stats-export"]:
+            # Write the Stats DataFrame to a file for offline analysis.
+            output_path = self.config_dir + '/segment-stats-dataframe.csv'
+            logger.info(f"Saving segment statistics to {output_path}")
+            full_stats_df.to_csv(output_path, index=False)
         
         return full_stats_df
 
