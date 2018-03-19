@@ -11,6 +11,8 @@ from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 from DVIDSparkServices.dvid.ingest_label_indexes import ingest_label_indexes
 
 dirpath = sys.argv[1]
+# import os
+# dirpath = os.path.dirname(__file__)
 
 configs = glob.glob(dirpath + "/temp_data/config.*")
 assert len(configs) == 1, "Why does the temp_dir have more than one config.* file?"
@@ -18,7 +20,8 @@ assert len(configs) == 1, "Why does the temp_dir have more than one config.* fil
 with open(configs[0], 'r') as f:
     config = yaml.load(f)
 
-input_service = DVIDNodeService(str(config['input']['dvid']['server']), str(config['input']['dvid']['uuid']))
+input_service = DVIDNodeService( str(config['input']['dvid']['server']),
+                                 str(config['input']['dvid']['uuid']) )
 input_name = config['input']['dvid']['segmentation-name']
 input_bb_xyz = config['input']['geometry']['bounding-box']
 input_bb_zyx = np.array(input_bb_xyz)[:,::-1]
@@ -71,7 +74,7 @@ segment_counts_from_output_seg.sort_index(inplace=True)
 assert (segment_counts_from_output_seg == segment_counts_from_stats).all()
 
 ##
-## Now ingest label indexes (for the first output), and try a sparsevol query to prove that it works.
+## Now ingest SUPERVOXEL label indexes (for the first output), and try a sparsevol query to prove that it works.
 ##
 block_stats_path = dirpath + '/temp_data/block-statistics.csv'
 dvid_config = config['outputs'][0]['dvid']
@@ -84,9 +87,8 @@ dtypes = { 'segment_id': np.uint64,
 
 block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
 block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
+
 last_mutid = 0
-
-
 ingest_label_indexes( dvid_config['server'],
                       dvid_config['uuid'],
                       dvid_config['segmentation-name'],
@@ -106,6 +108,39 @@ fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
 fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
 expected_block_coords = block_sv_stats_df.query('segment_id == @largest_sv')[['z', 'y', 'x']].sort_values(['z', 'y', 'x']).values
 expected_block_coords //= 64 # dvid block width
+
+
+##
+## Now RE-ingest, for BODY label indexes (for the first output), and try a sparsevol query to prove that it works.
+##
+## (Normally, we would want to close the original node and branch
+##  from it before ingesting body indexes, but we'll skip that for this test.)
+##
+## We use fake label-to-body mapping for this test: It's just a table of mod-10 values for each object.
+##
+segment_to_body_df = pd.read_csv(f'{dirpath}/LABEL-TO-BODY-mod-100-labelmap.csv', header=False)
+
+last_mutid = 1
+ingest_label_indexes( dvid_config['server'],
+                      dvid_config['uuid'],
+                      dvid_config['segmentation-name'],
+                      last_mutid,
+                      block_sv_stats_df,
+                      segment_to_body_df )
+
+# Use label 42 for this test.
+print(f"Fetching sparsevol for label 42")
+
+# Fetch the /sparsevol-coarse representation for it.
+fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
+                                                       dvid_config['uuid'],
+                                                       dvid_config['segmentation-name'],
+                                                       largest_sv )
+
+fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
+expected_block_coords = block_sv_stats_df.query('segment_id % 100 == 42')[['z', 'y', 'x']].sort_values(['z', 'y', 'x']).values
+expected_block_coords //= 64 # dvid block width
+
 
 # print("EXPECTED BLOCKS:")
 # print(expected_block_coords)
