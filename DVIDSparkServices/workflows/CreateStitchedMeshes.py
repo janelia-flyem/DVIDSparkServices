@@ -389,7 +389,7 @@ class CreateStitchedMeshes(Workflow):
         # --> (segment_id, mesh_for_one_block)
         segment_ids_and_mesh_blocks = segment_ids_and_mesh_blocks.map(lambda a_bc: (a_bc[0], a_bc[1][0]))
 
-        # appe column for body vertex counts (body is the INDEX)
+        # append column for body vertex counts (body is the INDEX)
         body_vertex_counts = full_stats_df[['body', 'initial_vertex_count']].groupby('body').sum()
         body_vertex_counts.columns = ['body_initial_vertex_count']
         full_stats_df = full_stats_df.merge(body_vertex_counts, 'inner', left_on='body', right_index=True, copy=False)
@@ -401,6 +401,8 @@ class CreateStitchedMeshes(Workflow):
             def smooth(mesh):
                 import DVIDSparkServices # Ensure faulthandler logging is active.
                 mesh.laplacian_smooth(smoothing_iterations)
+                mesh.drop_normals()
+                mesh.compress()
                 return mesh
             segment_id_and_smoothed_mesh = segment_ids_and_mesh_blocks.mapValues( smooth )
     
@@ -410,7 +412,7 @@ class CreateStitchedMeshes(Workflow):
             del segment_id_and_smoothed_mesh
 
 
-        # segment is the INDEX
+        # per-body vertex counts -- segment is the INDEX
         body_initial_vertex_counts_df = full_stats_df[['segment', 'body_initial_vertex_count']].set_index('segment')
         max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
 
@@ -435,6 +437,8 @@ class CreateStitchedMeshes(Workflow):
                         final_decimation = max_vertices / body_initial_vertex_count
                     
                     mesh = subproc_decimator(final_decimation, mesh)
+                    mesh.drop_normals()
+                    mesh.compress()
                     return (segment_id, mesh)
                 except TimeoutError:
                     bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{final_decimation:.2f}-{segment_id}.obj'
