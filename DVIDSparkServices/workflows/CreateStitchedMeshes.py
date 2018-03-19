@@ -580,11 +580,8 @@ class CreateStitchedMeshes(Workflow):
             import DVIDSparkServices # Ensure faulthandler logging is active.
             segment_id, mesh = id_mesh
             try:
-                if len(mesh.vertices_zyx) < 10e6:
-                    return (segment_id, mesh.serialize(fmt=fmt))
-            
-                with Timer(f"Serializing a big mesh ({len(mesh.vertices_zyx)} vertices)", logging.getLogger(__name__)):
-                    return (segment_id, mesh.serialize(fmt=fmt))
+                mesh_serialize = execute_in_subprocess(600, logging.getLogger(__name__))(mesh.serialize)
+                return (segment_id, mesh_serialize(fmt=fmt))
             except:
                 # This assumes that we can still it serialize in obj format...
                 output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
