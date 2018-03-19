@@ -602,6 +602,15 @@ class CreateStitchedMeshes(Workflow):
         rt.unpersist(segment_id_and_mesh)
         del segment_id_and_mesh
 
+        # Record final mesh file sizes
+        # (Will need to be grouped by body to compute tarball size        
+        mesh_file_sizes = segment_id_and_mesh_bytes.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1])) ).collect()
+        mesh_file_sizes_df = pd.DataFrame(mesh_file_sizes, columns=['segment', 'file_size'])
+        del mesh_file_sizes
+        mesh_file_sizes_df.to_csv(self.relpath_to_abspath('file-sizes.csv'), index=False)
+        del mesh_file_sizes_df
+        
+
         # Group by body ID
         # --> ( body_id, [( segment_id, mesh_bytes ), ( segment_id, mesh_bytes ), ...] )
         segment_id_and_mesh_bytes_grouped_by_body = self.group_by_body(segment_id_and_mesh_bytes)
