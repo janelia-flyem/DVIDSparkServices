@@ -99,6 +99,15 @@ class CreateStitchedMeshes(Workflow):
                 "default": 0.1
             },
 
+            "pre-stitch-max-vertices": {
+                "description": "Before stitching, further decimate the mesh (if necessary) "
+                               "to have no more than this vertex count in the ENTIRE BODY.\n"
+                               "For 'no max', set to -1",
+                "type": "number",
+                "default": -1 # No max
+            },
+            
+
             "post-stitch-decimation": {
                 "description": "Mesh decimation aims to reduce the number of \n"
                                "mesh vertices in the mesh to a fraction of the original mesh. \n"
@@ -110,14 +119,14 @@ class CreateStitchedMeshes(Workflow):
                 "default": 0.1
             },
             
-            "post-stitch-max-vertices": {
-                "description": "After stitching, further decimate the mesh (if necessary) "
-                               "to have no more than this vertex count in the ENTIRE BODY.\n"
-                               "For 'no max', set to -1",
-                "type": "number",
-                "default": -1 # No max
-            },
-            
+#             "post-stitch-max-vertices": {
+#                 "description": "After stitching, further decimate the mesh (if necessary) "
+#                                "to have no more than this vertex count in the ENTIRE BODY.\n"
+#                                "For 'no max', set to -1",
+#                 "type": "number",
+#                 "default": -1 # No max
+#             },
+#             
             "compute-normals": {
                 "description": "Compute vertex normals and include them in the uploaded results.",
                 "type": "boolean",
@@ -369,15 +378,20 @@ class CreateStitchedMeshes(Workflow):
                                        .map( lambda seg_counts_size: (seg_counts_size[0], *np.array(list(seg_counts_size[1])).sum(axis=0) ) ) \
                                        .collect()
 
-        counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'prestitch_vertex_count', 'total_compressed_size'] )
+        counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'initial_vertex_count', 'total_compressed_size'] )
         del segments_and_counts_and_size
-        counts_df.to_csv(self.relpath_to_abspath('prestitch-vertex-counts.csv'), index=False)
-        with Timer("Merging prestitch_vertex_count onto segment stats", logger):
+        counts_df.to_csv(self.relpath_to_abspath('initial-vertex-counts.csv'), index=False)
+        with Timer("Merging initial_vertex_count onto segment stats", logger):
             full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         
         # Drop size
         # --> (segment_id, mesh_for_one_block)
         segment_ids_and_mesh_blocks = segment_ids_and_mesh_blocks.map(lambda a_bc: (a_bc[0], a_bc[1][0]))
+
+        # appe column for body vertex counts (body is the INDEX)
+        body_vertex_counts = full_stats_df[['body', 'initial_vertex_count']].groupby('body').sum()
+        body_vertex_counts.columns = ['body_initial_vertex_count']
+        full_stats_df = full_stats_df.merge(body_vertex_counts, 'inner', left_on='body', right_index=True, copy=False)
         
         # Pre-stitch smoothing
         # --> (segment_id, mesh_for_one_block)
@@ -394,6 +408,11 @@ class CreateStitchedMeshes(Workflow):
             segment_ids_and_mesh_blocks = segment_id_and_smoothed_mesh
             del segment_id_and_smoothed_mesh
 
+
+        # segment is the INDEX
+        body_initial_vertex_counts_df = full_stats_df[['segment', 'body_initial_vertex_count']].set_index('segment')
+        max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
+
         # Pre-stitch decimation
         # --> (segment_id, mesh_for_one_block)
         decimation_fraction = config["mesh-config"]["pre-stitch-decimation"]
@@ -406,10 +425,18 @@ class CreateStitchedMeshes(Workflow):
                 logger = logging.getLogger(__name__)
                 subproc_decimator = execute_in_subprocess(timeout, logger)(decimate_mesh)
                 try:
-                    mesh = subproc_decimator(decimation_fraction, mesh)
+                    final_decimation = decimation_fraction
+    
+                    # If the total vertex count of all segments in this segment's
+                    # body would be too large, apply further decimation.
+                    body_initial_vertex_count = body_initial_vertex_counts_df.loc[segment_id, 'body_initial_vertex_count']
+                    if final_decimation * body_initial_vertex_count > max_vertices:
+                        final_decimation = max_vertices / body_initial_vertex_count
+                    
+                    mesh = subproc_decimator(final_decimation, mesh)
                     return (segment_id, mesh)
                 except TimeoutError:
-                    bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{decimation_fraction:.2f}-{segment_id}.obj'
+                    bad_mesh_export_path = f'{bad_mesh_dir}/failed-decimation-{final_decimation:.2f}-{segment_id}.obj'
                     mesh.serialize(f'{bad_mesh_export_path}')
                     logger.error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
@@ -491,15 +518,7 @@ class CreateStitchedMeshes(Workflow):
         # Post-stitch decimation
         # --> (segment_id, mesh)
         decimation_fraction = config["mesh-config"]["post-stitch-decimation"]
-        max_vertices = config["mesh-config"]["post-stitch-max-vertices"]
-        
-        # body is the INDEX
-        body_vertex_counts = full_stats_df[['body', 'prestitch_vertex_count']].groupby('body').sum()
-        body_vertex_counts.columns = ['body_prestitch_vertex_count']
-        full_stats_df = full_stats_df.merge(body_vertex_counts, 'inner', left_on='body', right_index=True, copy=False)
-        
-        # segment is the INDEX
-        body_prestitch_vertex_counts_df = full_stats_df[['segment', 'body_prestitch_vertex_count']].set_index('segment')
+        #max_vertices = config["mesh-config"]["post-stitch-max-vertices"]
         
         if decimation_fraction < 1.0 or max_vertices > 0:
             @self.collect_log(lambda *_a, **_kw: 'post-stitch-decimation', logging.WARNING)
@@ -510,9 +529,9 @@ class CreateStitchedMeshes(Workflow):
 
                 # If the total vertex count of all segments in this segment's
                 # body would be too large, apply further decimation.                
-                body_prestitch_vertex_count = body_prestitch_vertex_counts_df[segment_id]
-                if final_decimation * body_prestitch_vertex_count > max_vertices:
-                    final_decimation = max_vertices / body_prestitch_vertex_count
+                ##body_prestitch_vertex_count = body_prestitch_vertex_counts_df[segment_id]
+                ##if final_decimation * body_prestitch_vertex_count > max_vertices:
+                ##    final_decimation = max_vertices / body_prestitch_vertex_count
                 mesh.simplify(final_decimation)
                 return (segment_id, mesh)
             segment_id_and_decimated_mesh = segment_id_and_mesh.map(decimate)
