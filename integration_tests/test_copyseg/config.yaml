@@ -29,6 +29,7 @@
     ],
 
     "options": {
+        "instance-creation-type": "labelmap",
         "pyramid-depth": 0, # No pyramid, to force several slabs (and exercise stats merging logic)
 
         "resource-server": "driver",
