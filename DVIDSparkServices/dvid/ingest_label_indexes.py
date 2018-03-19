@@ -45,8 +45,8 @@ def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=N
         chunk_size = 1_000_000
         for chunk_start in range(0, len(block_sv_stats_df), chunk_size):
             chunk_stop = min(chunk_start+chunk_size, len(block_sv_stats_df))
-            chunk_segments = block_sv_stats_df[chunk_start:chunk_stop, 'segment_id'].values
-            block_sv_stats_df[chunk_start:chunk_stop, 'body_id'] = mapper.apply(chunk_segments, allow_unmapped=True)
+            chunk_segments = block_sv_stats_df.loc[chunk_start:chunk_stop, 'segment_id'].values
+            block_sv_stats_df.loc[chunk_start:chunk_stop, 'body_id'] = mapper.apply(chunk_segments, allow_unmapped=True)
 
     user = os.environ["USER"]
     mod_time = datetime.datetime.now().isoformat()
