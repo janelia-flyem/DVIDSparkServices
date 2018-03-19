@@ -10,7 +10,7 @@ from tqdm import tqdm # progress bar
 import numpy as np
 import pandas as pd
 
-from dvidutils import LabelMapper
+from dvidutils import LabelMapper # Fast integer array mapping in C++
 
 from DVIDSparkServices.util import Timer
 from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
@@ -27,6 +27,19 @@ SUPERVOXEL_STATS_COLUMNS = ['segment_id', 'z', 'y', 'x', 'count']
 AGGLO_MAP_COLUMNS = ['segment_id', 'body_id']
 
 def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=None, last_mutid=0):
+    """
+    Generator.  Helper function for ingest_label_indexes().
+    
+    Append a 'body_id' column onto block_sv_stats_df, initialized via the mapping specified via segment_to_body_df.
+    Then group the rows of block_sv_stats_df by body_id, and yields a LabelIndex for each group.
+    
+    For each group, this generator yields:
+
+        (body_id, label_index, group_entries_total)
+        
+        ...where body_id is the body_id is uint64, label_index is a LabelIndex (protobuf structure),
+        and group_entries_total is an integer for tracking progress.
+    """
     assert list(block_sv_stats_df.columns) == SUPERVOXEL_STATS_COLUMNS
 
     if segment_to_body_df is None:
@@ -79,6 +92,27 @@ def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=N
         yield (body_id, label_set_index, group_entries_total)
 
 def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats_df, segment_to_body_df=None, show_progress_bar=True):
+    """
+    Ingest the label indexes for a particular agglomeration.
+    
+    Args:
+        server, uuid, instance_name:
+            DVID instance info
+    
+        last_mutid:
+            The mutation ID to use for all indexes
+        
+        block_sv_stats_df:
+            DataFrame of blockwise supervoxel counts, with columns:
+            ['segment_id', 'z', 'y', 'x', 'count']
+        
+        segment_to_body_df:
+            If loading an agglomeration, must be a 2-column DataFrame, mapping supervoxel-to-body.
+            If loading unagglomerated supervoxels, set to None (identity mapping is used).
+        
+         show_progress_bar:
+             Show progress information on the console.
+    """
     instance_info = DataInstance(server, uuid, instance_name)
     if instance_info.datatype != 'labelmap':
         raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
