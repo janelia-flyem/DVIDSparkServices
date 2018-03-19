@@ -19,7 +19,7 @@ from DVIDSparkServices.dvid.metadata import DataInstance
 
 # The labelops_pb2 file was generated with the following command: 
 # $ protoc --python_out=. labelops.proto
-from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex
+from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, MappingOps, MappingOp
 
 logger = logging.getLogger(__name__)
 
@@ -97,15 +97,85 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
             r.raise_for_status()
             progress_bar.update(group_entries_total)
 
+def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, chunk_size=100_000, show_progress_bar=True):
+    """
+    Ingest the forward-map (supervoxel-to-body) into DVID via the .../mappings endpoint
+    
+    Args:
+        server, uuid, instance_name:
+            DVID instance info
+    
+        mutid:
+            The mutation ID to use for all mappings
+        
+        segment_to_body_df:
+            DataFrame.  Must have columns ['segment_id', 'body_id']
+        
+        chunk_size:
+            How many ops to pack into a single REST call.
+        
+        show_progress_bar:
+            Show progress information on the console.
+    
+    """
+    assert list(segment_to_body_df.columns) == AGGLO_MAP_COLUMNS
+    instance_info = DataInstance(server, uuid, instance_name)
+    if instance_info.datatype != 'labelmap':
+        raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
+
+    segment_to_body_df.sort_values(['body_id', 'segment_id'], inplace=True)
+
+    session = requests.Session()
+    
+    if not server.startswith('http://'):
+        server = 'http://' + server
+
+    def send_mapping_ops(mappings):
+        ops = MappingOps()
+        ops.mappings.extend(mappings)
+        payload = ops.SerializeToString()
+        
+        # FIXME: What is this second uuid supposed to be?
+        session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings/{uuid}', data=payload)
+
+    with tqdm(len(segment_to_body_df), disable=not show_progress_bar) as progress_bar:
+        segments_progress = 0
+        mappings = []
+        for body_id, body_df in segment_to_body_df.groupby('body_id'):
+            op = MappingOp()
+            op.mutid = mutid
+            op.mapped = body_id
+            op.original.extend(body_df['segment_id'])
+
+            # Add to this chunk's mappings list
+            mappings.append(op)
+
+            # Send if chunk is full
+            if len(mappings) == chunk_size:
+                send_mapping_ops(mappings)
+                progress_bar.update(segments_progress)
+                mappings = [] # reset
+
+            segments_progress += len(body_df['segment_id'])
+        
+        # send last chunk
+        if mappings:
+            send_mapping_ops(mappings)
+            progress_bar.update(segments_progress)
+
+
 def main():
     handler = logging.StreamHandler(sys.stdout)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
+    #logging.getLogger('requests').setLevel(logging.DEBUG)
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--last-mutid', '-i', required=False)
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
                         help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
+    parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both'],
+                        help='Whether to load the LabelIndexes, MappingOps, or both.')
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
@@ -128,22 +198,35 @@ def main():
         else:
             args.last_mutid = 0
 
-    with Timer("Loading supervoxel block statistics file", logger):
-        dtypes = { 'segment_id': np.uint64,
-                   'z': np.int32,
-                   'y': np.int32,
-                   'x':np.int32,
-                   'count': np.uint32 }
-        block_sv_stats_df = pd.read_csv(args.supervoxel_block_stats_csv, engine='c', dtype=dtypes)
+    if args.operation in ('indexes', 'both'):
+        with Timer("Loading supervoxel block statistics file", logger):
+            dtypes = { 'segment_id': np.uint64,
+                       'z': np.int32,
+                       'y': np.int32,
+                       'x':np.int32,
+                       'count': np.uint32 }
+            block_sv_stats_df = pd.read_csv(args.supervoxel_block_stats_csv, engine='c', dtype=dtypes)
+    
+        with Timer(f"Grouping {len(block_sv_stats_df)} blockwise supervoxel counts and loading LabelSetIndexes", logger):
+            ingest_label_indexes( args.server,
+                                  args.uuid,
+                                  args.labelmap_instance,
+                                  args.last_mutid,
+                                  block_sv_stats_df,
+                                  segment_to_body_df,
+                                  True )
 
-    with Timer(f"Grouping {len(block_sv_stats_df)} blockwise supervoxel counts and loading LabelSetIndexes", logger):
-        ingest_label_indexes( args.server,
-                              args.uuid,
-                              args.labelmap_instance,
-                              args.last_mutid,
-                              block_sv_stats_df,
-                              segment_to_body_df,
-                              True )
+    if args.operation in ('mappings', 'both'):
+        if not args.agglomeration_mapping:
+            raise RuntimeError("Can't load mappings without an agglomeration-mapping file.")
+        
+        with Timer(f"Loading mapping ops", logger):
+            ingest_mapping( args.server,
+                            args.uuid,
+                            args.labelmap_instance,
+                            args.last_mutid,
+                            segment_to_body_df,
+                            show_progress_bar=True )
 
     logger.info(f"DONE.")
 
@@ -157,7 +240,8 @@ if __name__ == "__main__":
             config = yaml.load(f)
 
         dvid_config = config['outputs'][0]['dvid']
-        sys.argv += f"{dvid_config['server']} {dvid_config['uuid']} {dvid_config['segmentation-name']} {test_dir}/block-statistics.csv".split()
+        mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
+        sys.argv += f"--operation=both --agglomeration-mapping={mapping_file} {dvid_config['server']} {dvid_config['uuid']} {dvid_config['segmentation-name']} {test_dir}/block-statistics.csv".split()
     main()
 
 
