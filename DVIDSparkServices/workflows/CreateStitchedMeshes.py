@@ -146,8 +146,7 @@ class CreateStitchedMeshes(Workflow):
                                                # so that the duplicate entries are not used. Topologically stitches adjacent faces.
                                                # Will be ineffective unless you used a task-block-halo of at least 1, and no
                                                # pre-stitch smoothing or decimation.
-
-                         "stitch-and-filter"], # Same as above, but also filter out duplicate vertices and deduplicate faces.
+                        ],
                 
                 "default": "simple-concatenate",
             },
@@ -495,9 +494,10 @@ class CreateStitchedMeshes(Workflow):
                 for mesh in meshes:
                     mesh.destroy() # Save RAM -- we're done with the block meshes at this point
     
-                if stitch_method == "stitch":
-                    concatenated_mesh.stitch_adjacent_faces(False, False)
-                elif stitch_method == "stitch-and-filter":
+                if stitch_method == "simple-concatenate":
+                    # This is required for proper draco encoding
+                    concatenated_mesh.drop_unused_vertices()
+                elif stitch_method == "stitch":
                     concatenated_mesh.stitch_adjacent_faces(True, True)
     
                 concatenated_mesh.compress()
