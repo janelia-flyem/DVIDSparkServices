@@ -68,7 +68,13 @@ class CopySegmentation(Workflow):
             "type": "string",
             "default": "block-statistics.csv"
         },
-
+        "compute-block-statistics": {
+            "description": "Whether or not to compute block statistics (from the scale 0 data).\n"
+                           "Usually you'll need the statistics file to load labelindexes after copying the voxels,\n"
+                           "but in some cases you might not need them (e.g. adding pyramids after ingesting only scale 0).\n",
+            "type": "boolean",
+            "default": True
+        },
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate \n"
                            "(-1 means choose automatically, 0 means no pyramid)",
@@ -175,24 +181,22 @@ class CopySegmentation(Workflow):
         logger.info(f"Processing data in {len(output_slab_boxes)} slabs (max depth={max_depth}) for {pyramid_depth} pyramid levels")
 
         # Initialize the cumulative stats (from pre-existing file, if present).
-        cumulative_block_stats_df = self._init_stats_file()
+        if self.config_data["options"]["compute-block-statistics"]:
+            cumulative_block_stats_df = self._init_stats_file()
+        else:
+            cumulative_block_stats_df = None
 
-        try:
-            # Read data and accumulate statistics, one slab at a time.
-            for slab_index, output_slab_box in enumerate( output_slab_boxes ):
-                with Timer() as timer:
-                    is_last_slab = (slab_index == len(output_slab_boxes)-1)
-                    cumulative_block_stats_df = self._process_slab(slab_index, output_slab_box, cumulative_block_stats_df, is_last_slab )
-                logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
-                logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
-    
-                delay_minutes = self.config_data["options"]["delay-minutes-between-slabs"]
-                if delay_minutes > 0 and slab_index != len(output_slab_boxes)-1:
-                    logger.info(f"Delaying {delay_minutes} before continuing to next slab...")
-                    time.sleep(delay_minutes * 60)
-        except:
-            
-            raise
+        # Read data and accumulate statistics, one slab at a time.
+        for slab_index, output_slab_box in enumerate( output_slab_boxes ):
+            with Timer() as timer:
+                cumulative_block_stats_df = self._process_slab(slab_index, output_slab_box, cumulative_block_stats_df )
+            logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
+            logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
+
+            delay_minutes = self.config_data["options"]["delay-minutes-between-slabs"]
+            if delay_minutes > 0 and slab_index != len(output_slab_boxes)-1:
+                logger.info(f"Delaying {delay_minutes} before continuing to next slab...")
+                time.sleep(delay_minutes * 60)
 
         logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
 
@@ -451,7 +455,7 @@ class CopySegmentation(Workflow):
             
         return cumulative_block_stats_df
 
-    def _process_slab(self, slab_index, output_slab_box, cumulative_block_stats_df, is_last_slab ):
+    def _process_slab(self, slab_index, output_slab_box, cumulative_block_stats_df ):
         """
         (The main work of this file.)
         
@@ -541,9 +545,10 @@ class CopySegmentation(Workflow):
             del padded_wall
 
         # Now that processing is complete, commit the stats to disk.
-        with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
-            cumulative_block_stats_df = self._append_slab_statistics( cumulative_block_stats_df,
-                                                                      input_slab_block_stats_df )
+        if options["compute-block-statistics"]:
+            with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
+                cumulative_block_stats_df = self._append_slab_statistics( cumulative_block_stats_df,
+                                                                          input_slab_block_stats_df )
         
         return cumulative_block_stats_df
 
