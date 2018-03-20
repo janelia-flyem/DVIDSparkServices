@@ -144,7 +144,7 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
     progress_lock = threading.Lock()
     total_entries = 0
     with tqdm(total=len(block_sv_stats_df), disable=not show_progress_bar) as progress_bar:
-        
+        # This generator is thread-safe, i.e. you can pull from it in parallel 
         batch_generator = _gen_label_index_batches( block_sv_stats_df, blockshape_zyx, last_mutid, batch_size )
         
         failed = False
@@ -164,7 +164,6 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
                     with progress_lock:
                         total_entries += batch_entries
                         progress_bar.update(total_entries)
-                    
             except StopIteration:
                 pass
             except Exception:
