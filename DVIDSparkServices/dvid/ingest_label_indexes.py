@@ -55,9 +55,9 @@ def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=N
     
         block_sv_stats_df['body_id'] = 0
     
-        chunk_size = 1_000_000
-        for chunk_start in range(0, len(block_sv_stats_df), chunk_size):
-            chunk_stop = min(chunk_start+chunk_size, len(block_sv_stats_df))
+        batch_size = 1_000_000
+        for chunk_start in range(0, len(block_sv_stats_df), batch_size):
+            chunk_stop = min(chunk_start+batch_size, len(block_sv_stats_df))
             chunk_segments = block_sv_stats_df.loc[chunk_start:chunk_stop, 'segment_id'].values
             block_sv_stats_df.loc[chunk_start:chunk_stop, 'body_id'] = mapper.apply(chunk_segments, allow_unmapped=True)
 
@@ -131,7 +131,7 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
             r.raise_for_status()
             progress_bar.update(group_entries_total)
 
-def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, chunk_size=100_000, show_progress_bar=True):
+def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, batch_size=100_000, show_progress_bar=True):
     """
     Ingest the forward-map (supervoxel-to-body) into DVID via the .../mappings endpoint
     
@@ -145,7 +145,7 @@ def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, chunk
         segment_to_body_df:
             DataFrame.  Must have columns ['segment_id', 'body_id']
         
-        chunk_size:
+        batch_size:
             How many ops to pack into a single REST call.
         
         show_progress_bar:
@@ -183,7 +183,7 @@ def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, chunk
             mappings.append(op)
 
             # Send if chunk is full
-            if len(mappings) == chunk_size:
+            if len(mappings) == batch_size:
                 send_mapping_ops(mappings)
                 progress_bar.update(segments_progress)
                 mappings = [] # reset
