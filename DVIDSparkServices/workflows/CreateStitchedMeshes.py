@@ -602,7 +602,7 @@ class CreateStitchedMeshes(Workflow):
                 # This assumes that we can still it serialize in obj format...
                 output_path = f'{bad_mesh_dir}/failed-serialization-{segment_id}.obj'
                 mesh.serialize(output_path)
-                logger = logger.getLogger(__name__)
+                logger = logging.getLogger(__name__)
                 logger.error(f"Failed to serialize mesh.  Wrote to {output_path}")
                 return (segment_id, b'')
 
