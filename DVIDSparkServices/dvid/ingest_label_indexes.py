@@ -168,9 +168,7 @@ def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, chunk
         ops = MappingOps()
         ops.mappings.extend(mappings)
         payload = ops.SerializeToString()
-        
-        # FIXME: What is this second uuid supposed to be?
-        session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings/{uuid}', data=payload)
+        session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
 
     with tqdm(total=len(segment_to_body_df), disable=not show_progress_bar) as progress_bar:
         segments_progress = 0
