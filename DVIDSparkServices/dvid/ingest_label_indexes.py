@@ -124,7 +124,7 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
     if not server.startswith('http://'):
         server = 'http://' + server
 
-    with tqdm(len(block_sv_stats_df), disable=not show_progress_bar) as progress_bar:
+    with tqdm(total=len(block_sv_stats_df), disable=not show_progress_bar) as progress_bar:
         for body_id, label_set_index, group_entries_total in gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df, last_mutid):
             payload = label_set_index.SerializeToString()
             r = session.post(f'{server}/api/node/{uuid}/{instance_name}/index/{body_id}', data=payload)
@@ -172,7 +172,7 @@ def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, chunk
         # FIXME: What is this second uuid supposed to be?
         session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings/{uuid}', data=payload)
 
-    with tqdm(len(segment_to_body_df), disable=not show_progress_bar) as progress_bar:
+    with tqdm(total=len(segment_to_body_df), disable=not show_progress_bar) as progress_bar:
         segments_progress = 0
         mappings = []
         for body_id, body_df in segment_to_body_df.groupby('body_id'):
