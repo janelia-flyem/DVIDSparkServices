@@ -420,7 +420,15 @@ class CreateStitchedMeshes(Workflow):
 
 
         # per-body vertex counts -- segment is the INDEX
-        body_initial_vertex_counts_df = full_stats_df[['segment', 'body_initial_vertex_count']].set_index('segment').copy()
+        body_initial_vertex_counts_df = full_stats_df.query('keep_segment and keep_body')[['segment', 'body_initial_vertex_count']]
+        
+        # Zip mesh blocks with counts, and unwrap the resulting lists in the value
+        body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.values)
+        segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
+
+        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining mesh blocks with body vertex counts", logger)
+        rt.unpersist(segment_ids_and_mesh_blocks)
+        
         max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
 
         # Pre-stitch decimation
@@ -428,17 +436,16 @@ class CreateStitchedMeshes(Workflow):
         decimation_fraction = config["mesh-config"]["pre-stitch-decimation"]
         if decimation_fraction < 1.0:
             @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
-            def decimate(id_mesh):
+            def decimate(id_mesh_bcount):
                 import DVIDSparkServices # Ensure faulthandler logging is active.
-                segment_id, mesh = id_mesh
+                segment_id, (mesh, body_vertex_count) = id_mesh_bcount
                 try:
                     final_decimation = decimation_fraction
     
                     # If the total vertex count of all segments in this segment's
                     # body would be too large, apply further decimation.
-                    body_initial_vertex_count = body_initial_vertex_counts_df.loc[segment_id, 'body_initial_vertex_count']
-                    if final_decimation * body_initial_vertex_count > max_vertices:
-                        final_decimation = max_vertices / body_initial_vertex_count
+                    if final_decimation * body_vertex_count > max_vertices:
+                        final_decimation = max_vertices / body_vertex_count
                     
                     mesh.simplify(final_decimation, in_memory=False, timeout=600) # 10 minutes
                     mesh.drop_normals()
@@ -451,10 +458,10 @@ class CreateStitchedMeshes(Workflow):
                     logger.error(f"Timed out while decimating a block mesh! Skipped decimation and wrote bad mesh to {bad_mesh_export_path}")
                     return (segment_id, mesh)
 
-            segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks.map(decimate)
+            segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks_and_body_counts.map(decimate)
 
             rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating block meshes", logger)
-            rt.unpersist(segment_ids_and_mesh_blocks)
+            rt.unpersist(segment_ids_and_mesh_blocks_and_body_counts)
             segment_ids_and_mesh_blocks = segment_id_and_decimated_mesh
             del segment_id_and_decimated_mesh
         
