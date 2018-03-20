@@ -19,7 +19,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   name='labelops.proto',
   package='proto',
   syntax='proto3',
-  serialized_pb=_b('\n\x0elabelops.proto\x12\x05proto\"8\n\x07MergeOp\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\x0e\n\x06target\x18\x02 \x01(\x04\x12\x0e\n\x06merged\x18\x03 \x03(\x04\"<\n\tMappingOp\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\x0e\n\x06mapped\x18\x02 \x01(\x04\x12\x10\n\x08original\x18\x03 \x03(\x04\"0\n\nMappingOps\x12\"\n\x08mappings\x18\x01 \x03(\x0b\x32\x10.proto.MappingOp\"X\n\x07SplitOp\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\x0e\n\x06target\x18\x02 \x01(\x04\x12\x10\n\x08newlabel\x18\x03 \x01(\x04\x12\x0e\n\x06\x63oarse\x18\x04 \x01(\x08\x12\x0c\n\x04rles\x18\x05 \x01(\x0c\"+\n\x0bOpCompleted\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\r\n\x05stage\x18\x02 \x01(\t\"9\n\x08\x41\x66\x66inity\x12\x0e\n\x06label1\x18\x01 \x01(\x04\x12\x0e\n\x06label2\x18\x02 \x01(\x04\x12\r\n\x05value\x18\x03 \x01(\x02\"0\n\nAffinities\x12\x0e\n\x06labels\x18\x01 \x03(\x04\x12\x12\n\naffinities\x18\x02 \x03(\x02\"\x80\x01\n\rAffinityTable\x12.\n\x05table\x18\x01 \x03(\x0b\x32\x1f.proto.AffinityTable.TableEntry\x1a?\n\nTableEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12 \n\x05value\x18\x02 \x01(\x0b\x32\x11.proto.Affinities:\x02\x38\x01\"d\n\x07SVCount\x12*\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x1a.proto.SVCount.CountsEntry\x1a-\n\x0b\x43ountsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12\r\n\x05value\x18\x02 \x01(\r:\x02\x38\x01\"\xbc\x01\n\nLabelIndex\x12-\n\x06\x62locks\x18\x01 \x03(\x0b\x32\x1d.proto.LabelIndex.BlocksEntry\x12\x12\n\nlast_mutid\x18\x03 \x01(\x04\x12\x15\n\rlast_mod_time\x18\x04 \x01(\t\x12\x15\n\rlast_mod_user\x18\x05 \x01(\t\x1a=\n\x0b\x42locksEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12\x1d\n\x05value\x18\x02 \x01(\x0b\x32\x0e.proto.SVCount:\x02\x38\x01\x62\x06proto3')
+  serialized_pb=_b('\n\x0elabelops.proto\x12\x05proto\"8\n\x07MergeOp\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\x0e\n\x06target\x18\x02 \x01(\x04\x12\x0e\n\x06merged\x18\x03 \x03(\x04\"<\n\tMappingOp\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\x0e\n\x06mapped\x18\x02 \x01(\x04\x12\x10\n\x08original\x18\x03 \x03(\x04\"0\n\nMappingOps\x12\"\n\x08mappings\x18\x01 \x03(\x0b\x32\x10.proto.MappingOp\"X\n\x07SplitOp\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\x0e\n\x06target\x18\x02 \x01(\x04\x12\x10\n\x08newlabel\x18\x03 \x01(\x04\x12\x0e\n\x06\x63oarse\x18\x04 \x01(\x08\x12\x0c\n\x04rles\x18\x05 \x01(\x0c\"+\n\x0bOpCompleted\x12\r\n\x05mutid\x18\x01 \x01(\x04\x12\r\n\x05stage\x18\x02 \x01(\t\"9\n\x08\x41\x66\x66inity\x12\x0e\n\x06label1\x18\x01 \x01(\x04\x12\x0e\n\x06label2\x18\x02 \x01(\x04\x12\r\n\x05value\x18\x03 \x01(\x02\"0\n\nAffinities\x12\x0e\n\x06labels\x18\x01 \x03(\x04\x12\x12\n\naffinities\x18\x02 \x03(\x02\"\x80\x01\n\rAffinityTable\x12.\n\x05table\x18\x01 \x03(\x0b\x32\x1f.proto.AffinityTable.TableEntry\x1a?\n\nTableEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12 \n\x05value\x18\x02 \x01(\x0b\x32\x11.proto.Affinities:\x02\x38\x01\"d\n\x07SVCount\x12*\n\x06\x63ounts\x18\x01 \x03(\x0b\x32\x1a.proto.SVCount.CountsEntry\x1a-\n\x0b\x43ountsEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12\r\n\x05value\x18\x02 \x01(\r:\x02\x38\x01\"\xcb\x01\n\nLabelIndex\x12-\n\x06\x62locks\x18\x01 \x03(\x0b\x32\x1d.proto.LabelIndex.BlocksEntry\x12\r\n\x05label\x18\x02 \x01(\x04\x12\x12\n\nlast_mutid\x18\x03 \x01(\x04\x12\x15\n\rlast_mod_time\x18\x04 \x01(\t\x12\x15\n\rlast_mod_user\x18\x05 \x01(\t\x1a=\n\x0b\x42locksEntry\x12\x0b\n\x03key\x18\x01 \x01(\x04\x12\x1d\n\x05value\x18\x02 \x01(\x0b\x32\x0e.proto.SVCount:\x02\x38\x01\"2\n\x0cLabelIndices\x12\"\n\x07indices\x18\x01 \x03(\x0b\x32\x11.proto.LabelIndexb\x06proto3')
 )
 
 
@@ -495,8 +495,8 @@ _LABELINDEX_BLOCKSENTRY = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=800,
-  serialized_end=861,
+  serialized_start=815,
+  serialized_end=876,
 )
 
 _LABELINDEX = _descriptor.Descriptor(
@@ -514,21 +514,28 @@ _LABELINDEX = _descriptor.Descriptor(
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='last_mutid', full_name='proto.LabelIndex.last_mutid', index=1,
+      name='label', full_name='proto.LabelIndex.label', index=1,
+      number=2, type=4, cpp_type=4, label=1,
+      has_default_value=False, default_value=0,
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+    _descriptor.FieldDescriptor(
+      name='last_mutid', full_name='proto.LabelIndex.last_mutid', index=2,
       number=3, type=4, cpp_type=4, label=1,
       has_default_value=False, default_value=0,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='last_mod_time', full_name='proto.LabelIndex.last_mod_time', index=2,
+      name='last_mod_time', full_name='proto.LabelIndex.last_mod_time', index=3,
       number=4, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       options=None),
     _descriptor.FieldDescriptor(
-      name='last_mod_user', full_name='proto.LabelIndex.last_mod_user', index=3,
+      name='last_mod_user', full_name='proto.LabelIndex.last_mod_user', index=4,
       number=5, type=9, cpp_type=9, label=1,
       has_default_value=False, default_value=_b("").decode('utf-8'),
       message_type=None, enum_type=None, containing_type=None,
@@ -547,7 +554,38 @@ _LABELINDEX = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=673,
-  serialized_end=861,
+  serialized_end=876,
+)
+
+
+_LABELINDICES = _descriptor.Descriptor(
+  name='LabelIndices',
+  full_name='proto.LabelIndices',
+  filename=None,
+  file=DESCRIPTOR,
+  containing_type=None,
+  fields=[
+    _descriptor.FieldDescriptor(
+      name='indices', full_name='proto.LabelIndices.indices', index=0,
+      number=1, type=11, cpp_type=10, label=3,
+      has_default_value=False, default_value=[],
+      message_type=None, enum_type=None, containing_type=None,
+      is_extension=False, extension_scope=None,
+      options=None),
+  ],
+  extensions=[
+  ],
+  nested_types=[],
+  enum_types=[
+  ],
+  options=None,
+  is_extendable=False,
+  syntax='proto3',
+  extension_ranges=[],
+  oneofs=[
+  ],
+  serialized_start=878,
+  serialized_end=928,
 )
 
 _MAPPINGOPS.fields_by_name['mappings'].message_type = _MAPPINGOP
@@ -559,6 +597,7 @@ _SVCOUNT.fields_by_name['counts'].message_type = _SVCOUNT_COUNTSENTRY
 _LABELINDEX_BLOCKSENTRY.fields_by_name['value'].message_type = _SVCOUNT
 _LABELINDEX_BLOCKSENTRY.containing_type = _LABELINDEX
 _LABELINDEX.fields_by_name['blocks'].message_type = _LABELINDEX_BLOCKSENTRY
+_LABELINDICES.fields_by_name['indices'].message_type = _LABELINDEX
 DESCRIPTOR.message_types_by_name['MergeOp'] = _MERGEOP
 DESCRIPTOR.message_types_by_name['MappingOp'] = _MAPPINGOP
 DESCRIPTOR.message_types_by_name['MappingOps'] = _MAPPINGOPS
@@ -569,6 +608,7 @@ DESCRIPTOR.message_types_by_name['Affinities'] = _AFFINITIES
 DESCRIPTOR.message_types_by_name['AffinityTable'] = _AFFINITYTABLE
 DESCRIPTOR.message_types_by_name['SVCount'] = _SVCOUNT
 DESCRIPTOR.message_types_by_name['LabelIndex'] = _LABELINDEX
+DESCRIPTOR.message_types_by_name['LabelIndices'] = _LABELINDICES
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 MergeOp = _reflection.GeneratedProtocolMessageType('MergeOp', (_message.Message,), dict(
@@ -664,6 +704,13 @@ LabelIndex = _reflection.GeneratedProtocolMessageType('LabelIndex', (_message.Me
   ))
 _sym_db.RegisterMessage(LabelIndex)
 _sym_db.RegisterMessage(LabelIndex.BlocksEntry)
+
+LabelIndices = _reflection.GeneratedProtocolMessageType('LabelIndices', (_message.Message,), dict(
+  DESCRIPTOR = _LABELINDICES,
+  __module__ = 'labelops_pb2'
+  # @@protoc_insertion_point(class_scope:proto.LabelIndices)
+  ))
+_sym_db.RegisterMessage(LabelIndices)
 
 
 _AFFINITYTABLE_TABLEENTRY.has_options = True

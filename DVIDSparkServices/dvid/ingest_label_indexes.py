@@ -3,6 +3,8 @@ import sys
 import argparse
 import datetime
 import logging
+import threading
+from multiprocessing.pool import ThreadPool
 
 import requests
 from tqdm import tqdm # progress bar
@@ -12,14 +14,15 @@ import pandas as pd
 
 from dvidutils import LabelMapper # Fast integer array mapping in C++
 
+import DVIDSparkServices # We implicitly rely on initialize_excepthook()
+
 from DVIDSparkServices.util import Timer
 from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
-
 from DVIDSparkServices.dvid.metadata import DataInstance
 
 # The labelops_pb2 file was generated with the following command: 
 # $ protoc --python_out=. labelops.proto
-from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, MappingOps, MappingOp
+from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, LabelIndices, MappingOps, MappingOp
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +100,7 @@ def main():
     logger.info(f"DONE.")
 
 
-def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats_df, segment_to_body_df=None, show_progress_bar=True):
+def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats_df, segment_to_body_df=None, batch_size=1000, num_threads=1, show_progress_bar=True):
     """
     Ingest the label indexes for a particular agglomeration.
     
@@ -116,8 +119,14 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
             If loading an agglomeration, must be a 2-column DataFrame, mapping supervoxel-to-body.
             If loading unagglomerated supervoxels, set to None (identity mapping is used).
         
-         show_progress_bar:
-             Show progress information on the console.
+        batch_size:
+            How many LabelIndex structures to include in each /indices REST call.
+        
+        num_threads:
+            How many threads to use, for parallel loading.
+        
+        show_progress_bar:
+            Show progress information on the console.
     """
     instance_info = DataInstance(server, uuid, instance_name)
     if instance_info.datatype != 'labelmap':
@@ -130,28 +139,51 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
     if not server.startswith('http://'):
         server = 'http://' + server
 
+    block_sv_stats_df = _append_body_id_column(block_sv_stats_df, segment_to_body_df)
+
+    progress_lock = threading.Lock()
+    total_entries = 0
     with tqdm(total=len(block_sv_stats_df), disable=not show_progress_bar) as progress_bar:
-        for body_id, label_set_index, group_entries_total in gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df, last_mutid):
-            payload = label_set_index.SerializeToString()
-            r = session.post(f'{server}/api/node/{uuid}/{instance_name}/index/{body_id}', data=payload)
-            r.raise_for_status()
-            progress_bar.update(group_entries_total)
-
-
-def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=None, last_mutid=0):
-    """
-    Generator.  Helper function for ingest_label_indexes().
-    
-    Append a 'body_id' column onto block_sv_stats_df, initialized via the mapping specified via segment_to_body_df.
-    Then group the rows of block_sv_stats_df by body_id, and yields a LabelIndex for each group.
-    
-    For each group, this generator yields:
-
-        (body_id, label_index, group_entries_total)
         
-        ...where body_id is the body_id is uint64, label_index is a LabelIndex (protobuf structure),
-        and group_entries_total is an integer for tracking progress.
-    """
+        batch_generator = _gen_label_index_batches( block_sv_stats_df, blockshape_zyx, last_mutid, batch_size )
+        
+        failed = False
+        def worker_impl():
+            nonlocal failed
+            try:
+                while not failed:
+                    # Fetch next batch (will raise StopIteration when we run out of batches)
+                    next_batch, batch_entries = next(batch_generator)
+                    label_indices = LabelIndices()
+                    label_indices.indices.extend(next_batch)
+
+                    payload = label_indices.SerializeToString()
+                    r = session.post(f'{server}/api/node/{uuid}/{instance_name}/indices', data=payload)
+                    r.raise_for_status()
+                    
+                    with progress_lock:
+                        total_entries += batch_entries
+                        progress_bar.update(total_entries)
+                    
+            except StopIteration:
+                pass
+            except Exception:
+                failed = True
+                raise   # This will still print a traceback, despite the face that we're in a Thread,
+                        # thanks to DVIDSparkServices.__init__.initialize_excepthook()
+        
+        workers = [threading.Thread(target=worker_impl) for _ in range(num_threads)]
+        for worker in workers:
+            worker.start()
+        
+        for worker in workers:
+            worker.join()
+        
+        if failed:
+            raise RuntimeError("One or more worker threads encountered an error.  See traceback above.")
+        
+
+def _append_body_id_column(block_sv_stats_df, segment_to_body_df=None):
     assert list(block_sv_stats_df.columns) == SUPERVOXEL_STATS_COLUMNS
 
     if segment_to_body_df is None:
@@ -172,18 +204,67 @@ def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=N
             chunk_stop = min(chunk_start+batch_size, len(block_sv_stats_df))
             chunk_segments = block_sv_stats_df.loc[chunk_start:chunk_stop, 'segment_id'].values
             block_sv_stats_df.loc[chunk_start:chunk_stop, 'body_id'] = mapper.apply(chunk_segments, allow_unmapped=True)
+    
+    return block_sv_stats_df
 
+def _gen_label_index_batches( block_sv_stats_df, blockshape_zyx, last_mutid=0, batch_size=100 ):
+    """
+    Returns a thread-safe generator of LabelIndex batches.
+    
+    The resulting batches are lists of (list-of-LabelIndex, num_batch_entries)
+    """
+    # Ensure that initialization is performed FIRST,
+    # so the wrapped generator below is threadsafe.
+    lock = threading.Lock()
+    index_generator = _gen_label_indexes(block_sv_stats_df, blockshape_zyx, last_mutid)
+
+    def _gen_impl():
+        try:
+            while True:
+                next_batch = []
+                batch_entries = 0
+                for _ in range(batch_size):
+                    with lock:
+                        # raises StopIteration when none left
+                        label_index, num_entries = next(index_generator)
+                        next_batch.append( label_index ) 
+                        batch_entries += num_entries
+                yield (next_batch, batch_entries)
+        except StopIteration:
+            if next_batch:
+                yield (next_batch, batch_entries)
+
+    return _gen_impl()
+
+def _gen_label_indexes(block_sv_stats_df, blockshape_zyx, last_mutid=0):
+    """
+    Generator.  Helper function for ingest_label_indexes().  NOT THREADSAFE.
+    
+    Append a 'body_id' column onto block_sv_stats_df, initialized via the mapping specified via segment_to_body_df.
+    Then group the rows of block_sv_stats_df by body_id, and yields a LabelIndex for each group.
+    
+    For each group, this generator yields:
+
+        (label_index, num_entries)
+        
+        ...where body_id is the body_id is uint64, label_index is a LabelIndex (protobuf structure),
+        and num_entries indicates how many total 'counts' entries there are in the label_index
+        (for progress tracking purposes).
+    """
     user = os.environ["USER"]
     mod_time = datetime.datetime.now().isoformat()
 
     for body_id, body_group_df in block_sv_stats_df.groupby('body_id'):
-        group_entries_total = 0
-        label_set_index = LabelIndex()
-        label_set_index.last_mutid = last_mutid
-        label_set_index.last_mod_user = user
-        label_set_index.last_mod_time = mod_time
+        label_index = LabelIndex()
+        label_index.label = body_id
+        label_index.last_mutid = last_mutid
+        label_index.last_mod_user = user
+        label_index.last_mod_time = mod_time
         
+        num_entries = 0
         for coord_zyx, block_df in body_group_df.groupby(['z', 'y', 'x']):
+            num_entries += len(block_df)
+
             assert not (coord_zyx % blockshape_zyx).any()
             block_index_zyx = (np.array(coord_zyx) // blockshape_zyx).astype(np.int32)
 
@@ -198,10 +279,9 @@ def gen_labelset_indexes(block_sv_stats_df, blockshape_zyx, segment_to_body_df=N
             encoded_block_index |= np.uint64(block_index_zyx[2] << 0)
             
             for sv, count in zip(block_df['segment_id'], block_df['count']):
-                label_set_index.blocks[encoded_block_index].counts[sv] = count
+                label_index.blocks[encoded_block_index].counts[sv] = count
 
-            group_entries_total += len(block_df)
-        yield (body_id, label_set_index, group_entries_total)
+        yield (label_index, num_entries)
 
 
 
@@ -272,7 +352,7 @@ def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, batch
 
 
 if __name__ == "__main__":
-    DEBUG = False
+    DEBUG = True
     if DEBUG:
         import yaml
         import DVIDSparkServices
