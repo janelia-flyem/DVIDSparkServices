@@ -420,7 +420,7 @@ class CreateStitchedMeshes(Workflow):
 
 
         # per-body vertex counts -- segment is the INDEX
-        body_initial_vertex_counts_df = full_stats_df[['segment', 'body_initial_vertex_count']].set_index('segment')
+        body_initial_vertex_counts_df = full_stats_df[['segment', 'body_initial_vertex_count']].set_index('segment').copy()
         max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
 
         # Pre-stitch decimation
