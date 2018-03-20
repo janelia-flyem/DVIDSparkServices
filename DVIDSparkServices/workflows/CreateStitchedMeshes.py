@@ -418,14 +418,12 @@ class CreateStitchedMeshes(Workflow):
             segment_ids_and_mesh_blocks = segment_id_and_smoothed_mesh
             del segment_id_and_smoothed_mesh
 
-
         # per-body vertex counts -- segment is the INDEX
         body_initial_vertex_counts_df = full_stats_df.query('keep_segment and keep_body')[['segment', 'body_initial_vertex_count']]
         
-        # Zip mesh blocks with counts, and unwrap the resulting lists in the value
+        # Join mesh blocks with corresponding body vertex counts
         body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.values)
         segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
-
         rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining mesh blocks with body vertex counts", logger)
         rt.unpersist(segment_ids_and_mesh_blocks)
         
