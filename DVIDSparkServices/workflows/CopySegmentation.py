@@ -492,15 +492,16 @@ class CopySegmentation(Workflow):
         aligned_input_wall = self._consolidate_and_pad(slab_index, translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
-        # Compute stats on input (pre-padding), but don't write them to disk
-        # until after we've completed the download/downsampling.
-        # Note: Since this is pre-padding, the stats on the border blocks
-        #       will be wrong unless the bounding-box is block-aligned.
-        with Timer(f"Slab {slab_index}: Computing slab block statistics", logger):
-            block_shape = 3*[self.output_services[0].base_service.block_width]
-            input_slab_block_stats_per_brick = aligned_input_wall.bricks.map( partial(block_stats_from_brick, block_shape) ).collect()
-            input_slab_block_stats_df = pd.concat(input_slab_block_stats_per_brick, ignore_index=True)
-            del input_slab_block_stats_per_brick
+        if options["compute-block-statistics"]:
+            # Compute stats on input (pre-padding), but don't write them to disk
+            # until after we've completed the download/downsampling.
+            # Note: Since this is pre-padding, the stats on the border blocks
+            #       will be wrong unless the bounding-box is block-aligned.
+            with Timer(f"Slab {slab_index}: Computing slab block statistics", logger):
+                block_shape = 3*[self.output_services[0].base_service.block_width]
+                input_slab_block_stats_per_brick = aligned_input_wall.bricks.map( partial(block_stats_from_brick, block_shape) ).collect()
+                input_slab_block_stats_df = pd.concat(input_slab_block_stats_per_brick, ignore_index=True)
+                del input_slab_block_stats_per_brick
 
         for output_index, output_service in enumerate(self.output_services):
             if output_index < len(self.output_services) - 1:
