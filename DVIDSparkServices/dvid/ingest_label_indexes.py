@@ -49,7 +49,7 @@ def main():
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
-    parser.add_argument('supervoxel_block_stats_csv', required=False, # not required if only ingesting mapping
+    parser.add_argument('supervoxel_block_stats_csv', nargs='?', # not required if only ingesting mapping
                         help=f'A CSV file with columns: {SUPERVOXEL_STATS_COLUMNS}')
 
     args = parser.parse_args()
