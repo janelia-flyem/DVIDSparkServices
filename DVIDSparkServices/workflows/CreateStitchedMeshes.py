@@ -346,6 +346,8 @@ class CreateStitchedMeshes(Workflow):
             #       Broadcast expense should be minimal thanks to lz4 compression,
             #       but RAM usage will be high.
             segments_to_keep = full_stats_df['segment'][keep_col].values
+            if len(segments_to_keep) == 0:
+                raise RuntimeError("Based on your config settings, no meshes will be generated at all. See segment stats.")
             if segments_to_keep.max() < np.iinfo(np.uint32).max:
                 segments_to_keep = segments_to_keep.astype(np.uint32) # Save some RAM
         
