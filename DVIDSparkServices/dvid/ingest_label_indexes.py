@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import argparse
 import datetime
 import logging
@@ -167,28 +168,48 @@ def ingest_label_indexes( server,
             """
             Send a batch (list) of LabelIndex objects to dvid.
             """
-            label_indices = LabelIndices()
-            label_indices.indices.extend(batch)
-            payload = label_indices.SerializeToString()
-            r = session.post(f'{server}/api/node/{uuid}/{instance_name}/indices', data=payload)
-            r.raise_for_status()
+            with Timer() as timer:
+                label_indices = LabelIndices()
+                label_indices.indices.extend(batch)
+                payload = label_indices.SerializeToString()
+            serializing_time = timer.seconds
+            
+            with Timer() as timer:
+                r = session.post(f'{server}/api/node/{uuid}/{instance_name}/indices', data=payload)
+                r.raise_for_status()
+            sending_time = timer.seconds
+            
+            return (serializing_time, sending_time)
             
         failed = False
+        total_serializing_time = 0.0
+        total_sending_time = 0.0
+        total_generation_time = 0.0
+        
+        start_time = time.time()
         def worker_impl():
             """
             Worker thread run loop.
             """
             nonlocal failed
+            nonlocal total_sending_time
+            nonlocal total_serializing_time
+            nonlocal total_generation_time
             
             try:
                 while not failed:
                     with generator_lock:
                         # Fetch next batch (will raise StopIteration when we run out of batches)
-                        next_batch, batch_entries = next(batch_generator)
+                        with Timer() as timer:
+                            next_batch, batch_entries = next(batch_generator)
+                        batch_generation_time = timer.seconds
                     
-                    send_batch(next_batch)
+                    serializing_time, sending_time = send_batch(next_batch)
 
                     with progress_lock:
+                        total_serializing_time += serializing_time
+                        total_sending_time += sending_time
+                        total_generation_time += batch_generation_time
                         progress_bar.update(batch_entries)
             except StopIteration:
                 pass
@@ -197,12 +218,25 @@ def ingest_label_indexes( server,
                 raise   # This will still print a traceback, despite the fact that we're in a Thread,
                         # thanks to DVIDSparkServices.__init__.initialize_excepthook()
         
-        # Launch the workers and wait for them to finish
-        workers = [threading.Thread(target=worker_impl) for _ in range(num_threads)]
-        for worker in workers:
-            worker.start()
-        for worker in workers:
-            worker.join()
+        try:
+            # Launch the workers and wait for them to finish
+            workers = [threading.Thread(target=worker_impl) for _ in range(num_threads)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+        except:
+            logger.info("Loading LabelIndices failed.")
+            failed = True
+            raise
+        else:
+            logger.info("Loading LabelIndices completed.")
+        finally:
+            logger.info(f"Total batch generation time: {total_generation_time:.2f} seconds (serialized)")
+            logger.info(f"Total serialization time: {total_serializing_time:.2f} seconds (parallelized??)")
+            logger.info(f"Total sending time: {total_sending_time:.2f} seconds (parallelized)")
+            unaccounted_time = (time.time() - start_time) - total_generation_time - total_serializing_time - total_sending_time
+            logger.info(f"Total unaccounted time: {unaccounted_time:.2f} seconds")
         
         if failed:
             raise RuntimeError("One or more worker threads encountered an error while ingesting label indexes.  See traceback above.")
@@ -392,7 +426,8 @@ if __name__ == "__main__":
 
         dvid_config = config['outputs'][0]['dvid']
         mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
-        sys.argv += (f"--operation=both"
+        sys.argv += (#f"--operation=indexes"
+                     f"--operation=both"
                      f" --agglomeration-mapping={mapping_file}"
                      f" --num-threads=4"
                      f" {dvid_config['server']}"
