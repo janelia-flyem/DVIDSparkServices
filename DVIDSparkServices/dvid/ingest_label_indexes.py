@@ -142,6 +142,7 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
     block_sv_stats_df = _append_body_id_column(block_sv_stats_df, segment_to_body_df)
 
     progress_lock = threading.Lock()
+    generator_lock = threading.Lock()
     with tqdm(total=len(block_sv_stats_df), disable=not show_progress_bar) as progress_bar:
         # This generator is thread-safe, i.e. you can pull from it in parallel 
         batch_generator = _gen_label_index_batches( block_sv_stats_df, blockshape_zyx, last_mutid, batch_size )
@@ -155,7 +156,8 @@ def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats
             try:
                 while not failed:
                     # Fetch next batch (will raise StopIteration when we run out of batches)
-                    next_batch, batch_entries = next(batch_generator)
+                    with generator_lock:
+                        next_batch, batch_entries = next(batch_generator)
                     label_indices = LabelIndices()
                     label_indices.indices.extend(next_batch)
 
@@ -210,13 +212,12 @@ def _append_body_id_column(block_sv_stats_df, segment_to_body_df=None):
 
 def _gen_label_index_batches( block_sv_stats_df, blockshape_zyx, last_mutid=0, batch_size=100 ):
     """
-    Returns a thread-safe generator of LabelIndex batches.
+    Returns a of LabelIndex batches. NOT THREADSAFE.
     
     The resulting batches are lists of (list-of-LabelIndex, num_batch_entries)
     """
     # Ensure that initialization is performed FIRST,
     # so the wrapped generator below is threadsafe.
-    lock = threading.Lock()
     index_generator = _gen_label_indexes(block_sv_stats_df, blockshape_zyx, last_mutid)
 
     def _gen_impl():
@@ -225,11 +226,10 @@ def _gen_label_index_batches( block_sv_stats_df, blockshape_zyx, last_mutid=0, b
                 next_batch = []
                 batch_entries = 0
                 for _ in range(batch_size):
-                    with lock:
-                        # raises StopIteration when none left
-                        label_index, num_entries = next(index_generator)
-                        next_batch.append( label_index ) 
-                        batch_entries += num_entries
+                    # raises StopIteration when none left
+                    label_index, num_entries = next(index_generator)
+                    next_batch.append( label_index ) 
+                    batch_entries += num_entries
                 yield (next_batch, batch_entries)
         except StopIteration:
             if next_batch:
