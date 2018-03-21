@@ -760,7 +760,7 @@ class CreateStitchedMeshes(Workflow):
             # Not grouping -- Just duplicate segment stats into body columns
             full_stats_df['body'] = full_stats_df['segment']
             full_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
-            full_stats_df['body_segment_count'] = 1
+            full_stats_df['body_segment_count'] = np.uint8(1)
         else:
             # Add body column
             segment_to_body_df = pd.DataFrame( self.load_labelmap(), columns=['segment', 'body'] )
