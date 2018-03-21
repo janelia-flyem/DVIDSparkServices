@@ -40,11 +40,13 @@ def main():
     #logging.getLogger('requests').setLevel(logging.DEBUG)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--last-mutid', '-i', required=False)
+    parser.add_argument('--last-mutid', '-i', required=False, type=int)
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
                         help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
     parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both'],
                         help='Whether to load the LabelIndexes, MappingOps, or both.')
+    parser.add_argument('--num-threads', '-n', default=1, type=int,
+                        help='How many threads to use when ingesting label indexes (does not currently apply to mappings)')
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
@@ -83,7 +85,8 @@ def main():
                                   args.last_mutid,
                                   block_sv_stats_df,
                                   segment_to_body_df,
-                                  True )
+                                  num_threads=args.num_threads,
+                                  show_progress_bar=True )
 
     if args.operation in ('mappings', 'both'):
         if not args.agglomeration_mapping:
@@ -353,7 +356,7 @@ def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, batch
 
 
 if __name__ == "__main__":
-    DEBUG = True
+    DEBUG = False
     if DEBUG:
         import yaml
         import DVIDSparkServices
@@ -363,7 +366,13 @@ if __name__ == "__main__":
 
         dvid_config = config['outputs'][0]['dvid']
         mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
-        sys.argv += f"--operation=both --agglomeration-mapping={mapping_file} {dvid_config['server']} {dvid_config['uuid']} {dvid_config['segmentation-name']} {test_dir}/block-statistics.csv".split()
+        sys.argv += (f"--operation=both"
+                     f" --agglomeration-mapping={mapping_file}"
+                     f" --num-threads=4"
+                     f" {dvid_config['server']}"
+                     f" {dvid_config['uuid']}"
+                     f" {dvid_config['segmentation-name']}"
+                     f" {test_dir}/block-statistics.csv".split())
 
     main()
 
