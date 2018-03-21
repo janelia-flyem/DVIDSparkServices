@@ -761,56 +761,35 @@ class CreateStitchedMeshes(Workflow):
         if grouping_scheme != "labelmap":
             # Not grouping -- Just duplicate segment stats into body columns
             full_stats_df['body'] = full_stats_df['segment']
-            full_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
-            full_stats_df['body_segment_count'] = np.uint8(1)
+            body_stats_df = pd.DataFrame({ 'body': full_stats_df['segment'] })
+            body_stats_df['body_voxel_count'] = full_stats_df['segment_voxel_count']
+            body_stats_df['body_segment_count'] = np.uint8(1)
         else:
-            # Add body column
+            # Load agglomeration mapping
             segment_to_body_df = pd.DataFrame( self.load_labelmap(), columns=['segment', 'body'] )
-            
             if (segment_to_body_df['segment'].max() > MAX_SAFE_INT) or (segment_to_body_df['body'].max() > MAX_SAFE_INT):
                 # See comment above regarding MAX_SAFE_INT.
                 logger.error("Some segments or bodies in the label-to-body mapping have higher IDs than 2**53. "
                              "Those will not be mapped to the correct bodies, even if they are the only segment in the body.")
-            
-            #logger.info("debugging: Saving loaded labelmap")
-            #segment_to_body_df.to_csv(self.relpath_to_abspath('loaded-labelmap.csv'), index=False)
-            
-            full_stats_df = full_stats_df.merge(segment_to_body_df, 'left', on='segment', copy=False)
 
-            #logger.info("debugging: Saving stats AFTER merging body column")
-            #full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-col.csv'), index=False)
-
+            # Add body column via merge of agglomeration mapping
             # Missing segments in the labelmap are assumed to be identity-mapped
+            full_stats_df = full_stats_df.merge(segment_to_body_df, 'left', on='segment', copy=False)
             full_stats_df['body'].fillna( full_stats_df['segment'], inplace=True )
             full_stats_df['body'] = full_stats_df['body'].astype(np.uint64)
 
-            #logger.info("debugging: Saving stats AFTER casting body dtype")
-            #full_stats_df.to_csv(self.relpath_to_abspath('stats-after-merge-body-dtype-cast.csv'), index=False)
+            with Timer("Computing body statistics", logger=logger):
+                body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
+                body_stats_df.columns = ['body_segment_count', 'body_voxel_count']
+                body_stats_df['body'] = body_stats_df.index
 
-            output_path = self.config_dir + '/body-stats.csv'
-            logger.info(f"Computing body statistics and saving to {output_path}")
+        body_stats_df['keep_body'] = ((body_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
+                                      (body_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) &
+                                      (body_stats_df['body_segment_count'] >= config['options']['minimum-agglomerated-segment-count']))
 
-            # Calculate body voxel sizes
-            body_stats_df = full_stats_df[['body', 'segment_voxel_count']].groupby('body').agg(['size', 'sum'])
-            body_stats_df.columns = ['body_segment_count', 'body_voxel_count']
-            body_stats_df['body'] = body_stats_df.index
-
-            full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
-    
-            if not config["options"]["skip-stats-export"]:
-                # For offline analysis, write body stats to a file
-                body_stats_df = body_stats_df[['body', 'body_segment_count', 'body_voxel_count']] # Set col order
-                body_stats_df.columns = ['body', 'segment_count', 'voxel_count'] # rename columns for csv
-                body_stats_df.sort_values('voxel_count', ascending=False, inplace=True)
-
-                body_stats_df.to_csv(output_path, header=True, index=False)
-            
+        full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
         full_stats_df['keep_segment'] = ((full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size']) &
                                          (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
-
-        full_stats_df['keep_body'] = ((full_stats_df['body_voxel_count'] >= config['options']['minimum-agglomerated-size']) &
-                                      (full_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) &
-                                      (full_stats_df['body_segment_count'] >= config['options']['minimum-agglomerated-segment-count']))
 
         # If subset-bodies were given, exclude all others.
         sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
@@ -826,6 +805,17 @@ class CreateStitchedMeshes(Workflow):
         #logger.info(f"FULL_STATS:\n{full_stats_df}")
                 
         if not config["options"]["skip-stats-export"]:
+
+            if body_stats_df is not None:
+                output_path = self.config_dir + '/body-stats.csv'
+                logger.info(f"Saving body statistics to {output_path}")
+                # For offline analysis, write body stats to a file
+                body_stats_df = body_stats_df[['body', 'body_segment_count', 'body_voxel_count', 'keep_body']] # Set col order
+                body_stats_df.columns = ['body', 'segment_count', 'voxel_count', 'keep_body'] # rename columns for csv
+                body_stats_df.sort_values('voxel_count', ascending=False, inplace=True)
+    
+                body_stats_df.to_csv(output_path, header=True, index=False)
+
             # Sort for convenience of viewing output
             with Timer("Sorting segment stats", logger):
                 full_stats_df.sort_values(['body_voxel_count', 'segment_voxel_count'], ascending=False, inplace=True)
