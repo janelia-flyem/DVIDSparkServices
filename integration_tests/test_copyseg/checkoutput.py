@@ -97,7 +97,8 @@ ingest_label_indexes( dvid_config['server'],
                       dvid_config['uuid'],
                       dvid_config['segmentation-name'],
                       last_mutid,
-                      block_sv_stats_df )
+                      block_sv_stats_df,
+                      num_threads=2 )
 
 # Find segment with the most blocks touched (not necessarily the most voxels)
 largest_sv = block_sv_stats_df['segment_id'].value_counts(ascending=False).argmax()
@@ -132,7 +133,8 @@ ingest_label_indexes( dvid_config['server'],
                       dvid_config['segmentation-name'],
                       last_mutid,
                       block_sv_stats_df,
-                      segment_to_body_df )
+                      segment_to_body_df,
+                      num_threads=2 )
 
 # Use label 42 for this test.
 BODY_ID = 42
