@@ -351,7 +351,7 @@ def ingest_mapping( server,
         ops = MappingOps()
         ops.mappings.extend(mappings)
         payload = ops.SerializeToString()
-        r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mapping', data=payload)
+        r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
         r.raise_for_status()
 
     progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
