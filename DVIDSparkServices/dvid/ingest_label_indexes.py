@@ -33,11 +33,12 @@ def main():
     """
     Command-line wrapper interface for ingest_label_indexes(), and/or ingest_mapping(), below.
     """
-    handler = logging.StreamHandler(sys.stdout)
-    logger.addHandler(handler)
     logger.setLevel(logging.INFO)
-    #logging.getLogger('requests').setLevel(logging.DEBUG)
-
+    
+    # No need to add a handler -- root logger already has a handler via DVIDSparkServices.__init__
+    #handler = logging.StreamHandler(sys.stdout)
+    #logger.addHandler(handler)
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--last-mutid', '-i', required=False, type=int)
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
