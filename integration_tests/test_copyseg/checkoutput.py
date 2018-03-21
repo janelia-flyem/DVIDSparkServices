@@ -1,14 +1,18 @@
 import sys
 import glob
+
 import yaml
+import requests
+
 import numpy as np
 import pandas as pd
 
 from libdvid import DVIDNodeService
+from dvidutils import LabelMapper
 
 import DVIDSparkServices
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
-from DVIDSparkServices.dvid.ingest_label_indexes import ingest_label_indexes
+from DVIDSparkServices.dvid.ingest_label_indexes import ingest_label_indexes, ingest_mapping
 
 dirpath = sys.argv[1]
 #import os
@@ -154,6 +158,37 @@ expected_block_coords //= 64 # dvid block width
 # print(fetched_block_coords)
 
 assert (fetched_block_coords == expected_block_coords).all()
+
+# Ingest the mapping and verify with /label/<coord>
+
+server = dvid_config['server']
+uuid = dvid_config['uuid']
+instance = dvid_config['segmentation-name']
+
+print("Ingesting mapping")
+ingest_mapping( server,
+                uuid,
+                instance,
+                1, # mutid
+                segment_to_body_df,
+                batch_size=100_000,
+                show_progress_bar=True )
+
+mapper = LabelMapper(segment_to_body_df['segment_id'], segment_to_body_df['body_id'])
+expected_mapped_vol = mapper.apply(output_volume)
+
+# Find a coordinate that should map to our body, but didn't start that way.
+coords = ((expected_mapped_vol == BODY_ID) & (output_volume != BODY_ID)).nonzero()
+coords = np.array(coords).transpose()
+coords += output_bb_zyx[0]
+
+first_coord = coords[0]
+first_coord_str = '_'.join(map(str, first_coord[::-1])) # zyx -> xyz
+
+r = requests.get(f"http://{server}/api/node/{uuid}/{instance}/label/{first_coord_str}")
+r.raise_for_status()
+fetched_label = r.json()["Label"]
+assert fetched_label == BODY_ID, f"Expected {BODY_ID}, got {fetched_label}"
 
 print("DEBUG: CopySegmentation test passed.")
 sys.exit(0)
