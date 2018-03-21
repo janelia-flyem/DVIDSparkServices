@@ -49,7 +49,7 @@ def main():
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
-    parser.add_argument('supervoxel_block_stats_csv',
+    parser.add_argument('supervoxel_block_stats_csv', required=False, # not required if only ingesting mapping
                         help=f'A CSV file with columns: {SUPERVOXEL_STATS_COLUMNS}')
 
     args = parser.parse_args()
@@ -71,7 +71,9 @@ def main():
 
     # Upload label indexes
     if args.operation in ('indexes', 'both'):
-        
+        if not args.supervoxel_block_stats_csv:
+            raise RuntimeError("You must provide a supervoxel_block_stats_csv file if you want to ingest LabelIndexes")
+
         # Read block stats file
         with Timer("Loading supervoxel block statistics file", logger):
             dtypes = { 'segment_id': np.uint64,
@@ -107,7 +109,15 @@ def main():
     logger.info(f"DONE.")
 
 
-def ingest_label_indexes(server, uuid, instance_name, last_mutid, block_sv_stats_df, segment_to_body_df=None, batch_size=1000, num_threads=1, show_progress_bar=True):
+def ingest_label_indexes( server,
+                          uuid,
+                          instance_name,
+                          last_mutid,
+                          block_sv_stats_df,
+                          segment_to_body_df=None,
+                          batch_size=1000,
+                          num_threads=1,
+                          show_progress_bar=True ):
     """
     Ingest the label indexes for a particular agglomeration.
     
@@ -298,7 +308,13 @@ def _gen_label_indexes(block_sv_stats_df, blockshape_zyx, last_mutid=0):
         yield (label_index, num_entries)
 
 
-def ingest_mapping(server, uuid, instance_name, mutid, segment_to_body_df, batch_size=100_000, show_progress_bar=True):
+def ingest_mapping( server,
+                    uuid,
+                    instance_name,
+                    mutid,
+                    segment_to_body_df,
+                    batch_size=100_000,
+                    show_progress_bar=True ):
     """
     Ingest the forward-map (supervoxel-to-body) into DVID via the .../mappings endpoint
     
