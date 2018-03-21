@@ -174,13 +174,11 @@ def ingest_label_indexes( server,
             r.raise_for_status()
             
         failed = False
-        total_entries = 0
         def worker_impl():
             """
             Worker thread run loop.
             """
             nonlocal failed
-            nonlocal total_entries
             
             try:
                 while not failed:
@@ -191,8 +189,7 @@ def ingest_label_indexes( server,
                     send_batch(next_batch)
 
                     with progress_lock:
-                        total_entries += batch_entries
-                        progress_bar.update(total_entries)
+                        progress_bar.update(batch_entries)
             except StopIteration:
                 pass
             except Exception:
@@ -330,7 +327,7 @@ def ingest_mapping( server,
             DataFrame.  Must have columns ['segment_id', 'body_id']
         
         batch_size:
-            How many ops to pack into a single REST call.
+            Approximately how many mapping pairs to pack into a single REST call.
         
         show_progress_bar:
             Show progress information on the console.
@@ -357,7 +354,7 @@ def ingest_mapping( server,
 
     progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
     with progress_bar:
-        segments_progress = 0
+        batch_ops_so_far = 0
         mappings = []
         for body_id, body_df in segment_to_body_df.groupby('body_id'):
             op = MappingOp()
@@ -365,21 +362,22 @@ def ingest_mapping( server,
             op.mapped = body_id
             op.original.extend(body_df['segment_id'])
 
-            # Add to this chunk's mappings list
+            # Add to this chunk of ops
             mappings.append(op)
 
             # Send if chunk is full
-            if len(mappings) == batch_size:
+            if batch_ops_so_far >= batch_size:
                 send_mapping_ops(mappings)
-                progress_bar.update(segments_progress)
+                progress_bar.update(batch_ops_so_far)
                 mappings = [] # reset
+                batch_ops_so_far = 0
 
-            segments_progress += len(body_df['segment_id'])
+            batch_ops_so_far += len(op.original)
         
         # send last chunk
         if mappings:
             send_mapping_ops(mappings)
-            progress_bar.update(segments_progress)
+            progress_bar.update(batch_ops_so_far)
 
 
 
