@@ -18,9 +18,9 @@ import DVIDSparkServices.rddtools as rt
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import Timer, persist_and_execute, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service 
+from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid 
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels
-from DVIDSparkServices.dvid.metadata import is_node_locked
+from DVIDSparkServices.dvid.metadata import is_node_locked, create_keyvalue_instance
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
@@ -635,17 +635,14 @@ class CreateStitchedMeshes(Workflow):
             
     def _init_meshes_instance(self):
         dvid_info = self.config_data["dvid-info"]
-        options = self.config_data["options"]
         if is_node_locked(dvid_info["dvid"]["server"], dvid_info["dvid"]["uuid"]):
             raise RuntimeError(f"Can't write meshes: The node you specified ({dvid_info['dvid']['server']} / {dvid_info['dvid']['uuid']}) is locked.")
 
-        node_service = retrieve_node_service( dvid_info["dvid"]["server"],
-                                              dvid_info["dvid"]["uuid"],
-                                              options["resource-server"],
-                                              options["resource-port"] )
-
         instance_name = dvid_info["dvid"]["meshes-destination"]
-        node_service.create_keyvalue( instance_name )
+        create_keyvalue_instance( dvid_info["dvid"]["server"],
+                                  dvid_info["dvid"]["uuid"],
+                                  instance_name,
+                                  tags=["type=meshes"] )
 
 
     def _get_sparse_block_mask(self, volume_service, use_service_labelmap=False):

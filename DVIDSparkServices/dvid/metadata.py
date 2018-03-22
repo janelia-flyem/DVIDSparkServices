@@ -69,6 +69,41 @@ def is_node_locked(dvid_server, uuid):
     return r.json()["Locked"]
 
 
+def create_keyvalue_instance(server, uuid, instance_name, tags=[], allow_prexisting=True):
+    """
+    Create a keyvalue instance
+
+    tags:
+        Optional 'tags' to initialize the instance with, e.g. "type=meshes".
+    
+    allow_preexisting:
+        If False, raise an exception if the instance already exists.
+        If True, don't raise an exception.  Any tags you passed in are NOT APPLIED to the instance.
+    
+    Returns:
+        True if the instance was newly created, False if it already existed.
+
+    """
+    if not server.startswith("http://"):
+        server = "http://" + server
+
+    r = requests.get(f"{server}/api/node/{uuid}/{instance_name}/info")
+    if r.status_code == 200:
+        if allow_prexisting:
+            return False
+        else:
+            raise RuntimeError(f"Can't create. Instance already exists: {server}/api/repo/{uuid}")
+    
+    body = {}
+    body["typename"] = "keyvalue"
+    body["dataname"] = instance_name
+    if tags:
+        body["Tags"] = ','.join(tags)
+    
+    r = requests.post(f"{server}/api/repo/{uuid}/instance", json=body)
+    r.raise_for_status()
+    return True
+
 def create_label_instance(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
                           compression=Compression.DEFAULT, enable_index=True, typename='labelarray' ):
     """
