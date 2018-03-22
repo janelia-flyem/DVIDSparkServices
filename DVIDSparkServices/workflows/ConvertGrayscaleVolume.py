@@ -184,27 +184,28 @@ class ConvertGrayscaleVolume(Workflow):
 
         min_scale = options["min-pyramid-scale"]
         max_scale = options["max-pyramid-scale"]
+        slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], 0, 'round-down'))
+
         for scale in range(min_scale, max_scale+1):
-            slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], scale, 'round-down'))
-            for slab_index, slab_box_zyx in enumerate(slab_boxes):
-                self._convert_slab(scale, slab_box_zyx, slab_index, len(slab_boxes))
+            for slab_index, slab_fullres_box_zyx in enumerate(slab_boxes):
+                self._convert_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes))
             logger.info(f"Done exporting {len(slab_boxes)} slabs for scale {scale}.", extra={'status': f"DONE with scale {scale}"})
         logger.info(f"DONE exporting {max_scale+1-min_scale} scales")
 
 
-    def _convert_slab(self, scale, slab_box_zyx, slab_index, num_slabs):
+    def _convert_slab(self, scale, slab_fullres_box_zyx, slab_index, num_slabs):
         # Contruct BrickWall from input bricks
         num_threads = num_worker_nodes() * cpus_per_worker()
-        slab_voxels = np.prod(slab_box_zyx[1] - slab_box_zyx[0])
+        slab_voxels = np.prod(slab_fullres_box_zyx[1] - slab_fullres_box_zyx[0]) // (2**scale)**3
         voxels_per_thread = slab_voxels // num_threads
 
-        bricked_slab_wall = BrickWall.from_volume_service(self.input_service, scale, slab_box_zyx, self.sc, voxels_per_thread // 2)
+        bricked_slab_wall = BrickWall.from_volume_service(self.input_service, scale, slab_fullres_box_zyx, self.sc, voxels_per_thread // 2)
 
         # Force download
-        bricked_slab_wall.persist_and_execute(f"Downloading scale {scale} slab {slab_index}/{num_slabs}: {slab_box_zyx[:,::-1]}", logger)
+        bricked_slab_wall.persist_and_execute(f"Downloading scale {scale} slab {slab_index}/{num_slabs}: {slab_fullres_box_zyx[:,::-1]}", logger)
         
         # Remap to output bricks
-        output_grid = Grid(self.output_service.preferred_message_shape, offset=slab_box_zyx[0])
+        output_grid = Grid(self.output_service.preferred_message_shape, offset=slab_fullres_box_zyx[0] // 2**scale)
         output_slab_wall = bricked_slab_wall.realign_to_new_grid( output_grid )
         
         padding_grid = Grid( 3*(self.output_service.block_width,), output_grid.offset )
