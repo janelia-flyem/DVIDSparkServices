@@ -205,7 +205,7 @@ class ConvertGrayscaleVolume(Workflow):
         bricked_slab_wall.persist_and_execute(f"Downloading scale {scale} slab {slab_index}/{num_slabs}: {slab_fullres_box_zyx[:,::-1]}", logger)
         
         # Remap to output bricks
-        output_grid = Grid(self.output_service.preferred_message_shape, offset=slab_fullres_box_zyx[0] // 2**scale)
+        output_grid = Grid(self.output_service.preferred_message_shape)
         output_slab_wall = bricked_slab_wall.realign_to_new_grid( output_grid )
         
         padding_grid = Grid( 3*(self.output_service.block_width,), output_grid.offset )
