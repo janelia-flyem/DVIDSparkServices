@@ -238,17 +238,23 @@ class IngestLabelIndices(Workflow):
         uuid = config["dvid"]["uuid"]
         instance_name = config["dvid"]["segmentation-name"]
         session = default_dvid_session()
-        def send_labelindex_batch(batch):
-            label_indices = LabelIndices()
-            label_indices.indices.extend(batch)
-            payload = label_indices.SerializeToString()
+        def send_labelindexes(partition):
+            partition = list(partition)
+            batch_size = 100
+            # Send in batches
+            for batch_start in range(batch_size):
+                batch_stop = min(batch_start + batch_size, len(partition))
             
-            with resource_manager_client.access_context( instance_name, False, 1, len(payload) ):
-                r = session.post(f'{server}/api/node/{uuid}/{instance_name}/indices', data=payload)
-                r.raise_for_status()
+                label_indices = LabelIndices()
+                label_indices.indices.extend(partition[batch_start:batch_stop])
+                payload = label_indices.SerializeToString()
+            
+                with resource_manager_client.access_context( instance_name, False, 1, len(payload) ):
+                    r = session.post(f'{server}/api/node/{uuid}/{instance_name}/indices', data=payload)
+                    r.raise_for_status()
 
         with Timer("Sending LabelIndices to DVID", logger):
-            label_indexes.foreachPartition(send_labelindex_batch)
+            label_indexes.foreachPartition(send_labelindexes)
 
 
     def _execute_mappings(self, mapping_df):
