@@ -315,7 +315,8 @@ def ingest_mapping( server,
                     mutid,
                     segment_to_body_df,
                     batch_size=100_000,
-                    show_progress_bar=True ):
+                    show_progress_bar=True,
+                    session=None ):
     """
     Ingest the forward-map (supervoxel-to-body) into DVID via the .../mappings endpoint
     
@@ -347,41 +348,42 @@ def ingest_mapping( server,
     if not server.startswith('http://'):
         server = 'http://' + server
 
-    with requests.Session() as session:
+    if session is None:
+        session = requests.Session()
 
-        def send_mapping_ops(mappings):
-            ops = MappingOps()
-            ops.mappings.extend(mappings)
-            payload = ops.SerializeToString()
-            r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
-            r.raise_for_status()
-    
-        progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
-        with progress_bar:
-            batch_ops_so_far = 0
-            mappings = []
-            for body_id, body_df in segment_to_body_df.groupby('body_id'):
-                op = MappingOp()
-                op.mutid = mutid
-                op.mapped = body_id
-                op.original.extend(body_df['segment_id'])
-    
-                # Add to this chunk of ops
-                mappings.append(op)
-    
-                # Send if chunk is full
-                if batch_ops_so_far >= batch_size:
-                    send_mapping_ops(mappings)
-                    progress_bar.update(batch_ops_so_far)
-                    mappings = [] # reset
-                    batch_ops_so_far = 0
-    
-                batch_ops_so_far += len(op.original)
-            
-            # send last chunk
-            if mappings:
+    def send_mapping_ops(mappings):
+        ops = MappingOps()
+        ops.mappings.extend(mappings)
+        payload = ops.SerializeToString()
+        r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
+        r.raise_for_status()
+
+    progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
+    with progress_bar:
+        batch_ops_so_far = 0
+        mappings = []
+        for body_id, body_df in segment_to_body_df.groupby('body_id'):
+            op = MappingOp()
+            op.mutid = mutid
+            op.mapped = body_id
+            op.original.extend(body_df['segment_id'])
+
+            # Add to this chunk of ops
+            mappings.append(op)
+
+            # Send if chunk is full
+            if batch_ops_so_far >= batch_size:
                 send_mapping_ops(mappings)
                 progress_bar.update(batch_ops_so_far)
+                mappings = [] # reset
+                batch_ops_so_far = 0
+
+            batch_ops_so_far += len(op.original)
+        
+        # send last chunk
+        if mappings:
+            send_mapping_ops(mappings)
+            progress_bar.update(batch_ops_so_far)
 
 
 
