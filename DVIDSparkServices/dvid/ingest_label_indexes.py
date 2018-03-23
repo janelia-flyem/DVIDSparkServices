@@ -3,7 +3,6 @@ import sys
 import argparse
 import datetime
 import logging
-import warnings
 from multiprocessing import Pool
     
 import requests
@@ -27,10 +26,7 @@ from DVIDSparkServices.dvid.metadata import DataInstance
 from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, LabelIndices, MappingOps, MappingOp
 
 logger = logging.getLogger(__name__)
-logging.captureWarnings(True)
 
-# Warnings module warnings are shown only once
-warnings.filterwarnings("once")
 
 SUPERVOXEL_STATS_COLUMNS = ['segment_id', 'z', 'y', 'x', 'count']
 AGGLO_MAP_COLUMNS = ['segment_id', 'body_id']
@@ -347,44 +343,45 @@ def ingest_mapping( server,
 
     segment_to_body_df.sort_values(['body_id', 'segment_id'], inplace=True)
 
-    session = requests.Session()
     
     if not server.startswith('http://'):
         server = 'http://' + server
 
-    def send_mapping_ops(mappings):
-        ops = MappingOps()
-        ops.mappings.extend(mappings)
-        payload = ops.SerializeToString()
-        r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
-        r.raise_for_status()
+    with requests.Session() as session:
 
-    progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
-    with progress_bar:
-        batch_ops_so_far = 0
-        mappings = []
-        for body_id, body_df in segment_to_body_df.groupby('body_id'):
-            op = MappingOp()
-            op.mutid = mutid
-            op.mapped = body_id
-            op.original.extend(body_df['segment_id'])
-
-            # Add to this chunk of ops
-            mappings.append(op)
-
-            # Send if chunk is full
-            if batch_ops_so_far >= batch_size:
+        def send_mapping_ops(mappings):
+            ops = MappingOps()
+            ops.mappings.extend(mappings)
+            payload = ops.SerializeToString()
+            r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
+            r.raise_for_status()
+    
+        progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
+        with progress_bar:
+            batch_ops_so_far = 0
+            mappings = []
+            for body_id, body_df in segment_to_body_df.groupby('body_id'):
+                op = MappingOp()
+                op.mutid = mutid
+                op.mapped = body_id
+                op.original.extend(body_df['segment_id'])
+    
+                # Add to this chunk of ops
+                mappings.append(op)
+    
+                # Send if chunk is full
+                if batch_ops_so_far >= batch_size:
+                    send_mapping_ops(mappings)
+                    progress_bar.update(batch_ops_so_far)
+                    mappings = [] # reset
+                    batch_ops_so_far = 0
+    
+                batch_ops_so_far += len(op.original)
+            
+            # send last chunk
+            if mappings:
                 send_mapping_ops(mappings)
                 progress_bar.update(batch_ops_so_far)
-                mappings = [] # reset
-                batch_ops_so_far = 0
-
-            batch_ops_so_far += len(op.original)
-        
-        # send last chunk
-        if mappings:
-            send_mapping_ops(mappings)
-            progress_bar.update(batch_ops_so_far)
 
 
 
