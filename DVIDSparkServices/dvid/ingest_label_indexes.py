@@ -212,7 +212,7 @@ def _append_body_id_column(block_sv_stats_df, segment_to_body_df=None):
         mapper = LabelMapper(segment_to_body_df['segment_id'].values, segment_to_body_df['body_id'].values)
         del segment_to_body_df
     
-        block_sv_stats_df['body_id'] = 0
+        block_sv_stats_df['body_id'] = np.uint64(0)
     
         # Remap in batches to save RAM
         batch_size = 1_000_000
