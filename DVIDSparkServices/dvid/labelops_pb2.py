@@ -613,49 +613,49 @@ _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
 MergeOp = _reflection.GeneratedProtocolMessageType('MergeOp', (_message.Message,), dict(
   DESCRIPTOR = _MERGEOP,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.MergeOp)
   ))
 _sym_db.RegisterMessage(MergeOp)
 
 MappingOp = _reflection.GeneratedProtocolMessageType('MappingOp', (_message.Message,), dict(
   DESCRIPTOR = _MAPPINGOP,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.MappingOp)
   ))
 _sym_db.RegisterMessage(MappingOp)
 
 MappingOps = _reflection.GeneratedProtocolMessageType('MappingOps', (_message.Message,), dict(
   DESCRIPTOR = _MAPPINGOPS,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.MappingOps)
   ))
 _sym_db.RegisterMessage(MappingOps)
 
 SplitOp = _reflection.GeneratedProtocolMessageType('SplitOp', (_message.Message,), dict(
   DESCRIPTOR = _SPLITOP,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.SplitOp)
   ))
 _sym_db.RegisterMessage(SplitOp)
 
 OpCompleted = _reflection.GeneratedProtocolMessageType('OpCompleted', (_message.Message,), dict(
   DESCRIPTOR = _OPCOMPLETED,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.OpCompleted)
   ))
 _sym_db.RegisterMessage(OpCompleted)
 
 Affinity = _reflection.GeneratedProtocolMessageType('Affinity', (_message.Message,), dict(
   DESCRIPTOR = _AFFINITY,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.Affinity)
   ))
 _sym_db.RegisterMessage(Affinity)
 
 Affinities = _reflection.GeneratedProtocolMessageType('Affinities', (_message.Message,), dict(
   DESCRIPTOR = _AFFINITIES,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.Affinities)
   ))
 _sym_db.RegisterMessage(Affinities)
@@ -664,12 +664,12 @@ AffinityTable = _reflection.GeneratedProtocolMessageType('AffinityTable', (_mess
 
   TableEntry = _reflection.GeneratedProtocolMessageType('TableEntry', (_message.Message,), dict(
     DESCRIPTOR = _AFFINITYTABLE_TABLEENTRY,
-    __module__ = 'labelops_pb2'
+    __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
     # @@protoc_insertion_point(class_scope:proto.AffinityTable.TableEntry)
     ))
   ,
   DESCRIPTOR = _AFFINITYTABLE,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.AffinityTable)
   ))
 _sym_db.RegisterMessage(AffinityTable)
@@ -679,12 +679,12 @@ SVCount = _reflection.GeneratedProtocolMessageType('SVCount', (_message.Message,
 
   CountsEntry = _reflection.GeneratedProtocolMessageType('CountsEntry', (_message.Message,), dict(
     DESCRIPTOR = _SVCOUNT_COUNTSENTRY,
-    __module__ = 'labelops_pb2'
+    __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
     # @@protoc_insertion_point(class_scope:proto.SVCount.CountsEntry)
     ))
   ,
   DESCRIPTOR = _SVCOUNT,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.SVCount)
   ))
 _sym_db.RegisterMessage(SVCount)
@@ -694,12 +694,12 @@ LabelIndex = _reflection.GeneratedProtocolMessageType('LabelIndex', (_message.Me
 
   BlocksEntry = _reflection.GeneratedProtocolMessageType('BlocksEntry', (_message.Message,), dict(
     DESCRIPTOR = _LABELINDEX_BLOCKSENTRY,
-    __module__ = 'labelops_pb2'
+    __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
     # @@protoc_insertion_point(class_scope:proto.LabelIndex.BlocksEntry)
     ))
   ,
   DESCRIPTOR = _LABELINDEX,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.LabelIndex)
   ))
 _sym_db.RegisterMessage(LabelIndex)
@@ -707,7 +707,7 @@ _sym_db.RegisterMessage(LabelIndex.BlocksEntry)
 
 LabelIndices = _reflection.GeneratedProtocolMessageType('LabelIndices', (_message.Message,), dict(
   DESCRIPTOR = _LABELINDICES,
-  __module__ = 'labelops_pb2'
+  __module__ = 'DVIDSparkServices.dvid.labelops_pb2'
   # @@protoc_insertion_point(class_scope:proto.LabelIndices)
   ))
 _sym_db.RegisterMessage(LabelIndices)

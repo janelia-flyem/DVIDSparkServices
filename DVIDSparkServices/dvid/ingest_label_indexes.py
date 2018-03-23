@@ -20,8 +20,10 @@ from DVIDSparkServices.util import Timer
 from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
 from DVIDSparkServices.dvid.metadata import DataInstance
 
-# The labelops_pb2 file was generated with the following command: 
+# The labelops_pb2 file was generated with the following commands:
+# $ cd DVIDSparkServices/dvid
 # $ protoc --python_out=. labelops.proto
+# $ sed -i '' s/labelops_pb2/DVIDSparkServices.dvid.labelops_pb2/g labelops_pb2.py
 from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, LabelIndices, MappingOps, MappingOp
 
 logger = logging.getLogger(__name__)
