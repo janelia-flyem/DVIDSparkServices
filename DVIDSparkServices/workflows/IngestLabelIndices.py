@@ -274,27 +274,14 @@ class IngestLabelIndices(Workflow):
         if mapping_df is None:
             raise RuntimeError("Can't load mappings: No agglomeration mapping provided.")
 
-        def gen_mapping_chunks():
-            batch_size = 1_000_000
-            for chunk_start in range(0, len(mapping_df), batch_size):
-                chunk_stop = min(chunk_start+batch_size, len(mapping_df))
-                mapping_chunk_df = mapping_df.iloc[chunk_start:chunk_stop]
-                yield mapping_chunk_df
-
-        mapping_chunks = self.sc.parallelize( gen_mapping_chunks() )
-        rt.persist_and_execute(mapping_chunks, "Distributing mapping", logger)
-        
-        session = default_dvid_session()
-        def ingest_mapping_chunk(mapping_chunk_df):
+        # Just do this from a single machine (the driver), with a big batch size
+        # The writes are serialized on the DVID side, anyway.
+        with Timer("Sending mapping", logger):
             ingest_mapping( config["dvid"]["server"],
                             config["dvid"]["uuid"],
                             config["dvid"]["segmentation-name"],
                             config["options"]["mutation-id"],
-                            mapping_chunk_df,
-                            batch_size=10_000,
+                            mapping_df,
+                            batch_size=100_000,
                             show_progress_bar=False,
-                            session=session )
-
-        with Timer("Sending mapping", logger):
-            mapping_chunks.foreach(ingest_mapping_chunk)
-
+                            session=default_dvid_session() )
