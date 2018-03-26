@@ -238,8 +238,9 @@ class IngestLabelIndices(Workflow):
         def send_labelindexes(partition):
             partition = list(partition)
             batch_size = 100
+            
             # Send in batches
-            for batch_start in range(batch_size):
+            for batch_start in range(0, len(partition), batch_size):
                 batch_stop = min(batch_start + batch_size, len(partition))
             
                 label_indices = LabelIndices()
