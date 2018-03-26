@@ -15,6 +15,7 @@ from DVIDSparkServices.util import Timer, default_dvid_session
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationServiceSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 from DVIDSparkServices.dvid.ingest_label_indexes import ingest_mapping
+from DVIDSparkServices.dvid.metadata import DataInstance
 
 # The labelops_pb2 file was generated with the following commands:
 # $ cd DVIDSparkServices/dvid
@@ -123,6 +124,10 @@ class IngestLabelIndices(Workflow):
         options = config["options"]
         resource_manager_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
 
+        server = config["dvid"]["server"]
+        uuid = config["dvid"]["uuid"]
+        instance_name = config["dvid"]["segmentation-name"]
+
         ##
         ## Load block statistics file
         ##
@@ -187,15 +192,25 @@ class IngestLabelIndices(Workflow):
         ## Encode block-id
         ##
         
+        instance_info = DataInstance(server, uuid, instance_name)
+        if instance_info.datatype != 'labelmap':
+            raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
+        bz, by, bx = instance_info.blockshape_zyx
+
         def encode_block_ids(body_and_stats):
             body_id, stats_chunk_df = body_and_stats
             
+            # Convert coords into block indexes
+            stats_chunk_df['z'] //= bz
+            stats_chunk_df['y'] //= by
+            stats_chunk_df['x'] //= bx
+
             # Encode block indexes into a shared uint64    
             # Sadly, there is no clever way to speed this up with pd.eval()
             encoded_block_ids = np.zeros( len(stats_chunk_df), dtype=np.uint64 )
-            encoded_block_ids |= (stats_chunk_df['z'].values.astype(np.uint64) << 42)
-            encoded_block_ids |= (stats_chunk_df['y'].values.astype(np.uint64) << 21)
-            encoded_block_ids |= (stats_chunk_df['x'].values.astype(np.uint64))
+            encoded_block_ids |= (stats_chunk_df['z'].values.astype(np.int64) << 42).view(np.uint64)
+            encoded_block_ids |= (stats_chunk_df['y'].values.astype(np.int64) << 21).view(np.uint64)
+            encoded_block_ids |= (stats_chunk_df['x'].values.astype(np.int64)).view(np.uint64)
         
             del stats_chunk_df['z']
             del stats_chunk_df['y']
@@ -234,9 +249,6 @@ class IngestLabelIndices(Workflow):
         ## Serialize protobuf and send to DVID
         ##
         
-        server = config["dvid"]["server"]
-        uuid = config["dvid"]["uuid"]
-        instance_name = config["dvid"]["segmentation-name"]
         session = default_dvid_session()
         def send_labelindexes(partition):
             partition = list(partition)
