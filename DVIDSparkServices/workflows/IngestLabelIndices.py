@@ -129,28 +129,13 @@ class IngestLabelIndices(Workflow):
         instance_name = config["dvid"]["segmentation-name"]
 
         ##
-        ## Load block statistics file
+        ## Distribute block statistics file (in chunks of CSV rows)
         ##
-        
-        with Timer(f"Loading block stats from {config['block-stats-file']}", logger):
-            dtypes = { 'segment_id': np.uint64, 'z': np.int32, 'y': np.int32, 'x':np.int32, 'count': np.uint32 }
-            block_sv_stats_df = pd.read_csv(config['block-stats-file'], engine='c', dtype=dtypes)
-
-        ##
-        ## Distribute chunks
-        ##
-
-        def gen_stats_chunks():
-            batch_size = 1_000_000
-            for chunk_start in range(0, len(block_sv_stats_df), batch_size):
-                chunk_stop = min(chunk_start+batch_size, len(block_sv_stats_df))
-                stats_chunk_df = block_sv_stats_df.iloc[chunk_start:chunk_stop]
-                yield stats_chunk_df
-
-        stats_chunks = self.sc.parallelize( gen_stats_chunks() )
-        rt.persist_and_execute(stats_chunks, "Distributing block statistics", logger)
-        
-        del block_sv_stats_df # Free a lot of RAM
+        csv_chunk_size = 1_000_000
+        dtypes = { 'segment_id': np.uint64, 'z': np.int32, 'y': np.int32, 'x':np.int32, 'count': np.uint32 }
+        block_stats_df_chunks = pd.read_csv(config['block-stats-file'], engine='c', dtype=dtypes, chunksize=csv_chunk_size)
+        stats_chunks = self.sc.parallelize( block_stats_df_chunks )
+        rt.persist_and_execute(stats_chunks, "Loading and distributing block statistics", logger)
 
         ##
         ## Map segment id -> body id, append body column
