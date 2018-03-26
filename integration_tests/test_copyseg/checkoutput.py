@@ -77,120 +77,129 @@ segment_counts_from_output_seg.sort_index(inplace=True)
 
 assert (segment_counts_from_output_seg == segment_counts_from_stats).all()
 
-##
-## Now ingest SUPERVOXEL label indexes (for the first output), and try a sparsevol query to prove that it works.
-##
-block_stats_path = dirpath + '/temp_data/block-statistics.csv'
-dvid_config = config['outputs'][0]['dvid']
-
-dtypes = { 'segment_id': np.uint64,
-           'z': np.int32,
-           'y': np.int32,
-           'x':np.int32,
-           'count': np.uint32 }
-
-block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
-block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
-
-last_mutid = 0
-ingest_label_indexes( dvid_config['server'],
-                      dvid_config['uuid'],
-                      dvid_config['segmentation-name'],
-                      last_mutid,
-                      block_sv_stats_df,
-                      num_threads=2 )
-
-# Find segment with the most blocks touched (not necessarily the most voxels)
-largest_sv = block_sv_stats_df['segment_id'].value_counts(ascending=False).argmax()
-print(f"Fetching sparsevol for label {largest_sv}")
-
-# Fetch the /sparsevol-coarse representation for it.
-fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
-                                                       dvid_config['uuid'],
-                                                       dvid_config['segmentation-name'],
-                                                       largest_sv )
-
-fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
-expected_block_coords = block_sv_stats_df.query('segment_id == @largest_sv')[['z', 'y', 'x']].sort_values(['z', 'y', 'x']).values
-expected_block_coords //= 64 # dvid block width
-
-
-##
-## Now RE-ingest, for BODY label indexes (for the first output), and try a sparsevol query to prove that it works.
-##
-## (Normally, we would want to close the original node and branch
-##  from it before ingesting body indexes, but we'll skip that for this test.)
-##
-## We use fake label-to-body mapping for this test: It's just a table of mod-10 values for each object.
-##
-block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
-block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
-segment_to_body_df = pd.read_csv(f'{dirpath}/LABEL-TO-BODY-mod-100-labelmap.csv', names=['segment_id', 'body_id'], header=None)
-
-last_mutid = 1
-ingest_label_indexes( dvid_config['server'],
-                      dvid_config['uuid'],
-                      dvid_config['segmentation-name'],
-                      last_mutid,
-                      block_sv_stats_df,
-                      segment_to_body_df,
-                      num_threads=2 )
-
-# Use label 42 for this test.
-BODY_ID = 42
-print(f"Fetching sparsevol for label {BODY_ID}")
-
-# Fetch the /sparsevol-coarse representation for it.
-fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
-                                                       dvid_config['uuid'],
-                                                       dvid_config['segmentation-name'],
-                                                       BODY_ID )
-
-fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
-expected_block_coords = ( block_sv_stats_df.query('segment_id % 100 == @BODY_ID')[['z', 'y', 'x']]
-                          .drop_duplicates()
-                          .sort_values(['z', 'y', 'x']).values )
-expected_block_coords //= 64 # dvid block width
-
-
-# print("EXPECTED BLOCKS:")
-# print(expected_block_coords)
-# 
-# print("FETCHED BLOCKS:")
-# print(fetched_block_coords)
-
-assert (fetched_block_coords == expected_block_coords).all()
-
-# Ingest the mapping and verify with /label/<coord>
-
-server = dvid_config['server']
-uuid = dvid_config['uuid']
-instance = dvid_config['segmentation-name']
-
-print("Ingesting mapping")
-ingest_mapping( server,
-                uuid,
-                instance,
-                1, # mutid
-                segment_to_body_df,
-                batch_size=100_000,
-                show_progress_bar=True )
-
-mapper = LabelMapper(segment_to_body_df['segment_id'], segment_to_body_df['body_id'])
-expected_mapped_vol = mapper.apply(output_volume)
-
-# Find a coordinate that should map to our body, but didn't start that way.
-coords = ((expected_mapped_vol == BODY_ID) & (output_volume != BODY_ID)).nonzero()
-coords = np.array(coords).transpose()
-coords += output_bb_zyx[0]
-
-first_coord = coords[0]
-first_coord_str = '_'.join(map(str, first_coord[::-1])) # zyx -> xyz
-
-r = requests.get(f"http://{server}/api/node/{uuid}/{instance}/label/{first_coord_str}")
-r.raise_for_status()
-fetched_label = r.json()["Label"]
-assert fetched_label == BODY_ID, f"Expected {BODY_ID}, got {fetched_label}"
-
 print("DEBUG: CopySegmentation test passed.")
 sys.exit(0)
+
+
+###
+### LabelIndexes are no longer ingested in this script;
+### See IngestLabelIndices (and its checkoutput.py file).
+###
+
+# ##
+# ## Now ingest SUPERVOXEL label indexes (for the first output), and try a sparsevol query to prove that it works.
+# ##
+# block_stats_path = dirpath + '/temp_data/block-statistics.csv'
+# dvid_config = config['outputs'][0]['dvid']
+# 
+# dtypes = { 'segment_id': np.uint64,
+#            'z': np.int32,
+#            'y': np.int32,
+#            'x':np.int32,
+#            'count': np.uint32 }
+# 
+# block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
+# block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
+# 
+# last_mutid = 0
+# ingest_label_indexes( dvid_config['server'],
+#                       dvid_config['uuid'],
+#                       dvid_config['segmentation-name'],
+#                       last_mutid,
+#                       block_sv_stats_df,
+#                       num_threads=2 )
+# 
+# # Find segment with the most blocks touched (not necessarily the most voxels)
+# largest_sv = block_sv_stats_df['segment_id'].value_counts(ascending=False).argmax()
+# print(f"Fetching sparsevol for label {largest_sv}")
+# 
+# # Fetch the /sparsevol-coarse representation for it.
+# fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
+#                                                        dvid_config['uuid'],
+#                                                        dvid_config['segmentation-name'],
+#                                                        largest_sv )
+# 
+# fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
+# expected_block_coords = block_sv_stats_df.query('segment_id == @largest_sv')[['z', 'y', 'x']].sort_values(['z', 'y', 'x']).values
+# expected_block_coords //= 64 # dvid block width
+# 
+# assert (fetched_block_coords == expected_block_coords).all()
+# 
+# 
+# ##
+# ## Now RE-ingest, for BODY label indexes (for the first output), and try a sparsevol query to prove that it works.
+# ##
+# ## (Normally, we would want to close the original node and branch
+# ##  from it before ingesting body indexes, but we'll skip that for this test.)
+# ##
+# ## We use fake label-to-body mapping for this test: It's just a table of mod-10 values for each object.
+# ##
+# block_sv_stats_df = pd.read_csv(block_stats_path, engine='c', dtype=dtypes)
+# block_sv_stats_df['segment_id'] = block_sv_stats_df['segment_id'].astype(np.uint64)
+# segment_to_body_df = pd.read_csv(f'{dirpath}/LABEL-TO-BODY-mod-100-labelmap.csv', names=['segment_id', 'body_id'], header=None)
+# 
+# last_mutid = 1
+# ingest_label_indexes( dvid_config['server'],
+#                       dvid_config['uuid'],
+#                       dvid_config['segmentation-name'],
+#                       last_mutid,
+#                       block_sv_stats_df,
+#                       segment_to_body_df,
+#                       num_threads=2 )
+# 
+# # Use label 42 for this test.
+# BODY_ID = 42
+# print(f"Fetching sparsevol for label {BODY_ID}")
+# 
+# # Fetch the /sparsevol-coarse representation for it.
+# fetched_block_coords = sparkdvid.get_coarse_sparsevol( dvid_config['server'],
+#                                                        dvid_config['uuid'],
+#                                                        dvid_config['segmentation-name'],
+#                                                        BODY_ID )
+# 
+# fetched_block_coords = np.asarray(sorted(map(tuple, fetched_block_coords)))
+# expected_block_coords = ( block_sv_stats_df.query('segment_id % 100 == @BODY_ID')[['z', 'y', 'x']]
+#                           .drop_duplicates()
+#                           .sort_values(['z', 'y', 'x']).values )
+# expected_block_coords //= 64 # dvid block width
+# 
+# 
+# # print("EXPECTED BLOCKS:")
+# # print(expected_block_coords)
+# # 
+# # print("FETCHED BLOCKS:")
+# # print(fetched_block_coords)
+# 
+# assert (fetched_block_coords == expected_block_coords).all()
+# 
+# # Ingest the mapping and verify with /label/<coord>
+# 
+# server = dvid_config['server']
+# uuid = dvid_config['uuid']
+# instance = dvid_config['segmentation-name']
+# 
+# print("Ingesting mapping")
+# ingest_mapping( server,
+#                 uuid,
+#                 instance,
+#                 1, # mutid
+#                 segment_to_body_df,
+#                 batch_size=100_000,
+#                 show_progress_bar=True )
+# 
+# mapper = LabelMapper(segment_to_body_df['segment_id'], segment_to_body_df['body_id'])
+# expected_mapped_vol = mapper.apply(output_volume)
+# 
+# # Find a coordinate that should map to our body, but didn't start that way.
+# coords = ((expected_mapped_vol == BODY_ID) & (output_volume != BODY_ID)).nonzero()
+# coords = np.array(coords).transpose()
+# coords += output_bb_zyx[0]
+# 
+# first_coord = coords[0]
+# first_coord_str = '_'.join(map(str, first_coord[::-1])) # zyx -> xyz
+# 
+# r = requests.get(f"http://{server}/api/node/{uuid}/{instance}/label/{first_coord_str}")
+# r.raise_for_status()
+# fetched_label = r.json()["Label"]
+# assert fetched_label == BODY_ID, f"Expected {BODY_ID}, got {fetched_label}"
+

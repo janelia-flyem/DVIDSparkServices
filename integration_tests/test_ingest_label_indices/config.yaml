@@ -6,10 +6,10 @@ dvid:
   "segmentation-name": labels-copy-translated
 
 block-stats-file: ../../test_copyseg/temp_data/block-statistics.csv
-agglomeration-mapping:
-  file: ../../test_copyseg/LABEL-TO-BODY-mod-100-labelmap.csv
-  file-type: label-to-body
+#agglomeration-mapping:
+#  file: ../../test_copyseg/LABEL-TO-BODY-mod-100-labelmap.csv
+#  file-type: label-to-body
 
 options:
-  operation: both
+  operation: labelindices
   mutation-id: 1
