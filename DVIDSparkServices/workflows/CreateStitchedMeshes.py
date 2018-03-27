@@ -38,8 +38,9 @@ from multiprocessing import TimeoutError
 logger = logging.getLogger(__name__)
 
 class CreateStitchedMeshes(Workflow):
-    MeshDvidInfoSchema = copy.deepcopy(DvidSegmentationVolumeSchema)
-    MeshDvidInfoSchema["properties"]["dvid"]["properties"].update(
+    InputDvidSchema = copy.deepcopy(DvidSegmentationVolumeSchema)
+    OutputDvidSchema = copy.deepcopy(DvidSegmentationVolumeSchema)
+    OutputDvidSchema["properties"]["dvid"]["properties"].update(
     {
         "meshes-destination": {
             "description": "Name of key-value instance to store the meshes. \n"
@@ -265,9 +266,10 @@ class CreateStitchedMeshes(Workflow):
       "$schema": "http://json-schema.org/schema#",
       "title": "Service to create meshes from segmentation",
       "type": "object",
-      "required": ["dvid-info"],
+      "required": ["input", "output"],
       "properties": {
-        "dvid-info": MeshDvidInfoSchema,
+        "input": InputDvidSchema,
+        "output": OutputDvidSchema,
         "mesh-config": MeshGenerationSchema,
         "options" : MeshWorkflowOptionsSchema
       }
@@ -285,16 +287,19 @@ class CreateStitchedMeshes(Workflow):
 
 
     def _sanitize_config(self):
-        dvid_info = self.config_data['dvid-info']
+        output_info = self.config_data['output']
         mesh_config = self.config_data["mesh-config"]
         
+        if not output_info["dvid"]["server"].startswith('http://'):
+            output_info["dvid"]["server"] = 'http://' + output_info["dvid"]["server"]
+        
         # Provide default meshes instance name if needed
-        if not dvid_info["dvid"]["meshes-destination"]:
+        if not output_info["dvid"]["meshes-destination"]:
             if mesh_config["storage"]["grouping-scheme"] == 'no-groups':
                 suffix = "_meshes"
             else:
                 suffix = "_meshes_tars"
-            dvid_info["dvid"]["meshes-destination"] = dvid_info["dvid"]["segmentation-name"] + suffix
+            output_info["dvid"]["meshes-destination"] = output_info["dvid"]["segmentation-name"] + suffix
 
 
     def execute(self):
@@ -308,7 +313,7 @@ class CreateStitchedMeshes(Workflow):
 
         
         resource_mgr_client = ResourceManagerClient(options["resource-server"], options["resource-port"])
-        volume_service = VolumeService.create_from_config(config["dvid-info"], self.config_dir, resource_mgr_client)
+        volume_service = VolumeService.create_from_config(config["input"], self.config_dir, resource_mgr_client)
 
         self._init_meshes_instance()
 
@@ -628,19 +633,19 @@ class CreateStitchedMeshes(Workflow):
         # --> ( body_id, [( segment_id, mesh_bytes ), ( segment_id, mesh_bytes ), ...] )
         segment_id_and_mesh_bytes_grouped_by_body = self.group_by_body(segment_id_and_mesh_bytes)
 
-        instance_name = config["dvid-info"]["dvid"]["meshes-destination"]
+        instance_name = config["output"]["dvid"]["meshes-destination"]
         with Timer("Writing meshes to DVID", logger):
             segment_id_and_mesh_bytes_grouped_by_body.foreachPartition( partial(post_meshes_to_dvid, config, instance_name) )
 
             
     def _init_meshes_instance(self):
-        dvid_info = self.config_data["dvid-info"]
-        if is_node_locked(dvid_info["dvid"]["server"], dvid_info["dvid"]["uuid"]):
-            raise RuntimeError(f"Can't write meshes: The node you specified ({dvid_info['dvid']['server']} / {dvid_info['dvid']['uuid']}) is locked.")
+        output_info = self.config_data["output"]
+        if is_node_locked(output_info["dvid"]["server"], output_info["dvid"]["uuid"]):
+            raise RuntimeError(f"Can't write meshes: The node you specified ({output_info['dvid']['server']} / {output_info['dvid']['uuid']}) is locked.")
 
-        instance_name = dvid_info["dvid"]["meshes-destination"]
-        create_keyvalue_instance( dvid_info["dvid"]["server"],
-                                  dvid_info["dvid"]["uuid"],
+        instance_name = output_info["dvid"]["meshes-destination"]
+        create_keyvalue_instance( output_info["dvid"]["server"],
+                                  output_info["dvid"]["uuid"],
                                   instance_name,
                                   tags=["type=meshes"] )
 
@@ -888,8 +893,8 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
     resource_client = ResourceManagerClient( config["options"]["resource-server"],
                                              config["options"]["resource-port"] )
 
-    dvid_server = config["dvid-info"]["dvid"]["server"]
-    uuid = config["dvid-info"]["dvid"]["uuid"]
+    dvid_server = config["output"]["dvid"]["server"]
+    uuid = config["output"]["dvid"]["uuid"]
     
     grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
     mesh_format = config["mesh-config"]["storage"]["format"]

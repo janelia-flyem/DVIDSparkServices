@@ -1,15 +1,23 @@
 {
-    "dvid-info": {
+    "input": {
+      "dvid": {
+        "server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "labels",
+      },
+      "geometry": {
+        "bounding-box": [[0,0,0], [256,256,256]],
+        "message-block-shape": [6400,64,64]
+      }
+    },
+    "output": {
       "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
         "meshes-destination": "labels_grouped_stitched_meshes"
       },
-      "geometry": {
-        "bounding-box": [[0,0,0], [256,256,256]],
-        "message-block-shape": [6400,64,64]
-      }
+      "geometry": {} # Not used
     },
     "mesh-config": {
         task-block-shape: [64, 64, 64],
