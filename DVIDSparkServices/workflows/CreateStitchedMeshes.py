@@ -826,9 +826,11 @@ class CreateStitchedMeshes(Workflow):
         # If subset-bodies were given, exclude all others.
         sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
         if sparse_body_ids:
-            for body_id in sparse_body_ids:
-                if not full_stats_df[full_stats_df['body'] == body_id]['keep_body'].all():
-                    logger.error(f"You explicitly listed body {body_id} in subset-bodies, "
+            sparse_body_ids = set(sparse_body_ids)
+            sparse_body_stats_df = body_stats_df.query('body in @sparse_body_ids')
+            for row in sparse_body_stats_df.itertuples(index=False):
+                if not row.keep_body:
+                    logger.error(f"You explicitly listed body {row.body} in subset-bodies, "
                                  "but it will be excluded due to your other config settings.")
             full_stats_df['keep_body'] &= full_stats_df.eval('body in @sparse_body_ids')
 
