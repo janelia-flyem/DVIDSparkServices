@@ -87,6 +87,11 @@ class IngestLabelIndices(Workflow):
             config["options"]["mutation-id"] = mutid
 
         config['block-stats-file'] = self.relpath_to_abspath(config['block-stats-file'])
+
+        instance_info = DataInstance(server, config["dvid"]["uuid"], config["dvid"]["segmentation-name"])
+        if instance_info.datatype != 'labelmap':
+            raise RuntimeError(f'DVID instance is not a labelmap: {config["dvid"]["segmentation-name"]}')
+        
     
     def execute(self):
         self._sanitize_config()
@@ -178,8 +183,6 @@ class IngestLabelIndices(Workflow):
         ##
         
         instance_info = DataInstance(server, uuid, instance_name)
-        if instance_info.datatype != 'labelmap':
-            raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
         bz, by, bx = instance_info.blockshape_zyx
 
         def encode_block_ids(body_and_stats):
