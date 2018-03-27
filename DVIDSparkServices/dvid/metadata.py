@@ -69,7 +69,7 @@ def is_node_locked(dvid_server, uuid):
     return r.json()["Locked"]
 
 
-def create_keyvalue_instance(server, uuid, instance_name, tags=[], allow_prexisting=True):
+def create_keyvalue_instance(server, uuid, instance_name, compression=None, tags=[], allow_prexisting=True):
     """
     Create a keyvalue instance
 
@@ -97,6 +97,13 @@ def create_keyvalue_instance(server, uuid, instance_name, tags=[], allow_prexist
     body = {}
     body["typename"] = "keyvalue"
     body["dataname"] = instance_name
+
+    if compression is None:
+        compression = 'none'    
+    
+    assert compression in ('none', 'snappy', 'lz4', 'gzip') # jpeg is also supported, but then we need to parse e.g. jpeg:80
+    body["Compression"] = compression
+    
     if tags:
         body["Tags"] = ','.join(tags)
     

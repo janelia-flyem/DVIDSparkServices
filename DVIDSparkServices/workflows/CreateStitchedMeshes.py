@@ -673,6 +673,7 @@ class CreateStitchedMeshes(Workflow):
         create_keyvalue_instance( output_info["dvid"]["server"],
                                   output_info["dvid"]["uuid"],
                                   instance_name,
+                                  compression=None, # No compression on the DVID side; we're sending pre-compressed values.
                                   tags=["type=meshes"] )
 
 
