@@ -661,7 +661,10 @@ class CreateStitchedMeshes(Workflow):
 
         instance_name = config["output"]["dvid"]["meshes-destination"]
         with Timer("Writing meshes to DVID", logger):
-            segment_id_and_mesh_bytes_grouped_by_body.foreachPartition( partial(post_meshes_to_dvid, config, instance_name) )
+            keys_written = segment_id_and_mesh_bytes_grouped_by_body.flatMap( partial(post_meshes_to_dvid, config, instance_name) ).collect()
+
+        keys_written = pd.Series(keys_written, name='key')
+        keys_written.to_csv(self.relpath_to_abspath('./keys-uploaded.csv', index=False))
 
             
     def _init_meshes_instance(self):
@@ -918,7 +921,12 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
         instance_name: key-value instance to post to
             
         partition_items: tuple (group_id, [(segment_id, mesh_data), (segment_id, mesh_data)])
+    
+    Returns:
+        The list of written keys.
     """
+    keys_written = []
+    
     # Re-use session for connection pooling.
     session = default_dvid_session()
 
@@ -948,6 +956,7 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
                         session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}_info', json={ 'format': mesh_format })
                 
                 write_mesh()
+                keys_written.append(str(segment_id))
     else:
         # All other grouping schemes, including 'singletons' write tarballs.
         # (In the 'singletons' case, there is just one tarball per body.)
@@ -979,6 +988,8 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
                     session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{tar_name}', tar_bytes)
             
             write_tar()
+            keys_written.append(tar_name)
+    return keys_written
 
 def _get_group_name(config, group_id):
     """
