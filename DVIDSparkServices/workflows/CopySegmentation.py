@@ -121,6 +121,12 @@ class CopySegmentation(Workflow):
             "enum": ["labelarray", "labelmap"],
             "default": "labelmap"
         },
+        "instance-creation-tags": {
+            "description": "Arbitrary tag string to add when creating the instance.\n",
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+        },
         "create-with-indexing-enabled": {
             "description": "Enable indexing on the new labelarray or labelmap instance.\n"
                            "(Should normally be left as the default (true), except for benchmarking purposes.)",
@@ -300,7 +306,8 @@ class CopySegmentation(Workflow):
                                        pyramid_depth,
                                        3*(base_service.block_width,),
                                        enable_index=self.config_data["options"]["create-with-indexing-enabled"],
-                                       typename=self.config_data["options"]["instance-creation-type"] )
+                                       typename=self.config_data["options"]["instance-creation-type"],
+                                       tags=self.config_data["options"]["instance-creation-tags"] )
 
 
     def _read_pyramid_depth(self):

@@ -105,7 +105,7 @@ def create_keyvalue_instance(server, uuid, instance_name, tags=[], allow_prexist
     return True
 
 def create_label_instance(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
-                          compression=Compression.DEFAULT, enable_index=True, typename='labelarray' ):
+                          compression=Compression.DEFAULT, enable_index=True, typename='labelarray', tags=[] ):
     """
     Create 64 bit labels data structure.
 
@@ -121,8 +121,10 @@ def create_label_instance(dvid_server, uuid, name, levels=0, blocksize=(64,64,64
         name (str): data instance name
         blocksize (3 int tuple): block size z,y,x
         compression (Compression enum): compression to be used
-        minimal_extents: box [(z0,y0,x0), (z1,y1,x1)].
-                        If provided, data extents will be at least this large (possibly larger).
+        enable_index: Whether or not to support indexing on this label instance
+                      Should usually be True, except for benchmarking purposes.
+        typename: What instance type to create ('labelarray' or 'labelmap')
+        tags: A list of arbitrary strings to include in the 'Tags' field of the instance.
 
     Returns:
         True if the labels instance didn't already exist on the server
@@ -144,6 +146,10 @@ def create_label_instance(dvid_server, uuid, name, levels=0, blocksize=(64,64,64
              "IndexedLabels": str(enable_index).lower(),
              "CountLabels": str(enable_index).lower(),
              "MaxDownresLevel": str(levels) }
+    
+    if tags:
+        tagstr = ','.join(tags)
+        data["Tags"] = tagstr
     
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
