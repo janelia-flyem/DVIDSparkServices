@@ -1,4 +1,5 @@
 import os
+import csv
 import copy
 import tarfile
 import socket
@@ -196,7 +197,18 @@ class CreateStitchedMeshes(Workflow):
                     "subset-bodies": {
                         "description": "(Optional.) Instead of generating meshes for all meshes in the volume,\n"
                                        "only generate meshes for a subset of the bodies in the volume.\n",
-                        "type": "array",
+                        "oneOf": [
+                            {
+                                "description": "A list of body IDs to generate meshes for.",
+                                "type": "array",
+                                "default": []
+                            },
+                            {
+                                "description": "A CSV file containing a single column of body IDs to generate meshes for.",
+                                "type": "string",
+                                "default": ""
+                            }
+                        ],
                         "default": []
                     },
                     "input-is-mapped-supervoxels": {
@@ -301,6 +313,20 @@ class CreateStitchedMeshes(Workflow):
                 suffix = "_meshes_tars"
             output_info["dvid"]["meshes-destination"] = output_info["dvid"]["segmentation-name"] + suffix
 
+        if isinstance(mesh_config["storage"]["subset-bodies"], str):
+            csv_path = self.relpath_to_abspath(mesh_config["storage"]["subset-bodies"])
+            with open(csv_path, 'r') as csv_file:
+                try:
+                    # File should only have one column
+                    _first_body = int(csv_file.readline())
+                    header = None
+                except:
+                    header = 0
+
+            subset_bodies = pd.read_csv(csv_path, engine='c', header=header, names=['body_id'])
+            
+            # Overwrite config with bodies list from the csv file
+            mesh_config["storage"]["subset-bodies"] = list(subset_bodies['body_id'])
 
     def execute(self):
         from pyspark import StorageLevel
@@ -670,8 +696,12 @@ class CreateStitchedMeshes(Workflow):
         assert isinstance(volume_service.base_service, DvidVolumeService), \
             "Can't use subset-bodies feature for non-DVID sources" 
 
-        assert (volume_service.base_service.bounding_box_zyx == volume_service.bounding_box_zyx).all(), \
-            "Can't use subset-bodies feature with transposed or rescaled services"
+        if not (volume_service.base_service.bounding_box_zyx == volume_service.bounding_box_zyx).all():
+            # Can't fetch sparse bodies with transposed or rescaled services, so the entire volume will
+            # be read and subset-bodies will be selected after seg is downloaded.
+            logger.warn("You are using subset-bodies with a rescaled or transposed volume. Sparsevol will not be fetched. "
+                        "Instead, dense segmentation will be fetched, and your subset will be selected from it.")
+            return None
         
         grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
         assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
