@@ -10,7 +10,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 import DVIDSparkServices.rddtools as rt
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.util import Timer, default_dvid_session
+from DVIDSparkServices.util import Timer, default_dvid_session, cpus_per_worker, num_worker_nodes
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationServiceSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
@@ -144,7 +144,7 @@ class IngestLabelIndices(Workflow):
         csv_chunk_size = config["options"]["csv-chunk-size"]
         dtypes = { 'segment_id': np.uint64, 'z': np.int32, 'y': np.int32, 'x':np.int32, 'count': np.uint32 }
         block_stats_df_chunks = pd.read_csv(config['block-stats-file'], engine='c', dtype=dtypes, chunksize=csv_chunk_size)
-        stats_chunks = self.sc.parallelize( block_stats_df_chunks )
+        stats_chunks = self.sc.parallelize( block_stats_df_chunks, cpus_per_worker() * num_worker_nodes() )
         rt.persist_and_execute(stats_chunks, "Loading and distributing block statistics", logger)
 
         ##
