@@ -42,18 +42,23 @@ class IngestLabelIndices(Workflow):
             },
             "agglomeration-mapping": LabelMapSchema,
             "options": {
+                "csv-chunk-size": {
+                    "description": "How many lines of CSV to distribute to each RDD element at the beginning of the workflow.\n",
+                    "type": "integer",
+                    "default": 10_000_000
+                },
                 "operation": {
                     "description": "Whether to load labelindices, mappings, or both.",
                     "type": "string",
                     "enum": ["labelindices", "mappings", "both"],
                     "default": "labelindices"
+                },
+                "mutation-id": {
+                    "description": "The mutation ID to use for these ingestions. By default, uses 0 for supervoxels (no agglomeration) and 1 otherwise.",
+                    "type": "integer",
+                    "default": -1
                 }
             },
-            "mutation-id": {
-                "description": "The mutation ID to use for these ingestions. By default, uses 0 for supervoxels (no agglomeration) and 1 otherwise.",
-                "type": "integer",
-                "default": -1
-            }
         }
     }
 
@@ -136,7 +141,7 @@ class IngestLabelIndices(Workflow):
         ##
         ## Distribute block statistics file (in chunks of CSV rows)
         ##
-        csv_chunk_size = 1_000_000
+        csv_chunk_size = config["options"]["csv-chunk-size"]
         dtypes = { 'segment_id': np.uint64, 'z': np.int32, 'y': np.int32, 'x':np.int32, 'count': np.uint32 }
         block_stats_df_chunks = pd.read_csv(config['block-stats-file'], engine='c', dtype=dtypes, chunksize=csv_chunk_size)
         stats_chunks = self.sc.parallelize( block_stats_df_chunks )
