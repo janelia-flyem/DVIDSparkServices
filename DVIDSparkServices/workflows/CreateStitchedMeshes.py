@@ -820,10 +820,6 @@ class CreateStitchedMeshes(Workflow):
                                       (body_stats_df['body_voxel_count'] <= config['options']['maximum-agglomerated-size']) &
                                       (body_stats_df['body_segment_count'] >= config['options']['minimum-agglomerated-segment-count']))
 
-        full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
-        full_stats_df['keep_segment'] = ((full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size']) &
-                                         (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
-
         # If subset-bodies were given, exclude all others.
         sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
         if sparse_body_ids:
@@ -833,7 +829,12 @@ class CreateStitchedMeshes(Workflow):
                 if not row.keep_body:
                     logger.error(f"You explicitly listed body {row.body} in subset-bodies, "
                                  "but it will be excluded due to your other config settings.")
-            full_stats_df['keep_body'] &= full_stats_df.eval('body in @sparse_body_ids')
+            body_stats_df['keep_body'] &= body_stats_df.eval('body in @sparse_body_ids')
+
+        full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
+        full_stats_df['keep_segment'] = ((full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size']) &
+                                         (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
+
 
         #import pandas as pd
         #pd.set_option('expand_frame_repr', False)
