@@ -117,7 +117,7 @@ class BrickWall:
         if scale == 0:
             downsampled_box = bounding_box_zyx
         else:
-            full_box = volume_service.bounding_box_zyx
+            full_box = bounding_box_zyx
             downsampled_box = np.zeros((2,3), dtype=int)
             downsampled_box[0] = full_box[0] // 2**scale # round down
             
