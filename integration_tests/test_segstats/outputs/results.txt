@@ -1,0 +1,82 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/tmp/test_copyseg_logs', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/test_copyseg_logs
+INFO [2018-03-27 17:23:43,798] Started logserver on 10.101.10.49:3000
+INFO [2018-03-27 17:23:43,802] Starting resource manager on the driver (10.101.10.49)
+INFO [2018-03-27 17:23:43,807] Started resource manager
+Copy Segmentation: Started [2018-03-27 17:23:43]
+INFO [2018-03-27 17:23:43,823] Output 0 bounding box (xyz) is: [[0, 0, 0], [256, 256, 256]]
+INFO [2018-03-27 17:23:43,825] Neuroglancer link to output 0: http://127.0.0.1:8000/neuroglancer/#!{"layers": {"segmentation": {"type": "segmentation", "source": "dvid://http://127.0.0.1:8000/3b6ddf224ac740a89ebe3d3f09ad3b21/labels-copy-translated"}}, "navigation": {"pose": {"position": {"voxelSize": [8, 8, 8], "voxelCoordinates": [128.0, 128.0]}}, "zoomFactor": 8}}
+INFO [2018-03-27 17:23:43,827] Processing data in 4 slabs (max depth=64) for 0 pyramid levels
+INFO [2018-03-27 17:23:43,829] Block statistics already exists: /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_segstats/temp_data/block-statistics.h5
+INFO [2018-03-27 17:23:43,830] Will APPEND to the pre-existing statistics file.
+INFO [2018-03-27 17:23:43,832] Initializing RDD of 10 Bricks (over 16 partitions) with total volume 0.0 Gvox
+INFO [2018-03-27 17:23:44,006] Slab 0: Reading ([[100, 150, 200], [356, 406, 264]])...
+INFO [2018-03-27 17:23:48,852] Slab 0: Reading ([[100, 150, 200], [356, 406, 264]]) (N=10, P=16, P_hist={0: 6, 1: 10}) took 0:00:04.843558
+INFO [2018-03-27 17:23:48,895] Slab 0: Scale 0: Shuffling bricks into alignment...
+INFO [2018-03-27 17:23:50,549] Slab 0: Scale 0: Shuffling bricks into alignment (N=4, P=16, P_hist={0: 13, 2: 1, 1: 2}) took 0:00:01.651179
+INFO [2018-03-27 17:23:50,553] Slab 0: Computing slab block statistics...
+INFO [2018-03-27 17:23:50,985] Slab 0: Computing slab block statistics took 0:00:00.428711
+INFO [2018-03-27 17:23:50,989] Slab 0: Nothing to write.
+INFO [2018-03-27 17:23:50,991] Slab 0: Appending stats and overwriting stats file...
+INFO [2018-03-27 17:23:51,006] Slab 0: Appending stats and overwriting stats file took 0:00:00.012508
+INFO [2018-03-27 17:23:51,010] Slab 0: Done copying to 1 destinations.
+INFO [2018-03-27 17:23:51,013] Slab 0: Total processing time: 0:00:07.178445
+INFO [2018-03-27 17:23:51,017] Initializing RDD of 10 Bricks (over 16 partitions) with total volume 0.0 Gvox
+INFO [2018-03-27 17:23:51,026] Slab 1: Reading ([[100, 150, 264], [356, 406, 328]])...
+INFO [2018-03-27 17:23:52,631] Slab 1: Reading ([[100, 150, 264], [356, 406, 328]]) (N=10, P=16, P_hist={0: 6, 1: 10}) took 0:00:01.601486
+INFO [2018-03-27 17:23:52,658] Slab 1: Scale 0: Shuffling bricks into alignment...
+INFO [2018-03-27 17:23:54,254] Slab 1: Scale 0: Shuffling bricks into alignment (N=4, P=16, P_hist={0: 13, 1: 2, 2: 1}) took 0:00:01.592913
+INFO [2018-03-27 17:23:54,258] Slab 1: Computing slab block statistics...
+INFO [2018-03-27 17:23:54,617] Slab 1: Computing slab block statistics took 0:00:00.355787
+INFO [2018-03-27 17:23:54,620] Slab 1: Nothing to write.
+INFO [2018-03-27 17:23:54,622] Slab 1: Appending stats and overwriting stats file...
+INFO [2018-03-27 17:23:54,629] Slab 1: Appending stats and overwriting stats file took 0:00:00.005137
+INFO [2018-03-27 17:23:54,631] Slab 1: Done copying to 1 destinations.
+INFO [2018-03-27 17:23:54,633] Slab 1: Total processing time: 0:00:03.615761
+INFO [2018-03-27 17:23:54,636] Initializing RDD of 10 Bricks (over 16 partitions) with total volume 0.0 Gvox
+INFO [2018-03-27 17:23:54,644] Slab 2: Reading ([[100, 150, 328], [356, 406, 392]])...
+INFO [2018-03-27 17:23:55,523] Slab 2: Reading ([[100, 150, 328], [356, 406, 392]]) (N=10, P=16, P_hist={0: 6, 1: 10}) took 0:00:00.876587
+INFO [2018-03-27 17:23:55,549] Slab 2: Scale 0: Shuffling bricks into alignment...
+INFO [2018-03-27 17:23:56,852] Slab 2: Scale 0: Shuffling bricks into alignment (N=4, P=16, P_hist={0: 13, 2: 1, 1: 2}) took 0:00:01.298945
+INFO [2018-03-27 17:23:56,856] Slab 2: Computing slab block statistics...
+INFO [2018-03-27 17:23:57,153] Slab 2: Computing slab block statistics took 0:00:00.294317
+INFO [2018-03-27 17:23:57,157] Slab 2: Nothing to write.
+INFO [2018-03-27 17:23:57,160] Slab 2: Appending stats and overwriting stats file...
+INFO [2018-03-27 17:23:57,170] Slab 2: Appending stats and overwriting stats file took 0:00:00.007383
+INFO [2018-03-27 17:23:57,173] Slab 2: Done copying to 1 destinations.
+INFO [2018-03-27 17:23:57,176] Slab 2: Total processing time: 0:00:02.537445
+INFO [2018-03-27 17:23:57,180] Initializing RDD of 10 Bricks (over 16 partitions) with total volume 0.0 Gvox
+INFO [2018-03-27 17:23:57,189] Slab 3: Reading ([[100, 150, 392], [356, 406, 456]])...
+INFO [2018-03-27 17:23:58,045] Slab 3: Reading ([[100, 150, 392], [356, 406, 456]]) (N=10, P=16, P_hist={0: 6, 1: 10}) took 0:00:00.852906
+INFO [2018-03-27 17:23:58,070] Slab 3: Scale 0: Shuffling bricks into alignment...
+INFO [2018-03-27 17:23:59,385] Slab 3: Scale 0: Shuffling bricks into alignment (N=4, P=16, P_hist={1: 2, 0: 13, 2: 1}) took 0:00:01.311894
+INFO [2018-03-27 17:23:59,389] Slab 3: Computing slab block statistics...
+INFO [2018-03-27 17:23:59,723] Slab 3: Computing slab block statistics took 0:00:00.331267
+INFO [2018-03-27 17:23:59,726] Slab 3: Nothing to write.
+INFO [2018-03-27 17:23:59,728] Slab 3: Appending stats and overwriting stats file...
+INFO [2018-03-27 17:23:59,734] Slab 3: Appending stats and overwriting stats file took 0:00:00.004050
+INFO [2018-03-27 17:23:59,736] Slab 3: Done copying to 1 destinations.
+INFO [2018-03-27 17:23:59,739] Slab 3: Total processing time: 0:00:02.557690
+INFO [2018-03-27 17:23:59,740] DONE copying/downsampling all slabs to 1 destinations.
+Copy Segmentation: Finished [2018-03-27 17:23:59]
+INFO [2018-03-27 17:23:59,743] No worker init processes to kill
+INFO [2018-03-27 17:23:59,745] No driver init process to kill
+INFO [2018-03-27 17:23:59,747] Terminating resource manager (PID 63880)
+Resource manager killed via external signal: KeyboardInterrupt
+INFO [2018-03-27 17:24:01,754] Successfully interrupted process 63880
+INFO [2018-03-27 17:24:01,757] Interrupted process was: /miniforge/envs/flyem-forge/bin/python /miniforge/envs/flyem-forge/bin/dvid_resource_manager 4000 --config-file=/tmp/bergs/driver-resource-server-config.json
+INFO [2018-03-27 17:24:01,775] Terminating logserver (PID 63879)
+Log server killed via external signal: SystemExit
+Traceback (most recent call last):
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 193, in _run_module_as_main
+    "__main__", mod_spec)
+  File "/miniforge/envs/flyem-forge/lib/python3.6/runpy.py", line 85, in _run_code
+    exec(code, run_globals)
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 264, in <module>
+    close_all()
+  File "/magnetic/workspace/logcollector/logcollector/logserver.py", line 170, in close_all
+    f.close()
+KeyboardInterrupt
+INFO [2018-03-27 17:24:03,777] Successfully interrupted process 63879
+INFO [2018-03-27 17:24:03,778] Interrupted process was: /miniforge/envs/flyem-forge/bin/python -m logcollector.logserver --log-dir=/tmp/test_copyseg_logs --port=3000

@@ -1,0 +1,53 @@
+# This looks like JSON, but it's technically YAML.
+# Therefore, it is allowed to contain comments, like this one.
+# It can't contain tab charaecters (\t), though.
+{
+    "input": {
+      "dvid": {
+        "server": "127.0.0.1:8000",
+        "uuid": "UUID1",
+        "segmentation-name": "labels",
+      },
+
+      "geometry": {
+        "bounding-box": [[100, 150, 200], [356, 406, 456]]
+      }
+    },
+
+    "outputs": [
+      {
+        "dvid": {
+          "server": "127.0.0.1:8000",
+          "uuid": "UUID2",
+          "segmentation-name": "labels-copy-translated",
+          "disable-indexing": true
+        },
+        "geometry": {
+          "bounding-box": [[0, 0, 0], [256, 256, 256]]
+        }
+      }
+    ],
+
+    "options": {
+        "instance-creation-type": "labelmap",
+        "pyramid-depth": 0,
+        skip-scale-0-write: true,
+        compute-block-statistics: true,
+        "slab-depth": 64, # Force several slabs (and exercise stats merging logic) 
+
+        "resource-server": "driver",
+        "resource-port": 4000,
+
+        "resource-server-config": {
+            "read_reqs": 128,
+            "read_data": 4000000000,
+            "write_reqs": 128,
+            "write_data": 4000000000
+        },
+
+        "log-collector-directory": "/tmp/test_copyseg_logs",
+        "log-collector-port": 3000,
+
+        "debug": false
+    }
+}

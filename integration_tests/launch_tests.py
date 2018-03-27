@@ -353,6 +353,8 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
     tests["test_copyseg_brainmaps"] = "CopySegmentation"
     tests["test_copyseg_remapped"] = "CopySegmentation"
 
+    tests["test_segstats"] = "CopySegmentation"
+
     tests["test_ingest_label_indices"] = "IngestLabelIndices"
     
     tests["test_stitch_grid"] = "CreateSegmentation"

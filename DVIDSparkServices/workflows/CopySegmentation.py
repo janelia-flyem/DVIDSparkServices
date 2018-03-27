@@ -6,9 +6,10 @@ import logging
 import socket
 import sqlite3
 from functools import partial
+from collections import OrderedDict
 
+import h5py
 import numpy as np
-
 import pandas as pd
 
 from dvid_resource_manager.client import ResourceManagerClient
@@ -66,7 +67,7 @@ class CopySegmentation(Workflow):
                            "If the file already exists, it will be appended to (for restarting from a failed job).\n"
                            "Supported formats: CSV (.csv), sqlite3 (.sqlite), and pickled pandas dataframe (.pkl.csv)",
             "type": "string",
-            "default": "block-statistics.csv"
+            "default": "block-statistics.h5"
         },
         "compute-block-statistics": {
             "description": "Whether or not to compute block statistics (from the scale 0 data).\n"
@@ -186,16 +187,13 @@ class CopySegmentation(Workflow):
         max_depth = max(map(lambda box: box[1][0] - box[0][0], output_slab_boxes))
         logger.info(f"Processing data in {len(output_slab_boxes)} slabs (max depth={max_depth}) for {pyramid_depth} pyramid levels")
 
-        # Initialize the cumulative stats (from pre-existing file, if present).
         if self.config_data["options"]["compute-block-statistics"]:
-            cumulative_block_stats_df = self._init_stats_file()
-        else:
-            cumulative_block_stats_df = None
+            self._init_stats_file()
 
         # Read data and accumulate statistics, one slab at a time.
         for slab_index, output_slab_box in enumerate( output_slab_boxes ):
             with Timer() as timer:
-                cumulative_block_stats_df = self._process_slab(slab_index, output_slab_box, cumulative_block_stats_df )
+                self._process_slab(slab_index, output_slab_box )
             logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
             logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
 
@@ -279,6 +277,10 @@ class CopySegmentation(Workflow):
         """
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
         permit_inconsistent_pyramids = self.config_data["options"]["permit-inconsistent-pyramid"]
+        
+        if self.config_data["options"]["skip-scale-0-write"] and pyramid_depth == 0:
+            # Nothing to write.  Maybe the user is just computing block statistics
+            return
 
         for output_service in self.output_services:
             base_service = output_service.base_service
@@ -383,86 +385,51 @@ class CopySegmentation(Workflow):
         options["slab-depth"] = slab_depth
 
     def _init_stats_file(self):
-        # Default (empty dataframe)
-        cumulative_block_stats_df = pd.DataFrame(columns=BLOCK_STATS_COLUMNS)                
-
         stats_path = self.relpath_to_abspath(self.config_data["options"]["block-statistics-file"])
+        if os.path.exists(stats_path):
+            logger.info(f"Block statistics already exists: {stats_path}")
+            logger.info(f"Will APPEND to the pre-existing statistics file.")
+            return
 
-        if stats_path.endswith('.sqlite'):
-            if os.path.exists(stats_path):
-                with sqlite3.connect(stats_path) as conn:
-                    cumulative_block_stats_df = pd.read_sql('SELECT * from block_stats', conn)
-            else:
-                with sqlite3.connect(stats_path) as conn:
-                    c = conn.cursor()
-                    c.execute('CREATE TABLE block_stats (segment_id INTEGER, z INTEGER, y INTEGER, x INTEGER, count INTEGER)')
+        if stats_path.endswith('.csv'):
+            # Initialize (just the header)
+            template_df = pd.DataFrame(columns=list(BLOCK_STATS_DTYPES.keys()))
+            template_df.to_csv(stats_path, index=False, header=True)
 
-        elif stats_path.endswith('.pkl.xz'):
-            if os.path.exists(stats_path):
-                cumulative_block_stats_df = pd.read_pickle(stats_path)
-
-        elif stats_path.endswith('.csv'):
-            if os.path.exists(stats_path):
-                cumulative_block_stats_df = pd.read_csv(stats_path)
-            else:
-                # Initialize (just the header)
-                cumulative_block_stats_df.to_csv(stats_path, index=False, header=True)
+        elif stats_path.endswith('.h5'):
+            # Initialize a 0-entry 1D array with the correct (structured) dtype
+            with h5py.File(stats_path, 'w') as f:
+                f.create_dataset('stats', shape=(0,), maxshape=(None,), chunks=True, dtype=list(BLOCK_STATS_DTYPES.items()))
         else:
             raise RuntimeError(f"Unknown file format: {stats_path}")
 
-        if cumulative_block_stats_df.shape[0] > 0:
-            logger.info(f"Starting with {len(cumulative_block_stats_df)} pre-existing block statistics: {stats_path}")
-
-        assert list(cumulative_block_stats_df.columns) == BLOCK_STATS_COLUMNS, \
-            f"Unexpected column list: {list(cumulative_block_stats_df.columns)}"
-        # Ensure proper (minimal width) dtypes
-        # Sadly, pd.read_sql() will return everything as int64, which may induce significant RAM overhead.
-        # We may need to revisit this, and read rows or columns in batches.
-        cumulative_block_stats_df['segment_id'] = cumulative_block_stats_df['segment_id'].astype(np.uint64, copy=False)
-        cumulative_block_stats_df['z'] = cumulative_block_stats_df['z'].astype(np.int32, copy=False)
-        cumulative_block_stats_df['y'] = cumulative_block_stats_df['y'].astype(np.int32, copy=False)
-        cumulative_block_stats_df['x'] = cumulative_block_stats_df['x'].astype(np.int32, copy=False)
-        cumulative_block_stats_df['count'] = cumulative_block_stats_df['count'].astype(np.uint32, copy=False)
-
-        return cumulative_block_stats_df
-
-    def _append_slab_statistics(self, cumulative_block_stats_df, slab_stats_df):
+    def _append_slab_statistics(self, slab_stats_df):
         """
-        Append the rows of the given slab statistics DataFrame to the given cumulative
-        statistics DataFrame. No attempt is made to drop duplicate rows
+        Append the rows of the given slab statistics DataFrame to the output statistics file.
+        No attempt is made to drop duplicate rows
         (e.g. if you started from pre-existing statistics and the new
         bounding-box overlaps with the previous run's).
         
         Args:
-            cumulative_block_stats_df: DataFrame with rows ['segment_id', 'z', 'y', 'x']
-            slab_stats_df: Similar DataFrame, to be appended
-            write: If True, write to disk after concatenation
-        
-        Returns:
-            DataFrame after concatenation
+            slab_stats_df: DataFrame to be appended to the stats file,
+                           with columns and dtypes matching BLOCK_STATS_DTYPES
         """
+        assert list(slab_stats_df.columns) == list(BLOCK_STATS_DTYPES.keys())
         stats_path = self.relpath_to_abspath(self.config_data["options"]["block-statistics-file"])
-        cumulative_block_stats_df = pd.concat( (cumulative_block_stats_df, slab_stats_df), ignore_index=True )
 
-        if stats_path.endswith('.sqlite'):        
-            with sqlite3.connect(stats_path) as conn:
-                slab_stats_df.to_sql('block_stats', conn, if_exists='append', index=False)
-
-        elif stats_path.endswith('.pkl.xz'):
-            # Can't append, so always overwrite
-            # Technically, this results in O(N**2) behavior for writing statistics.
-            # It's tolerable for large slabs, but probably bad of you choose a thin slab depth.
-            cumulative_block_stats_df.to_pickle(stats_path)
-
-        elif stats_path.endswith('.csv'):
+        if stats_path.endswith('.csv'):
             slab_stats_df.to_csv(stats_path, header=False, index=False, mode='a')
 
+        elif stats_path.endswith('.h5'):
+            with h5py.File(stats_path, 'a') as f:
+                orig_len = len(f['stats'])
+                new_len = orig_len + len(slab_stats_df)
+                f['stats'].resize((new_len,))
+                f['stats'][orig_len:new_len] = slab_stats_df.to_records()
         else:
             raise RuntimeError(f"Unknown file format: {stats_path}")
-            
-        return cumulative_block_stats_df
 
-    def _process_slab(self, slab_index, output_slab_box, cumulative_block_stats_df ):
+    def _process_slab(self, slab_index, output_slab_box ):
         """
         (The main work of this file.)
         
@@ -475,8 +442,6 @@ class CopySegmentation(Workflow):
             so that all bricks are complete (i.e. they completely fill their grid block).
         5. Write all bricks to the output destination.
         6. Downsample the bricks and repeat steps 3-5 for the downsampled scale.
-        
-        Returns the cumulative statistics for all processed blocks so far
         """
         options = self.config_data["options"]
         pyramid_depth = options["pyramid-depth"]
@@ -510,55 +475,60 @@ class CopySegmentation(Workflow):
                 input_slab_block_stats_df = pd.concat(input_slab_block_stats_per_brick, ignore_index=True)
                 del input_slab_block_stats_per_brick
 
-        for output_index, output_service in enumerate(self.output_services):
-            if output_index < len(self.output_services) - 1:
-                # Copy to a new RDD so the input can be re-used for subsequent outputs
-                aligned_output_wall = aligned_input_wall.copy()
-            else:
-                # No copy needed for the last one
-                aligned_output_wall = aligned_input_wall
-
-            # Pad internally to block-align.
-            # Here, we assume that any output labelmaps are idempotent,
-            # so it's okay to read pre-existing output data that will ultimately get remapped.
-            padded_wall = self._consolidate_and_pad(slab_index, aligned_output_wall, 0, output_service, align=False, pad=True)
-            del aligned_output_wall
-    
-            # Write scale 0 to DVID
-            if not options["skip-scale-0-write"]:
-                self._write_bricks( slab_index, padded_wall, 0, output_service )
-    
-            for new_scale in range(1, 1+pyramid_depth):
-                if options["download-pre-downsampled"] and new_scale in self.input_service.available_scales:
-                    padded_wall.unpersist()
-                    del padded_wall
-                    downsampled_wall = BrickWall.from_volume_service(self.input_service, new_scale, input_slab_box, self.sc, self.target_partition_size_voxels)
-                    downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downloading pre-downsampled bricks", logger)
+        if options["skip-scale-0-write"] and pyramid_depth == 0:
+            # Early break if merely computing block statistics and not writing anything.
+            logger.info(f"Slab {slab_index}: Nothing to write.")
+            if not options["compute-block-statistics"]:
+                raise RuntimeError("According to your config, you aren't computing block stats, "
+                                   "you aren't writing scale 0, and you aren't writing pyramids.  "
+                                   "What exactly are you hoping will happen here?")
+        else:
+            for output_index, output_service in enumerate(self.output_services):
+                if output_index < len(self.output_services) - 1:
+                    # Copy to a new RDD so the input can be re-used for subsequent outputs
+                    aligned_output_wall = aligned_input_wall.copy()
                 else:
-                    # Compute downsampled (results in smaller bricks)
-                    downsampled_wall = padded_wall.label_downsample( (2,2,2) )
-                    downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
-                    padded_wall.unpersist()
-                    del padded_wall
-
-                # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_wall = self._consolidate_and_pad(slab_index, downsampled_wall, new_scale, output_service, align=True, pad=True)
-                del downsampled_wall
-
-                # Write to DVID
-                self._write_bricks( slab_index, consolidated_wall, new_scale, output_service )
-
-                padded_wall = consolidated_wall
-                del consolidated_wall
-            del padded_wall
+                    # No copy needed for the last one
+                    aligned_output_wall = aligned_input_wall
+    
+                # Pad internally to block-align.
+                # Here, we assume that any output labelmaps are idempotent,
+                # so it's okay to read pre-existing output data that will ultimately get remapped.
+                padded_wall = self._consolidate_and_pad(slab_index, aligned_output_wall, 0, output_service, align=False, pad=True)
+                del aligned_output_wall
+        
+                # Write scale 0 to DVID
+                if not options["skip-scale-0-write"]:
+                    self._write_bricks( slab_index, padded_wall, 0, output_service )
+        
+                for new_scale in range(1, 1+pyramid_depth):
+                    if options["download-pre-downsampled"] and new_scale in self.input_service.available_scales:
+                        padded_wall.unpersist()
+                        del padded_wall
+                        downsampled_wall = BrickWall.from_volume_service(self.input_service, new_scale, input_slab_box, self.sc, self.target_partition_size_voxels)
+                        downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downloading pre-downsampled bricks", logger)
+                    else:
+                        # Compute downsampled (results in smaller bricks)
+                        downsampled_wall = padded_wall.label_downsample( (2,2,2) )
+                        downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
+                        padded_wall.unpersist()
+                        del padded_wall
+    
+                    # Consolidate to full-size bricks and pad internally to block-align
+                    consolidated_wall = self._consolidate_and_pad(slab_index, downsampled_wall, new_scale, output_service, align=True, pad=True)
+                    del downsampled_wall
+    
+                    # Write to DVID
+                    self._write_bricks( slab_index, consolidated_wall, new_scale, output_service )
+    
+                    padded_wall = consolidated_wall
+                    del consolidated_wall
+                del padded_wall
 
         # Now that processing is complete, commit the stats to disk.
         if options["compute-block-statistics"]:
             with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
-                cumulative_block_stats_df = self._append_slab_statistics( cumulative_block_stats_df,
-                                                                          input_slab_block_stats_df )
-        
-        return cumulative_block_stats_df
+                self._append_slab_statistics( input_slab_block_stats_df )
 
     def _consolidate_and_pad(self, slab_index, input_wall, scale, output_service, align=True, pad=True):
         """
@@ -660,7 +630,13 @@ class CopySegmentation(Workflow):
         logger.info(f"Slab {slab_index}: Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
 
 
-BLOCK_STATS_COLUMNS = ['segment_id', 'z', 'y', 'x', 'count']
+BLOCK_STATS_DTYPES = OrderedDict([ ('segment_id', np.uint64),
+                                   ('z', np.int32),
+                                   ('y', np.int32),
+                                   ('x', np.int32),
+                                   ('count', np.uint32) ])
+
+
 def block_stats_from_brick(block_shape, brick):
     """
     Get the count of voxels for each segment (excluding segment 0)
@@ -696,5 +672,5 @@ def block_stats_from_brick(block_shape, brick):
 
     brick_df = pd.concat(block_dfs, ignore_index=True)
     brick_df = brick_df[['segment_id', 'z', 'y', 'x', 'count']]
-    assert list(brick_df.columns) == BLOCK_STATS_COLUMNS
+    assert list(brick_df.columns) == list(BLOCK_STATS_DTYPES.keys())
     return brick_df
