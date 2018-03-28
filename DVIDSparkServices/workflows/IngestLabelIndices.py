@@ -14,7 +14,7 @@ from DVIDSparkServices.util import Timer, default_dvid_session, cpus_per_worker,
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationServiceSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
-from DVIDSparkServices.dvid.ingest_label_indexes import ingest_mapping
+from DVIDSparkServices.dvid.ingest_label_indexes import load_stats_h5_to_records, StatsBatchProcessor, generate_stats_batches, ingest_mapping
 from DVIDSparkServices.dvid.metadata import DataInstance
 
 # The labelops_pb2 file was generated with the following commands:
@@ -42,8 +42,8 @@ class IngestLabelIndices(Workflow):
             },
             "agglomeration-mapping": LabelMapSchema,
             "options": {
-                "csv-chunk-size": {
-                    "description": "How many lines of CSV to distribute to each RDD element at the beginning of the workflow.\n",
+                "batch-row-count": {
+                    "description": "Approximately how many rows of block statistics each task should process at a time.\n",
                     "type": "integer",
                     "default": 10_000_000
                 },
@@ -134,134 +134,32 @@ class IngestLabelIndices(Workflow):
         options = config["options"]
         resource_manager_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
 
+        last_mutid = options["mutation-id"]
         server = config["dvid"]["server"]
         uuid = config["dvid"]["uuid"]
         instance_name = config["dvid"]["segmentation-name"]
+        endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
 
-        ##
-        ## Distribute block statistics file (in chunks of CSV rows)
-        ##
-        csv_chunk_size = config["options"]["csv-chunk-size"]
-        dtypes = { 'segment_id': np.uint64, 'z': np.int32, 'y': np.int32, 'x':np.int32, 'count': np.uint32 }
-        block_stats_df_chunks = pd.read_csv(config['block-stats-file'], engine='c', dtype=dtypes, chunksize=csv_chunk_size)
-        stats_chunks = self.sc.parallelize( block_stats_df_chunks, cpus_per_worker() * num_worker_nodes() )
-        rt.persist_and_execute(stats_chunks, "Loading and distributing block statistics", logger)
-
-        ##
-        ## Map segment id -> body id, append body column
-        ##
-
-        def append_body_column_to_partitions(stats_chunks_partitions):
-            updated_chunks = []
-            for stats_chunk in stats_chunks_partitions:
-                if mapping_df is None:
-                    stats_chunk['body_id'] = stats_chunk['segment_id']
-                else:
-                    mapper = LabelMapper(mapping_df['segment_id'].values, mapping_df['body_id'].values)
-                    stats_chunk['body_id'] = mapper.apply(stats_chunk['segment_id'].values, allow_unmapped=True)
-                updated_chunks.append(stats_chunk)
-            return updated_chunks
-
-        stats_chunks = stats_chunks.mapPartitions(append_body_column_to_partitions)
-        rt.persist_and_execute(stats_chunks, "Applying labelmap to stats", logger)
-
-        ##
-        ## Split by body and concatenate
-        ##
-
-        def split_by_body(stats_chunk_df):
-            split_chunks = []
-            for body_id, body_group_df in stats_chunk_df.groupby('body_id'):
-                split_chunks.append( (body_id, body_group_df) )
-            return split_chunks
-
-        stats_chunks = stats_chunks.flatMap(split_by_body)
-        rt.persist_and_execute(stats_chunks, "Splitting chunks by body", logger)
-
-        def merge_chunks(chunk_df_A, chunk_df_B):
-            return pd.concat((chunk_df_A, chunk_df_B), ignore_index=True)
-        stats_chunks_by_body = stats_chunks.reduceByKey( merge_chunks )
-        rt.persist_and_execute(stats_chunks_by_body, "Grouping split chunks by body", logger)
+        processor = StatsBatchProcessor(last_mutid, endpoint)
         
-        ##
-        ## Encode block-id
-        ##
+        # Load the h5 file
+        block_sv_stats = load_stats_h5_to_records(config["block-stats-file"])
         
-        instance_info = DataInstance(server, uuid, instance_name)
-        bz, by, bx = instance_info.blockshape_zyx
-
-        def encode_block_ids(body_and_stats):
-            body_id, stats_chunk_df = body_and_stats
-            
-            # Convert coords into block indexes
-            stats_chunk_df['z'] //= bz
-            stats_chunk_df['y'] //= by
-            stats_chunk_df['x'] //= bx
-
-            # Encode block indexes into a shared uint64    
-            # Sadly, there is no clever way to speed this up with pd.eval()
-            encoded_block_ids = np.zeros( len(stats_chunk_df), dtype=np.uint64 )
-            encoded_block_ids |= (stats_chunk_df['z'].values.astype(np.int64) << 42).view(np.uint64)
-            encoded_block_ids |= (stats_chunk_df['y'].values.astype(np.int64) << 21).view(np.uint64)
-            encoded_block_ids |= (stats_chunk_df['x'].values.astype(np.int64)).view(np.uint64)
+        # Note: Initializing this generator involves sorting the (very large) stats array
+        batch_rows = options["batch-row-count"]
+        batch_generator = generate_stats_batches(block_sv_stats, mapping_df, batch_rows)
         
-            del stats_chunk_df['z']
-            del stats_chunk_df['y']
-            del stats_chunk_df['x']
-            stats_chunk_df['encoded_block_id'] = encoded_block_ids
-
-            return (body_id, stats_chunk_df)
-
-        stats_chunks_by_body = stats_chunks_by_body.map(encode_block_ids)
-        rt.persist_and_execute(stats_chunks_by_body, "Encoding block ids", logger)
+        with Timer("Distributing batches", logger):
+            batches = self.sc.parallelize( batch_generator, cpus_per_worker() * num_worker_nodes() )
         
-        ##
-        ## Construct protobuf structures
-        ##
+        def process_batch(item):
+            stats_batch, total_rows = item
+            approximate_bytes = 30 * total_rows # this is highly unscientific
+            with resource_manager_client.access_context(server, False, 1, approximate_bytes):
+                processor.process_batch( (stats_batch, total_rows) )
         
-        user = os.environ["USER"]
-        mod_time = datetime.datetime.now().isoformat()
-        last_mutid = config["options"]["mutation-id"]
-
-        def label_index_for_body(item):
-            body_id, body_group_df = item
-            label_index = LabelIndex()
-            label_index.label = body_id
-            label_index.last_mutid = last_mutid
-            label_index.last_mod_user = user
-            label_index.last_mod_time = mod_time
-            
-            for encoded_block_id, block_df in body_group_df.groupby(['encoded_block_id']):
-                label_index.blocks[encoded_block_id].counts.update( zip(block_df['segment_id'], block_df['count']) )
-            return label_index
-
-        label_indexes = stats_chunks_by_body.map(label_index_for_body)
-        rt.persist_and_execute(label_indexes, "Creating LabelIndexes", logger)
-        
-        ##
-        ## Serialize protobuf and send to DVID
-        ##
-        
-        session = default_dvid_session()
-        def send_labelindexes(partition):
-            partition = list(partition)
-            batch_size = 100
-            
-            # Send in batches
-            for batch_start in range(0, len(partition), batch_size):
-                batch_stop = min(batch_start + batch_size, len(partition))
-            
-                label_indices = LabelIndices()
-                label_indices.indices.extend(partition[batch_start:batch_stop])
-                payload = label_indices.SerializeToString()
-            
-                with resource_manager_client.access_context( instance_name, False, 1, len(payload) ):
-                    r = session.post(f'{server}/api/node/{uuid}/{instance_name}/indices', data=payload)
-                    r.raise_for_status()
-
-        with Timer("Sending LabelIndices to DVID", logger):
-            label_indexes.foreachPartition(send_labelindexes)
-
+        with Timer("Processing/sending batches", logger):
+            batches.foreach(process_batch)
 
     def _execute_mappings(self, mapping_df):
         config = self.config_data

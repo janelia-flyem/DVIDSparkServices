@@ -5,11 +5,20 @@ dvid:
   "uuid": "UUID2"
   "segmentation-name": labels-copy-translated
 
-block-stats-file: ../../test_copyseg/temp_data/block-statistics.csv
+block-stats-file: ../../test_copyseg/temp_data/block-statistics.h5
+
+
 #agglomeration-mapping:
 #  file: ../../test_copyseg/LABEL-TO-BODY-mod-100-labelmap.csv
 #  file-type: label-to-body
 
 options:
   operation: labelindices
+  batch-row-count: 20000
   mutation-id: 1
+
+  resource-server-config:
+    read_reqs: 128,
+    read_data: 4000000000,
+    write_reqs: 128,
+    write_data: 4000000000
