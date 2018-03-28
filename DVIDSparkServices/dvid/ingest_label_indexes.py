@@ -51,7 +51,7 @@ def main():
                         help='Whether to load the LabelIndexes, MappingOps, or both.')
     parser.add_argument('--num-threads', '-n', default=1, type=int,
                         help='How many threads to use when ingesting label indexes (does not currently apply to mappings)')
-    parser.add_argument('--batch-size', '-b', default=1000, type=int,
+    parser.add_argument('--batch-size', '-b', default=100_000, type=int,
                         help='Data is grouped in batches to the server. This is the batch size.')
     parser.add_argument('server')
     parser.add_argument('uuid')
@@ -159,7 +159,6 @@ def ingest_label_indexes( server,
         show_progress_bar:
             Show progress information on the console.
     """
-    assert num_threads > 0
     if not server.startswith('http://'):
         server = 'http://' + server
     instance_info = DataInstance(server, uuid, instance_name)
@@ -168,43 +167,66 @@ def ingest_label_indexes( server,
     bz, by, bx = instance_info.blockshape_zyx
     assert bz == by == bx == 64, "I hard-coded a block-width of 64 in this code, below."
 
-    _overwrite_body_id_column(block_sv_stats, segment_to_body_df)
-    
     user = os.environ["USER"]
     mod_time = datetime.datetime.now().isoformat()
     session = requests.Session()
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
 
-    # Sort in-place
+    progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
+    with progress_bar:
+        for next_stats_batch, next_stats_batch_total_rows in generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows):
+            labelindex_batch = populate_labelindex_batch(next_stats_batch, last_mutid, user, mod_time)
+            send_labelindex_batch(session, endpoint, labelindex_batch)
+            del labelindex_batch
+            progress_bar.update(next_stats_batch_total_rows)
+
+
+def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=100_000 ):
+    with Timer("Assigning body IDs", logger):
+        _overwrite_body_id_column(block_sv_stats, segment_to_body_df)
+    
     with Timer(f"Sorting {len(block_sv_stats)} block stats", logger):
         block_sv_stats.sort(order=['body_id', 'z', 'y', 'x', 'segment_id', 'count'])
 
-    def process_batch(batch):
-        batch_indexes = []
-        for body_group in batch:
-            body_id = body_group[0]['body_id']
-            label_index = label_index_for_body(body_id, body_group, last_mutid, user, mod_time)
-            batch_indexes.append(label_index)
+    def gen():
+        next_stats_batch = []
+        next_stats_batch_total_rows = 0
     
-        send_batch(session, endpoint, batch_indexes)
-
-    next_batch = []
-    next_batch_total_rows = 0
-
-    progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
-    with progress_bar:
         for body_group in groupby_presorted(block_sv_stats, block_sv_stats['body_id'][:, None]):
-            next_batch.append(body_group)
-            next_batch_total_rows += len(body_group)
-            if next_batch_total_rows >= batch_rows:
-                process_batch(next_batch)
-                progress_bar.update(next_batch_total_rows)
-                next_batch = []
-                next_batch_total_rows = 0
+            next_stats_batch.append(body_group)
+            next_stats_batch_total_rows += len(body_group)
+            if next_stats_batch_total_rows >= batch_rows:
+                yield (next_stats_batch, next_stats_batch_total_rows)
+                del next_stats_batch
+                next_stats_batch = []
+                next_stats_batch_total_rows = 0
     
         # last batch
-        if next_batch:
-            process_batch(next_batch)
+        if next_stats_batch:
+            yield (next_stats_batch, next_stats_batch_total_rows)
+
+    return gen()
+
+
+def populate_labelindex_batch(stats_batch, last_mutid, user, mod_time):
+    batch_indexes = []
+    for body_group in stats_batch:
+        body_id = body_group[0]['body_id']
+        label_index = label_index_for_body(body_id, body_group, last_mutid, user, mod_time)
+        batch_indexes.append(label_index)
+    return batch_indexes
+
+
+def send_labelindex_batch(session, endpoint, batch_indexes):
+    """
+    Send a batch (list) of LabelIndex objects to dvid.
+    """
+    label_indices = LabelIndices()
+    label_indices.indices.extend(batch_indexes)
+    payload = label_indices.SerializeToString()
+    
+    r = session.post(endpoint, data=payload)
+    r.raise_for_status()
 
 
 def _overwrite_body_id_column(block_sv_stats, segment_to_body_df=None):
@@ -234,7 +256,7 @@ def _overwrite_body_id_column(block_sv_stats, segment_to_body_df=None):
             block_sv_stats['body_id'][chunk_start:chunk_stop] = mapper.apply(chunk_segments, allow_unmapped=True)
 
 
-@jit(nopython=True, cache=True)
+@jit(nopython=True)
 def groupby_presorted(a, sorted_cols):
     if len(a) == 0:
         return
@@ -290,17 +312,6 @@ def label_index_for_body(body_id, body_group, last_mutid, user, mod_time):
         label_index.blocks[encoded_block_id].counts.update( zip(block_group['segment_id'], block_group['count']) )
 
     return label_index
-
-def send_batch(session, endpoint, batch_indexes):
-    """
-    Send a batch (list) of LabelIndex objects to dvid.
-    """
-    label_indices = LabelIndices()
-    label_indices.indices.extend(batch_indexes)
-    payload = label_indices.SerializeToString()
-    
-    r = session.post(endpoint, data=payload)
-    r.raise_for_status()
 
 
 def ingest_mapping( server,
