@@ -55,6 +55,10 @@ requirements:
     - z5py
     - google-cloud-storage
     - tblib
+    - dvidutils >=0.0.post44
+    - pyspark-flame
+    - tqdm # For progress bar reporting
+    - protobuf
     
     # Needed for brainmaps support:
     - httplib2

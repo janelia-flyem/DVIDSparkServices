@@ -2,7 +2,7 @@ import unittest
 import json
 from libdvid import DVIDNodeService, DVIDServerService, ConnectionMethod, DVIDConnection
 
-from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, DataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_labelarray, Compression 
+from DVIDSparkServices.dvid.metadata import is_dvidversion, is_datainstance, DataInstance, set_sync, has_sync, get_blocksize, create_rawarray8, create_label_instance, Compression 
 
 dvidserver = "http://127.0.0.1:8000"
 
@@ -38,7 +38,7 @@ class Testmetadata(unittest.TestCase):
         service = DVIDServerService(dvidserver)
         uuid = service.create_new_repo("foo", "bar")
        
-        create_labelarray(dvidserver, uuid, "labels")
+        create_label_instance(dvidserver, uuid, "labels")
         
         # check if labels is listening to labels2
         self.assertFalse(has_sync(dvidserver, uuid, "labels", "bodies"))
@@ -64,13 +64,13 @@ class Testmetadata(unittest.TestCase):
         self.assertEqual(blocksize, (32,16,14))
 
 
-    def test_create_labelarray(self):
+    def test_create_label_instance(self):
         """Test creation of labelarray and block size fetch
         """
         service = DVIDServerService(dvidserver)
         uuid = service.create_new_repo("foo", "bar")
        
-        create_labelarray(dvidserver, uuid, "labels")
+        create_label_instance(dvidserver, uuid, "labels", typename='labelmap')
         blocksize = get_blocksize(dvidserver, uuid, "labels") 
         self.assertEqual(blocksize, (64,64,64))
 

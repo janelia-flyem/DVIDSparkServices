@@ -773,8 +773,9 @@ def generate_mesh(config, simplification_ratio, combined_box, combined_mask, dow
     mesh_bytes, vertex_count = mesh_from_array( combined_mask,
                                                 combined_box[0],
                                                 downsample_factor,
+                                                2,
                                                 simplification_ratio,
-                                                config["mesh-config"]["step-size"],
+                                                False,
                                                 config["mesh-config"]["storage"]["format"],
                                                 return_vertex_count=True)
     return mesh_bytes, vertex_count

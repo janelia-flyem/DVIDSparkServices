@@ -9,7 +9,8 @@
       "geometry": {
         "bounding-box": [[18954, 3865, 15305], [19466,  4377, 15817]],
         "message-block-shape": [6400, 64, 64],
-        "block-width": 64
+        "block-width": 64,
+        "available-scales": [0,1,2]
       }
     },
 
@@ -17,7 +18,8 @@
       "dvid": {
         "server": "127.0.0.1:8000",
         "uuid": "UUID2",
-        "segmentation-name": "labels-from-brainmaps"
+        "segmentation-name": "labels-from-brainmaps",
+        "disable-indexing": true
       },
       "geometry": {
         "bounding-box": [[0, 0, 0], [512, 512, 512]],
@@ -28,11 +30,8 @@
 
     "options": {
         "pyramid-depth": 2,
+        "download-pre-downsampled": True,
 
-        "body-sizes": {
-            "minimum-size": 10
-        },
-        
         "resource-server": "driver",
         "resource-port": 4000,
 

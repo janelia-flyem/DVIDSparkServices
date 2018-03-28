@@ -1,4 +1,5 @@
 import os
+import lz4
 
 import numpy as np
 
@@ -6,7 +7,9 @@ from jsonschema import validate
 
 from dvidutils import LabelMapper
 
+from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.io_util.labelmap_utils import LabelMapSchema, load_labelmap
+
 from . import VolumeServiceWriter
 
 
@@ -40,15 +43,47 @@ class LabelmappedVolumeService(VolumeServiceWriter):
             abspath = os.path.normpath( os.path.join(config_dir, labelmap_config["file"]) )
             labelmap_config["file"] = abspath
         
-        self.mapping_pairs = load_labelmap(labelmap_config, config_dir)
+        self.labelmap_config = labelmap_config
+        self.config_dir = config_dir
         
-        # This is computed on-demand and memoized for the sake of pickling support
+        # These are computed on-demand and memoized for the sake of pickling support.
+        # See __getstate__()
         self._mapper = None
+        self._mapping_pairs = None
+        self._compressed_mapping_pairs = None
         
         assert np.issubdtype(self.dtype, np.integer)
         
         self.apply_when_reading = labelmap_config["apply-when"] in ("reading", "reading-and-writing")
         self.apply_when_writing = labelmap_config["apply-when"] in ("writing", "reading-and-writing")
+
+    def __getstate__(self):
+        if self._compressed_mapping_pairs is None:
+            # Load the labelmapping and then compress 
+            mapping_pairs = self.mapping_pairs
+            self._compressed_mapping_pairs = CompressedNumpyArray(mapping_pairs)
+
+        d = self.__dict__.copy()
+        
+        # Discard mapping pairs (will be reconstructed from compressed)
+        d['_mapping_pairs'] = None
+        
+        # Discard mapper. It isn't pickleable
+        d['_mapper'] = None
+        return d
+
+    @property
+    def mapping_pairs(self):
+        if self._mapping_pairs is None:
+            if self._compressed_mapping_pairs is not None:
+                self._mapping_pairs = self._compressed_mapping_pairs.deserialize()
+            else:
+                self._mapping_pairs = load_labelmap(self.labelmap_config, self.config_dir)
+                
+                # Save RAM by converting to uint32 if possible (usually possible)
+                if self._mapping_pairs.max() <= np.iinfo(np.uint32).max:
+                    self._mapping_pairs = self._mapping_pairs.astype(np.uint32)
+        return self._mapping_pairs
 
     @property
     def mapper(self):

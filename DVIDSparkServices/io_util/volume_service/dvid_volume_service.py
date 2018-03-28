@@ -75,6 +75,13 @@ DvidSegmentationServiceSchema = \
                            "Instance may be either googlevoxels, labelblk, or labelarray.",
             "type": "string",
             "minLength": 1
+        },
+        "disable-indexing": {
+            "description": "Tell the server not to update the label index after POST blocks.\n"
+                           "Useful during initial volume ingestion, in which label\n"
+                           "indexes will be sent by the client later on.\n",
+            "type": "boolean",
+            "default": False
         }
     }
 }
@@ -147,11 +154,16 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         except ValueError:
             # Instance doesn't exist yet -- we are going to create it.
             if "segmentation-name" in volume_config["dvid"]:
-                self._instance_type = 'labelarray'
+                self._instance_type = 'labelarray' # get_voxels doesn't really care if it's labelarray or labelmap...
                 self._is_labels = True
             else:
                 self._instance_type = 'uint8blk'
                 self._is_labels = False
+
+        if "disable-indexing" in volume_config["dvid"]:
+            self.disable_indexing = volume_config["dvid"]["disable-indexing"]
+        else:
+            self.disable_indexing = False
 
         ##
         ## Block width
@@ -277,13 +289,16 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             instance_name = f"{instance_name}_{scale}"
             scale = 0
 
-        with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.get_voxels( self._server, self._uuid, instance_name,
-                                         scale, self._instance_type, self._is_labels,
-                                         shape, box_zyx[0],
-                                         throttle=throttle,
-                                         node_service=self.node_service )
-
+        try:
+            with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
+                return sparkdvid.get_voxels( self._server, self._uuid, instance_name,
+                                             scale, self._instance_type, self._is_labels,
+                                             shape, box_zyx[0],
+                                             throttle=throttle,
+                                             node_service=self.node_service )
+        except Exception as ex:
+            raise RuntimeError(f"Failed to fetch subvolume: box_zyx = {box_zyx.tolist()}") from ex
+        
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.
     # 2. If that fails due to 504 or 503 (probably cloud VMs warming up), wait 5 minutes and try again.
@@ -300,12 +315,16 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             instance_name = f"{instance_name}_{scale}"
             scale = 0
 
-        with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
-            return sparkdvid.post_voxels( self._server, self._uuid, instance_name,
-                                          scale, self._instance_type, self._is_labels,
-                                          subvolume, offset_zyx,
-                                          throttle=throttle,
-                                          node_service=self.node_service )
+        try:
+            with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
+                return sparkdvid.post_voxels( self._server, self._uuid, instance_name,
+                                              scale, self._instance_type, self._is_labels,
+                                              subvolume, offset_zyx,
+                                              throttle=throttle,
+                                              disable_indexing=self.disable_indexing,
+                                              node_service=self.node_service )
+        except Exception as ex:
+            raise RuntimeError(f"Failed to write subvolume: offset_zyx = {offset_zyx.tolist()}, shape = {subvolume.shape}") from ex
 
     def __getstate__(self):
         """

@@ -49,7 +49,7 @@ def default_dvid_session(appname=None):
     except KeyError:
         s = requests.Session()
         s.params = { 'u': getpass.getuser(),
-                     'app': DEFAULT_APPNAME }
+                     'app': appname }
         DEFAULT_DVID_SESSIONS[(appname, thread_id)] = s
 
     return s

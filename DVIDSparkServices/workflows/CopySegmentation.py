@@ -1,31 +1,29 @@
+import os
 import time
 import copy
 import json
 import logging
 import socket
+import sqlite3
 from functools import partial
-from itertools import starmap
+from collections import OrderedDict
 
-import numpy as np
 import h5py
-
-# Don't import pandas here; import it locally as needed
-#import pandas as pd
+import numpy as np
+import pandas as pd
 
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.dvid.metadata import create_labelarray, is_datainstance
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount,\
-    replace_default_entries
+from DVIDSparkServices.dvid.metadata import create_label_instance, is_datainstance
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, \
+    replace_default_entries, box_intersection, box_to_slicing
 
 from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
 from DVIDSparkServices.io_util.volume_service import ( VolumeService, VolumeServiceWriter, SegmentationVolumeSchema,
                                                        SegmentationVolumeListSchema, TransposedVolumeService, ScaledVolumeService )
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
-from DVIDSparkServices.io_util.brick import slabs_from_box
-
-from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks, merge_stats_dfs, write_stats
+from DVIDSparkServices.io_util.brick import slabs_from_box, boxes_from_grid
 
 logger = logging.getLogger(__name__)
 
@@ -52,45 +50,32 @@ class CopySegmentation(Workflow):
       suitable default can be chosen for you.)
       
     - This workflow uses DvidVolumeService to write the segmentation blocks,
-      which is able to send them to DVID in the pre-encoded 'labelarray' block format.
+      which is able to send them to DVID in the pre-encoded 'labelarray' or 'labelmap' block format.
       This saves CPU resources on the DVID server.
     
     - As a convenience, size of each label 'body' in the copied volume is also
       calculated and exported in an HDF5 file, sorted by body size.
     """
-    
-    BodySizesOptionsSchema = \
-    {
-        "type": "object",
-        "additionalProperties": False,
-        "default": {},
-        "properties": {
-            "compute": {
-                "type": "boolean",
-                "default": True
-            },
-            "minimum-size" : {
-                "description": "Minimum size to include in the body size HDF5 output.\n"
-                               "Smaller bodies are omitted.",
-                "type": "integer",
-                "default": 1000
-            },
-            "method" : {
-                "description": "(For performance experiments)\n"
-                               "Whether to perform the body size computation via reduceByKey.",
-                "type": "string",
-                "enum": ["reduce-by-key", "reduce-with-pandas"],
-                "default": "reduce-with-pandas"
-            }
-        }
-    }
 
     OptionsSchema = copy.deepcopy(Workflow.OptionsSchema)
     OptionsSchema["additionalProperties"] = False
     OptionsSchema["properties"].update(
     {
-        "body-sizes": BodySizesOptionsSchema,
-        
+        "block-statistics-file": {
+            "description": "Where to store block statistics for the INPUT segmentation\n"
+                           "(but translated to output coordinates).\n"
+                           "If the file already exists, it will be appended to (for restarting from a failed job).\n"
+                           "Supported formats: CSV (.csv), sqlite3 (.sqlite), and pickled pandas dataframe (.pkl.csv)",
+            "type": "string",
+            "default": "block-statistics.h5"
+        },
+        "compute-block-statistics": {
+            "description": "Whether or not to compute block statistics (from the scale 0 data).\n"
+                           "Usually you'll need the statistics file to load labelindexes after copying the voxels,\n"
+                           "but in some cases you might not need them (e.g. adding pyramids after ingesting only scale 0).\n",
+            "type": "boolean",
+            "default": True
+        },
         "pyramid-depth": {
             "description": "Number of pyramid levels to generate \n"
                            "(-1 means choose automatically, 0 means no pyramid)",
@@ -110,7 +95,13 @@ class CopySegmentation(Workflow):
                            "you just want to generate the rest of the pyramid to the same instance.\n",
             "type": "boolean",
             "default": False
-        },        
+        },
+        "download-pre-downsampled": {
+            "description": "Instead of downsampling the data, just download the pyramid from the server (if it's available).\n"
+                           "Will not work unless you add the 'available-scales' setting to the input service's geometry config.",
+            "type": "boolean",
+            "default": True
+        },
         "slab-depth": {
             "description": "The data is downloaded and processed in Z-slabs.\n"
                            "This setting determines how thick each Z-slab is.\n"
@@ -125,8 +116,20 @@ class CopySegmentation(Workflow):
             "type": "integer",
             "default": 0,
         },
-        "enable-indexing": {
-            "description": "Enable indexing on the new labelarray instance.\n"
+        "instance-creation-type": {
+            "description": "What type of label instance to create.\n",
+            "type": "string",
+            "enum": ["labelarray", "labelmap"],
+            "default": "labelmap"
+        },
+        "instance-creation-tags": {
+            "description": "Arbitrary tag string to add when creating the instance.\n",
+            "type": "array",
+            "items": { "type": "string" },
+            "default": []
+        },
+        "create-with-indexing-enabled": {
+            "description": "Enable indexing on the new labelarray or labelmap instance.\n"
                            "(Should normally be left as the default (true), except for benchmarking purposes.)",
             "type": "boolean",
             "default": True
@@ -178,43 +181,28 @@ class CopySegmentation(Workflow):
 
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
         slab_depth = self.config_data["options"]["slab-depth"]
-        
-        # This list will contain one stats DataFrame per output
-        # TODO: Optionally initialize from a previous run (for restarts)
-        full_stats_list = []
-        
+
         # Process data in Z-slabs
         output_slab_boxes = list( slabs_from_box(output_bb_zyx, slab_depth) )
         max_depth = max(map(lambda box: box[1][0] - box[0][0], output_slab_boxes))
         logger.info(f"Processing data in {len(output_slab_boxes)} slabs (max depth={max_depth}) for {pyramid_depth} pyramid levels")
 
+        if self.config_data["options"]["compute-block-statistics"]:
+            self._init_stats_file()
+
+        # Read data and accumulate statistics, one slab at a time.
         for slab_index, output_slab_box in enumerate( output_slab_boxes ):
             with Timer() as timer:
-                slab_stats_list = self._process_slab(slab_index, output_slab_box)
+                self._process_slab(slab_index, output_slab_box )
             logger.info(f"Slab {slab_index}: Done copying to {len(self.config_data['outputs'])} destinations.")
             logger.info(f"Slab {slab_index}: Total processing time: {timer.timedelta}")
 
-            if not full_stats_list:
-                full_stats_list = slab_stats_list
-            else:
-                # Merge slab stats; overwrite list
-                full_stats_list = list( starmap( merge_stats_dfs,
-                                                 zip( full_stats_list, slab_stats_list ) ) )
-
-            # TODO: Optionally write incremental stats to file (for restarts)
-            
             delay_minutes = self.config_data["options"]["delay-minutes-between-slabs"]
             if delay_minutes > 0 and slab_index != len(output_slab_boxes)-1:
                 logger.info(f"Delaying {delay_minutes} before continuing to next slab...")
                 time.sleep(delay_minutes * 60)
 
         logger.info(f"DONE copying/downsampling all slabs to {len(self.config_data['outputs'])} destinations.")
-
-        # Write statistics to files
-        for full_stats_df, output_service in zip(full_stats_list, self.output_services):
-            seg_name = output_service.base_service.instance_name
-            output_path = self.config_dir + f'/{seg_name}-segment-stats-dataframe.pkl.xz'
-            write_stats( full_stats_df, output_path, logger )
 
     def _init_services(self):
         """
@@ -241,6 +229,10 @@ class CopySegmentation(Workflow):
             # directly from the input service.
             assert not isinstance( output_service, TransposedVolumeService )
             assert not isinstance( output_service, ScaledVolumeService )
+
+            assert output_service.base_service.disable_indexing, \
+                "During ingestion, indexing should be disabled.\n" \
+                "Please add 'disable-indexing':true to your output dvid config."
 
             logger.info(f"Output {i} bounding box (xyz) is: {output_service.bounding_box_zyx[:,::-1].tolist()}")
             self.output_services.append( output_service )
@@ -285,6 +277,10 @@ class CopySegmentation(Workflow):
         """
         pyramid_depth = self.config_data["options"]["pyramid-depth"]
         permit_inconsistent_pyramids = self.config_data["options"]["permit-inconsistent-pyramid"]
+        
+        if self.config_data["options"]["skip-scale-0-write"] and pyramid_depth == 0:
+            # Nothing to write.  Maybe the user is just computing block statistics
+            return
 
         for output_service in self.output_services:
             base_service = output_service.base_service
@@ -306,12 +302,14 @@ class CopySegmentation(Workflow):
                     pyramid_depth = choose_pyramid_depth(input_bb_zyx, 512)
         
                 # create new label array with correct number of pyramid scales
-                create_labelarray( base_service.server,
-                                   base_service.uuid,
-                                   base_service.instance_name,
-                                   pyramid_depth,
-                                   3*(base_service.block_width,),
-                                   enable_index=self.config_data["options"]["enable-indexing"] )
+                create_label_instance( base_service.server,
+                                       base_service.uuid,
+                                       base_service.instance_name,
+                                       pyramid_depth,
+                                       3*(base_service.block_width,),
+                                       enable_index=self.config_data["options"]["create-with-indexing-enabled"],
+                                       typename=self.config_data["options"]["instance-creation-type"],
+                                       tags=self.config_data["options"]["instance-creation-tags"] )
 
 
     def _read_pyramid_depth(self):
@@ -384,11 +382,52 @@ class CopySegmentation(Workflow):
         slab_depth = options["slab-depth"]
         if slab_depth == -1:
             slab_depth = block_width * 2**pyramid_depth
-        elif slab_depth % ( block_width * 2**pyramid_depth ) != 0:
-            raise RuntimeError(f"Slab depth ({slab_depth}) is not aligned properly.\n"
-                               "Downsampled data blocks would span multiple slabs.")
         options["slab-depth"] = slab_depth
 
+    def _init_stats_file(self):
+        stats_path = self.relpath_to_abspath(self.config_data["options"]["block-statistics-file"])
+        if os.path.exists(stats_path):
+            logger.info(f"Block statistics already exists: {stats_path}")
+            logger.info(f"Will APPEND to the pre-existing statistics file.")
+            return
+
+        if stats_path.endswith('.csv'):
+            # Initialize (just the header)
+            template_df = pd.DataFrame(columns=list(BLOCK_STATS_DTYPES.keys()))
+            template_df.to_csv(stats_path, index=False, header=True)
+
+        elif stats_path.endswith('.h5'):
+            # Initialize a 0-entry 1D array with the correct (structured) dtype
+            with h5py.File(stats_path, 'w') as f:
+                f.create_dataset('stats', shape=(0,), maxshape=(None,), chunks=True, dtype=list(BLOCK_STATS_DTYPES.items()))
+        else:
+            raise RuntimeError(f"Unknown file format: {stats_path}")
+
+    def _append_slab_statistics(self, slab_stats_df):
+        """
+        Append the rows of the given slab statistics DataFrame to the output statistics file.
+        No attempt is made to drop duplicate rows
+        (e.g. if you started from pre-existing statistics and the new
+        bounding-box overlaps with the previous run's).
+        
+        Args:
+            slab_stats_df: DataFrame to be appended to the stats file,
+                           with columns and dtypes matching BLOCK_STATS_DTYPES
+        """
+        assert list(slab_stats_df.columns) == list(BLOCK_STATS_DTYPES.keys())
+        stats_path = self.relpath_to_abspath(self.config_data["options"]["block-statistics-file"])
+
+        if stats_path.endswith('.csv'):
+            slab_stats_df.to_csv(stats_path, header=False, index=False, mode='a')
+
+        elif stats_path.endswith('.h5'):
+            with h5py.File(stats_path, 'a') as f:
+                orig_len = len(f['stats'])
+                new_len = orig_len + len(slab_stats_df)
+                f['stats'].resize((new_len,))
+                f['stats'][orig_len:new_len] = slab_stats_df.to_records()
+        else:
+            raise RuntimeError(f"Unknown file format: {stats_path}")
 
     def _process_slab(self, slab_index, output_slab_box ):
         """
@@ -425,53 +464,71 @@ class CopySegmentation(Workflow):
         aligned_input_wall = self._consolidate_and_pad(slab_index, translated_wall, 0, self.output_services[0], align=True, pad=False)
         del translated_wall
 
-        output_slab_stats = []
+        if options["compute-block-statistics"]:
+            # Compute stats on input (pre-padding), but don't write them to disk
+            # until after we've completed the download/downsampling.
+            # Note: Since this is pre-padding, the stats on the border blocks
+            #       will be wrong unless the bounding-box is block-aligned.
+            with Timer(f"Slab {slab_index}: Computing slab block statistics", logger):
+                block_shape = 3*[self.output_services[0].base_service.block_width]
+                input_slab_block_stats_per_brick = aligned_input_wall.bricks.map( partial(block_stats_from_brick, block_shape) ).collect()
+                input_slab_block_stats_df = pd.concat(input_slab_block_stats_per_brick, ignore_index=True)
+                del input_slab_block_stats_per_brick
 
-        for output_index, output_service in enumerate(self.output_services):
-            if output_index < len(self.output_services) - 1:
-                # Copy to a new RDD so the input can be re-used for subsequent outputs
-                aligned_output_wall = aligned_input_wall.copy()
-            else:
-                # No copy needed for the last one
-                aligned_output_wall = aligned_input_wall
-
-            with Timer(f"Slab {slab_index}: Computing slab statistics", logger):
-                scale_0_stats_df = aggregate_segment_stats_from_bricks( aligned_input_wall.bricks, SEGMENT_STATS_COLUMNS )
-                output_slab_stats.append( scale_0_stats_df )
-
-            # Pad internally to block-align.
-            # Here, we assume that any output labelmaps are idempotent,
-            # so it's okay to read pre-existing output data that will ultimately get remapped.
-            padded_wall = self._consolidate_and_pad(slab_index, aligned_output_wall, 0, output_service, align=False, pad=True)
-            del aligned_output_wall
+        if options["skip-scale-0-write"] and pyramid_depth == 0:
+            # Early break if merely computing block statistics and not writing anything.
+            logger.info(f"Slab {slab_index}: Nothing to write.")
+            if not options["compute-block-statistics"]:
+                raise RuntimeError("According to your config, you aren't computing block stats, "
+                                   "you aren't writing scale 0, and you aren't writing pyramids.  "
+                                   "What exactly are you hoping will happen here?")
+        else:
+            for output_index, output_service in enumerate(self.output_services):
+                if output_index < len(self.output_services) - 1:
+                    # Copy to a new RDD so the input can be re-used for subsequent outputs
+                    aligned_output_wall = aligned_input_wall.copy()
+                else:
+                    # No copy needed for the last one
+                    aligned_output_wall = aligned_input_wall
     
-            # Compute body sizes and write to HDF5
-            # FIXME: Needs to be fixed now that we copy data slab-by-slab
-            #self._write_body_sizes( padded_wall, output_service )
+                # Pad internally to block-align.
+                # Here, we assume that any output labelmaps are idempotent,
+                # so it's okay to read pre-existing output data that will ultimately get remapped.
+                padded_wall = self._consolidate_and_pad(slab_index, aligned_output_wall, 0, output_service, align=False, pad=True)
+                del aligned_output_wall
+        
+                # Write scale 0 to DVID
+                if not options["skip-scale-0-write"]:
+                    self._write_bricks( slab_index, padded_wall, 0, output_service )
+        
+                for new_scale in range(1, 1+pyramid_depth):
+                    if options["download-pre-downsampled"] and new_scale in self.input_service.available_scales:
+                        padded_wall.unpersist()
+                        del padded_wall
+                        downsampled_wall = BrickWall.from_volume_service(self.input_service, new_scale, input_slab_box, self.sc, self.target_partition_size_voxels)
+                        downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downloading pre-downsampled bricks", logger)
+                    else:
+                        # Compute downsampled (results in smaller bricks)
+                        downsampled_wall = padded_wall.label_downsample( (2,2,2) )
+                        downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
+                        padded_wall.unpersist()
+                        del padded_wall
     
-            # Write scale 0 to DVID
-            if not options["skip-scale-0-write"]:
-                self._write_bricks( slab_index, padded_wall, 0, output_service )
+                    # Consolidate to full-size bricks and pad internally to block-align
+                    consolidated_wall = self._consolidate_and_pad(slab_index, downsampled_wall, new_scale, output_service, align=True, pad=True)
+                    del downsampled_wall
     
-            for new_scale in range(1, 1+pyramid_depth):
-                # Compute downsampled (results in smaller bricks)
-                downsampled_wall = padded_wall.label_downsample( (2,2,2) )
-                downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
-                padded_wall.unpersist()
+                    # Write to DVID
+                    self._write_bricks( slab_index, consolidated_wall, new_scale, output_service )
+    
+                    padded_wall = consolidated_wall
+                    del consolidated_wall
                 del padded_wall
 
-                # Consolidate to full-size bricks and pad internally to block-align
-                consolidated_wall = self._consolidate_and_pad(slab_index, downsampled_wall, new_scale, output_service, align=True, pad=True)
-                del downsampled_wall
-
-                # Write to DVID
-                self._write_bricks( slab_index, consolidated_wall, new_scale, output_service )
-
-                padded_wall = consolidated_wall
-                del consolidated_wall
-            del padded_wall
-
-        return output_slab_stats
+        # Now that processing is complete, commit the stats to disk.
+        if options["compute-block-statistics"]:
+            with Timer(f"Slab {slab_index}: Appending stats and overwriting stats file"):
+                self._append_slab_statistics( input_slab_block_stats_df )
 
     def _consolidate_and_pad(self, slab_index, input_wall, scale, output_service, align=True, pad=True):
         """
@@ -572,115 +629,48 @@ class CopySegmentation(Workflow):
             brick_wall.bricks.foreach(write_brick)
         logger.info(f"Slab {slab_index}: Scale {scale}: Writing bricks to {instance_name} took {timer.timedelta}")
 
+
+BLOCK_STATS_DTYPES = OrderedDict([ ('segment_id', np.uint64),
+                                   ('z', np.int32),
+                                   ('y', np.int32),
+                                   ('x', np.int32),
+                                   ('count', np.uint32) ])
+
+
+def block_stats_from_brick(block_shape, brick):
+    """
+    Get the count of voxels for each segment (excluding segment 0)
+    in each block within the given brick, returned as a DataFrame.
     
-    def _write_body_sizes( self, brick_wall, output_service ):
-        """
-        Calculate the size (in voxels) of all label bodies in the volume,
-        and write the results to an HDF5 file.
-        
-        NOTE: For now, we implement two alternative methods of computing this result,
-              for the sake of performance comparisons between the two methods.
-              The method used is determined by the ['body-sizes]['method'] option.
-        """
-        if not self.config_data["options"]["body-sizes"]["compute"]:
-            logger.info("Skipping body size calculation.")
-            return
+    Returns a DataFrame with the following columns:
+        ['segment_id', 'z', 'y', 'x', 'count']
+        where z,y,z are the starting coordinates of each block.
+    """
+    block_grid = Grid(block_shape)
+    
+    block_dfs = []
+    block_boxes = boxes_from_grid(brick.physical_box, block_grid)
+    for box in block_boxes:
+        clipped_box = box_intersection(box, brick.physical_box) - brick.physical_box[0]
+        block_vol = brick.volume[box_to_slicing(*clipped_box)]
+        counts = pd.Series(block_vol.reshape(-1)).value_counts(sort=False)
+        segment_ids = counts.index.values
+        counts = counts.values.astype(np.uint32)
 
-        logger.info("Computing body sizes...")
-        with Timer() as timer:
-            body_labels, body_sizes = self._compute_body_sizes(brick_wall)
-        logger.info(f"Computing {len(body_labels)} body sizes took {timer.seconds} seconds")
+        box = box.astype(np.int32)
 
-        min_size = self.config_data["options"]["body-sizes"]["minimum-size"]
+        block_df = pd.DataFrame( { 'segment_id': segment_ids,
+                                   'count': counts,
+                                   'z': box[0][0],
+                                   'y': box[0][1],
+                                   'x': box[0][2] } )
 
-        nonzero_start = 0
-        if body_labels[0] == 0:
-            nonzero_start = 1
-        nonzero_count = body_sizes[nonzero_start:].sum()
-        logger.info(f"Final volume contains {nonzero_count} nonzero voxels")
+        # Exclude segment 0 from output        
+        block_df = block_df[block_df['segment_id'] != 0]
 
-        if min_size > 1:
-            logger.info(f"Omitting body sizes below {min_size} voxels...")
-            valid_rows = body_sizes >= min_size
-            body_labels = body_labels[valid_rows]
-            body_sizes = body_sizes[valid_rows]
-        assert body_labels.shape == body_sizes.shape
+        block_dfs.append(block_df)
 
-        with Timer() as timer:
-            logger.info(f"Sorting {len(body_labels)} bodies by size...")
-            sort_indices = np.argsort(body_sizes)[::-1]
-            body_sizes = body_sizes[sort_indices]
-            body_labels = body_labels[sort_indices]
-        logger.info(f"Sorting {len(body_labels)} bodies by size took {timer.seconds} seconds")
-
-        suffix = output_service.base_service.instance_name
-        output_path = self.relpath_to_abspath(f"body-sizes-{suffix}.h5")
-        with Timer() as timer:
-            logger.info(f"Writing {len(body_labels)} body sizes to {output_path}")
-            with h5py.File(output_path, 'w') as f:
-                f.create_dataset('labels', data=body_labels, chunks=True)
-                f.create_dataset('sizes', data=body_sizes, chunks=True)
-                f['total_nonzero_voxels'] = nonzero_count
-        logger.info(f"Writing {len(body_sizes)} body sizes took {timer.seconds} seconds")
-
-
-    def _compute_body_sizes(self, brick_wall):
-        if self.config_data["options"]["body-sizes"]["method"] == "reduce-by-key":
-            body_labels, body_sizes = self._compute_body_sizes_via_reduce_by_key(brick_wall)
-        else:
-            body_labels, body_sizes = self._compute_body_sizes_via_pandas_dataframes(brick_wall)
-        return body_labels, body_sizes
-        
-
-    def _compute_body_sizes_via_reduce_by_key(self, brick_wall):
-        # Reduce using reduceByKey and simply concatenating the results
-        from operator import add
-        def transpose(labels_and_sizes):
-            labels, sizes = labels_and_sizes
-            return np.array( (labels, sizes) ).transpose()
-
-        def reduce_to_array( pair_list_1, pair_list_2 ):
-            return np.concatenate( (pair_list_1, pair_list_2) )
-
-        labels_and_sizes = ( brick_wall.bricks.map( lambda br: br.volume )
-                                              .map( nonconsecutive_bincount )
-                                              .flatMap( transpose )
-                                              .reduceByKey( add )
-                                              .map( lambda pair: [pair] )
-                                              .treeReduce( reduce_to_array, depth=4 ) )
-
-        body_labels, body_sizes = np.transpose( labels_and_sizes )
-        return body_labels, body_sizes
-        
-
-    def _compute_body_sizes_via_pandas_dataframes(self, brick_wall):
-        import pandas as pd
-
-        #@self.collect_log(lambda *_args: 'merge_label_counts')
-        def merge_label_counts( labels_and_counts_A, labels_and_counts_B ):
-            labels_A, counts_A = labels_and_counts_A
-            labels_B, counts_B = labels_and_counts_B
-            
-            # Fast path
-            if len(labels_A) == 0:
-                return (labels_B, counts_B)
-            if len(labels_B) == 0:
-                return (labels_A, counts_A)
-            
-            series_A = pd.Series(index=labels_A, data=counts_A)
-            series_B = pd.Series(index=labels_B, data=counts_B)
-            combined = series_A.add(series_B, fill_value=0)
-            
-            #logger = logging.getLogger(__name__)
-            #logger.info(f"Merging label count lists of sizes {len(labels_A)} + {len(labels_B)}"
-            #            f" = {len(combined)} took {timer.seconds} seconds")
-
-            return (combined.index, combined.values.astype(np.uint64))
-
-        # Two-stage repartition/reduce, to avoid doing ALL the work on the driver.
-        body_labels, body_sizes = ( brick_wall.bricks.map( lambda br: br.volume )
-                                                     .map( nonconsecutive_bincount )
-                                                     .treeReduce( merge_label_counts, depth=4 ) )
-            
-        return body_labels, body_sizes
-            
+    brick_df = pd.concat(block_dfs, ignore_index=True)
+    brick_df = brick_df[['segment_id', 'z', 'y', 'x', 'count']]
+    assert list(brick_df.columns) == list(BLOCK_STATS_DTYPES.keys())
+    return brick_df

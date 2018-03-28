@@ -32,7 +32,7 @@ class BrickWall:
     ##
 
     @classmethod
-    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, sparse_boxes=None, halo=0):
+    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, sparse_boxes=None):
         """
         Convenience constructor, taking an arbitrary volume_accessor_func.
         
@@ -75,12 +75,12 @@ class BrickWall:
         block_size_voxels = np.prod(grid.block_shape)
         rdd_partition_length = target_partition_size_voxels // block_size_voxels
 
-        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length, sparse_boxes, halo)
+        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length, sparse_boxes)
         return BrickWall( bounding_box, grid, bricks )
 
 
     @classmethod
-    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None, sparse_block_mask=None, halo=0):
+    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None, sparse_block_mask=None):
         """
         Convenience constructor, initialized from a VolumeService object.
         
@@ -90,10 +90,14 @@ class BrickWall:
         
             bounding_box_zyx:
                 (start, stop) Optional.
+                Bounding box to restrict the region of fetched blocks, always
+                specified in FULL-RES coordinates, even if you are passing scale > 0
                 If not provided, volume_service.bounding_box_zyx is used.
      
-            grid:
-                Grid (see brick.py)
+            scale:
+                Brick data will be fetched at this scale.
+                (Note: The bricks' sizes will still be the the full volume_service.preferred_message_shape,
+                       but the overall bounding-box of the BrickWall be scaled down.) 
      
             sc:
                 SparkContext. If provided, an RDD is returned.  Otherwise, returns an ordinary Python iterable.
@@ -101,12 +105,19 @@ class BrickWall:
             target_partition_size_voxels:
                 Optional. If provided, the RDD partition lengths (i.e. the number of bricks per RDD partition)
                 will be chosen to have (approximately) this many total voxels in each partition.
+            
+            sparse_block_mask:
+                Instance of SparseBlockMask
         """
         grid = Grid(volume_service.preferred_message_shape, (0,0,0))
         
-        downsampled_box = bounding_box_zyx
-        if downsampled_box is None:
-            full_box = volume_service.bounding_box_zyx
+        if bounding_box_zyx is None:
+            bounding_box_zyx = volume_service.bounding_box_zyx
+        
+        if scale == 0:
+            downsampled_box = bounding_box_zyx
+        else:
+            full_box = bounding_box_zyx
             downsampled_box = np.zeros((2,3), dtype=int)
             downsampled_box[0] = full_box[0] // 2**scale # round down
             
@@ -120,19 +131,25 @@ class BrickWall:
         sparse_boxes = None
         if sparse_block_mask is not None:
             assert isinstance(sparse_block_mask, SparseBlockMask)
-            sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid) # Halo is applied later, not here.
+            assert scale == 0, "FIXME: I don't think the sparse feature works with scales other than 0."
+            sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid)
 
         return BrickWall.from_accessor_func( downsampled_box,
                                              grid,
                                              lambda box: volume_service.get_subvolume(box, scale),
                                              sc,
                                              target_partition_size_voxels,
-                                             sparse_boxes,
-                                             halo )
+                                             sparse_boxes )
 
     ##
     ## Operations
     ##
+    def drop_empty(self):
+        """
+        Remove all empty (completely zero) bricks from the BrickWall.
+        """
+        filtered_bricks = rt.filter(lambda brick: brick.volume.any(), self.bricks)
+        return BrickWall( self.bounding_box, self.grid, filtered_bricks )
 
     def realign_to_new_grid(self, new_grid):
         """
@@ -144,7 +161,7 @@ class BrickWall:
         Returns: A a new BrickWall, with a new internal RDD for bricks.
         """
         new_logical_boxes_and_bricks = realign_bricks_to_new_grid( new_grid, self.bricks )
-        new_wall = BrickWall( self.bounding_box, self.grid, rt.values(new_logical_boxes_and_bricks) )
+        new_wall = BrickWall( self.bounding_box, new_grid, rt.values(new_logical_boxes_and_bricks) )
         return new_wall
 
     def fill_missing(self, volume_accessor_func, padding_grid=None):
@@ -227,7 +244,6 @@ class BrickWall:
 
         factor = block_shape[0]
         def downsample_brick(brick):
-            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
             assert (brick.physical_box % factor == 0).all()
             assert (brick.logical_box % factor == 0).all()
         
@@ -238,6 +254,7 @@ class BrickWall:
             #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
         
             # Even Newer: C++ downsampling (note: only works on aligned data.)
+            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
             downsampled_volume = downsample_labels(brick.volume, factor, suppress_zero=True)
         
             downsampled_logical_box = brick.logical_box // factor

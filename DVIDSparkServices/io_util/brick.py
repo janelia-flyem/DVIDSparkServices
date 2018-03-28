@@ -16,28 +16,49 @@ logger = logging.getLogger(__name__)
 
 class Grid:
     """
-    Describes a blocking scheme, which is simply a grid block shape,
+    Describes a blocking scheme, which consists of the following:
+    
+    - A block shape representing the Grid spacing
+    - An offset coordinate, i.e. the start of the first Grid block
+    - An optional halo shape, indicating that blocks within the grid
+      should extend outside the block shape, causing neighboring
+      blocks to overlap.
+      
+    
     and an offset coordinate for the first block in the grid.
     """
-    def __init__(self, block_shape, offset=None):
+    def __init__(self, block_shape, offset=None, halo=0):
         if offset is None:
             offset = (0,)*len(block_shape)
         assert len(block_shape) == len(offset)
+
         self.block_shape = np.asarray(block_shape)
+        assert (self.block_shape > 0).all(), f"block_shape must be non-zero, not {self.block_shape}"
+
         self.offset = np.asarray(offset)
         self.modulus_offset = self.offset % block_shape
+        
+        self.halo_shape = np.zeros_like(self.block_shape)
+        self.halo_shape[:] = halo
+        assert (self.halo_shape < self.block_shape).all(), \
+            f"Halo shape must be smaller than the block shape in all dimensions: {self.halo_shape} vs {self.block_shape}"
 
     def equivalent_to(self, other_grid):
         """
-        Returns True if the other grid is equivalent to this one, meaning 
-        it has the same block shame and it's offset is the same after modulus.
+        Returns True if the other grid is equivalent to this one, meaning: 
+        - it has the same block shape
+        - it has the same halo shape
+        - it's offset is the same (after modulus by block shape).
         """
         return (self.block_shape == other_grid.block_shape).all() and \
-               (self.modulus_offset == other_grid.modulus_offset).all()
+               (self.modulus_offset == other_grid.modulus_offset).all() and \
+               (self.halo_shape == other_grid.halo_shape).all()
 
     def compute_logical_box(self, point):
         """
         Return the logical box that encompasses the given point.
+        A logical box is defined by only the block shape and offset,
+        NOT the halo.
         """
         block_index = (point - self.offset) // self.block_shape
         block_start = self.offset + (block_index * self.block_shape)
@@ -70,10 +91,10 @@ class SparseBlockMask:
 class Brick:
     """
     Conceptually, bricks are intended to populate (or sparsely populate)
-    a Grid, with up to one Brick per grid block.
+    a Grid, with no more than one Brick per grid block.
     
     The particular Grid block in which a Brick lives is indicated by it's logical_box,
-    which corresponds to an exact (complete) grid block region.
+    which always encompasses an exact (complete) grid block region.
     
     But for some Bricks, there may not be enough data to fill the entire Grid block
     (e.g. for Bricks that lie on the edge of a large volume's bounding-box).
@@ -98,13 +119,14 @@ class Brick:
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
         self._volume = volume
-        assert ((self.physical_box[1] - self.physical_box[0]) == self.volume.shape).all()
+        assert ((self.physical_box[1] - self.physical_box[0]) == self._volume.shape).all()
         
         # Used for pickling.
         self._compressed_volume = None
+        self._destroyed = False
 
     def __hash__(self):
-        return hash(tuple(self.logical_box[0]))
+        return rt.better_hash(tuple(self.logical_box[0].tolist()))
 
     def __str__(self):
         if (self.logical_box == self.physical_box).all():
@@ -117,10 +139,25 @@ class Brick:
         The volume is decompressed lazily.
         See __getstate__() for explanation.
         """
+        if self._destroyed:
+            raise RuntimeError("Attempting to access data for a brick that has already been explicitly destroyed:\n"
+                               f"{self}")
         if self._volume is None:
             assert self._compressed_volume is not None
             self._volume = self._compressed_volume.deserialize()
         return self._volume
+    
+    def compress(self):
+        """
+        Compress the volume.
+        Will be uncompressed again automatically on first access.
+        """
+        if self._destroyed:
+            raise RuntimeError("Attempting to compress data for a brick that has already been explicitly destroyed:\n"
+                               f"{self}")
+        if self._volume is not None:
+            self._compressed_volume = CompressedNumpyArray(self._volume)
+            self._volume = None
     
     def __getstate__(self):
         """
@@ -136,6 +173,9 @@ class Brick:
         This avoids decompression during certain Spark operations that don't
         require actual manipulation of the voxels, notably groupByKey().
         """
+        if self._destroyed:
+            raise RuntimeError("Attempting to pickle a brick that has already been explicitly destroyed:\n"
+                               f"{self}")
         if self._volume is not None:
             self._compressed_volume = CompressedNumpyArray(self._volume)
 
@@ -143,7 +183,11 @@ class Brick:
         d['_volume'] = None
         return d
 
-def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None, sparse_boxes=None, halo=0 ):
+    def destroy(self):
+        self._volume = None
+        self._destroyed = True
+
+def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None, sparse_boxes=None ):
     """
     Generate an RDD or iterable of Bricks for the given bounding box and grid.
      
@@ -178,12 +222,10 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
     """
     if sparse_boxes is None:
         # Generate boxes from densely populated grid
-        logical_and_physical_boxes = ( (box, box_intersection(box, bounding_box))
-                                      for box in boxes_from_grid(bounding_box, grid, halo) )
+        logical_boxes = boxes_from_grid(bounding_box, grid, include_halos=False)
+        physical_boxes = clipped_boxes_from_grid(bounding_box, grid)
+        logical_and_physical_boxes = zip( logical_boxes, physical_boxes )
     else:
-        halo_shape = np.zeros((3,), dtype=np.int32)
-        halo_shape[:] = halo
-
         # User provided list of physical boxes.
         # Clip them to the bounding box and calculate the logical boxes.
         if not hasattr(sparse_boxes, '__len__'):
@@ -194,7 +236,7 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
         def logical_and_clipped( box ):
             midpoint = (box[0] + box[1]) // 2
             logical_box = grid.compute_logical_box( midpoint )
-            box += (-halo_shape, halo_shape)
+            box += (-grid.halo_shape, grid.halo_shape)
             # Note: Non-intersecting boxes will have non-positive shape after clipping
             clipped_box = box_intersection(box, bounding_box)
             return ( logical_box, clipped_box )
@@ -216,30 +258,25 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
                 logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
+        # If we're working with a tiny volume (e.g. testing),
+        # make sure we at least parallelize across all cores.
+        if num_rdd_partitions is not None and (num_rdd_partitions < cpus_per_worker() * num_worker_nodes()):
+            num_rdd_partitions = cpus_per_worker() * num_worker_nodes()
+
         def brick_size(log_phys):
             _logical, physical = log_phys
             return np.uint64(np.prod(physical[1] - physical[0]))
         total_volume = sum(map(brick_size, logical_and_physical_boxes))
-        logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks with total volume {total_volume/1e9:.1f} Gvox")
+        logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks "
+                    f"(over {num_rdd_partitions} partitions) with total volume {total_volume/1e9:.1f} Gvox")
         logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
 
-    # Use map_partitions instead of map(), to be explicit about
-    # the fact that the function is re-used within each partition.
-    def make_bricks( logical_and_physical_boxes ):
-        logical_and_physical_boxes = list(logical_and_physical_boxes)
-        if not logical_and_physical_boxes:
-            return []
-        logical_boxes, physical_boxes = zip( *logical_and_physical_boxes )
-        volumes = map( volume_accessor_func, physical_boxes )
-        return starmap( Brick, zip(logical_boxes, physical_boxes, volumes) )
+    def make_bricks( logical_and_physical_box ):
+        logical_box, physical_box = logical_and_physical_box
+        volume = volume_accessor_func(physical_box)
+        return Brick(logical_box, physical_box, volume)
     
-    bricks = rt.map_partitions( make_bricks, logical_and_physical_boxes )
-
-    if sc:
-        # If we're working with a tiny volume (e.g. testing),
-        # make sure we at least parallelize across all cores.
-        if bricks.getNumPartitions() < cpus_per_worker() * num_worker_nodes():
-            bricks = bricks.repartition( cpus_per_worker() * num_worker_nodes() )
+    bricks = rt.map( make_bricks, logical_and_physical_boxes )
 
     return bricks
 
@@ -284,9 +321,14 @@ def pad_brick_data_from_volume_source( padding_grid, volume_accessor_func, brick
     
     Note: It is not legal to call this function unless the Brick's physical_box
           lies completely within the logical_box (i.e. no halos allowed).
+          Furthremore, the padding_grid is not permitted to use a halo, either.
+          (These restrictions could be fixed, but the current version of this
+          function has these requirements.)
 
     Note: If no padding is necessary, then the original Brick is returned (no copy is made).
     """
+    assert isinstance(padding_grid, Grid)
+    assert not padding_grid.halo_shape.any()
     block_shape = padding_grid.block_shape
     assert ((brick.logical_box - padding_grid.offset) % block_shape == 0).all(), \
         f"Padding grid {padding_grid.offset} must be aligned with brick logical_box: {brick.logical_box}"
@@ -433,10 +475,11 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
 
     # Group fragments according to their new homes
     #grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
-    grouped_brick_fragments = rt.frugal_group_by_key( new_logical_boxes_and_brick_fragments )
+    grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
     new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)
+    new_logical_boxes_and_bricks = rt.filter( lambda key_brick: key_brick[1] is not None, new_logical_boxes_and_bricks )
     
     return new_logical_boxes_and_bricks
 
@@ -454,6 +497,10 @@ def split_brick(new_grid, original_brick):
           (It would work here, but it implies that you will end up with some voxels
           represented multiple times in a given RDD of Bricks, with undefined results
           as to which ones are kept after you consolidate them into a new alignment.
+          
+          However, the reverse is permitted, i.e. it is permitted for the DESTINATION
+          grid to use a halo, in which case some pixels in the original brick will be
+          duplicated to multiple destinations.
     
     Returns: [(box,Brick), (box, Brick), ....],
             where each Brick is a fragment (to be assembled later into the new grid's bricks),
@@ -466,19 +513,23 @@ def split_brick(new_grid, original_brick):
             (original_brick.physical_box[1] <= original_brick.logical_box[1]).all())
     
     # Iterate over the new boxes that intersect with the original brick
-    for new_logical_box in boxes_from_grid(original_brick.physical_box, new_grid):
+    for destination_box in boxes_from_grid(original_brick.physical_box, new_grid, include_halos=True):
         # Physical intersection of original with new
-        split_box = box_intersection(new_logical_box, original_brick.physical_box)
+        split_box = box_intersection(destination_box, original_brick.physical_box)
         
         # Extract portion of original volume data that belongs to this new box
         split_box_internal = split_box - original_brick.physical_box[0]
         fragment_vol = extract_subvol(original_brick.volume, split_box_internal)
 
-        # Append key (new_logical_box) and new brick fragment,
-        # to be assembled into the final brick in a later stage.
-        key = box_as_tuple(new_logical_box)
-        fragment_brick = Brick(new_logical_box, split_box, fragment_vol)
+        # Subtract out halo to get logical_box
+        new_logical_box = destination_box - (-new_grid.halo_shape, new_grid.halo_shape)
 
+        fragment_brick = Brick(new_logical_box, split_box, fragment_vol)
+        fragment_brick.compress()
+
+        # Append key (an index tuple generated from new_logical_box) and new
+        # brick fragment, to be assembled into the final brick in a later stage.
+        key = tuple(new_logical_box[0] / new_grid.block_shape)
         new_logical_boxes_and_fragments.append( (key, fragment_brick) )
 
     return new_logical_boxes_and_fragments
@@ -496,7 +547,10 @@ def assemble_brick_fragments( fragments ):
     Each fragment's physical_box indicates where that fragment's data
     should be located within the final returned Brick.
     
-    Returns: A Brick containing the data from all fragments.
+    Returns: A Brick containing the data from all fragments,
+            UNLESS the fully assembled fragments would not intersect
+            with the Brick's own logical_box (i.e. all fragments fall
+            within the halo), in which case None is returned.
     
     Note: If the fragment physical_boxes are not disjoint, the results
           are undefined.
@@ -518,8 +572,10 @@ def assemble_brick_fragments( fragments ):
     final_physical_box = np.asarray( ( np.min( physical_boxes[:,0,:], axis=0 ),
                                        np.max( physical_boxes[:,1,:], axis=0 ) ) )
 
-    assert (final_physical_box[0] >= final_logical_box[0]).all()
-    assert (final_physical_box[1] <= final_logical_box[1]).all()
+    interior_box = box_intersection(final_physical_box, final_logical_box)
+    if (interior_box[1] - interior_box[0] < 1).any():
+        # All fragments lie completely within the halo
+        return None
 
     final_volume_shape = final_physical_box[1] - final_physical_box[0]
     dtype = fragments[0].volume.dtype
@@ -530,10 +586,15 @@ def assemble_brick_fragments( fragments ):
         internal_box = frag.physical_box - final_physical_box[0]
         overwrite_subvol(final_volume, internal_box, frag.volume)
 
-    return Brick( final_logical_box, final_physical_box, final_volume )
+        # Destroy original to save RAM
+        frag.destroy()
+
+    brick = Brick( final_logical_box, final_physical_box, final_volume )
+    brick.compress()
+    return brick
 
 
-def boxes_from_grid(bounding_box, grid, halo=0):
+def boxes_from_grid(bounding_box, grid, include_halos=True):
     """
     Generator.
     
@@ -544,6 +605,11 @@ def boxes_from_grid(bounding_box, grid, halo=0):
           If either bounding_box[0] or bounding_box[1] is not aligned with the grid,
           some returned boxes will extend beyond the bounding_box.
     """
+    
+    if include_halos:
+        halo = grid.halo_shape
+    else:
+        halo = 0
     
     if grid.offset is None or not any(grid.offset):
         # Shortcut
@@ -556,7 +622,7 @@ def boxes_from_grid(bounding_box, grid, halo=0):
             yield box
 
 
-def _boxes_from_grid_no_offset(bounding_box, block_shape, halo=0):
+def _boxes_from_grid_no_offset(bounding_box, block_shape, halo):
     """
     Generator.
     
@@ -574,15 +640,15 @@ def _boxes_from_grid_no_offset(bounding_box, block_shape, halo=0):
     halo_shape[:] = halo
 
     # round down, round up
-    aligned_start = ((bounding_box[0]) // block_shape) * block_shape
-    aligned_stop = ((bounding_box[1] + block_shape-1) // block_shape) * block_shape
+    aligned_start = ((bounding_box[0] - halo_shape) // block_shape) * block_shape
+    aligned_stop = ((bounding_box[1] + halo_shape + block_shape-1) // block_shape) * block_shape
 
     for block_start in ndrange( aligned_start, aligned_stop, block_shape ):
         yield np.array((block_start - halo_shape,
                         block_start + halo_shape + block_shape))
 
 
-def clipped_boxes_from_grid(bounding_box, grid, halo=0):
+def clipped_boxes_from_grid(bounding_box, grid, include_halos=True):
     """
     Generator.
     
@@ -592,7 +658,7 @@ def clipped_boxes_from_grid(bounding_box, grid, halo=0):
     Returned boxes that would intersect the edge of the bounding_box are clipped so as not
     to extend beyond the bounding_box.
     """
-    for box in boxes_from_grid(bounding_box, grid, halo):
+    for box in boxes_from_grid(bounding_box, grid, include_halos):
         yield box_intersection(box, bounding_box)
 
 def slabs_from_box( full_res_box, slab_depth, scale=0, scaling_policy='round-out', slab_cutting_axis=0 ):

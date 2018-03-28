@@ -69,8 +69,50 @@ def is_node_locked(dvid_server, uuid):
     return r.json()["Locked"]
 
 
-def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
-                      compression=Compression.DEFAULT, enable_index=True ):
+def create_keyvalue_instance(server, uuid, instance_name, compression=None, tags=[], allow_prexisting=True):
+    """
+    Create a keyvalue instance
+
+    tags:
+        Optional 'tags' to initialize the instance with, e.g. "type=meshes".
+    
+    allow_preexisting:
+        If False, raise an exception if the instance already exists.
+        If True, don't raise an exception.  Any tags you passed in are NOT APPLIED to the instance.
+    
+    Returns:
+        True if the instance was newly created, False if it already existed.
+
+    """
+    if not server.startswith("http://"):
+        server = "http://" + server
+
+    r = requests.get(f"{server}/api/node/{uuid}/{instance_name}/info")
+    if r.status_code == 200:
+        if allow_prexisting:
+            return False
+        else:
+            raise RuntimeError(f"Can't create. Instance already exists: {server}/api/repo/{uuid}")
+    
+    body = {}
+    body["typename"] = "keyvalue"
+    body["dataname"] = instance_name
+
+    if compression is None:
+        compression = 'none'    
+    
+    assert compression in ('none', 'snappy', 'lz4', 'gzip') # jpeg is also supported, but then we need to parse e.g. jpeg:80
+    body["Compression"] = compression
+    
+    if tags:
+        body["Tags"] = ','.join(tags)
+    
+    r = requests.post(f"{server}/api/repo/{uuid}/instance", json=body)
+    r.raise_for_status()
+    return True
+
+def create_label_instance(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
+                          compression=Compression.DEFAULT, enable_index=True, typename='labelarray', tags=[] ):
     """
     Create 64 bit labels data structure.
 
@@ -86,8 +128,10 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
         name (str): data instance name
         blocksize (3 int tuple): block size z,y,x
         compression (Compression enum): compression to be used
-        minimal_extents: box [(z0,y0,x0), (z1,y1,x1)].
-                        If provided, data extents will be at least this large (possibly larger).
+        enable_index: Whether or not to support indexing on this label instance
+                      Should usually be True, except for benchmarking purposes.
+        typename: What instance type to create ('labelarray' or 'labelmap')
+        tags: A list of arbitrary strings to include in the 'Tags' field of the instance.
 
     Returns:
         True if the labels instance didn't already exist on the server
@@ -98,7 +142,6 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
         transferred to the caller, except for the 'already exists' exception.
     """
     conn = DVIDConnection(dvid_server) 
-    typename = "labelarray"
 
     logger.info("Creating {typename} instance: {uuid}/{name}".format( **locals() ))
 
@@ -110,6 +153,10 @@ def create_labelarray(dvid_server, uuid, name, levels=0, blocksize=(64,64,64),
              "IndexedLabels": str(enable_index).lower(),
              "CountLabels": str(enable_index).lower(),
              "MaxDownresLevel": str(levels) }
+    
+    if tags:
+        tagstr = ','.join(tags)
+        data["Tags"] = tagstr
     
     if compression != Compression.DEFAULT:
         data["Compression"] = compression.value
@@ -342,7 +389,7 @@ class DataInstance(object):
         self.server = dvidserver
         self.uuid = uuid
         self.name = dataname
-
+        
         # check DVID existence and get meta
         try:  
             node_service = DVIDNodeService(str(dvidserver), str(uuid))
@@ -351,11 +398,16 @@ class DataInstance(object):
             raise ValueError("Instance not available")        
         self.datatype = str(self.info["Base"]["TypeName"])
 
-    def is_array(self):
-        """Checks if data instance is a raw or label array.
-        """
+    @property
+    def blockshape_zyx(self):
+        assert self.is_array(), f"Instance is not an array type: {self.datatype}"
+        x,y,z = self.info["Extended"]["BlockSize"] # DVID ordered x,y,z
+        return np.array((z,y,x))
 
-        return self.datatype in ("uint8blk", "labelblk", "labelarray", "googlevoxels")
+    def is_array(self):
+        """Checks if data instance is a raw or label volume.
+        """
+        return self.datatype in ("uint8blk", "labelblk", "labelarray", "labelmap", "googlevoxels")
 
     def is_labels(self):
         """Checks if data instance is label array type.
@@ -366,7 +418,7 @@ class DataInstance(object):
         if self.datatype == 'uint8blk':
             return False
 
-        if self.datatype in ('labelblk', 'labelarray'):
+        if self.datatype in ('labelblk', 'labelarray', 'labelmap'):
             return True
         
         if self.datatype == 'googlevoxels':

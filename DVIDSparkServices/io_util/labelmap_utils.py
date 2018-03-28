@@ -4,6 +4,7 @@ import subprocess
 from itertools import chain
 
 import numpy as np
+import pandas as pd
 
 import logging
 logger = logging.getLogger(__name__)
@@ -147,8 +148,10 @@ def load_edge_csv(csv_path):
             _header = next(rows)
         
         # We only care about the first two columns
-        all_items = chain.from_iterable( (row[0], row[1]) for row in rows )
-        edges = np.fromiter(all_items, np.uint64).reshape(-1,2) # implicit conversion from str -> uint64
+        df = pd.read_csv(csv_file, usecols=[0,1], header=None, names=['u', 'v'], dtype=np.uint64, engine='c')
+        edges = df.values
+        assert edges.dtype == np.uint64
+        assert edges.shape[1] == 2
 
     return edges
 

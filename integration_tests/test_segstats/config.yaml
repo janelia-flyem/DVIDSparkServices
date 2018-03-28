@@ -30,7 +30,9 @@
 
     "options": {
         "instance-creation-type": "labelmap",
-        "pyramid-depth": 4,
+        "pyramid-depth": 0,
+        skip-scale-0-write: true,
+        compute-block-statistics: true,
         "slab-depth": 64, # Force several slabs (and exercise stats merging logic) 
 
         "resource-server": "driver",
