@@ -3,13 +3,14 @@ import sys
 import argparse
 import datetime
 import logging
-from multiprocessing import Pool
     
 import requests
 from tqdm import tqdm # progress bar
 
+import h5py
 import numpy as np
 import pandas as pd
+from numba import jit
 
 from dvidutils import LabelMapper # Fast integer array mapping in C++
 
@@ -28,7 +29,7 @@ from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, LabelIndices, Mappin
 logger = logging.getLogger(__name__)
 
 
-SUPERVOXEL_STATS_COLUMNS = ['segment_id', 'z', 'y', 'x', 'count']
+STATS_DTYPE = [('body_id', np.uint64), ('segment_id', np.uint64), ('z', np.int32), ('y', np.int32), ('x', np.int32), ('count', np.uint32)]
 AGGLO_MAP_COLUMNS = ['segment_id', 'body_id']
 
 
@@ -55,8 +56,8 @@ def main():
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
-    parser.add_argument('supervoxel_block_stats_csv', nargs='?', # not required if only ingesting mapping
-                        help=f'A CSV file with columns: {SUPERVOXEL_STATS_COLUMNS}')
+    parser.add_argument('supervoxel_block_stats_h5', nargs='?', # not required if only ingesting mapping
+                        help=f'An HDF5 file with a single dataset "stats", with dtype: {STATS_DTYPE[1:]} (Note: No column for body_id)')
 
     args = parser.parse_args()
 
@@ -77,27 +78,31 @@ def main():
 
     # Upload label indexes
     if args.operation in ('indexes', 'both'):
-        if not args.supervoxel_block_stats_csv:
-            raise RuntimeError("You must provide a supervoxel_block_stats_csv file if you want to ingest LabelIndexes")
+        if not args.supervoxel_block_stats_h5:
+            raise RuntimeError("You must provide a supervoxel_block_stats_h5 file if you want to ingest LabelIndexes")
 
         # Read block stats file
-        with Timer("Loading supervoxel block statistics file", logger):
-            dtypes = { 'segment_id': np.uint64,
-                       'z': np.int32,
-                       'y': np.int32,
-                       'x':np.int32,
-                       'count': np.uint32 }
+        with h5py.File(args.supervoxel_block_stats_h5) as f:
+            dset = f['stats']
+            with Timer(f"Initializing RAM for {len(dset)} block stats rows", logger):
+                block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
+
+            with Timer(f"Loading block stats into RAM", logger):
+                h5_batch_size = 1_000_000
+                for batch_start in range(0, len(dset), h5_batch_size):
+                    batch_stop = min(batch_start + h5_batch_size, len(dset))
+                    block_sv_stats['other_cols'][batch_start:batch_stop] = dset[batch_start:batch_stop]
             
-            block_sv_stats_df = pd.read_csv(args.supervoxel_block_stats_csv, engine='c', dtype=dtypes)
+            block_sv_stats = block_sv_stats.view(STATS_DTYPE)
     
-        with Timer(f"Grouping {len(block_sv_stats_df)} blockwise supervoxel counts and loading LabelIndices", logger):
+        with Timer(f"Grouping {len(block_sv_stats)} blockwise supervoxel counts and loading LabelIndices", logger):
             ingest_label_indexes( args.server,
                                   args.uuid,
                                   args.labelmap_instance,
                                   args.last_mutid,
-                                  block_sv_stats_df,
+                                  block_sv_stats,
                                   segment_to_body_df,
-                                  batch_size=args.batch_size,
+                                  batch_rows=args.batch_size,
                                   num_threads=args.num_threads,
                                   show_progress_bar=True )
 
@@ -122,9 +127,9 @@ def ingest_label_indexes( server,
                           uuid,
                           instance_name,
                           last_mutid,
-                          block_sv_stats_df,
+                          block_sv_stats,
                           segment_to_body_df=None,
-                          batch_size=1000,
+                          batch_rows=1_000_000,
                           num_threads=1,
                           show_progress_bar=True ):
     """
@@ -137,9 +142,9 @@ def ingest_label_indexes( server,
         last_mutid:
             The mutation ID to use for all indexes
         
-        block_sv_stats_df:
-            DataFrame of blockwise supervoxel counts, with columns:
-            ['segment_id', 'z', 'y', 'x', 'count']
+        block_sv_stats:
+            numpy structured array of blockwise supervoxel counts, with dtype:
+            ['body_id', 'segment_id', 'z', 'y', 'x', 'count']
         
         segment_to_body_df:
             If loading an agglomeration, must be a 2-column DataFrame, mapping supervoxel-to-body.
@@ -161,47 +166,58 @@ def ingest_label_indexes( server,
     if instance_info.datatype != 'labelmap':
         raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
     bz, by, bx = instance_info.blockshape_zyx
+    assert bz == by == bx == 64, "I hard-coded a block-width of 64 in this code, below."
 
-    block_sv_stats_df = _append_body_id_column(block_sv_stats_df, segment_to_body_df)
-    #block_sv_stats_df.sort_values(['body_id', 'z', 'y', 'x', 'segment_id'], inplace=True)
-    
-    # Convert coords into block indexes
-    block_sv_stats_df['z'] //= bz
-    block_sv_stats_df['y'] //= by
-    block_sv_stats_df['x'] //= bx
-
-    # Encode block indexes into a shared uint64    
-    # Sadly, there is no clever way to speed this up with pd.eval()
-    encoded_block_ids = np.zeros( len(block_sv_stats_df), dtype=np.uint64 )
-    encoded_block_ids |= (block_sv_stats_df['z'].values.astype(np.uint64) << 42)
-    encoded_block_ids |= (block_sv_stats_df['y'].values.astype(np.uint64) << 21)
-    encoded_block_ids |= (block_sv_stats_df['x'].values.astype(np.uint64))
-
-    del block_sv_stats_df['z']
-    del block_sv_stats_df['y']
-    del block_sv_stats_df['x']
-    block_sv_stats_df['encoded_block_id'] = encoded_block_ids
-    
-    # Re-order columns, just because.
-    block_sv_stats_df = block_sv_stats_df[['body_id', 'encoded_block_id', 'segment_id', 'count']]
+    _overwrite_body_id_column(block_sv_stats, segment_to_body_df)
     
     user = os.environ["USER"]
     mod_time = datetime.datetime.now().isoformat()
+    session = requests.Session()
+    endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
 
-    pool = Pool(num_threads)
-    progress_bar = tqdm(total=len(block_sv_stats_df), disable=not show_progress_bar)
-    with progress_bar, pool:
-        processor = BatchProcessor(server, uuid, instance_name, last_mutid, user, mod_time)
-        for batch_entries in pool.imap(processor.process_batch, BatchProcessor.gen_body_df_batches( block_sv_stats_df, batch_size ) ):
-            progress_bar.update(batch_entries)
+    # Sort in-place
+    with Timer(f"Sorting {len(block_sv_stats)} block stats", logger):
+        block_sv_stats.sort(order=['body_id', 'z', 'y', 'x', 'segment_id', 'count'])
+
+    def process_batch(batch):
+        batch_indexes = []
+        for body_group in batch:
+            body_id = body_group[0]['body_id']
+            label_index = label_index_for_body(body_id, body_group, last_mutid, user, mod_time)
+            batch_indexes.append(label_index)
+    
+        send_batch(session, endpoint, batch_indexes)
+
+    next_batch = []
+    next_batch_total_rows = 0
+
+    progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
+    with progress_bar:
+        for body_group in groupby_presorted(block_sv_stats, block_sv_stats['body_id'][:, None]):
+            next_batch.append(body_group)
+            next_batch_total_rows += len(body_group)
+            if next_batch_total_rows >= batch_rows:
+                process_batch(next_batch)
+                progress_bar.update(next_batch_total_rows)
+                next_batch = []
+                next_batch_total_rows = 0
+    
+        # last batch
+        if next_batch:
+            process_batch(next_batch)
 
 
-def _append_body_id_column(block_sv_stats_df, segment_to_body_df=None):
-    assert list(block_sv_stats_df.columns) == SUPERVOXEL_STATS_COLUMNS
+def _overwrite_body_id_column(block_sv_stats, segment_to_body_df=None):
+    assert block_sv_stats.dtype == STATS_DTYPE
+
+    assert STATS_DTYPE[0][0] == 'body_id'
+    assert STATS_DTYPE[1][0] == 'segment_id'
+    
+    block_sv_stats = block_sv_stats.view( [STATS_DTYPE[0], STATS_DTYPE[1], ('other_cols', STATS_DTYPE[2:])] )
 
     if segment_to_body_df is None:
         # No agglomeration
-        block_sv_stats_df['body_id'] = block_sv_stats_df['segment_id']
+        block_sv_stats['body_id'] = block_sv_stats['segment_id']
     else:
         assert list(segment_to_body_df.columns) == AGGLO_MAP_COLUMNS
         
@@ -210,104 +226,82 @@ def _append_body_id_column(block_sv_stats_df, segment_to_body_df=None):
         mapper = LabelMapper(segment_to_body_df['segment_id'].values, segment_to_body_df['body_id'].values)
         del segment_to_body_df
     
-        block_sv_stats_df['body_id'] = np.uint64(0)
-    
         # Remap in batches to save RAM
         batch_size = 1_000_000
-        for chunk_start in range(0, len(block_sv_stats_df), batch_size):
-            chunk_stop = min(chunk_start+batch_size, len(block_sv_stats_df))
-            chunk_segments = block_sv_stats_df.loc[chunk_start:chunk_stop, 'segment_id'].values
-            block_sv_stats_df.loc[chunk_start:chunk_stop, 'body_id'] = mapper.apply(chunk_segments, allow_unmapped=True)
+        for chunk_start in range(0, len(block_sv_stats), batch_size):
+            chunk_stop = min(chunk_start+batch_size, len(block_sv_stats))
+            chunk_segments = block_sv_stats['segment_id'][chunk_start:chunk_stop]
+            block_sv_stats['body_id'][chunk_start:chunk_stop] = mapper.apply(chunk_segments, allow_unmapped=True)
+
+
+@jit(nopython=True, cache=True)
+def groupby_presorted(a, sorted_cols):
+    if len(a) == 0:
+        return
+
+    start = 0
+    vals = sorted_cols[0]
+    for stop in range(len(sorted_cols)):
+        next_vals = sorted_cols[stop]
+        if (next_vals != vals).any():
+            yield a[start:stop]
+            start = stop
+            vals = next_vals
+
+    yield a[start:len(sorted_cols)] # last group
+
+def label_index_for_body(body_id, body_group, last_mutid, user, mod_time):
+    label_index = LabelIndex()
+    label_index.label = body_id
+    label_index.last_mutid = last_mutid
+    label_index.last_mod_user = user
+    label_index.last_mod_time = mod_time
     
-    return block_sv_stats_df
+    body_dtype = STATS_DTYPE[0]
+    segment_dtype = STATS_DTYPE[1]
+    coords_dtype = ('coord_cols', STATS_DTYPE[2:5])
+    count_dtype = STATS_DTYPE[5]
+    assert body_dtype[0] == 'body_id'
+    assert segment_dtype[0] == 'segment_id'
+    assert np.dtype(coords_dtype[1]).names == ('z', 'y', 'x')
+    assert count_dtype[0] == 'count'
+    
+    body_group = body_group.view([body_dtype, segment_dtype, coords_dtype, count_dtype])
 
+    # These are initialized outside the loop and re-used to save object initialization time    
+    encoded_block_id = np.uint64(0)
+    block_index = np.zeros((3,), np.uint64)
+    _42 = np.uint64(42)
+    _21 = np.uint64(21)
+    
+    coord_cols = body_group['coord_cols'].view((np.int32, 3)).reshape(-1, 3)
+    for block_group in groupby_presorted(body_group, coord_cols):
+        coord = block_group['coord_cols'][0]
 
-class BatchProcessor:
+        block_index[0] = (coord['z'] // 64)
+        block_index[1] = (coord['y'] // 64)
+        block_index[2] = (coord['x'] // 64)
+
+        encoded_block_id ^= encoded_block_id # reset to np.uint64(0) without instantiating a new np.uint64
+        encoded_block_id |= (block_index[0] << _42)
+        encoded_block_id |= (block_index[1] << _21)
+        encoded_block_id |= block_index[2]
+
+        label_index.blocks[encoded_block_id].counts.update( zip(block_group['segment_id'], block_group['count']) )
+
+    return label_index
+
+def send_batch(session, endpoint, batch_indexes):
     """
-    This would be nicer as a closure, but that isn't pickleable via multiprocessing.
+    Send a batch (list) of LabelIndex objects to dvid.
     """
-    def __init__(self, server, uuid, instance_name, last_mutid, user, mod_time):
-        self.server = server
-        self.uuid = uuid
-        self.instance_name = instance_name
-        self.last_mutid = last_mutid
-        self.user = user
-        self.mod_time = mod_time
-        self.session = None
+    label_indices = LabelIndices()
+    label_indices.indices.extend(batch_indexes)
+    payload = label_indices.SerializeToString()
+    
+    r = session.post(endpoint, data=payload)
+    r.raise_for_status()
 
-    def __del__(self):
-        if self.session:
-            self.session.close()
-
-    @classmethod
-    def gen_body_df_batches(cls, block_sv_stats_df, batch_size_target=100):
-        """
-        Generator produces LabelIndex batches. NOT THREADSAFE.
-        
-        The resulting batches are lists of tuples: (body_id, body_group_df)
-        """
-        next_batch = []
-        next_batch_size = 0
-    
-        for body_id, body_group_df in block_sv_stats_df.groupby('body_id'):
-            next_batch.append( (body_id, body_group_df) )
-            next_batch_size += len(body_group_df)
-    
-            if next_batch_size >= batch_size_target:
-                yield (next_batch, next_batch_size)
-                next_batch = []
-                next_batch_size = 0
-    
-        if next_batch:
-            # Last batch (if smaller than batch_size)
-            yield (next_batch, next_batch_size)
-    
-    
-    def process_batch(self, args):
-        next_batch_dfs, batch_entries = args
-        next_batch_indexes = []
-        for body_id, body_group_df in next_batch_dfs:
-            label_index = self.label_index_for_body(body_id, body_group_df, self.last_mutid, self.user, self.mod_time)
-            next_batch_indexes.append(label_index)
-    
-        self.send_batch(next_batch_indexes)
-        return batch_entries
-
-
-    def label_index_for_body(self, body_id, body_group_df, last_mutid, user, mod_time):
-        label_index = LabelIndex()
-        label_index.label = body_id
-        label_index.last_mutid = last_mutid
-        label_index.last_mod_user = user
-        label_index.last_mod_time = mod_time
-        
-        for encoded_block_id, block_df in body_group_df.groupby(['encoded_block_id']):
-            label_index.blocks[encoded_block_id].counts.update( zip(block_df['segment_id'], block_df['count']) )
-    
-        return label_index
-
-
-    def send_batch(self, batch):
-        """
-        Send a batch (list) of LabelIndex objects to dvid.
-        """
-        if self.session is None:
-            # Initialized late so each subprocess gets its own Session
-            self.session = requests.Session()
-        
-        with Timer() as timer:
-            label_indices = LabelIndices()
-            label_indices.indices.extend(batch)
-            payload = label_indices.SerializeToString()
-        serializing_time = timer.seconds
-        
-        with Timer() as timer:
-            r = self.session.post(f'{self.server}/api/node/{self.uuid}/{self.instance_name}/indices', data=payload)
-            r.raise_for_status()
-        sending_time = timer.seconds
-        
-        return (serializing_time, sending_time)
-    
 
 def ingest_mapping( server,
                     uuid,
@@ -400,11 +394,11 @@ if __name__ == "__main__":
         
         ##
         mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
-        block_stats_file = f'{test_dir}/block-statistics.csv'
+        block_stats_file = f'{test_dir}/block-statistics.h5'
 
         # SPECIAL DEBUGGING TEST
         #mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
-        #block_stats_file = f'/tmp/block-statistics-testvol.csv'
+        #block_stats_file = f'/tmp/block-statistics-testvol.h5'
         
         sys.argv += (f"--operation=indexes"
                      #f"--operation=both"
