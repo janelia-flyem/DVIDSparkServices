@@ -3,6 +3,7 @@ import sys
 import argparse
 import datetime
 import logging
+import multiprocessing
     
 import requests
 from tqdm import tqdm # progress bar
@@ -16,7 +17,7 @@ from dvidutils import LabelMapper # Fast integer array mapping in C++
 
 import DVIDSparkServices # We implicitly rely on initialize_excepthook()
 
-from DVIDSparkServices.util import Timer
+from DVIDSparkServices.util import Timer, default_dvid_session
 from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
 from DVIDSparkServices.dvid.metadata import DataInstance
 
@@ -159,27 +160,38 @@ def ingest_label_indexes( server,
         show_progress_bar:
             Show progress information on the console.
     """
-    if not server.startswith('http://'):
-        server = 'http://' + server
     instance_info = DataInstance(server, uuid, instance_name)
     if instance_info.datatype != 'labelmap':
         raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
     bz, by, bx = instance_info.blockshape_zyx
     assert bz == by == bx == 64, "I hard-coded a block-width of 64 in this code, below."
 
-    user = os.environ["USER"]
-    mod_time = datetime.datetime.now().isoformat()
-    session = requests.Session()
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
 
     progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
     with progress_bar:
-        for next_stats_batch, next_stats_batch_total_rows in generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows):
-            labelindex_batch = populate_labelindex_batch(next_stats_batch, last_mutid, user, mod_time)
-            send_labelindex_batch(session, endpoint, labelindex_batch)
-            del labelindex_batch
+        gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
+        processor = StatsBatchProcessor(last_mutid, endpoint)
+        pool = multiprocessing.Pool(num_threads)
+        for next_stats_batch_total_rows in pool.imap(processor.process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
 
+class StatsBatchProcessor:
+    def __init__(self, last_mutid, endpoint):
+        self.last_mutid = last_mutid
+        self.endpoint = endpoint
+
+        self.session = default_dvid_session('ingest_label_indexes')
+        self.user = os.environ["USER"]
+        self.mod_time = datetime.datetime.now().isoformat()
+        if not self.endpoint.startswith('http://'):
+            self.endpoint = 'http://' + self.endpoint
+    
+    def process_batch(self, args):
+        next_stats_batch, next_stats_batch_total_rows = args
+        labelindex_batch = populate_labelindex_batch(next_stats_batch, self.last_mutid, self.user, self.mod_time)
+        send_labelindex_batch(self.session, self.endpoint, labelindex_batch)
+        return next_stats_batch_total_rows
 
 def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=100_000 ):
     with Timer("Assigning body IDs", logger):
