@@ -168,11 +168,11 @@ def ingest_label_indexes( server,
 
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
 
+    pool = multiprocessing.Pool(num_threads)
     progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
-    with progress_bar:
+    with progress_bar, pool:
         gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
         processor = StatsBatchProcessor(last_mutid, endpoint)
-        pool = multiprocessing.Pool(num_threads)
         for next_stats_batch_total_rows in pool.imap(processor.process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
 
