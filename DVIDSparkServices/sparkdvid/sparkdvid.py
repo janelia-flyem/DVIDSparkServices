@@ -693,6 +693,21 @@ class sparkdvid(object):
         resource_server = self.workflow.resource_server
         resource_port = self.workflow.resource_port
 
+        # check whether to use labelarray or labelblk interface
+        ns_temp = retrieve_node_service(server, uuid, resource_server, resource_port)
+        labeltype = ns_temp.get_typeinfo(str(label_name))["Base"]["TypeName"]
+        islabelarray = False
+        if labeltype == "labelarray" or labeltype == "labelmap":
+            islabelarray = True
+
+        islabelarray2 = islabelarray 
+        if server2 != "":
+            ns_temp = retrieve_node_service(server2, uuid2, resource_server, resource_port)
+            labeltype = ns_temp.get_typeinfo(str(label_name2))["Base"]["TypeName"]
+            islabelarray2 = False
+            if labeltype == "labelarray" or labeltype == "labelmap":
+                islabelarray2 = True
+
         def mapper(subvolume):
             # get sizes of box
             size_x = subvolume.box.x2 - subvolume.box.x1
@@ -705,15 +720,19 @@ class sparkdvid(object):
                 # retrieve data from box start position
                 # Note: libdvid uses zyx order for python functions
                 node_service = retrieve_node_service(server, uuid, resource_server, resource_port)
-                if resource_server != "":
-                    data = node_service.get_labels3D( str(label_name),
-                                                      (size_z, size_y, size_x),
-                                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
-                else:
-                    data = node_service.get_labels3D( str(label_name),
-                                                      (size_z, size_y, size_x),
-                                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
 
+                get3d = node_service.get_labels3D
+                if islabelarray:
+                    get3d = node_service.get_labelarray_blocks3D
+
+                if resource_server != "":
+                    data = get3d( str(label_name),
+                                  (size_z, size_y, size_x),
+                                  (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
+                else:
+                    data = get3d( str(label_name),
+                                  (size_z, size_y, size_x),
+                                  (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
 
                 # mask ROI
                 if roiname != "":
@@ -734,14 +753,19 @@ class sparkdvid(object):
                 # retrieve data from box start position
                 # Note: libdvid uses zyx order for python functions
                 node_service2 = retrieve_node_service(server2, uuid2, resource_server, resource_port)
+                
+                get3d = node_service2.get_labels3D
+                if islabelarray2:
+                    get3d = node_service2.get_labelarray_blocks3D
+                
                 if resource_server != "":
-                    return node_service2.get_labels3D( str(label_name2),
-                                                       (size_z, size_y, size_x),
-                                                       (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
+                    return get3d( str(label_name2),
+                                  (size_z, size_y, size_x),
+                                  (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
                 else:
-                    return node_service2.get_labels3D( str(label_name2),
-                                                       (size_z, size_y, size_x),
-                                                       (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
+                    return get3d( str(label_name2),
+                                  (size_z, size_y, size_x),
+                                  (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
 
             label_volume2 = get_labels2()
 
