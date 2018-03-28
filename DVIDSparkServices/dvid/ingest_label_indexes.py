@@ -161,11 +161,37 @@ def ingest_label_indexes( server,
     gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
     processor = StatsBatchProcessor(last_mutid, endpoint)
 
+    if show_progress_bar:
+        # Console-based progress
+        progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
+    else:
+        # Log-based progress
+        progress_bar = LoggerProgressBar(len(block_sv_stats), logger)
+
+    
     pool = multiprocessing.Pool(num_threads)
-    progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
     with progress_bar, pool:
         for next_stats_batch_total_rows in pool.imap(processor.process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
+
+class LoggerProgressBar:
+    def __init__(self, total, logger, step_percent=5):
+        self.total = total
+        self.milestones = list(np.arange(0.0, 1.001, step_percent/100))
+        self.progress = 0
+        self.logger = logger
+    
+    def update(self, increment):
+        self.progress += increment
+        while self.milestones and self.progress >= self.milestones[0] * self.total:
+            self.logger.info(f"Progress: {int(self.milestones[0] * 100):02d}%")
+            self.milestones = self.milestones[1:]
+
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, *args):
+        pass
 
 class StatsBatchProcessor:
     def __init__(self, last_mutid, endpoint):
@@ -381,7 +407,13 @@ def ingest_mapping( server,
         r = session.post(f'{server}/api/node/{uuid}/{instance_name}/mappings', data=payload)
         r.raise_for_status()
 
-    progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
+    if show_progress_bar:
+        # Console-based progress
+        progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
+    else:
+        # Log-based progress
+        progress_bar = LoggerProgressBar(len(segment_to_body_df), logger)
+
     with progress_bar:
         batch_ops_so_far = 0
         mappings = []
@@ -411,7 +443,7 @@ def ingest_mapping( server,
 
 
 if __name__ == "__main__":
-    DEBUG = True
+    DEBUG = False
     if DEBUG:
         import yaml
         import DVIDSparkServices
@@ -429,9 +461,9 @@ if __name__ == "__main__":
         #mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
         #block_stats_file = f'/tmp/block-statistics-testvol.h5'
         
-        sys.argv += (f"--operation=indexes"
-                     #f"--operation=both"
-                     #f" --agglomeration-mapping={mapping_file}"
+        sys.argv += (#f"--operation=indexes"
+                     f"--operation=both"
+                     f" --agglomeration-mapping={mapping_file}"
                      f" --num-threads=4"
                      f" --batch-size=1000"
                      #f" --no-progress-bar"
