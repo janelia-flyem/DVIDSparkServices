@@ -83,18 +83,7 @@ def main():
             raise RuntimeError("You must provide a supervoxel_block_stats_h5 file if you want to ingest LabelIndexes")
 
         # Read block stats file
-        with h5py.File(args.supervoxel_block_stats_h5) as f:
-            dset = f['stats']
-            with Timer(f"Initializing RAM for {len(dset)} block stats rows", logger):
-                block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
-
-            with Timer(f"Loading block stats into RAM", logger):
-                h5_batch_size = 1_000_000
-                for batch_start in range(0, len(dset), h5_batch_size):
-                    batch_stop = min(batch_start + h5_batch_size, len(dset))
-                    block_sv_stats['other_cols'][batch_start:batch_stop] = dset[batch_start:batch_stop]
-            
-            block_sv_stats = block_sv_stats.view(STATS_DTYPE)
+        block_sv_stats = load_stats_h5_to_records(args.supervoxel_block_stats_h5)
     
         with Timer(f"Grouping {len(block_sv_stats)} blockwise supervoxel counts and loading LabelIndices", logger):
             ingest_label_indexes( args.server,
@@ -228,7 +217,6 @@ def populate_labelindex_batch(stats_batch, last_mutid, user, mod_time):
         batch_indexes.append(label_index)
     return batch_indexes
 
-
 def send_labelindex_batch(session, endpoint, batch_indexes):
     """
     Send a batch (list) of LabelIndex objects to dvid.
@@ -266,6 +254,22 @@ def _overwrite_body_id_column(block_sv_stats, segment_to_body_df=None):
             chunk_stop = min(chunk_start+batch_size, len(block_sv_stats))
             chunk_segments = block_sv_stats['segment_id'][chunk_start:chunk_stop]
             block_sv_stats['body_id'][chunk_start:chunk_stop] = mapper.apply(chunk_segments, allow_unmapped=True)
+
+
+def load_stats_h5_to_records(h5_path):
+    with h5py.File(h5_path, 'r') as f:
+        dset = f['stats']
+        with Timer(f"Initializing RAM for {len(dset)} block stats rows", logger):
+            block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
+
+        with Timer(f"Loading block stats into RAM", logger):
+            h5_batch_size = 1_000_000
+            for batch_start in range(0, len(dset), h5_batch_size):
+                batch_stop = min(batch_start + h5_batch_size, len(dset))
+                block_sv_stats['other_cols'][batch_start:batch_stop] = dset[batch_start:batch_stop]
+        
+        block_sv_stats = block_sv_stats.view(STATS_DTYPE)
+    return block_sv_stats
 
 
 @jit(nopython=True)
@@ -434,7 +438,6 @@ if __name__ == "__main__":
                      f" {block_stats_file}".split())
 
     main()
-
 
 
 
