@@ -157,11 +157,12 @@ def ingest_label_indexes( server,
 
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
 
+    gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
+    processor = StatsBatchProcessor(last_mutid, endpoint)
+
     pool = multiprocessing.Pool(num_threads)
     progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
     with progress_bar, pool:
-        gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
-        processor = StatsBatchProcessor(last_mutid, endpoint)
         for next_stats_batch_total_rows in pool.imap(processor.process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
 
@@ -259,7 +260,7 @@ def _overwrite_body_id_column(block_sv_stats, segment_to_body_df=None):
 def load_stats_h5_to_records(h5_path):
     with h5py.File(h5_path, 'r') as f:
         dset = f['stats']
-        with Timer(f"Initializing RAM for {len(dset)} block stats rows", logger):
+        with Timer(f"Allocating RAM for {len(dset)} block stats rows", logger):
             block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
 
         with Timer(f"Loading block stats into RAM", logger):

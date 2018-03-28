@@ -1,5 +1,3 @@
-import os
-import datetime
 import logging
 
 import numpy as np
@@ -16,12 +14,6 @@ from DVIDSparkServices.io_util.volume_service import DvidSegmentationServiceSche
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 from DVIDSparkServices.dvid.ingest_label_indexes import load_stats_h5_to_records, StatsBatchProcessor, generate_stats_batches, ingest_mapping
 from DVIDSparkServices.dvid.metadata import DataInstance
-
-# The labelops_pb2 file was generated with the following commands:
-# $ cd DVIDSparkServices/dvid
-# $ protoc --python_out=. labelops.proto
-# $ sed -i '' s/labelops_pb2/DVIDSparkServices.dvid.labelops_pb2/g labelops_pb2.py
-from DVIDSparkServices.dvid.labelops_pb2 import LabelIndex, LabelIndices
 
 logger = logging.getLogger(__name__)
 
@@ -149,8 +141,8 @@ class IngestLabelIndices(Workflow):
         batch_rows = options["batch-row-count"]
         batch_generator = generate_stats_batches(block_sv_stats, mapping_df, batch_rows)
         
-        with Timer("Distributing batches", logger):
-            batches = self.sc.parallelize( batch_generator, cpus_per_worker() * num_worker_nodes() )
+        batches = self.sc.parallelize( batch_generator, cpus_per_worker() * num_worker_nodes() )
+        rt.persist_and_execute(batches, "Distributing batches", logger)
         
         def process_batch(item):
             stats_batch, total_rows = item
