@@ -52,8 +52,8 @@ def main():
                         help='Whether to load the LabelIndexes, MappingOps, or both.')
     parser.add_argument('--num-threads', '-n', default=1, type=int,
                         help='How many threads to use when ingesting label indexes (does not currently apply to mappings)')
-    parser.add_argument('--batch-size', '-b', default=100_000, type=int,
-                        help='Data is grouped in batches to the server. This is the batch size.')
+    parser.add_argument('--batch-size', '-b', default=20_000, type=int,
+                        help='Data is grouped in batches to the server. This is the batch size, as measured in ROWS of data to be processed for each batch.')
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
