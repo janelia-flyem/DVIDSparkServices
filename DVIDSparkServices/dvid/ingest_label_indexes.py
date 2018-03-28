@@ -54,6 +54,7 @@ def main():
                         help='How many threads to use when ingesting label indexes (does not currently apply to mappings)')
     parser.add_argument('--batch-size', '-b', default=20_000, type=int,
                         help='Data is grouped in batches to the server. This is the batch size, as measured in ROWS of data to be processed for each batch.')
+    parser.add_argument('--no-progress-bar', action='store_true')
     parser.add_argument('server')
     parser.add_argument('uuid')
     parser.add_argument('labelmap_instance')
@@ -94,7 +95,7 @@ def main():
                                   segment_to_body_df,
                                   batch_rows=args.batch_size,
                                   num_threads=args.num_threads,
-                                  show_progress_bar=True )
+                                  show_progress_bar=not args.no_progress_bar )
 
     # Upload mappings
     if args.operation in ('mappings', 'both'):
@@ -108,7 +109,7 @@ def main():
                             args.last_mutid,
                             segment_to_body_df,
                             args.batch_size,
-                            show_progress_bar=True )
+                            show_progress_bar=not args.no_progress_bar )
 
     logger.info(f"DONE.")
 
@@ -410,7 +411,7 @@ def ingest_mapping( server,
 
 
 if __name__ == "__main__":
-    DEBUG = False
+    DEBUG = True
     if DEBUG:
         import yaml
         import DVIDSparkServices
@@ -433,6 +434,7 @@ if __name__ == "__main__":
                      #f" --agglomeration-mapping={mapping_file}"
                      f" --num-threads=4"
                      f" --batch-size=1000"
+                     #f" --no-progress-bar"
                      f" {dvid_config['server']}"
                      f" {dvid_config['uuid']}"
                      f" {dvid_config['segmentation-name']}"
