@@ -316,8 +316,18 @@ class CreateStitchedMeshes(Workflow):
         if isinstance(mesh_config["storage"]["subset-bodies"], str):
             csv_path = self.relpath_to_abspath(mesh_config["storage"]["subset-bodies"])
             with open(csv_path, 'r') as csv_file:
-                has_header = csv.Sniffer().has_header(csv_file.read(1024))
-                csv_file.seek(0)
+                first_line = csv_file.readline()
+                if ',' not in first_line:
+                    # csv.Sniffer doesn't work if there's only one column in the file
+                    try:
+                        int(first_line)
+                        has_header = False
+                    except:
+                        has_header = True
+                    csv_file.seek(0)
+                else:
+                    has_header = csv.Sniffer().has_header(csv_file.read(1024))
+                    csv_file.seek(0)
                 rows = iter(csv.reader(csv_file))
                 if has_header:
                     _header = next(rows) # Skip header
