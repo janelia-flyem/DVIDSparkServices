@@ -316,17 +316,18 @@ class CreateStitchedMeshes(Workflow):
         if isinstance(mesh_config["storage"]["subset-bodies"], str):
             csv_path = self.relpath_to_abspath(mesh_config["storage"]["subset-bodies"])
             with open(csv_path, 'r') as csv_file:
-                try:
-                    # File should only have one column
-                    _first_body = int(csv_file.readline())
-                    header = None
-                except:
-                    header = 0
-
-            subset_bodies = pd.read_csv(csv_path, engine='c', header=header, names=['body_id'])
+                has_header = csv.Sniffer().has_header(csv_file.read(1024))
+                csv_file.seek(0)
+                rows = iter(csv.reader(csv_file))
+                if has_header:
+                    _header = next(rows) # Skip header
+                
+                # File is permitted to have multiple columns,
+                # but body ID must be first column
+                subset_bodies = [int(row[0]) for row in rows]
             
             # Overwrite config with bodies list from the csv file
-            mesh_config["storage"]["subset-bodies"] = list(subset_bodies['body_id'])
+            mesh_config["storage"]["subset-bodies"] = subset_bodies
 
     def execute(self):
         from pyspark import StorageLevel
