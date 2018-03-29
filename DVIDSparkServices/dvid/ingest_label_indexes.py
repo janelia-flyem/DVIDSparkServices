@@ -398,26 +398,10 @@ class StatsBatchProcessor:
         assert count_dtype[0] == 'count'
         
         body_group = body_group.view([body_dtype, segment_dtype, coords_dtype, count_dtype])
-    
-        # These are initialized outside the loop and re-used to save object initialization time    
-        encoded_block_id = np.uint64(0)
-        block_index = np.zeros((3,), np.uint64)
-        _42 = np.uint64(42)
-        _21 = np.uint64(21)
-        
         coord_cols = body_group['coord_cols'].view((np.int32, 3)).reshape(-1, 3)
         for block_group in groupby_presorted(body_group, coord_cols):
             coord = block_group['coord_cols'][0]
-    
-            block_index[0] = (coord['z'] // 64)
-            block_index[1] = (coord['y'] // 64)
-            block_index[2] = (coord['x'] // 64)
-    
-            encoded_block_id ^= encoded_block_id # reset to np.uint64(0) without instantiating a new np.uint64
-            encoded_block_id |= (block_index[0] << _42)
-            encoded_block_id |= (block_index[1] << _21)
-            encoded_block_id |= block_index[2]
-    
+            encoded_block_id = _encode_block_id(coord)
             label_index.blocks[encoded_block_id].counts.update( zip(block_group['segment_id'], block_group['count']) )
     
         return label_index
@@ -433,6 +417,20 @@ class StatsBatchProcessor:
         
         r = self.session.post(self.endpoint, data=payload)
         r.raise_for_status()
+
+
+@jit(nopython=True)
+def _encode_block_id(coord):
+    """
+    Helper function for StatsBatchProcessor.label_index_for_body()
+    Encodes a coord (structured array of z,y,x)
+    into a uint64 in the format DVID expects.
+    """
+    encoded_block_id = np.uint64(0)
+    encoded_block_id |= (np.uint64(coord.z // 64) << 42)
+    encoded_block_id |= (np.uint64(coord.y // 64) << 21)
+    encoded_block_id |= np.uint64(coord.x // 64)
+    return encoded_block_id
 
 
 def load_stats_h5_to_records(h5_path):
