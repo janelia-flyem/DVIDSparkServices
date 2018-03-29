@@ -6,14 +6,14 @@ import logging
 import multiprocessing
     
 import requests
-from tqdm import tqdm # progress bar
+from tqdm import tqdm
 
 import h5py
 import numpy as np
 import pandas as pd
 from numba import jit
 
-from dvidutils import LabelMapper # Fast integer array mapping in C++
+from dvidutils import LabelMapper # Fast label mapping in C++
 
 import DVIDSparkServices # We implicitly rely on initialize_excepthook()
 
@@ -422,13 +422,13 @@ class StatsBatchProcessor:
 @jit(nopython=True)
 def _encode_block_id(coord):
     """
-    Helper function for StatsBatchProcessor.label_index_for_body()
+    Helper function for StatsBatchProcessor.label_index_for_body().
     Encodes a coord (structured array of z,y,x)
-    into a uint64 in the format DVID expects.
+    into a uint64, in the format DVID expects.
     """
     encoded_block_id = np.uint64(0)
-    encoded_block_id |= (np.uint64(coord.z // 64) << 42)
-    encoded_block_id |= (np.uint64(coord.y // 64) << 21)
+    encoded_block_id |= np.uint64(coord.z // 64) << 42
+    encoded_block_id |= np.uint64(coord.y // 64) << 21
     encoded_block_id |= np.uint64(coord.x // 64)
     return encoded_block_id
 
@@ -510,13 +510,13 @@ def groupby_presorted(a, sorted_cols):
         return
 
     start = 0
-    vals = sorted_cols[0]
+    row = sorted_cols[0]
     for stop in range(len(sorted_cols)):
-        next_vals = sorted_cols[stop]
-        if (next_vals != vals).any():
+        next_row = sorted_cols[stop]
+        if (next_row != row).any():
             yield a[start:stop]
             start = stop
-            vals = next_vals
+            row = next_row
 
     yield a[start:len(sorted_cols)] # last group
 
