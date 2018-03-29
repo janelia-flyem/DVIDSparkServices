@@ -433,7 +433,7 @@ def _encode_block_id(coord):
     return encoded_block_id
 
 
-def load_stats_h5_to_records(h5_path):
+def load_stats_h5_to_records(h5_path, prepend_empty_body_column=True):
     """
     Read a block segment statistics HDF5 file.
     The file should contain a dataset named 'stats', whose dtype
@@ -445,7 +445,10 @@ def load_stats_h5_to_records(h5_path):
     with h5py.File(h5_path, 'r') as f:
         dset = f['stats']
         with Timer(f"Allocating RAM for {len(dset)} block stats rows", logger):
-            block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
+            if prepend_empty_body_column:
+                block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
+            else:
+                block_sv_stats = np.empty(dset.shape, dtype=[('other_cols', STATS_DTYPE[1:])])
 
         with Timer(f"Loading block stats into RAM", logger):
             h5_batch_size = 1_000_000
@@ -453,7 +456,11 @@ def load_stats_h5_to_records(h5_path):
                 batch_stop = min(batch_start + h5_batch_size, len(dset))
                 block_sv_stats['other_cols'][batch_start:batch_stop] = dset[batch_start:batch_stop]
         
-        block_sv_stats = block_sv_stats.view(STATS_DTYPE)
+        if prepend_empty_body_column:
+            block_sv_stats = block_sv_stats.view(STATS_DTYPE)
+        else:
+            block_sv_stats = block_sv_stats.view(STATS_DTYPE[1:])
+            
     return block_sv_stats
 
 
