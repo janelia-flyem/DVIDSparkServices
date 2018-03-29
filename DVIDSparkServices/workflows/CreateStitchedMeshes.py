@@ -7,6 +7,7 @@ import logging
 from functools import partial
 from io import BytesIO
 from contextlib import closing
+from itertools import chain
 
 import numpy as np
 import pandas as pd
@@ -672,10 +673,11 @@ class CreateStitchedMeshes(Workflow):
 
         instance_name = config["output"]["dvid"]["meshes-destination"]
         with Timer("Writing meshes to DVID", logger):
-            keys_written = segment_id_and_mesh_bytes_grouped_by_body.flatMap( partial(post_meshes_to_dvid, config, instance_name) ).collect()
+            keys_written = segment_id_and_mesh_bytes_grouped_by_body.mapPartitions( partial(post_meshes_to_dvid, config, instance_name) ).collect()
+            keys_written = list(chain(*keys_written))
 
         keys_written = pd.Series(keys_written, name='key')
-        keys_written.to_csv(self.relpath_to_abspath('./keys-uploaded.csv', index=False))
+        keys_written.to_csv(self.relpath_to_abspath('./keys-uploaded.csv'), index=False, header=False)
 
             
     def _init_meshes_instance(self):
