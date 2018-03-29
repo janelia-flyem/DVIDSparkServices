@@ -514,7 +514,7 @@ class CreateStitchedMeshes(Workflow):
                 mesh.recompute_normals()
                 return mesh
             
-            segment_id_and_mesh_with_normals = segment_ids_and_mesh_blocks.map(decimate)
+            segment_id_and_mesh_with_normals = segment_ids_and_mesh_blocks.map(recompute_normals)
 
             rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing block mesh normals", logger)
             rt.unpersist(segment_ids_and_mesh_blocks)
