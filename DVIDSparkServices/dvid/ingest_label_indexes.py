@@ -594,6 +594,7 @@ class LoggedProgressIndicator:
             self.milestones = self.milestones[1:]
 
     def __enter__(self):
+        self.update(0)
         return self
     
     def __exit__(self, *args):
