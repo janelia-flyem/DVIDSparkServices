@@ -260,9 +260,9 @@ def ingest_label_indexes( server,
 
     pool = multiprocessing.Pool(num_threads)
     with progress_bar, pool:
-        # Rather than call pool.imap() with processor.process_batch(),
+        # Rather than call pool.imap_unordered() with processor.process_batch(),
         # we use globally declared process_batch(), as explained below.
-        for next_stats_batch_total_rows in pool.imap(process_batch, gen):
+        for next_stats_batch_total_rows in pool.imap_unordered(process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
 
 def _check_instance(server, uuid, instance_name):
