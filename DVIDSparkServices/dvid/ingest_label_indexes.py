@@ -171,11 +171,11 @@ def ingest_mapping( server,
         r.raise_for_status()
 
     if show_progress_bar:
-        # Console-based progress
+        # Console-based progress bar
         progress_bar = tqdm(total=len(segment_to_body_df), disable=not show_progress_bar)
     else:
-        # Log-based progress
-        progress_bar = LoggerProgressBar(len(segment_to_body_df), logger)
+        # Progress shown as log messages
+        progress_bar = LoggedProgressIndicator(len(segment_to_body_df), logger)
 
     with progress_bar:
         batch_ops_so_far = 0
@@ -241,37 +241,49 @@ def ingest_label_indexes( server,
             Show progress information as an animated bar on the console.
             Otherwise, progress log messages are printed to the console.
     """
-    instance_info = DataInstance(server, uuid, instance_name)
-    if instance_info.datatype != 'labelmap':
-        raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
-    bz, by, bx = instance_info.blockshape_zyx
-    assert bz == by == bx == 64, "I hard-coded a block-width of 64 in this code, below."
+    _check_instance(server, uuid, instance_name)
 
+    # 'processor' is declared as a global so it can be shared with
+    # subprocesses quickly via implicit memory sharing via after fork()
+    global processor
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
+    processor = StatsBatchProcessor(last_mutid, endpoint, block_sv_stats)
 
     gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
 
     if show_progress_bar:
-        # Console-based progress
+        # Console-based progress bar
         progress_bar = tqdm(total=len(block_sv_stats), disable=not show_progress_bar)
     else:
-        # Log-based progress
-        progress_bar = LoggerProgressBar(len(block_sv_stats), logger)
+        # Progress shown as log messages
+        progress_bar = LoggedProgressIndicator(len(block_sv_stats), logger)
 
     pool = multiprocessing.Pool(num_threads)
-    processor = StatsBatchProcessor(last_mutid, endpoint)
     with progress_bar, pool:
-        for next_stats_batch_total_rows in pool.imap(processor.process_batch, gen):
+        # Rather than call pool.imap() with processor.process_batch(),
+        # we use globally declared process_batch(), as explained below.
+        for next_stats_batch_total_rows in pool.imap(process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
 
+def _check_instance(server, uuid, instance_name):
+    """
+    Verify that the instance is a valid destination for the LabelIndices we're about to ingest.
+    """
+    instance_info = DataInstance(server, uuid, instance_name)
+    if instance_info.datatype != 'labelmap':
+        raise RuntimeError(f"DVID instance is not a labelmap: {instance_name}")
+
+    bz, by, bx = instance_info.blockshape_zyx
+    assert bz == by == bx == 64, \
+        "The code below makes the hard-coded assumption that the instance block width is 64."
 
 def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=100_000 ):
     """
     Generator.
     For the given array of with dtype=STATS_DTYPE, sort the array by [body_id,z,y,x] (IN-PLACE),
-    and then break it up into subarrays of rows with contiguous body_id.
+    and then break it up into spans of rows with contiguous body_id.
     
-    The subarrays are then yielded in batches, where the total rowcount across all subarrays in
+    The spans are then yielded in batches, where the total rowcount across all subarrays in
     each batch has approximately batch_rows.
     
     Yields:
@@ -287,12 +299,12 @@ def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=
         next_stats_batch = []
         next_stats_batch_total_rows = 0
     
-        for body_group in groupby_presorted(block_sv_stats, block_sv_stats['body_id'][:, None]):
-            next_stats_batch.append(body_group)
-            next_stats_batch_total_rows += len(body_group)
+        # Here, 'span' is a tuple: (start, top)
+        for span in groupby_presorted_indexes(block_sv_stats, block_sv_stats['body_id'][:, None]):
+            next_stats_batch.append( span )
+            next_stats_batch_total_rows += (span[1] - span[0])
             if next_stats_batch_total_rows >= batch_rows:
                 yield (next_stats_batch, next_stats_batch_total_rows)
-                del next_stats_batch
                 next_stats_batch = []
                 next_stats_batch_total_rows = 0
     
@@ -340,6 +352,15 @@ def _overwrite_body_id_column(block_sv_stats, segment_to_body_df=None):
             block_sv_stats['body_id'][chunk_start:chunk_stop] = mapper.apply(chunk_segments, allow_unmapped=True)
 
 
+# This is a dirty little trick:
+# We declare 'processor' and 'process_batch()' as a globals to avoid
+# having it get implicitly pickled it when passing to subprocesses.
+# The memory for block_sv_stats is thus inherited by
+# child processes implicitly, via fork().
+processor = None
+def process_batch(*args):
+    return processor.process_batch(*args)
+
 class StatsBatchProcessor:
     """
     Function object to take batches of grouped stats,
@@ -349,9 +370,10 @@ class StatsBatchProcessor:
     Defined here as a class instead of a simple function to enable
     pickling (for multiprocessing), even when this file is run as __main__.
     """
-    def __init__(self, last_mutid, endpoint):
+    def __init__(self, last_mutid, endpoint, block_sv_stats):
         self.last_mutid = last_mutid
         self.endpoint = endpoint
+        self.block_sv_stats = block_sv_stats
 
         self.user = os.environ["USER"]
         self.mod_time = datetime.datetime.now().isoformat()
@@ -375,11 +397,13 @@ class StatsBatchProcessor:
         self.post_labelindex_batch(labelindex_batch)
         return next_stats_batch_total_rows
 
-    def label_index_for_body(self, body_group):
+    def label_index_for_body(self, body_group_span):
         """
         Load body_group (a subarray with dtype=STATS_DTYPE
         and a only single unique body_id) into a LabelIndex protobuf structure.
         """
+        body_group_start, body_group_stop = body_group_span
+        body_group = self.block_sv_stats[body_group_start:body_group_stop]
         body_id = body_group[0]['body_id']
 
         label_index = LabelIndex()
@@ -525,10 +549,34 @@ def groupby_presorted(a, sorted_cols):
             start = stop
             row = next_row
 
-    yield a[start:len(sorted_cols)] # last group
+    # Last group
+    yield a[start:len(sorted_cols)]
 
+@jit(nopython=True)
+def groupby_presorted_indexes(a, sorted_cols):
+    """
+    Like groupby_presorted(), but yields only thestart/stop
+    indexes of the groups, not the group subarrays themselves.
+    """
+    assert sorted_cols.ndim >= 2
+    assert sorted_cols.shape[0] == a.shape[0]
 
-class LoggerProgressBar:
+    if len(a) == 0:
+        return
+
+    start = 0
+    row = sorted_cols[0]
+    for stop in range(len(sorted_cols)):
+        next_row = sorted_cols[stop]
+        if (next_row != row).any():
+            yield (start, stop)
+            start = stop
+            row = next_row
+
+    # Last group
+    yield (start, len(sorted_cols))
+
+class LoggedProgressIndicator:
     """
     Bare-bones drop-in replacement for tqdm that logs periodic progress messages,
     for when you don't want tqdm's animated progress bar. 
@@ -573,7 +621,7 @@ if __name__ == "__main__":
         sys.argv += (#f"--operation=indexes"
                      f"--operation=both"
                      f" --agglomeration-mapping={mapping_file}"
-                     f" --num-threads=4"
+                     f" --num-threads=8"
                      f" --batch-size=1000"
                      #f" --no-progress-bar"
                      f" {dvid_config['server']}"
