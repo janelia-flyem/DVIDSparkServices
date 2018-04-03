@@ -1,9 +1,11 @@
+import os
 import logging
 import argparse
 
 from tqdm import tqdm
 
 import numpy as np
+import pandas as pd
 
 from DVIDSparkServices.util import Timer
 
@@ -30,16 +32,15 @@ def export_stats(h5_path, output_csv_path, delimiter=' '):
     with Timer(f"Converting coordinates to block indexes", logger):
         _convert_coords_to_block_indexes(block_sv_stats)
 
-    timer = Timer(f"Writing sorted stats to {output_csv_path}", logger)
-    with timer, open(output_csv_path, 'w') as f:
-        for row in tqdm(block_sv_stats):
-            line = (   str(row['segment_id']) + delimiter
-                     + str(row['z']) + delimiter
-                     + str(row['y']) + delimiter
-                     + str(row['x']) + delimiter
-                     + str(row['count']) + '\n' )
-            f.write(line)
-            
+    if os.path.exists(output_csv_path):
+        os.unlink(output_csv_path)
+    
+    with Timer(f"Writing sorted stats to {output_csv_path}", logger):
+        chunk_size = 10_000_000
+        for row_start in tqdm( range(0, len(block_sv_stats), chunk_size) ):
+            row_stop = min(row_start + chunk_size, len(block_sv_stats))
+            df = pd.DataFrame(block_sv_stats[row_start:row_stop])
+            df.to_csv( output_csv_path, sep=' ', header=False, index=False, mode='a' )
 
 def main():
     parser = argparse.ArgumentParser()
