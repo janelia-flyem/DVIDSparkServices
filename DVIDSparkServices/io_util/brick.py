@@ -251,11 +251,12 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
         logical_and_physical_boxes = filter(is_valid, logical_and_physical_boxes )
 
     if sc:
+        if not hasattr(logical_and_physical_boxes, '__len__'):
+            logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
+
         num_rdd_partitions = None
         if rdd_partition_length is not None:
             rdd_partition_length = max(1, rdd_partition_length)
-            if not hasattr(logical_and_physical_boxes, '__len__'):
-                logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
         # If we're working with a tiny volume (e.g. testing),
@@ -269,7 +270,18 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
         total_volume = sum(map(brick_size, logical_and_physical_boxes))
         logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks "
                     f"(over {num_rdd_partitions} partitions) with total volume {total_volume/1e9:.1f} Gvox")
-        logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
+
+        # Enumerate and repartition to get perfect partition sizes,
+        # rather than relying on spark's default hash
+        class _enumerated_value(tuple):
+            # Return a hash based on the key alone.
+            def __hash__(self):
+                return self[0]
+
+        enumerated_logical_and_physical_boxes = sc.parallelize( enumerate(logical_and_physical_boxes), num_rdd_partitions )
+        enumerated_logical_and_physical_boxes = enumerated_logical_and_physical_boxes.map(_enumerated_value)
+        enumerated_logical_and_physical_boxes = enumerated_logical_and_physical_boxes.partitionBy(num_rdd_partitions, lambda x: x)
+        logical_and_physical_boxes = enumerated_logical_and_physical_boxes.values()
 
     def make_bricks( logical_and_physical_box ):
         logical_box, physical_box = logical_and_physical_box
