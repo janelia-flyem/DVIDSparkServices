@@ -47,12 +47,27 @@ except ImportError:
             return int(h)
         return hash(x)
 
+class tuple_with_hash(tuple):
+    """
+    Like tuple, but you can set your own hash value if you want,
+    which will be respected by better_hash(), below.
+    """
+    def set_hash(self, custom_hash):
+        self._hash = custom_hash
+    def __hash__(self):
+        if hasattr(self, '_hash'):
+            return self._hash
+        else:
+            return super().__hash__()
+
 def better_hash(x):
     if sys.version_info >= (3, 2, 3) and 'PYTHONHASHSEED' not in os.environ:
         raise Exception("Randomness of hash of string should be disabled via PYTHONHASHSEED")
 
     if x is None:
         return 0
+    if isinstance(x, tuple_with_hash):
+        return hash(x)
     if isinstance(x, tuple):
         h = 0x345678
         for i in x:
@@ -122,6 +137,12 @@ def group_by_key(iterable):
         for k,v in iterable:
             partitions[k].append(v)
         return partitions.items()
+
+def zip_with_index(iterable):
+    if isinstance(iterable, _RDD):
+        return iterable.zipWithIndex()
+    else:
+        return ((v,i) for (i,v) in enumerate(iterable))
 
 def frugal_group_by_key(iterable):
     """

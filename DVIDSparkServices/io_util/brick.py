@@ -115,7 +115,7 @@ class Brick:
      
         Note: Both boxes (logical and physical) are always stored in GLOBAL coordinates.
     """
-    def __init__(self, logical_box, physical_box, volume):
+    def __init__(self, logical_box, physical_box, volume, custom_hash=None):
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
         self._volume = volume
@@ -124,14 +124,28 @@ class Brick:
         # Used for pickling.
         self._compressed_volume = None
         self._destroyed = False
+        
+        # Optional custom hashing
+        self._hash = custom_hash
 
     def __hash__(self):
-        return rt.better_hash(tuple(self.logical_box[0].tolist()))
+        if self._hash is None:
+            return rt.better_hash(tuple(self.logical_box[0].tolist()))
+        else:
+            return self._hash
 
     def __str__(self):
         if (self.logical_box == self.physical_box).all():
             return f"logical & physical: {self.logical_box.tolist()}"
         return f"logical: {self.logical_box.tolist()}, physical: {self.physical_box.tolist()}"
+
+    def set_hash(self, new_hash):
+        """
+        Explicitly set the hash value for this brick.
+        Returns self so this function is easily used in map(), etc.
+        """
+        self._hash = new_hash
+        return self
 
     @property
     def volume(self):
@@ -481,12 +495,15 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
         [ (logical_box, Brick),
           (logical_box, Brick), ...]
     """
+    # Add custom hash to ensure good partitioning
+    original_with_indexes = rt.zip_with_index( original_bricks ) # <-- note: triggers spark job
+    original_bricks = rt.map( lambda i_brick: i_brick[0].set_hash(i_brick[1]), original_with_indexes )
+
     # For each original brick, split it up according
     # to the new logical box destinations it will map to.
     new_logical_boxes_and_brick_fragments = rt.flat_map( partial(split_brick, new_grid), original_bricks )
 
     # Group fragments according to their new homes
-    #grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
@@ -536,12 +553,13 @@ def split_brick(new_grid, original_brick):
         # Subtract out halo to get logical_box
         new_logical_box = destination_box - (-new_grid.halo_shape, new_grid.halo_shape)
 
-        fragment_brick = Brick(new_logical_box, split_box, fragment_vol)
+        fragment_brick = Brick(new_logical_box, split_box, fragment_vol, original_brick._hash)
         fragment_brick.compress()
 
         # Append key (an index tuple generated from new_logical_box) and new
         # brick fragment, to be assembled into the final brick in a later stage.
-        key = tuple(new_logical_box[0] / new_grid.block_shape)
+        key = rt.tuple_with_hash(new_logical_box[0] / new_grid.block_shape)
+        key.set_hash(original_brick._hash)
         new_logical_boxes_and_fragments.append( (key, fragment_brick) )
 
     return new_logical_boxes_and_fragments
@@ -601,7 +619,7 @@ def assemble_brick_fragments( fragments ):
         # Destroy original to save RAM
         frag.destroy()
 
-    brick = Brick( final_logical_box, final_physical_box, final_volume )
+    brick = Brick( final_logical_box, final_physical_box, final_volume, fragments[0]._hash )
     brick.compress()
     return brick
 
