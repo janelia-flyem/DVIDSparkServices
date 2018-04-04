@@ -235,6 +235,17 @@ class CreateStitchedMeshes(Workflow):
     MeshWorkflowOptionsSchema["additionalProperties"] = False
     MeshWorkflowOptionsSchema["properties"].update(
     {
+        "initial-partition-size": {
+            "description": "Set the partition size for downloading the initial segmentation bricks, in bytes.\n"
+                           "Be careful: Spark sucks. A too-small size results in a ton of partitions to keep track of,\n"
+                           "which somehow causes an out-of-memory crash on the DRIVER.\n"
+                           "Yes, the friggin' DRIVER, which does **almost nothing**, but apparently needs a crap-ton of RAM to do it.\n"
+                           "The crash occurs when using more than, say, 200k-1M partitions. (I know, WTF, right?).\n"
+                           "But a too-large size results in fewer, large partitions, at which point you run the risk of exceeding Java's 2GB size limit for each partition.\n"
+                           "(Yes, the idea of using a language with a 2GB limitation for 'Big Data' workflows is laughable.  But here we are.)\n",
+            "type": "number",
+            "default": 4 * (2**30) # 4 GB
+        },
         "minimum-segment-size": {
             "description": "Segments smaller than this voxel count will not be processed.",
             "type": "number",
@@ -355,9 +366,9 @@ class CreateStitchedMeshes(Workflow):
 
         self._init_meshes_instance()
 
-        # Aim for 10 GB RDD partitions -- too many partitions causes a crash on the DRIVER because Spark is not good at its job.
-        GB = 2**30
-        target_partition_size_voxels = 10 * GB // np.uint64().nbytes
+        # See notes in config for description of this setting.
+        partition_bytes = options["initial-partition-size"]
+        target_partition_size_voxels = partition_bytes // np.uint64().nbytes
         
         # This will return None if we're not using sparse blocks
         sparse_block_mask = self._get_sparse_block_mask(volume_service, config["mesh-config"]["storage"]["input-is-mapped-supervoxels"])
