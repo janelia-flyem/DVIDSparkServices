@@ -309,8 +309,8 @@ def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=
         next_stats_batch = []
         next_stats_batch_total_rows = 0
     
-        # Here, 'span' is a tuple: (start, top)
-        for span in groupby_presorted_indexes(block_sv_stats, block_sv_stats['body_id'][:, None]):
+        # Here, 'span' is a tuple: (start_row, stop_row)
+        for span in groupby_spans_presorted(block_sv_stats, block_sv_stats['body_id'][:, None]):
             next_stats_batch.append( span )
             next_stats_batch_total_rows += (span[1] - span[0])
             if next_stats_batch_total_rows >= batch_rows:
@@ -526,7 +526,7 @@ def groupby_presorted(a, sorted_cols):
     yield subarrays of the data, according to runs of identical rows in the reference columns.
     
     JIT-compiled with numba.
-    For pre-sorted structured array input, this is much faster than pandas.groupby().
+    For pre-sorted structured array input, this is much faster than pandas.DataFrame(a).groupby().
     
     Args:
         a: ND array, any dtype, shape (N,) or (N,...)
@@ -584,9 +584,9 @@ def groupby_presorted(a, sorted_cols):
     yield a[start:len(sorted_cols)]
 
 @jit(nopython=True)
-def groupby_presorted_indexes(a, sorted_cols):
+def groupby_spans_presorted(a, sorted_cols):
     """
-    Like groupby_presorted(), but yields only thestart/stop
+    Like groupby_presorted(), but yields only the (start, stop)
     indexes of the groups, not the group subarrays themselves.
     """
     assert sorted_cols.ndim >= 2
