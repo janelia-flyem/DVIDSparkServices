@@ -468,6 +468,10 @@ class StatsBatchProcessor:
         """
         label_indices = LabelIndices()
         label_indices.indices.extend(batch_indexes)
+        if len(label_indices.indices) == 0:
+            # This can happen when tombstone_mode == 'only'
+            # and a label contained only one supervoxel.
+            return
         payload = label_indices.SerializeToString()
         
         r = self.session.post(self.endpoint, data=payload)
