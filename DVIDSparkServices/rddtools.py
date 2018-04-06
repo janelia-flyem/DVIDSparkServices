@@ -144,6 +144,21 @@ def zip_with_index(iterable):
     else:
         return ((v,i) for (i,v) in enumerate(iterable))
 
+def partition_by(iterable, num_partitions, partition_func=None):
+    if isinstance(iterable, _RDD):
+        if partition_func:
+            return iterable.partitionBy(num_partitions, partition_func)
+        else:
+            return iterable.partitionBy(num_partitions, better_hash)
+    else:
+        return iterable
+
+def get_num_partitions(iterable):
+    if isinstance(iterable, _RDD):
+        return iterable.getNumPartitions()
+    else:
+        return 1
+
 def frugal_group_by_key(iterable):
     """
     Like group_by_key, but uses combineByKey(),
