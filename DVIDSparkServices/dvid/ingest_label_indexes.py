@@ -4,6 +4,7 @@ import argparse
 import datetime
 import logging
 import multiprocessing
+from itertools import chain
     
 import requests
 from tqdm import tqdm
@@ -56,6 +57,9 @@ def main():
                         help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
     parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both'],
                         help='Whether to load the LabelIndexes, MappingOps, or both.')
+    parser.add_argument('--tombstones', default='include', choices=['include', 'exclude', 'only'],
+                        help="Whether to include 'tombstones' in the labelindexes (i.e. explicitly send empty labelindexes for all supervoxels in a body that don't match the body-id). "
+                             "Options are 'include', 'exclude', or 'only' (i.e. send only the tombstones and not the actual labelindices)")
     parser.add_argument('--num-threads', '-n', default=1, type=int,
                         help='How many threads to use when ingesting label indexes (does not currently apply to mappings)')
     parser.add_argument('--batch-size', '-b', default=20_000, type=int,
@@ -99,6 +103,7 @@ def main():
                                   args.last_mutid,
                                   block_sv_stats,
                                   segment_to_body_df,
+                                  args.tombstones,
                                   batch_rows=args.batch_size,
                                   num_threads=args.num_threads,
                                   show_progress_bar=not args.no_progress_bar )
@@ -210,6 +215,7 @@ def ingest_label_indexes( server,
                           last_mutid,
                           block_sv_stats,
                           segment_to_body_df=None,
+                          tombstone_mode='include',
                           batch_rows=1_000_000,
                           num_threads=1,
                           show_progress_bar=True ):
@@ -230,6 +236,10 @@ def ingest_label_indexes( server,
         segment_to_body_df:
             If loading an agglomeration, must be a 2-column DataFrame, mapping supervoxel-to-body.
             If loading unagglomerated supervoxels, set to None (identity mapping is used).
+
+        tombstone_mode:
+            Whether or not to include tombstones in the result, or possibly ONLY tombstones, and not the 'real' labelindices.
+            Choices: 'include', 'exclude', or 'only'.
         
         batch_size:
             How many LabelIndex structures to include in each /indices REST call.
@@ -247,7 +257,7 @@ def ingest_label_indexes( server,
     # subprocesses quickly via implicit memory sharing via after fork()
     global processor
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
-    processor = StatsBatchProcessor(last_mutid, endpoint, block_sv_stats)
+    processor = StatsBatchProcessor(last_mutid, endpoint, tombstone_mode, block_sv_stats)
 
     gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
 
@@ -370,9 +380,11 @@ class StatsBatchProcessor:
     Defined here as a class instead of a simple function to enable
     pickling (for multiprocessing), even when this file is run as __main__.
     """
-    def __init__(self, last_mutid, endpoint, block_sv_stats):
+    def __init__(self, last_mutid, endpoint, tombstone_mode, block_sv_stats):
+        assert tombstone_mode in ('include', 'exclude', 'only')
         self.last_mutid = last_mutid
         self.endpoint = endpoint
+        self.tombstone_mode = tombstone_mode
         self.block_sv_stats = block_sv_stats
 
         self.user = os.environ["USER"]
@@ -393,42 +405,61 @@ class StatsBatchProcessor:
         Takes a batch of grouped stats rows and sends it to dvid in the appropriate protobuf format.
         """
         next_stats_batch, next_stats_batch_total_rows = batch_and_rowcount
-        labelindex_batch = list(map(self.label_index_for_body, next_stats_batch))
+        labelindex_batch = chain(*map(self.label_indexes_for_body, next_stats_batch))
         self.post_labelindex_batch(labelindex_batch)
         return next_stats_batch_total_rows
 
-    def label_index_for_body(self, body_group_span):
+    def label_indexes_for_body(self, body_group_span):
         """
         Load body_group (a subarray with dtype=STATS_DTYPE
         and a only single unique body_id) into a LabelIndex protobuf structure.
         """
+        label_indexes = []
+        
         body_group_start, body_group_stop = body_group_span
         body_group = self.block_sv_stats[body_group_start:body_group_stop]
         body_id = body_group[0]['body_id']
 
-        label_index = LabelIndex()
-        label_index.label = body_id
-        label_index.last_mutid = self.last_mutid
-        label_index.last_mod_user = self.user
-        label_index.last_mod_time = self.mod_time
-        
-        body_dtype = STATS_DTYPE[0]
-        segment_dtype = STATS_DTYPE[1]
-        coords_dtype = ('coord_cols', STATS_DTYPE[2:5])
-        count_dtype = STATS_DTYPE[5]
-        assert body_dtype[0] == 'body_id'
-        assert segment_dtype[0] == 'segment_id'
-        assert np.dtype(coords_dtype[1]).names == ('z', 'y', 'x')
-        assert count_dtype[0] == 'count'
-        
-        body_group = body_group.view([body_dtype, segment_dtype, coords_dtype, count_dtype])
-        coord_cols = body_group['coord_cols'].view((np.int32, 3)).reshape(-1, 3)
-        for block_group in groupby_presorted(body_group, coord_cols):
-            coord = block_group['coord_cols'][0]
-            encoded_block_id = _encode_block_id(coord)
-            label_index.blocks[encoded_block_id].counts.update( zip(block_group['segment_id'], block_group['count']) )
+        if self.tombstone_mode != 'only':
+            label_index = LabelIndex()
+            label_index.label = body_id
+            label_index.last_mutid = self.last_mutid
+            label_index.last_mod_user = self.user
+            label_index.last_mod_time = self.mod_time
+            
+            body_dtype = STATS_DTYPE[0]
+            segment_dtype = STATS_DTYPE[1]
+            coords_dtype = ('coord_cols', STATS_DTYPE[2:5])
+            count_dtype = STATS_DTYPE[5]
+            assert body_dtype[0] == 'body_id'
+            assert segment_dtype[0] == 'segment_id'
+            assert np.dtype(coords_dtype[1]).names == ('z', 'y', 'x')
+            assert count_dtype[0] == 'count'
+            
+            body_group = body_group.view([body_dtype, segment_dtype, coords_dtype, count_dtype])
+            coord_cols = body_group['coord_cols'].view((np.int32, 3)).reshape(-1, 3)
+            for block_group in groupby_presorted(body_group, coord_cols):
+                coord = block_group['coord_cols'][0]
+                encoded_block_id = _encode_block_id(coord)
+                label_index.blocks[encoded_block_id].counts.update( zip(block_group['segment_id'], block_group['count']) )
     
-        return label_index
+            label_indexes.append(label_index)
+        
+        if self.tombstone_mode in ('include', 'only'):
+            # All segments in this body should no longer get a real index
+            # (except for the segment that matches the body_id itself).
+            # We'll send an empty LabelIndex (a 'tombstone') for each one.
+            all_segments = np.unique(body_group['segment_id'])
+            tombstone_segments = all_segments[all_segments != body_id]
+            for segment_id in tombstone_segments:
+                tombstone_index = LabelIndex()
+                tombstone_index.label = segment_id
+                tombstone_index.last_mutid = self.last_mutid
+                tombstone_index.last_mod_user = self.user
+                tombstone_index.last_mod_time = self.mod_time
+                label_indexes.append(tombstone_index)
+
+        return label_indexes
 
 
     def post_labelindex_batch(self, batch_indexes):
@@ -624,6 +655,7 @@ if __name__ == "__main__":
                      f" --agglomeration-mapping={mapping_file}"
                      f" --num-threads=8"
                      f" --batch-size=1000"
+                     f" --tombstones=only"
                      #f" --no-progress-bar"
                      f" {dvid_config['server']}"
                      f" {dvid_config['uuid']}"
