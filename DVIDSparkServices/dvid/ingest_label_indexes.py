@@ -310,7 +310,7 @@ def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=
         next_stats_batch_total_rows = 0
     
         # Here, 'span' is a tuple: (start_row, stop_row)
-        for span in groupby_spans_presorted(block_sv_stats, block_sv_stats['body_id'][:, None]):
+        for span in groupby_spans_presorted(block_sv_stats['body_id'][:, None]):
             next_stats_batch.append( span )
             next_stats_batch_total_rows += (span[1] - span[0])
             if next_stats_batch_total_rows >= batch_rows:
@@ -588,15 +588,13 @@ def groupby_presorted(a, sorted_cols):
     yield a[start:len(sorted_cols)]
 
 @jit(nopython=True)
-def groupby_spans_presorted(a, sorted_cols):
+def groupby_spans_presorted(sorted_cols):
     """
-    Like groupby_presorted(), but yields only the (start, stop)
-    indexes of the groups, not the group subarrays themselves.
+    Similar to groupby_presorted(), but yields only the (start, stop)
+    indexes of the contiguous groups, (not the group subarrays themselves).
     """
     assert sorted_cols.ndim >= 2
-    assert sorted_cols.shape[0] == a.shape[0]
-
-    if len(a) == 0:
+    if len(sorted_cols) == 0:
         return
 
     start = 0
