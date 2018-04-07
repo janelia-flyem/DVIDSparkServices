@@ -764,13 +764,17 @@ class sparkdvid(object):
                     get3d = node_service2.get_labelarray_blocks3D
                 
                 if resource_server != "":
-                    return get3d( str(label_name2),
+                    data = get3d( str(label_name2),
                                   (size_z, size_y, size_x),
                                   (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
                 else:
-                    return get3d( str(label_name2),
+                    data = get3d( str(label_name2),
                                   (size_z, size_y, size_x),
                                   (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
+                
+                if roiname != "":
+                    mask_roi(data, subvolume)        
+                return data
 
             label_volume2 = get_labels2()
 
