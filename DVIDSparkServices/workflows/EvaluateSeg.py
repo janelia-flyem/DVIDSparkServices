@@ -6,6 +6,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service
 from DVIDSparkServices.util import NumpyConvertingEncoder
 from libdvid import ConnectionMethod
 import numpy
+from DVIDSparkServices.sparkdvid.Subvolume import SubvolumeNamedTuple
 
 class EvaluateSeg(DVIDWorkflow):
     # schema for evaluating segmentation
@@ -142,6 +143,11 @@ class EvaluateSeg(DVIDWorkflow):
           "type": "boolean",
           "default": False 
         },
+        "downsample-level": {
+          "description": "Downsample level to compute metrics (if downsampling is available)",
+          "type": "integer",
+          "default": 0
+        },
         "enable-sparse": {
           "description": "Set flag ground truth is restricted to the set of specified bodies.",
           "type": "boolean",
@@ -202,6 +208,29 @@ class EvaluateSeg(DVIDWorkflow):
         if "chunk-size" in self.config_data["options"]:
             self.chunksize = self.config_data["options"]["chunk-size"]
 
+        # check if downsampling possible
+        downsample_level = self.config_data["options"]["downsample-level"]
+        
+        # do not allow dowsampling by more that 32x in each dim
+        assert (downsample_level <= 5 or downsample_level >= 0)
+
+        if downsample_level > 0:
+            # check if labelmap or labelarray and max  and levellevel
+            datameta = node_service.get_typeinfo(str(self.config_data["dvid-info"]["label-name"]))
+            labeltype = datameta["Base"]["TypeName"]
+            assert labeltype in ("labelarray", "labelmap")
+            maxlevel = datameta["Extended"]["MaxDownresLevel"]
+            assert maxlevel >= downsample_level
+
+            if "dvid-info-comp" in self.config_data:
+                node_service2 = retrieve_node_service(self.config_data["dvid-info-comp"]["dvid-server"],
+                        self.config_data["dvid-info-comp"]["uuid"], self.resource_server, self.resource_port)
+                datameta = node_service2.get_typeinfo(str(self.config_data["dvid-info-comp"]["label-name"]))
+                labeltype = datameta["Base"]["TypeName"]
+                assert labeltype in ("labelarray", "labelmap")
+                maxlevel = datameta["Extended"]["MaxDownresLevel"]
+                assert maxlevel >= downsample_level
+
         #  grab ROI (no overlap and no neighbor checking)
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
                 self.chunksize, border=1)
@@ -209,7 +238,29 @@ class EvaluateSeg(DVIDWorkflow):
             subvolume.border = 0
             return subvolume
         distrois = distrois.mapValues(setBorderHack)
-        
+      
+        # modify substack extents and roi
+        if downsample_level > 0:
+            def downsampleROIs(subvolume):
+                z1 = subvolume.box.z1
+                y1 = subvolume.box.y1
+                x1 = subvolume.box.x1
+                z2 = subvolume.box.z2
+                y2 = subvolume.box.y2
+                x2 = subvolume.box.x2
+                for level in range(0, downsample_level):
+                    subvolume.roi_blocksize = subvolume.roi_blocksize // 2
+                    z1 = z1 // 2 
+                    y1 = y1 // 2 
+                    x1 = x1 // 2 
+                    z2 = z2 // 2 
+                    y2 = y2 // 2 
+                    x2 = x2 // 2 
+                subvolume.box = SubvolumeNamedTuple(z1,y1,x1,z2,y2,x2)
+                return subvolume
+
+            distrois = distrois.mapValues(downsampleROIs)
+
         # check for self mode
         selfcompare = False
         dvidserver2 = ""
@@ -229,15 +280,10 @@ class EvaluateSeg(DVIDWorkflow):
         lpairs = self.sparkdvid_context.map_labels64_pair(
                 distrois, self.config_data["dvid-info"]["label-name"],
                 dvidserver2, dviduuid2, dvidlname2,
-                self.config_data["dvid-info"]["roi"])
+                self.config_data["dvid-info"]["roi"], downsample_level)
 
-
-        # TODO add downsmample
-        # ?! add downsample mode (only if labelarray or map)
-        # ?! modify substacks info to be donwsampled
-        # ?! pass lower rez fetch to seg fetch
-        # ?! modify substack back to original
-
+        # TODO ?? how to handle debug coords
+        
         # filter bodies if there is a body list from GT
         important_bodies = self.config_data["options"]["important-bodies"]
 
@@ -661,6 +707,16 @@ class EvaluateSeg(DVIDWorkflow):
             for (body, val) in newbodies.items():
                 bodystat["bodies"][body] = val
         """
+
+        # expand subvolume to original size if downsampled
+        if downsample_level > 0:
+            for sid, subvolumestats in stats["subvolumes"].items():
+                for stat in subvolumestats:
+                    if stat["name"] == "bbox":
+                        stat["val"] = list(stat["val"])
+                        for pos in range(6):
+                            for level in range(downsample_level):
+                                stat["val"][pos] = stat["val"][pos]*2
 
         # dump CC mappings for use in debugging
         if self.config_data["options"]["run-cc"]: 

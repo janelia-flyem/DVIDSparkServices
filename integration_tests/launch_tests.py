@@ -194,7 +194,7 @@ def init_dvid_database(test_dir, reuse_last=False):
 
     # create labelarray instance for two uuids
     create_instance = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
-    typedata = "{\"typename\": \"labelarray\", \"dataname\" : \"labels\"}"
+    typedata = "{\"typename\": \"labelarray\", \"dataname\" : \"labels\", \"MaxDownresLevel\": \"2\"}"
     
     create_instance1_command = (create_instance % uuid1).split()
     create_instance2_command = (create_instance % uuid2).split()
