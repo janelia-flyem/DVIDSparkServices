@@ -7,6 +7,7 @@ import logging
 from functools import partial
 from io import BytesIO
 from contextlib import closing
+from itertools import chain
 
 import numpy as np
 import pandas as pd
@@ -234,6 +235,17 @@ class CreateStitchedMeshes(Workflow):
     MeshWorkflowOptionsSchema["additionalProperties"] = False
     MeshWorkflowOptionsSchema["properties"].update(
     {
+        "initial-partition-size": {
+            "description": "Set the partition size for downloading the initial segmentation bricks, in bytes.\n"
+                           "Be careful: Spark sucks. A too-small size results in a ton of partitions to keep track of,\n"
+                           "which somehow causes an out-of-memory crash on the DRIVER.\n"
+                           "Yes, the friggin' DRIVER, which does **almost nothing**, but apparently needs a crap-ton of RAM to do it.\n"
+                           "The crash occurs when using more than, say, 200k-1M partitions. (I know, WTF, right?).\n"
+                           "But a too-large size results in fewer, large partitions, at which point you run the risk of exceeding Java's 2GB size limit for each partition.\n"
+                           "(Yes, the idea of using a language with a 2GB limitation for 'Big Data' workflows is laughable.  But here we are.)\n",
+            "type": "number",
+            "default": 4 * (2**30) # 4 GB
+        },
         "minimum-segment-size": {
             "description": "Segments smaller than this voxel count will not be processed.",
             "type": "number",
@@ -316,17 +328,28 @@ class CreateStitchedMeshes(Workflow):
         if isinstance(mesh_config["storage"]["subset-bodies"], str):
             csv_path = self.relpath_to_abspath(mesh_config["storage"]["subset-bodies"])
             with open(csv_path, 'r') as csv_file:
-                try:
-                    # File should only have one column
-                    _first_body = int(csv_file.readline())
-                    header = None
-                except:
-                    header = 0
-
-            subset_bodies = pd.read_csv(csv_path, engine='c', header=header, names=['body_id'])
+                first_line = csv_file.readline()
+                csv_file.seek(0)
+                if ',' not in first_line:
+                    # csv.Sniffer doesn't work if there's only one column in the file
+                    try:
+                        int(first_line)
+                        has_header = False
+                    except:
+                        has_header = True
+                else:
+                    has_header = csv.Sniffer().has_header(csv_file.read(1024))
+                    csv_file.seek(0)
+                rows = iter(csv.reader(csv_file))
+                if has_header:
+                    _header = next(rows) # Skip header
+                
+                # File is permitted to have multiple columns,
+                # but body ID must be first column
+                subset_bodies = [int(row[0]) for row in rows]
             
             # Overwrite config with bodies list from the csv file
-            mesh_config["storage"]["subset-bodies"] = list(subset_bodies['body_id'])
+            mesh_config["storage"]["subset-bodies"] = subset_bodies
 
     def execute(self):
         from pyspark import StorageLevel
@@ -343,9 +366,9 @@ class CreateStitchedMeshes(Workflow):
 
         self._init_meshes_instance()
 
-        # Aim for 10 GB RDD partitions -- too many partitions causes a crash on the DRIVER because Spark is not good at its job.
-        GB = 2**30
-        target_partition_size_voxels = 10 * GB // np.uint64().nbytes
+        # See notes in config for description of this setting.
+        partition_bytes = options["initial-partition-size"]
+        target_partition_size_voxels = partition_bytes // np.uint64().nbytes
         
         # This will return None if we're not using sparse blocks
         sparse_block_mask = self._get_sparse_block_mask(volume_service, config["mesh-config"]["storage"]["input-is-mapped-supervoxels"])
@@ -502,7 +525,7 @@ class CreateStitchedMeshes(Workflow):
                 mesh.recompute_normals()
                 return mesh
             
-            segment_id_and_mesh_with_normals = segment_ids_and_mesh_blocks.map(decimate)
+            segment_id_and_mesh_with_normals = segment_ids_and_mesh_blocks.map(recompute_normals)
 
             rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing block mesh normals", logger)
             rt.unpersist(segment_ids_and_mesh_blocks)
@@ -661,10 +684,11 @@ class CreateStitchedMeshes(Workflow):
 
         instance_name = config["output"]["dvid"]["meshes-destination"]
         with Timer("Writing meshes to DVID", logger):
-            keys_written = segment_id_and_mesh_bytes_grouped_by_body.flatMap( partial(post_meshes_to_dvid, config, instance_name) ).collect()
+            keys_written = segment_id_and_mesh_bytes_grouped_by_body.mapPartitions( partial(post_meshes_to_dvid, config, instance_name) ).collect()
+            keys_written = list(keys_written)
 
         keys_written = pd.Series(keys_written, name='key')
-        keys_written.to_csv(self.relpath_to_abspath('./keys-uploaded.csv', index=False))
+        keys_written.to_csv(self.relpath_to_abspath('./keys-uploaded.csv'), index=False, header=False)
 
             
     def _init_meshes_instance(self):

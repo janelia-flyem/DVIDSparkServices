@@ -4,6 +4,7 @@ from functools import partial
 import collections
 
 import numpy as np
+import pandas as pd
 
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection,\
     box_to_slicing
@@ -115,7 +116,7 @@ class Brick:
      
         Note: Both boxes (logical and physical) are always stored in GLOBAL coordinates.
     """
-    def __init__(self, logical_box, physical_box, volume):
+    def __init__(self, logical_box, physical_box, volume, custom_hash=None):
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
         self._volume = volume
@@ -124,14 +125,28 @@ class Brick:
         # Used for pickling.
         self._compressed_volume = None
         self._destroyed = False
+        
+        # Optional custom hashing
+        self._hash = custom_hash
 
     def __hash__(self):
-        return rt.better_hash(tuple(self.logical_box[0].tolist()))
+        if self._hash is None:
+            return rt.better_hash(tuple(self.logical_box[0].tolist()))
+        else:
+            return self._hash
 
     def __str__(self):
         if (self.logical_box == self.physical_box).all():
             return f"logical & physical: {self.logical_box.tolist()}"
         return f"logical: {self.logical_box.tolist()}, physical: {self.physical_box.tolist()}"
+
+    def set_hash(self, new_hash):
+        """
+        Explicitly set the hash value for this brick.
+        Returns self so this function is easily used in map(), etc.
+        """
+        self._hash = new_hash
+        return self
 
     @property
     def volume(self):
@@ -251,11 +266,12 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
         logical_and_physical_boxes = filter(is_valid, logical_and_physical_boxes )
 
     if sc:
+        if not hasattr(logical_and_physical_boxes, '__len__'):
+            logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
+
         num_rdd_partitions = None
         if rdd_partition_length is not None:
             rdd_partition_length = max(1, rdd_partition_length)
-            if not hasattr(logical_and_physical_boxes, '__len__'):
-                logical_and_physical_boxes = list(logical_and_physical_boxes) # need len()
             num_rdd_partitions = int( np.ceil( len(logical_and_physical_boxes) / rdd_partition_length ) )
 
         # If we're working with a tiny volume (e.g. testing),
@@ -269,7 +285,18 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
         total_volume = sum(map(brick_size, logical_and_physical_boxes))
         logger.info(f"Initializing RDD of {len(logical_and_physical_boxes)} Bricks "
                     f"(over {num_rdd_partitions} partitions) with total volume {total_volume/1e9:.1f} Gvox")
-        logical_and_physical_boxes = sc.parallelize( logical_and_physical_boxes, num_rdd_partitions )
+
+        # Enumerate and repartition to get perfect partition sizes,
+        # rather than relying on spark's default hash
+        class _enumerated_value(tuple):
+            # Return a hash based on the key alone.
+            def __hash__(self):
+                return self[0]
+
+        enumerated_logical_and_physical_boxes = sc.parallelize( enumerate(logical_and_physical_boxes), num_rdd_partitions )
+        enumerated_logical_and_physical_boxes = enumerated_logical_and_physical_boxes.map(_enumerated_value)
+        enumerated_logical_and_physical_boxes = enumerated_logical_and_physical_boxes.partitionBy(num_rdd_partitions, lambda x: x)
+        logical_and_physical_boxes = enumerated_logical_and_physical_boxes.values()
 
     def make_bricks( logical_and_physical_box ):
         logical_box, physical_box = logical_and_physical_box
@@ -474,13 +501,11 @@ def realign_bricks_to_new_grid(new_grid, original_bricks):
     new_logical_boxes_and_brick_fragments = rt.flat_map( partial(split_brick, new_grid), original_bricks )
 
     # Group fragments according to their new homes
-    #grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     grouped_brick_fragments = rt.group_by_key( new_logical_boxes_and_brick_fragments )
     
     # Re-assemble fragments into the new grid structure.
     new_logical_boxes_and_bricks = rt.map_values(assemble_brick_fragments, grouped_brick_fragments)
     new_logical_boxes_and_bricks = rt.filter( lambda key_brick: key_brick[1] is not None, new_logical_boxes_and_bricks )
-    
     return new_logical_boxes_and_bricks
 
 
@@ -527,9 +552,11 @@ def split_brick(new_grid, original_brick):
         fragment_brick = Brick(new_logical_box, split_box, fragment_vol)
         fragment_brick.compress()
 
-        # Append key (an index tuple generated from new_logical_box) and new
-        # brick fragment, to be assembled into the final brick in a later stage.
-        key = tuple(new_logical_box[0] / new_grid.block_shape)
+        # Append key (the new_logical_box, but with a special type and hash,
+        # to avoid bad collisions with the default spark hash function),
+        # and new brick fragment, to be assembled into the final brick in a later stage.
+        key = rt.tuple_with_hash( box_as_tuple(new_logical_box) )
+        key.set_hash( hash(tuple(new_logical_box[0] / new_grid.block_shape)) )
         new_logical_boxes_and_fragments.append( (key, fragment_brick) )
 
     return new_logical_boxes_and_fragments
