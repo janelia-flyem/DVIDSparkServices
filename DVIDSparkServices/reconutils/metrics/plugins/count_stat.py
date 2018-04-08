@@ -328,6 +328,8 @@ class count_stat(StatType):
         # limit number of bodies to examine
         num_displaybodies = self.segstats.num_displaybodies
 
+        totalgtsize = 0
+
         # candidate bodies must have >50% in the GT body to be considered
         if not self.segstats.selfcompare:
             important_segbodies = {}
@@ -346,6 +348,9 @@ class count_stat(StatType):
                     if overlap > max_val:
                         max_val = overlap
                         max_id = seg
+                if total > body_threshold:
+                    totalgtsize += total
+
                 # find size of seg body
                 total2 = 0
                 overlapset2 = sotable.overlap_map[max_id]
@@ -499,5 +504,10 @@ class count_stat(StatType):
                 summarystats.append(sumstat)
 
             
+            # provide a size state for #voxels or points
+            sumstat = {"name": "TOTAL-SIZE", "higher-better": True, "typename": gotable.get_name(), "val": totalgtsize}
+            sumstat["description"] = "Size of ground truth ROI analyzed"
+            summarystats.append(sumstat)
+
 
 
