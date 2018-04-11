@@ -534,7 +534,7 @@ def dense_roi_mask_for_subvolume(subvolume, border='default'):
     sv_start_px = np.array((sv.box.z1, sv.box.y1, sv.box.x1)) - border
     sv_stop_px  = np.array((sv.box.z2, sv.box.y2, sv.box.x2)) + border
     sv_shape_px = sv_stop_px - sv_start_px
-    
+   
     # subvol bounding box/shape in block coordinates
     sv_start_blocks = sv_start_px // sv.roi_blocksize
     sv_stop_blocks = (sv_stop_px + sv.roi_blocksize-1) // sv.roi_blocksize

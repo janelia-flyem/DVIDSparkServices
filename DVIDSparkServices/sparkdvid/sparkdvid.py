@@ -742,12 +742,12 @@ class sparkdvid(object):
                 sy = size_y
                 sx = size_x
 
-                z1 = z1 - (z1 % blocksize)
-                y1 = y1 - (y1 % blocksize)
-                x1 = x1 - (x1 % blocksize)
                 sz = sz + (z1 % blocksize)
                 sy = sy + (y1 % blocksize)
                 sx = sx + (x1 % blocksize)
+                z1 = z1 - (z1 % blocksize)
+                y1 = y1 - (y1 % blocksize)
+                x1 = x1 - (x1 % blocksize)
 
                 if (sz % blocksize) > 0:
                     sz = sz + blocksize - (sz%blocksize)
@@ -755,7 +755,6 @@ class sparkdvid(object):
                     sy = sy + blocksize - (sy%blocksize)
                 if (sx % blocksize) > 0:
                     sx = sx + blocksize - (sx%blocksize)
-
 
                 if level > 0:
                     if resource_server != "":
@@ -782,7 +781,7 @@ class sparkdvid(object):
 
                 # mask ROI
                 if roiname != "":
-                    mask_roi(data, subvolume)        
+                    mask_roi(data, subvolume) 
 
                 return data
             label_volume = get_labels()
@@ -811,12 +810,12 @@ class sparkdvid(object):
                 sy = size_y
                 sx = size_x
 
-                z1 = z1 - (z1 % blocksize)
-                y1 = y1 - (y1 % blocksize)
-                x1 = x1 - (x1 % blocksize)
                 sz = sz + (z1 % blocksize)
                 sy = sy + (y1 % blocksize)
                 sx = sx + (x1 % blocksize)
+                z1 = z1 - (z1 % blocksize)
+                y1 = y1 - (y1 % blocksize)
+                x1 = x1 - (x1 % blocksize)
 
                 if (sz % blocksize) > 0:
                     sz = sz + blocksize - (sz%blocksize)
