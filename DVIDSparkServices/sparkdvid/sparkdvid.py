@@ -734,28 +734,30 @@ class sparkdvid(object):
                 if islabelarray:
                     get3d = node_service.get_labelarray_blocks3D
 
+
+                z1 = subvolume.box.z1
+                y1 = subvolume.box.y1
+                x1 = subvolume.box.x1
+                sz = size_z
+                sy = size_y
+                sx = size_x
+
+                z1 = z1 - (z1 % blocksize)
+                y1 = y1 - (y1 % blocksize)
+                x1 = x1 - (x1 % blocksize)
+                sz = sz + (z1 % blocksize)
+                sy = sy + (y1 % blocksize)
+                sx = sx + (x1 % blocksize)
+
+                if (sz % blocksize) > 0:
+                    sz = sz + blocksize - (sz%blocksize)
+                if (sy % blocksize) > 0:
+                    sy = sy + blocksize - (sy%blocksize)
+                if (sx % blocksize) > 0:
+                    sx = sx + blocksize - (sx%blocksize)
+
+
                 if level > 0:
-                    z1 = subvolume.box.z1
-                    y1 = subvolume.box.y1
-                    x1 = subvolume.box.x1
-                    sz = size_z
-                    sy = size_y
-                    sx = size_x
-
-                    z1 = z1 - (z1 % blocksize)
-                    y1 = y1 - (y1 % blocksize)
-                    x1 = x1 - (x1 % blocksize)
-                    sz = sz + (z1 % blocksize)
-                    sy = sy + (y1 % blocksize)
-                    sx = sx + (x1 % blocksize)
-
-                    if (sz % blocksize) > 0:
-                        sz = sz + blocksize - (sz%blocksize)
-                    if (sy % blocksize) > 0:
-                        sy = sy + blocksize - (sy%blocksize)
-                    if (sx % blocksize) > 0:
-                        sx = sx + blocksize - (sx%blocksize)
-
                     if resource_server != "":
                         data = get3d( str(label_name),
                                       (sz, sy, sx),
@@ -770,12 +772,13 @@ class sparkdvid(object):
                 else:
                     if resource_server != "":
                         data = get3d( str(label_name),
-                                      (size_z, size_y, size_x),
-                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
+                                      (sz, sy, sx),
+                                      (z1, y1, x1), throttle=False)
                     else:
                         data = get3d( str(label_name),
-                                      (size_z, size_y, size_x),
-                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
+                                      (sz, sy, sx),
+                                      (z1, y1, x1), throttle=True)
+                    data = data[(subvolume.box.z1-z1):(subvolume.box.z1-z1+size_z),(subvolume.box.y1-y1):(subvolume.box.y1-y1+size_y),(subvolume.box.x1-x1):(subvolume.box.x1-x1+size_x)]
 
                 # mask ROI
                 if roiname != "":
@@ -800,29 +803,29 @@ class sparkdvid(object):
                 get3d = node_service2.get_labels3D
                 if islabelarray2:
                     get3d = node_service2.get_labelarray_blocks3D
-               
+                
+                z1 = subvolume.box.z1
+                y1 = subvolume.box.y1
+                x1 = subvolume.box.x1
+                sz = size_z
+                sy = size_y
+                sx = size_x
+
+                z1 = z1 - (z1 % blocksize)
+                y1 = y1 - (y1 % blocksize)
+                x1 = x1 - (x1 % blocksize)
+                sz = sz + (z1 % blocksize)
+                sy = sy + (y1 % blocksize)
+                sx = sx + (x1 % blocksize)
+
+                if (sz % blocksize) > 0:
+                    sz = sz + blocksize - (sz%blocksize)
+                if (sy % blocksize) > 0:
+                    sy = sy + blocksize - (sy%blocksize)
+                if (sx % blocksize) > 0:
+                    sx = sx + blocksize - (sx%blocksize)
+
                 if level > 0:
-                    z1 = subvolume.box.z1
-                    y1 = subvolume.box.y1
-                    x1 = subvolume.box.x1
-                    sz = size_z
-                    sy = size_y
-                    sx = size_x
-
-                    z1 = z1 - (z1 % blocksize)
-                    y1 = y1 - (y1 % blocksize)
-                    x1 = x1 - (x1 % blocksize)
-                    sz = sz + (z1 % blocksize)
-                    sy = sy + (y1 % blocksize)
-                    sx = sx + (x1 % blocksize)
-
-                    if (sz % blocksize) > 0:
-                        sz = sz + blocksize - (sz%blocksize)
-                    if (sy % blocksize) > 0:
-                        sy = sy + blocksize - (sy%blocksize)
-                    if (sx % blocksize) > 0:
-                        sx = sx + blocksize - (sx%blocksize)
-
                     if resource_server != "":
                         data = get3d( str(label_name2),
                                       (sz, sy, sx),
@@ -835,13 +838,13 @@ class sparkdvid(object):
                 else:
                     if resource_server != "":
                         data = get3d( str(label_name2),
-                                      (size_z, size_y, size_x),
-                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1), throttle=False)
+                                      (sz, sy, sx),
+                                      (z1, y1, x1), throttle=False)
                     else:
                         data = get3d( str(label_name2),
-                                      (size_z, size_y, size_x),
-                                      (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1))
-
+                                      (sz, sy, sx),
+                                      (z1, y1, x1), throttle=True)
+                    data = data[(subvolume.box.z1-z1):(subvolume.box.z1-z1+size_z),(subvolume.box.y1-y1):(subvolume.box.y1-y1+size_y),(subvolume.box.x1-x1):(subvolume.box.x1-x1+size_x)]
 
                 if roiname != "":
                     mask_roi(data, subvolume)        
