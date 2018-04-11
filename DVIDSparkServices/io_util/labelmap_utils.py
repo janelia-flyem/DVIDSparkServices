@@ -9,6 +9,13 @@ import pandas as pd
 import logging
 logger = logging.getLogger(__name__)
 
+try:
+    import graph_tool as gt
+    _graph_tool_available = True
+except ImportError:
+    _graph_tool_available = False
+    
+
 from ..util import Timer
 
 LabelMapSchema = \
@@ -209,14 +216,98 @@ def segment_to_body_mapping_from_edge_csv(csv_path, output_csv_path=None):
           via a connected components step.
     """
     edges = load_edge_csv(csv_path)
-    groups = groups_from_edges(edges)
-    mapping = mapping_from_groups(groups)
+    mapping = mapping_from_edges(edges)
     
     if output_csv_path:
         equivalence_mapping_to_csv(mapping, output_csv_path)
         
     return mapping
 
+def mapping_from_edges(edges, sort_by='body', as_series=False):
+    """
+    Compute the connected components of the graph defined by 'edges'
+    (a 2-column ndarray representing edges between segments),
+    and return the mapping of segment ID -> body ID,
+    where body ID is defined as the minimum segment ID in each connected component.
+
+    Args:
+        
+        sort_by: How to sort the rows of the resulting mapping.
+                 Choices: 'segment', 'body'.
+
+        as_series:
+            If True, return a pandas.Series (where segment is the index, body is the data).
+            If False, return a 2-column np.ndarray, with segment in the first column and body in the second column.
+
+    Returns:
+        The computed mapping, as either an ndarray or Series, as requested via as_series.
+    """
+    assert sort_by in ('segment', 'body')
+
+    if _graph_tool_available:
+        mapping = _mapping_from_edges_gt(edges)
+    else:
+        mapping = _mapping_from_edges_nx(edges)
+
+    if sort_by == 'body':
+        mapping.sort_values(inplace=True)
+    else:
+        mapping.sort_index(inplace=True)
+
+    if as_series:
+        return mapping
+    
+    return np.array((mapping.index, mapping.values)).transpose()
+
+def _mapping_from_edges_gt(edges):
+    """
+    Helper function for mapping_from_edges()
+    
+    Compute the connected components of the graph defined by 'edges',
+    and return the mapping of segment ID -> body ID
+    as an UNSORTED pandas.Series (where segment is the index).
+    
+    Note: This version uses graph-tool to compute the connected components, which is very fast.
+          However, graph-tool is not installed by default due to licensing restrictions.
+    """
+    from graph_tool.topology import label_components
+
+    g = gt.Graph(directed=False)
+    sv_pmap = g.add_edge_list( edges, hashed=True )
+    cc_pmap, _hist = label_components(g)
+    
+    df = pd.DataFrame({'sv': sv_pmap.get_array(),
+                       'cc_index': cc_pmap.get_array()})
+    
+    # Convert component labels to body IDs (min segment ID in the component)
+    cc_body_ids = df.groupby('cc_index').min()
+    cc_body_ids.columns = ['body']
+
+    mapped_cc_df = df.merge( cc_body_ids, how='inner', left_on='cc_index', right_index=True, copy=False )
+    mapping = pd.Series(index=mapped_cc_df['sv'].values, data=mapped_cc_df['body'].values)
+    
+    return mapping
+
+def _mapping_from_edges_nx(edges):
+    """
+    Compute the connected components of the graph defined by 'edges',
+    and return the mapping of segment ID -> body ID
+    as an UNSORTED pandas.Series (where segment is the index).
+    
+    Note: This version uses networkx to compute the connected components, which is SLOW.
+          Computing the hemibrain mapping takes ~45 minutes.
+    """
+    segments = pd.unique(edges.reshape(-1))
+    mapping = pd.Series(index=segments, data=edges.dtype.type(0))
+
+    import networkx as nx
+    g = nx.Graph()
+    g.add_edges_from(edges)
+    
+    for segment_set in nx.connected_components(g):
+        mapping[segment_set] = min(segment_set)
+
+    return mapping
 
 def mapping_from_groups(groups):
     """
