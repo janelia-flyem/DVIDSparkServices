@@ -587,16 +587,7 @@ class EvaluateSeg(DVIDWorkflow):
             mapped_bodies = disjoint_bodies.zipWithIndex()
             mapped_bodies.persist()
 
-            # make a global remap function
-            def extract_disjoint_bodies(mapped_body):
-                (((bodyid, isgt), group), rid) = mapped_body
-                return (bodyid, rid+ccstartbodyindex)
-            bodies_remap = mapped_bodies.map(extract_disjoint_bodies).collect()
-            
-            # global map of cc bodies to original body (unique across GT and seg)
-            cc2body = {}
-            for (bodyid, rid) in bodies_remap:
-                cc2body[rid] = bodyid
+
             
             # send changes to substacks
             def cc2sid(mapped_body):
@@ -698,7 +689,20 @@ class EvaluateSeg(DVIDWorkflow):
         # Extract stats by retrieving substacks and stats info and
         # loading into data structures on the driver.
         stats = evaluator.calculate_stats(lpairs_proc)
-        
+
+
+        if self.config_data["options"]["run-cc"]: 
+            # make a global remap function
+            def extract_disjoint_bodies(mapped_body):
+                (((bodyid, isgt), group), rid) = mapped_body
+                return (bodyid, rid+ccstartbodyindex)
+            bodies_remap = mapped_bodies.map(extract_disjoint_bodies).collect()
+            
+            # global map of cc bodies to original body (unique across GT and seg)
+            cc2body = {}
+            for (bodyid, rid) in bodies_remap:
+                cc2body[rid] = bodyid
+
         """
         # map temporary CC body index to original body index for body stats
         # for convenience (not very necessary since
