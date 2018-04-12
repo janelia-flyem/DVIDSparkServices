@@ -337,6 +337,73 @@ def equivalence_mapping_to_csv(mapping_pairs, output_path):
         with open(output_path, 'w') as f:
             csv.writer(f).writerows(mapping_pairs)
 
+def compare_mappings(old_mapping, new_mapping):
+    """
+    Compare two mappings and return the set of bodies that were added, dropped, or changed.
+    
+    Args:
+        old_mapping: Ndarray of shape (N,2), where first column is SV and second column is body.
+        new_mapping: Ditto.
+        
+    Returns:
+        (dropped_bodies, added_bodies, changed_size_bodies, changed_content_bodies)
+        
+        where:
+            dropped_bodies: set of body IDs that don't exist in new_mapping
+            
+            added_bodies: set of body IDs that don't exist in old_mappign
+            
+            chagned_size_bodies: set of body IDs that exist in both mappings,
+                                 but whose supervoxel lists differ in length.
+
+            changed_content_bodies: set of body IDs that exist in both mappings,
+                                    and whose supervoxel lists have matching length,
+                                    but whose supervoxels are not identical.
+    """
+    for mapping in (old_mapping, new_mapping):
+        assert isinstance(mapping, np.ndarray)
+        assert mapping.ndim == 2
+        assert mapping.shape[1] == 2
+    
+    old_df = pd.DataFrame(old_mapping, columns=['sv', 'body'])
+    new_df = pd.DataFrame(new_mapping, columns=['sv', 'body'])
+
+    old_bodies = set(pd.unique(old_df['body']))
+    new_bodies = set(pd.unique(new_df['body']))
+
+    dropped_bodies = old_bodies - new_bodies
+    added_bodies = new_bodies - old_bodies
+
+    old_mapping_common = old_df.query('body not in @dropped_bodies').copy()
+    new_mapping_common = new_df.query('body not in @added_bodies').copy()
+    
+    old_mapping_common.sort_values(['body', 'sv'], inplace=True)
+    new_mapping_common.sort_values(['body', 'sv'], inplace=True)
+    
+    old_common_counts = old_mapping_common.groupby('body').agg({'sv': 'size'})
+    new_common_counts = new_mapping_common.groupby('body').agg({'sv': 'size'})
+    old_common_counts.columns = ['sv_count']
+    new_common_counts.columns = ['sv_count']
+    assert (old_common_counts.shape == new_common_counts.shape), \
+        f"{old_common_counts.shape} != {new_common_counts.shape}"
+
+    changed_size_rows = (old_common_counts['sv_count'].values != new_common_counts['sv_count'].values)
+    changed_size_bodies = set(old_common_counts.iloc[(changed_size_rows,)].index)
+    
+    old_mapping_common = old_mapping_common.query('body not in @changed_size_bodies')
+    new_mapping_common = new_mapping_common.query('body not in @changed_size_bodies')
+    
+    # Now that we've removed all bodies that were not common to the two
+    # mappings or that had different sizes in the two mappings, the mappings are directly comparable.
+    assert old_mapping_common.shape == new_mapping_common.shape
+    assert (old_mapping_common['body'].values == new_mapping_common['body'].values).all()
+    
+    changed_content_rows = (old_mapping_common['sv'].values != new_mapping_common['sv'].values)
+    changed_content_bodies = set(old_mapping_common.iloc[(changed_content_rows,)]['body'])
+    
+    return dropped_bodies, added_bodies, changed_size_bodies, changed_content_bodies
+
+
 def erode_leaf_nodes(edges, rounds=1):
     """
     Given a graph encoded in the given array of edge pairs.
