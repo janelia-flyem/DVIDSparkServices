@@ -201,6 +201,8 @@ class EvaluateSeg(DVIDWorkflow):
         import time
         import datetime
         import json
+        
+        starttime = time.time()
 
         node_service = retrieve_node_service(self.config_data["dvid-info"]["dvid-server"],
                 self.config_data["dvid-info"]["uuid"], self.resource_server, self.resource_port)
@@ -611,7 +613,7 @@ class EvaluateSeg(DVIDWorkflow):
             sidccbodies = mapped_bodies.flatMap(cc2sid).reduceByKey(groupsids, lpairs_split.getNumPartitions())
 
             # shuffle mappings to substacks (does this cause a shuffle)
-            lpairs_split_j = lpairs_split.leftOuterJoin(sidccbodies)
+            lpairs_split_j = lpairs_split.leftOuterJoin(sidccbodies, lpairs_split.getNumPartitions())
 
 
             # give new ids for subvolumes
@@ -749,6 +751,7 @@ class EvaluateSeg(DVIDWorkflow):
         # client should use '--' delimeter to parse name
         stats["time-analyzed"] = \
             datetime.datetime.fromtimestamp(time.time()).strftime('%Y-%m-%d %H:%M:%S')
+        stats["runtime"] = time.time() - starttime
         stats["config-file"] = self.config_data
         current_time = int(time.time())
 
