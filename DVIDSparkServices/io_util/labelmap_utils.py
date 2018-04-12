@@ -1,5 +1,6 @@
 import os
 import csv
+import warnings
 import subprocess
 from itertools import chain
 
@@ -10,7 +11,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    import graph_tool as gt
+    with warnings.catch_warnings():
+        # Importing graph_tool results in warnings about duplicate C++/Python conversion functions.
+        # Ignore those warnings
+        warnings.filterwarnings("ignore", "to-Python converter")
+        import graph_tool as gt
+
     _graph_tool_available = True
 except ImportError:
     _graph_tool_available = False
