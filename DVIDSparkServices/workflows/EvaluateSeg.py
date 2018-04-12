@@ -575,45 +575,56 @@ class EvaluateSeg(DVIDWorkflow):
                 for (dummy, group) in mergeset.items():
                     bodygroups.append(((bodyid, isgt), group))
                 return bodygroups
-
-            # grab all remappings (should be too many disjont components presumably)
-            bodies_remap = matches.flatMap(_find_disjoint_bodies).collect()
-
+            
+            
             # choose very large arbitary index for simplicity (but below js 2^53 limit)
-            ccbodyindex = 2**51
+            ccstartbodyindex = 2**51
 
+            # find disjoint mappings            
+            disjoint_bodies = matches.flatMap(_find_disjoint_bodies)
+            mapped_bodies = disjoint_bodies.zipWithIndex()
+            mapped_bodies.persist()
+
+            # make a global remap function
+            def extract_disjoint_bodies(mapped_body):
+                (((bodyid, isgt), group), rid) = mapped_body
+                return (bodyid, rid+ccstartbodyindex)
+            bodies_remap = mapped_bodies.map(extract_disjoint_bodies).collect()
+            
             # global map of cc bodies to original body (unique across GT and seg)
             cc2body = {}
-        
-            ccsub2body_gt = {}
-            ccsub2body_seg = {}
+            for (bodyid, rid) in bodies_remap:
+                cc2body[rid] = bodyid
+            
+            # send changes to substacks
+            def cc2sid(mapped_body):
+                (((bodyid, isgt), group), rid) = mapped_body
+                sidbodies = []
+                for (subval, sid) in group:
+                    sidbodies.append((sid, [(isgt, subval, rid+ccstartbodyindex)]))
+                return sidbodies
 
-            # map from substack to temporary body id
-            for ((body, isgt), bodyset) in bodies_remap:
-                cc2body[ccbodyindex] = body
+            def groupsids(sid1, sid2):
+                sid1.extend(sid2)
+                return sid1
 
-                for (subval, sid) in bodyset:
-                    if isgt:
-                        ccsub2body_gt[(subval, sid)] = ccbodyindex
-                    else:
-                        ccsub2body_seg[(subval, sid)] = ccbodyindex
-                ccbodyindex += 1
+            sidccbodies = mapped_bodies.flatMap(cc2sid).reduceByKey(groupsids, lpairs_split.getNumPartitions())
+
+            # shuffle mappings to substacks (does this cause a shuffle)
+            lpairs_split_j = lpairs_split.leftOuterJoin(sidccbodies)
 
 
             # give new ids for subvolumes
             def _insertccmappings(label_pairs):
-                (subvolume, labelgt_map, label2_map, labelgt_split, label2_split) = label_pairs
-
-                for ((subval, sid), newbodyid) in ccsub2body_gt.items():
-                    if sid == subvolume.sv_index:
-                        labelgt_map[subval] = newbodyid
-                
-                for ((subval, sid), newbodyid) in ccsub2body_seg.items():
-                    if sid == subvolume.sv_index:
-                        label2_map[subval] = newbodyid
+                ((subvolume, labelgt_map, label2_map, labelgt_split, label2_split), ccbodies) = label_pairs
+                if ccbodies is not None:
+                    for (isgt, subval, bodyid) in ccbodies:
+                        if isgt:
+                            labelgt_map[subval] = bodyid
+                        else:
+                            label2_map[subval] = bodyid
                 return (subvolume, labelgt_map, label2_map, labelgt_split, label2_split)
-
-            lpairs_split = lpairs_split.mapValues(_insertccmappings)
+            lpairs_split = lpairs_split_j.mapValues(_insertccmappings)
             
 
 

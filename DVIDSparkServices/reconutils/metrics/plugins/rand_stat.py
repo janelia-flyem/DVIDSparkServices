@@ -181,7 +181,10 @@ class rand_stat(StatType):
 
         # ignore some stats if sparse mode
         if not self.segstats.enable_sparse:
-            sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": round(2*fmerge*fsplit/(fmerge+fsplit), 4)}
+            if (fmerge+fsplit) == 0:
+                sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": 1}
+            else:
+                sumstat = {"name": "Rand", "higher-better": True, "typename": name, "val": round(2*fmerge*fsplit/(fmerge+fsplit), 4)}
             sumstat["description"] = "Rand"
             summarystats.append(sumstat)
 
