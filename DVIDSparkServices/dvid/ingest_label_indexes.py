@@ -55,8 +55,8 @@ def main():
     parser.add_argument('--last-mutid', '-i', required=False, type=int)
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
                         help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
-    parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both'],
-                        help='Whether to load the LabelIndexes, MappingOps, or both.')
+    parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both', 'sort-only'],
+                        help='Whether to load the LabelIndices, MappingOps, or both. If sort-only, sort/save the stats and exit.')
     parser.add_argument('--tombstones', default='include', choices=['include', 'exclude', 'only'],
                         help="Whether to include 'tombstones' in the labelindexes (i.e. explicitly send empty labelindexes for all supervoxels in a body that don't match the body-id). "
                              "Options are 'include', 'exclude', or 'only' (i.e. send only the tombstones and not the actual labelindices)")
@@ -73,6 +73,11 @@ def main():
 
     args = parser.parse_args()
 
+    with Timer() as timer:
+        main_impl(args)
+    logger.info(f"DONE. Total time: {timer.timedelta}")
+
+def main_impl(args):
     # Read agglomeration file
     segment_to_body_df = None
     if args.agglomeration_mapping:
@@ -89,20 +94,36 @@ def main():
             args.last_mutid = 0
 
     # Upload label indexes
-    if args.operation in ('indexes', 'both'):
+    if args.operation in ('indexes', 'both', 'sort-only'):
         if not args.supervoxel_block_stats_h5:
             raise RuntimeError("You must provide a supervoxel_block_stats_h5 file if you want to ingest LabelIndexes")
 
         # Read block stats file
-        block_sv_stats = load_stats_h5_to_records(args.supervoxel_block_stats_h5)
+        block_sv_stats, presorted_by, agglomeration_path = load_stats_h5_to_records(args.supervoxel_block_stats_h5)
+        
+        stats_are_presorted = False
+        if args.agglomeration_mapping:
+            if (presorted_by == 'body_id') and (agglomeration_path == args.agglomeration_mapping):
+                stats_are_presorted = True
+        elif presorted_by == 'segment_id':
+            stats_are_presorted = True
+        
+        if stats_are_presorted:
+            logger.info("Stats are pre-sorted")
+        else:
+            output_dir, basename = os.path.split(args.supervoxel_block_stats_h5)
+            output_path = output_dir + '/sorted-' + basename
+            sort_block_stats(block_sv_stats, segment_to_body_df, output_path, args.agglomeration_mapping)
     
+        if args.operation == 'sort-only':
+            return
+
         with Timer(f"Grouping {len(block_sv_stats)} blockwise supervoxel counts and loading LabelIndices", logger):
             ingest_label_indexes( args.server,
                                   args.uuid,
                                   args.labelmap_instance,
                                   args.last_mutid,
                                   block_sv_stats,
-                                  segment_to_body_df,
                                   args.tombstones,
                                   batch_rows=args.batch_size,
                                   num_threads=args.num_threads,
@@ -122,8 +143,45 @@ def main():
                             args.batch_size,
                             show_progress_bar=not args.no_progress_bar )
 
-    logger.info(f"DONE.")
+def sort_block_stats(block_sv_stats, segment_to_body_df=None, output_path=None, agglo_mapping_path=None):
+    """
+    Sorts the block stats by body ID, IN-PLACE.
+    If segment_to_body_df is given, the body_id column is overwritten with mapped IDs.
+    If agglo_mapping_path and output_path are given, save the sorted result to an hdf5 file.
 
+    block_sv_stats:
+        numpy structured array of blockwise supervoxel counts, with dtype:
+        ['body_id', 'segment_id', 'z', 'y', 'x', 'count'].
+
+    segment_to_body_df:
+        If loading an agglomeration, must be a 2-column DataFrame, mapping supervoxel-to-body.
+        If loading unagglomerated supervoxels, set to None (identity mapping is used).
+
+    output_path:
+        If given, sorted result will be saved as hdf5 to this file,
+        with the internal dataset name 'stats'
+
+    agglo_mapping_path:
+        A path indicating where the segment_to_body_df was loaded from.
+        It's saved to the hdf5 attributes for provenance tracking.
+    
+    """
+    with Timer("Assigning body IDs", logger):
+        _overwrite_body_id_column(block_sv_stats, segment_to_body_df)
+
+    with Timer(f"Sorting {len(block_sv_stats)} block stats", logger):
+        block_sv_stats.sort(order=['body_id', 'z', 'y', 'x', 'segment_id', 'count'])
+
+    if output_path:
+        with Timer(f"Saving sorted stats to {output_path}"), h5py.File(output_path, 'w') as f:
+            f.create_dataset('stats', data=block_sv_stats, chunks=True)
+            if segment_to_body_df is None:
+                f['stats'].attrs['presorted-by'] = 'segment-id'
+            else:
+                assert agglo_mapping_path
+                f['stats'].attrs['presorted-by'] = 'body_id'
+                f['stats'].attrs['agglomeration-mapping-path'] = agglo_mapping_path
+                
 
 def ingest_mapping( server,
                     uuid,
@@ -213,8 +271,7 @@ def ingest_label_indexes( server,
                           uuid,
                           instance_name,
                           last_mutid,
-                          block_sv_stats,
-                          segment_to_body_df=None,
+                          sorted_block_sv_stats,
                           tombstone_mode='include',
                           batch_rows=1_000_000,
                           num_threads=1,
@@ -229,14 +286,10 @@ def ingest_label_indexes( server,
         last_mutid:
             The mutation ID to use for all indexes
         
-        block_sv_stats:
-            numpy structured array of blockwise supervoxel counts, with dtype:
-            ['body_id', 'segment_id', 'z', 'y', 'x', 'count']
+        sorted_block_sv_stats:
+            numpy structured array of PRE-SORTED blockwise supervoxel counts, with dtype:
+            ['body_id', 'segment_id', 'z', 'y', 'x', 'count'].
         
-        segment_to_body_df:
-            If loading an agglomeration, must be a 2-column DataFrame, mapping supervoxel-to-body.
-            If loading unagglomerated supervoxels, set to None (identity mapping is used).
-
         tombstone_mode:
             Whether or not to include tombstones in the result, or possibly ONLY tombstones, and not the 'real' labelindices.
             Choices: 'include', 'exclude', or 'only'.
@@ -252,6 +305,7 @@ def ingest_label_indexes( server,
             Otherwise, progress log messages are printed to the console.
     """
     _check_instance(server, uuid, instance_name)
+    block_sv_stats = sorted_block_sv_stats
 
     # 'processor' is declared as a global so it can be shared with
     # subprocesses quickly via implicit memory sharing via after fork()
@@ -259,7 +313,7 @@ def ingest_label_indexes( server,
     endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
     processor = StatsBatchProcessor(last_mutid, endpoint, tombstone_mode, block_sv_stats)
 
-    gen = generate_stats_batches(block_sv_stats, segment_to_body_df, batch_rows)
+    gen = generate_stats_batches(block_sv_stats, batch_rows)
 
     if show_progress_bar:
         # Console-based progress bar
@@ -275,6 +329,7 @@ def ingest_label_indexes( server,
         for next_stats_batch_total_rows in pool.imap_unordered(process_batch, gen):
             progress_bar.update(next_stats_batch_total_rows)
 
+
 def _check_instance(server, uuid, instance_name):
     """
     Verify that the instance is a valid destination for the LabelIndices we're about to ingest.
@@ -287,7 +342,7 @@ def _check_instance(server, uuid, instance_name):
     assert bz == by == bx == 64, \
         "The code below makes the hard-coded assumption that the instance block width is 64."
 
-def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=100_000 ):
+def generate_stats_batches( block_sv_stats, batch_rows=100_000 ):
     """
     Generator.
     For the given array of with dtype=STATS_DTYPE, sort the array by [body_id,z,y,x] (IN-PLACE),
@@ -299,12 +354,6 @@ def generate_stats_batches( block_sv_stats, segment_to_body_df=None, batch_rows=
     Yields:
         (batch, batch_total_rowcount)
     """
-    with Timer("Assigning body IDs", logger):
-        _overwrite_body_id_column(block_sv_stats, segment_to_body_df)
-    
-    with Timer(f"Sorting {len(block_sv_stats)} block stats", logger):
-        block_sv_stats.sort(order=['body_id', 'z', 'y', 'x', 'segment_id', 'count'])
-
     def gen():
         next_stats_batch = []
         next_stats_batch_total_rows = 0
@@ -492,35 +541,62 @@ def _encode_block_id(coord):
     return encoded_block_id
 
 
-def load_stats_h5_to_records(h5_path, prepend_empty_body_column=True):
+def load_stats_h5_to_records(h5_path):
     """
     Read a block segment statistics HDF5 file.
     The file should contain a dataset named 'stats', whose dtype
-    is the same as STATS_DTYPE, EXCEPT that it has no 'body_id' column. 
+    is the same as STATS_DTYPE, but possibly without a 'body_id' column. 
+
+    If the dataset contains no 'body_id' column,
+    one is prepended to the result (as a copy of the segment_id column).
     
-    A complete stats array is returned, with full STATS_DTYPE,
-    including an UNINITIALIZED column for 'body_id'.
+    Returns:
+        (block_sv_stats, presorted_by, agglomeration_path)
+        
+        where:
+            block_sv_stats:
+                ndarray with dtype=STATS_DTYPE
+            
+            presorted_by:
+                One of the following:
+                    - None: stats are not sorted
+                    - 'segment_id': stats were sorted by the 'segment_id' column
+                    - 'body_id': stats were sorted by the 'body_id' column
+
+            agglomeration_path:
+                A path pointing to the agglomeration mapping which was used to produce the 'body_id' column when the file was saved.
     """
     with h5py.File(h5_path, 'r') as f:
         dset = f['stats']
         with Timer(f"Allocating RAM for {len(dset)} block stats rows", logger):
-            if prepend_empty_body_column:
-                block_sv_stats = np.empty(dset.shape, dtype=[('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
-            else:
-                block_sv_stats = np.empty(dset.shape, dtype=[('other_cols', STATS_DTYPE[1:])])
+            block_sv_stats = np.empty(dset.shape, dtype=STATS_DTYPE)
+
+        if 'body_id' in dset.dtype.names:
+            dest_view = block_sv_stats
+        else:
+            full_view = block_sv_stats.view([('body_col', [STATS_DTYPE[0]]), ('other_cols', STATS_DTYPE[1:])])
+            dest_view = full_view['other_cols']
 
         with Timer(f"Loading block stats into RAM", logger):
             h5_batch_size = 1_000_000
             for batch_start in range(0, len(dset), h5_batch_size):
                 batch_stop = min(batch_start + h5_batch_size, len(dset))
-                block_sv_stats['other_cols'][batch_start:batch_stop] = dset[batch_start:batch_stop]
+                dest_view[batch_start:batch_stop] = dset[batch_start:batch_stop]
+
+        if 'body_id' not in dset.dtype.names:
+            block_sv_stats['body_id'] = block_sv_stats['segment_id']
+    
+        try:
+            presorted_by = dset.attrs['presorted-by']
+            assert presorted_by in ('segment_id', 'body_id')
+        except KeyError:
+            presorted_by = None
+    
+        agglomeration_path = None
+        if presorted_by == 'body_id':
+            agglomeration_path = dset.attrs['agglomeration-mapping-path']
         
-        if prepend_empty_body_column:
-            block_sv_stats = block_sv_stats.view(STATS_DTYPE)
-        else:
-            block_sv_stats = block_sv_stats.view(STATS_DTYPE[1:])
-            
-    return block_sv_stats
+    return block_sv_stats, presorted_by, agglomeration_path
 
 
 @jit(nopython=True)
@@ -653,11 +729,12 @@ if __name__ == "__main__":
         #block_stats_file = f'/tmp/block-statistics-testvol.h5'
         
         sys.argv += (#f"--operation=indexes"
-                     f"--operation=both"
-                     f" --agglomeration-mapping={mapping_file}"
+                     f"--operation=sort-only"
+                     #f"--operation=both"
+                     #f" --agglomeration-mapping={mapping_file}"
                      f" --num-threads=8"
                      f" --batch-size=1000"
-                     f" --tombstones=only"
+                     f" --tombstones=include"
                      #f" --no-progress-bar"
                      f" {dvid_config['server']}"
                      f" {dvid_config['uuid']}"
