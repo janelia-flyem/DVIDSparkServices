@@ -233,7 +233,7 @@ def compute_split_merge_stats(component_table):
     
     split_body_stats = old_body_stats.query('num_components > 1')
     merge_body_stats = new_body_stats.query('num_components > 1')
-    affected_components  = component_table.query('(old_body in @split_body_stats.index) or (new_body in @merge_body_stats.index)')
+    affected_components = component_table.query('(old_body in @split_body_stats.index) or (new_body in @merge_body_stats.index)')
     
     return affected_components, split_body_stats, merge_body_stats
 
@@ -245,7 +245,8 @@ def frequencies_by_size_thresholds(col):
           '1 Mv - 10 Mv':     ((1e6 <= col) & (col <  10e6)).sum(),
           '100 kv - 1 Mv':  ((100e3 <= col) & (col <   1e6)).sum(),
           '10 kv - 100 kv':  ((10e3 <= col) & (col < 100e3)).sum(),
-          '< 10 kv':                          (col <= 10e3).sum() }
+          '< 10 kv':                           (col <= 10e3).sum(),
+          'TOTAL':                                        len(col) }
 
     return pd.DataFrame(list(zip(d.keys(), d.values())), columns=['size range', 'body count'])
 
