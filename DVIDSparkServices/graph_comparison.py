@@ -9,6 +9,16 @@ from DVIDSparkServices.io_util.labelmap_utils import mapping_from_edges
 
 logger = logging.getLogger(__name__)
 
+MERGE_TABLE_DTYPE = [('id_a', '<u8'),
+                     ('id_b', '<u8'),
+                     ('xa', '<u4'),
+                     ('ya', '<u4'),
+                     ('za', '<u4'),
+                     ('xb', '<u4'),
+                     ('yb', '<u4'),
+                     ('zb', '<u4'),
+                     ('score', '<f4')]
+
 
 def swap_cols(table, rows, name_a, name_b):
     """
@@ -30,16 +40,6 @@ def load_and_normalize_merge_table(path):
     and then 'normalize' it by ensuring that id_a <= id_b for all rows,
     swapping fields as needed.
     """
-    table_dtype = [('id_a', '<u8'),
-                   ('id_b', '<u8'),
-                   ('xa', '<u4'),
-                   ('ya', '<u4'),
-                   ('za', '<u4'),
-                   ('xb', '<u4'),
-                   ('yb', '<u4'),
-                   ('zb', '<u4'),
-                   ('score', '<f4')]
-
     # Group the A coords and the B coords so they can be swapped together
     grouped_dtype = [('id_a', '<u8'),
                      ('id_b', '<u8'),
@@ -48,7 +48,7 @@ def load_and_normalize_merge_table(path):
                      ('score', '<f4')]
     
     merge_table = np.load(path)
-    assert merge_table.dtype == table_dtype
+    assert merge_table.dtype == MERGE_TABLE_DTYPE
 
     swap_rows = merge_table['id_a'] > merge_table['id_b']
     merge_table_grouped = merge_table.view(grouped_dtype)
@@ -59,6 +59,17 @@ def load_and_normalize_merge_table(path):
     assert (merge_table['id_a'] <= merge_table['id_b']).all()
     return merge_table
 
+def extract_edges(merge_table, as_records=False):
+    """
+    Extract a copy of only the edge columns of the merge table.
+    Returns C-order.
+    """
+    assert merge_table.dtype == MERGE_TABLE_DTYPE
+    table_view = merge_table.view([('edges', MERGE_TABLE_DTYPE[:2]), ('other', MERGE_TABLE_DTYPE[2:])])
+    edges = table_view['edges'].copy('C')
+    if as_records:
+        return edges
+    return edges.view((np.uint64, 2))
 
 def load_supervoxel_sizes(h5_path):
     """
@@ -104,24 +115,26 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
         pd.DataFrame, indexed by sv with columns:
         "old_body", "new_body", "intersection_component", and "voxel_count" (if sv_sizes was provided)
     """
-    old_edges = old_edges.astype(np.uint64, copy=False)
-    new_edges = new_edges.astype(np.uint64, copy=False)
+    # We require C-order arrays, since we'll be fiddling with dtype views that change the shape of the arrays.
+    # https://mail.scipy.org/pipermail/numpy-svn/2015-December/007404.html
+    old_edges = old_edges.astype(np.uint64, order='C', copy=False)
+    new_edges = new_edges.astype(np.uint64, order='C', copy=False)
 
     # Edges must be pre-normalized
     assert (old_edges[:, 0] <= old_edges[:, 1]).all()
     assert (new_edges[:, 0] <= new_edges[:, 1]).all()
     
-    with Timer("Removing duplicate edges"):    
+    with Timer("Removing duplicate edges"):
         # Pre-sorting should speed up drop_duplicates()
-        old_edges.view([('u', np.uint64), ('v', np.uint64)]).reshape(-1).sort()
-        new_edges.view([('u', np.uint64), ('v', np.uint64)]).reshape(-1).sort()
+        old_edges.view([('u', np.uint64), ('v', np.uint64)]).sort()
+        new_edges.view([('u', np.uint64), ('v', np.uint64)]).sort()
     
         old_edges = pd.DataFrame(old_edges, copy=False).drop_duplicates().values
         new_edges = pd.DataFrame(new_edges, copy=False).drop_duplicates().values
     
     with Timer("Computing intersection"):
         all_edges = np.concatenate((old_edges, new_edges))
-        all_edges.view([('u', np.uint64), ('v', np.uint64)]).reshape(-1).sort()
+        all_edges.view([('u', np.uint64), ('v', np.uint64)]).sort()
         duplicate_markers = pd.DataFrame(all_edges, copy=False).duplicated().values
         common_edges = all_edges[duplicate_markers]
         del all_edges
