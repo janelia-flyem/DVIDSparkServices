@@ -7,6 +7,7 @@ operations used throughout reconutils.
 
 import numpy
 import numpy as np
+import pandas as pd
 import vigra
 import scipy.sparse
 from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple, reverse_dict
@@ -142,29 +143,32 @@ def _split_body_mappings( labels_orig, labels_split ):
                       with labels in the original.  For example, label 1 in 'labels_orig'
                       may correspond to label 5 in 'labels_split'.
     """
-    overlap_table_px = contingency_table(labels_orig, labels_split, sparse=True)
-    num_orig_segments = overlap_table_px.shape[0] - 1 # (No zero label)
-    num_split_segments = overlap_table_px.shape[1] - 1 # (No zero label)
+    overlap_table_px = contingency_table(labels_orig, labels_split)
+    overlap_table_px.sort_values(['left', 'right'], inplace=True)
+    
+    num_orig_segments = len(set(overlap_table_px['left']) - set([0]))
+    num_split_segments = len(set(overlap_table_px['right']) - set([0]))
     
     # For each 'orig' id, in which 'split' id did it mainly end up?
-    main_split_segments = matrix_argmax(overlap_table_px, axis=1)
+    overlap_table_px.index = overlap_table_px['right']
+    max_mapping = overlap_table_px.groupby('left').agg({'overlap_size': 'idxmax'})
+    max_mapping.columns = ['right']
+    main_split_segments = np.zeros((int(max_mapping.index.max())+1,), dtype=np.uint32)
+    main_split_segments[(max_mapping.index.values,)] = max_mapping['right'].values
+    del max_mapping
     
-    overlap_table_px = overlap_table_px.tocsr()
-    split_to_orig = dict( numpy.transpose( overlap_table_px.nonzero() )[:, ::-1] )
+    split_to_orig = dict( zip(overlap_table_px['right'], overlap_table_px['left']) )
     split_to_orig[0] = 0
-
-    # Convert to bool, remove the 'main' entries;
-    # remaining entries are the new segments
-    overlap_table_bool = overlap_table_px.astype(bool)
-    for i, s in enumerate(main_split_segments):
-        overlap_table_bool[i, s] = False
 
     # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
     main_split_ids_to_nonconflicting = _main_split_ids_to_orig = \
         { main_split_segments[orig] : orig for orig in range(0, 1+num_orig_segments) }
 
     # What are the 'non-main' IDs (i.e. new segments after the split)?
-    nonmain_split_ids = numpy.unique( overlap_table_bool.nonzero()[1] )
+    overlap_table_px = overlap_table_px.query('right not in @main_split_segments')
+    nonmain_split_ids = overlap_table_px['right'].values
+    nonmain_split_ids.sort()
+    del overlap_table_px
 
     # Map the new split segments to new high ids, so they don't conflict with the old ones
     nonmain_split_ids_to_nonconflicting = dict( zip( nonmain_split_ids,
@@ -184,34 +188,24 @@ def _split_body_mappings( labels_orig, labels_split ):
     return split_to_nonconflicting, nonconflicting_to_orig
 
 
-def contingency_table(vol1, vol2, sparse=True):
+def contingency_table(left_vol, right_vol):
     """
-    Return a 2D array 'table' such that ``table[i,j]`` represents
-    the count of overlapping pixels with value ``i`` in ``vol1``
-    and value ``j`` in ``vol2``. 
+    Return a pd.DataFrame with columns 'left', 'right' and 'overlap_size',
+    indicating the count of overlapping pixels for each segment in 'from' with segments in 'to'.
     
-    sparse:
-        If True, return a sparse matrix (scipy.sparse.coo_matrix)
-        to save RAM intead of a normal ndarray.
-        (Internally, the sparse matrix entries have been deduplicated
-        via sum_duplicates().)
+    Note: Internally, copies both volumes multiple times.
+          This function seems to require an extra ~5x RAM relative to the inputs.
     """
-    vol1 = vol1.reshape(-1).view(numpy.int32) # Convert to int32 as a hack for efficient handling in scipy.sparse
-    vol2 = vol2.reshape(-1).view(numpy.int32)
-    assert vol1.shape == vol2.shape
-    
-    if sparse:
-        ones = numpy.lib.stride_tricks.as_strided(numpy.uint32(1), vol1.shape, (0,))
-        table = scipy.sparse.coo_matrix((ones, (vol1, vol2)))
-        table.sum_duplicates()
-        return table
-    else:
-        maxlabels = (vol1.max(), vol2.max())
-        table = numpy.zeros( (maxlabels[0]+1, maxlabels[1]+1), dtype=numpy.uint32 )
-        
-        # numpy.add.at() will accumulate counts at the given array coordinates
-        numpy.add.at(table, [vol1, vol2], 1 )
-        return table
+    assert left_vol.dtype == right_vol.dtype
+    dtype = left_vol.dtype
+    vols_combined = np.empty((left_vol.size,2), dtype)
+    vols_combined[:,0]= left_vol.flat
+    vols_combined[:,1]= right_vol.flat
+    vols_combined = vols_combined.reshape(-1).view([('left', dtype), ('right', dtype)])
+    pairs, counts = np.unique(vols_combined, return_counts=True)
+    table = pd.DataFrame({'left': pairs['left'], 'right': pairs['right'], 'overlap_size': counts})
+    return table
+
 
 def matrix_argmax(m, axis=0):
     """
