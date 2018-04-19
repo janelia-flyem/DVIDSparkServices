@@ -291,7 +291,9 @@ def _mapping_from_edges_gt(edges):
 
     mapped_cc_df = df.merge( cc_body_ids, how='inner', left_on='cc_index', right_index=True, copy=False )
     mapping = pd.Series(index=mapped_cc_df['sv'].values, data=mapped_cc_df['body'].values)
-    
+    mapping.name = 'body'
+    mapping.index.name = 'sv'
+
     return mapping
 
 def _mapping_from_edges_nx(edges):
@@ -305,6 +307,8 @@ def _mapping_from_edges_nx(edges):
     """
     segments = pd.unique(edges.reshape(-1))
     mapping = pd.Series(index=segments, data=edges.dtype.type(0))
+    mapping.name = 'body'
+    mapping.index.name = 'sv'
 
     import networkx as nx
     g = nx.Graph()
