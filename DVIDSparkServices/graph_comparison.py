@@ -202,6 +202,8 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
                                "new_body": new_mapping,
                                "intersection_component": intersection_mapping },
                                copy=False )
+
+    sv_table.index.old_mapping.index.astype(np.uint64, copy=False),
     sv_table.index.name = "sv"
 
     if sv_sizes is not None:
@@ -211,6 +213,11 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
             # Fix 'phantom' supervoxels (mentioned in the merge graph(s), but not present in the volume)
             sv_table['voxel_count'].fillna(0, inplace=True)
             sv_table['voxel_count'] = sv_table['voxel_count'].astype(np.uint64)
+
+    # Force correct dtypes
+    sv_table['old_body'] = sv_table['old_body'].astype(np.uint64)
+    sv_table['new_body'] = sv_table['new_body'].astype(np.uint64)
+    sv_table['intersection_component'] = sv_table['intersection_component'].astype(np.uint64)
     return sv_table
 
 
