@@ -150,7 +150,7 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
     assert (old_edges[:, 0] <= old_edges[:, 1]).all()
     assert (new_edges[:, 0] <= new_edges[:, 1]).all()
     
-    with Timer("Removing duplicate edges"):
+    with Timer("Removing duplicate edges", logger):
         # Pre-sorting should speed up drop_duplicates()
         old_edges.view([('u', np.uint64), ('v', np.uint64)]).sort()
         new_edges.view([('u', np.uint64), ('v', np.uint64)]).sort()
@@ -158,14 +158,14 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
         old_edges = pd.DataFrame(old_edges, copy=False).drop_duplicates().values
         new_edges = pd.DataFrame(new_edges, copy=False).drop_duplicates().values
     
-    with Timer("Computing intersection"):
+    with Timer("Computing intersection", logger):
         all_edges = np.concatenate((old_edges, new_edges))
         all_edges.view([('u', np.uint64), ('v', np.uint64)]).sort()
         duplicate_markers = pd.DataFrame(all_edges, copy=False).duplicated().values
         common_edges = all_edges[duplicate_markers]
         del all_edges
     
-    with Timer("Ensuring identical SV sets"):
+    with Timer("Ensuring identical SV sets", logger):
         old_svs = set(pd.unique(old_edges.flat))
         new_svs = set(pd.unique(new_edges.flat))
         common_svs = set(pd.unique(common_edges.flat))
@@ -187,13 +187,13 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
             common_missing_edges = np.concatenate((missing_from_common[:, None], missing_from_common[:, None]), axis=1)
             common_edges = np.concatenate((common_edges, common_missing_edges))
     
-    with Timer("Computing old mapping"):
+    with Timer("Computing old mapping", logger):
         old_mapping = mapping_from_edges(old_edges, sort_by='segment', as_series=True)
     
-    with Timer("Computing new mapping"):
+    with Timer("Computing new mapping", logger):
         new_mapping = mapping_from_edges(new_edges, sort_by='segment', as_series=True)
     
-    with Timer("Computing intersection mapping"):
+    with Timer("Computing intersection mapping", logger):
         intersection_mapping = mapping_from_edges(common_edges, sort_by='segment', as_series=True)
     
     assert len(old_mapping.index) == len(new_mapping.index) == len(intersection_mapping.index)
@@ -205,11 +205,12 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
     sv_table.index.name = "sv"
 
     if sv_sizes is not None:
-        sv_table = sv_table.merge(pd.DataFrame(sv_sizes), 'left', left_index=True, right_index=True, copy=False)
-        
-        # Fix 'phantom' supervoxels (mentioned in the merge graph(s), but not present in the volume)
-        sv_table['voxel_count'].fillna(0, inplace=True)
-        sv_table['voxel_count'] = sv_table['voxel_count'].astype(np.uint64)
+        with Timer("Appending supervoxel sizes", logger):
+            sv_table = sv_table.merge(pd.DataFrame(sv_sizes), 'left', left_index=True, right_index=True, copy=False)
+            
+            # Fix 'phantom' supervoxels (mentioned in the merge graph(s), but not present in the volume)
+            sv_table['voxel_count'].fillna(0, inplace=True)
+            sv_table['voxel_count'] = sv_table['voxel_count'].astype(np.uint64)
     return sv_table
 
 
