@@ -290,7 +290,9 @@ def _mapping_from_edges_gt(edges):
     cc_body_ids.columns = ['body']
 
     mapped_cc_df = df.merge( cc_body_ids, how='inner', left_on='cc_index', right_index=True, copy=False )
-    mapping = pd.Series(index=mapped_cc_df['sv'].values, data=mapped_cc_df['body'].values)
+
+    mapping = pd.Series(index=mapped_cc_df['sv'].values.astype(edges.dtype),
+                        data=mapped_cc_df['body'].values.astype(edges.dtype))
     mapping.name = 'body'
     mapping.index.name = 'sv'
 
