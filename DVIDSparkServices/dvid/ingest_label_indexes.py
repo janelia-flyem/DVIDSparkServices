@@ -663,6 +663,49 @@ def groupby_presorted(a, sorted_cols):
     # Last group
     yield a[start:len(sorted_cols)]
 
+def group_sums_presorted(a, sorted_cols):
+    """
+    Args:
+        a: Columns to aggregate
+
+        sorted_cols: Columns to group by
+
+        agg_func: Aggregation function.
+                  Must accept array as the first arg, and 'axis' as a keyword arg. 
+    """
+    assert a.ndim >= 2
+    assert sorted_cols.ndim >= 2
+    assert a.shape[0] == sorted_cols.shape[0]
+
+    # Two passes: first to get len
+    @jit(nopython=True)
+    def count_groups():
+        num_groups = 0
+        for _ in groupby_presorted(a, sorted_cols):
+            num_groups += 1
+        return num_groups
+
+    num_groups = count_groups()
+    print(f"Aggregating {num_groups} groups")
+    
+    groups_shape = (num_groups,) + sorted_cols.shape[1:]
+    groups = np.zeros(groups_shape, dtype=sorted_cols.dtype)
+
+    results_shape = (num_groups,) + a.shape[1:]
+    agg_results = np.zeros(results_shape, dtype=a.dtype)
+    
+    @jit(nopython=True)
+    def _agg(a, sorted_cols, groups, agg_results):
+        pos = 0
+        for i, group_rows in enumerate(groupby_presorted(a, sorted_cols)):
+            groups[i] = sorted_cols[pos]
+            pos += len(group_rows)
+            agg_results[i] = group_rows.sum(0) # axis 0
+        return (groups, agg_results)
+
+    return _agg(a, sorted_cols, groups, agg_results)
+
+
 @jit(nopython=True)
 def groupby_spans_presorted(sorted_cols):
     """
@@ -711,7 +754,7 @@ class LoggedProgressIndicator:
 
 
 if __name__ == "__main__":
-    DEBUG = False
+    DEBUG = True
     if DEBUG:
         import yaml
         test_dir = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/test_copyseg/temp_data'
@@ -728,8 +771,8 @@ if __name__ == "__main__":
         #mapping_file = f'{test_dir}/../LABEL-TO-BODY-mod-100-labelmap.csv'
         #block_stats_file = f'/tmp/block-statistics-testvol.h5'
         
-        sys.argv += (#f"--operation=indexes"
-                     f"--operation=sort-only"
+        sys.argv += (f"--operation=indexes"
+                     #f"--operation=sort-only"
                      #f"--operation=both"
                      #f" --agglomeration-mapping={mapping_file}"
                      f" --num-threads=8"

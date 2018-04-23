@@ -203,7 +203,7 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
                                "intersection_component": intersection_mapping },
                                copy=False )
 
-    sv_table.index.old_mapping.index.astype(np.uint64, copy=False),
+    sv_table.index = sv_table.index.astype(np.uint64, copy=False)
     sv_table.index.name = "sv"
 
     if sv_sizes is not None:
