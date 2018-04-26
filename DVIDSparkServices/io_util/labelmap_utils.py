@@ -229,7 +229,7 @@ def segment_to_body_mapping_from_edge_csv(csv_path, output_csv_path=None):
         
     return mapping
 
-def mapping_from_edges(edges, sort_by='body', as_series=False):
+def mapping_from_edges(edges, sort_by='body', as_series=False, remove_identities=False):
     """
     Compute the connected components of the graph defined by 'edges'
     (a 2-column ndarray representing edges between segments),
@@ -245,6 +245,8 @@ def mapping_from_edges(edges, sort_by='body', as_series=False):
             If True, return a pandas.Series (where segment is the index, body is the data).
             If False, return a 2-column np.ndarray, with segment in the first column and body in the second column.
 
+        remove_identities:
+            If True, remove rows with identity mappings (leave them implicit)
     Returns:
         The computed mapping, as either an ndarray or Series, as requested via as_series.
     """
@@ -259,6 +261,9 @@ def mapping_from_edges(edges, sort_by='body', as_series=False):
         mapping.sort_values(inplace=True)
     else:
         mapping.sort_index(inplace=True)
+
+    if remove_identities:
+        mapping = pd.DataFrame(mapping).query('sv != body')['body']
 
     if as_series:
         return mapping
