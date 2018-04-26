@@ -112,7 +112,10 @@ def main_impl(args):
             logger.info("Stats are pre-sorted")
         else:
             output_dir, basename = os.path.split(args.supervoxel_block_stats_h5)
-            output_path = output_dir + '/sorted-' + basename
+            if segment_to_body_df is None:
+                output_path = output_dir + '/sorted-by-segment-' + basename
+            else:
+                output_path = output_dir + '/sorted-by-body-' +  basename
             sort_block_stats(block_sv_stats, segment_to_body_df, output_path, args.agglomeration_mapping)
     
         if args.operation == 'sort-only':
