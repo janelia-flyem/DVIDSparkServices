@@ -113,10 +113,7 @@ def load_labelmap(labelmap_config, working_dir):
     if labelmap_config["file-type"] == "label-to-body":
         logger.info(f"Loading label-to-body mapping from {path}")
         with Timer("Loading mapping", logger):
-            with open(path, 'r') as csv_file:
-                rows = csv.reader(csv_file)
-                all_items = chain.from_iterable(rows)
-                mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
+            mapping_pairs = load_edge_csv(path)
 
     elif labelmap_config["file-type"] in ("equivalence-edges", "body-rag"):
         logger.info(f"Loading equivalence mapping from {path}")
