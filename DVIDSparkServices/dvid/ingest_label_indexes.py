@@ -179,7 +179,7 @@ def sort_block_stats(block_sv_stats, segment_to_body_df=None, output_path=None, 
         with Timer(f"Saving sorted stats to {output_path}"), h5py.File(output_path, 'w') as f:
             f.create_dataset('stats', data=block_sv_stats, chunks=True)
             if segment_to_body_df is None:
-                f['stats'].attrs['presorted-by'] = 'segment-id'
+                f['stats'].attrs['presorted-by'] = 'segment_id'
             else:
                 assert agglo_mapping_path
                 f['stats'].attrs['presorted-by'] = 'body_id'
