@@ -95,6 +95,13 @@ class SubvolumeStats(object):
             debuginfo.extend(stat.write_bodydebug())
         return debuginfo
 
+
+    def remap_stats(self):
+        for iter1 in range(0, len(self.gt_overlaps)):
+            self.gt_overlaps[iter1]._partial_remap()           
+        for iter1 in range(0, len(self.seg_overlaps)):
+            self.seg_overlaps[iter1]._partial_remap()           
+
     # drops subvolume stats and subvolume
     def merge_stats(self, subvolume, enablemetrics=True):
         assert(len(self.seg_overlaps) == len(subvolume.seg_overlaps))

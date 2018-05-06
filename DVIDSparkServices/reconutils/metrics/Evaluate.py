@@ -477,12 +477,24 @@ class Evaluate(object):
                 else:
                     allsubvolume_metrics[sid] = subvolstat
 
-        # combine all the stats (max/min/average substack stacks maintained as well)
-        def combinestats(stat1, stat2):
-            stat1.merge_stats(stat2)
-            return stat1
-        whole_volume_stats = subvolstats_computed.treeReduce(combinestats, int(math.log(subvolstats_computed.getNumPartitions(),2)))
-        
+        num_svs = subvolstats_computed.getNumPartitions()
+        if num_svs == 1:
+            def remapstats(stat1):
+                stat1.remap_stats()
+                return stat1
+            whole_volume_stats = subvolstats_computed.map(remapstats)
+            whole_volume_stats = whole_volume_stats.collect()[0]
+        else:
+            # combine all the stats (max/min/average substack stacks maintained as well)
+            def combinestats(stat1, stat2):
+                stat1.merge_stats(stat2)
+                return stat1
+
+            depth = int(math.log(num_svs,2))
+            if depth < 1:
+                depth = 1
+            whole_volume_stats = subvolstats_computed.treeReduce(combinestats, depth)
+            
         # compute summary, body stats, and debug information
         # iterate stats and collect summary and body stats
         metric_results["summarystats"].extend(whole_volume_stats.write_summary_stats())

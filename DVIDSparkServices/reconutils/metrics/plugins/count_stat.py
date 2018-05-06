@@ -450,7 +450,7 @@ class count_stat(StatType):
                 thresholds = thresholds[1:]
                 curramt = 0
                 for index, val in enumerate(gtdist):
-                    curramt += val[1]/float(gtcount)*100.0
+                    curramt += val[0]/float(gtcount)*100.0
                     if curramt >= curr_thres:
                         numgtbodies.append(index+1)         
                         if len(thresholds) > 0:
@@ -461,7 +461,7 @@ class count_stat(StatType):
                 # if threshold is unreachable just put all bodies
                 while len(numgtbodies) < len(self.thresholds):
                     numgtbodies.append(len(gtdist))
-            
+
                 if not self.segstats.selfcompare:
                     # grab number of seg bodies at each threshold 
                     thresholds = self.thresholds.copy()
@@ -470,7 +470,7 @@ class count_stat(StatType):
                     thresholds = thresholds[1:]
                     curramt = 0
                     for index, val in enumerate(segdist):
-                        curramt += val[1]/float(gtcount)*100.0
+                        curramt += val[0]/float(gtcount)*100.0
                         if curramt >= curr_thres:
                             numsegbodies.append(index+1)         
                             if len(thresholds) > 0:

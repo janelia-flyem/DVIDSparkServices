@@ -374,6 +374,12 @@ class EvaluateSeg(DVIDWorkflow):
                 allseg = allseg.difference(segmapbodies)
                 if 0 in allseg:
                     allseg.remove(0)
+                """
+                if 0 in allseg:
+                    allseg.remove(0)
+                if 0 in allgt:
+                    allgt.remove(0)
+                """
 
                 zmax,ymax,xmax = gtvol.shape
                 start = (subvolume.box.z1, subvolume.box.y1, subvolume.box.x1)
@@ -616,13 +622,10 @@ class EvaluateSeg(DVIDWorkflow):
                             labelgt_map[subval] = bodyid
                         else:
                             label2_map[subval] = bodyid
+
                 return (subvolume, labelgt_map, label2_map, labelgt_split, label2_split)
             lpairs_split = lpairs_split_j.mapValues(_insertccmappings)
             
-
-
-
-
         # evaluation tool (support RAND, VI, per body, graph, and
         # histogram stats over different sets of points)
         evaluator = Evaluate.Evaluate(self.config_data)
