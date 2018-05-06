@@ -7,10 +7,33 @@ import vigra
 
 from numpy_allocation_tracking.decorators import assert_mem_usage_factor
 
-from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax, object_masks_for_labels, assemble_masks
+from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax, object_masks_for_labels, assemble_masks,\
+    contingency_table
 from DVIDSparkServices.util import bb_to_slicing
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.reconutils.downsample import downsample_box
+from itertools import product
+
+class TestContingencyTable(unittest.TestCase):
+    def test_basic(self):
+        a = np.random.randint(5,10, size=(20,20), dtype=np.uint32)
+        b = np.random.randint(10,15, size=(20,20), dtype=np.uint32)
+        table = contingency_table(a,b)
+
+        for (val_a, val_b) in product(range(5,10), range(10,15)):
+            expected_overlap = ((a == val_a) & (b == val_b)).sum()
+            rows = table.query('left == @val_a and right == @val_b')
+            if expected_overlap == 0:
+                assert len(rows) == 0
+            else:
+                assert len(rows) == 1
+                assert rows['overlap_size'].iloc[0] == expected_overlap
+
+    def test_mem_usage(self):
+        a = np.random.randint(100,200, size=(100,100), dtype=np.uint32)
+        b = np.random.randint(200,300, size=(100,100), dtype=np.uint32)
+        _table = assert_mem_usage_factor(10)(contingency_table)(a,b)
+
 
 class TestSplitDisconnectedBodies(unittest.TestCase):
     
@@ -68,7 +91,7 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
             "Applying mapping to the relabeled image did not recreate the original image."
 
     def test_mem_usage(self):
-        a = 1 + np.arange(100**2, dtype=np.uint32).reshape((100,100)) // 10
+        a = 1 + np.arange(1000**2, dtype=np.uint32).reshape((1000,1000)) // 10
         split, mapping = assert_mem_usage_factor(10)(split_disconnected_bodies)(a)
         assert (a == split).all()
         assert mapping == {}

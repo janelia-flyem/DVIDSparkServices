@@ -4,6 +4,7 @@ Parse a neuroglancer link (from stdin) into JSON text and print it to the consol
 """
 import sys
 import json
+import urllib.parse
 
 assert sys.version_info.major == 3, "Requires Python 3"
 
@@ -24,11 +25,8 @@ def replace_commas(d):
     return result
 
 def pseudo_json_to_data(pseudo_json):
-    pseudo_json = pseudo_json.replace('%22', "'")
-    pseudo_json = pseudo_json.replace('%7B', '{')
-    pseudo_json = pseudo_json.replace('%7D', '}')
-    pseudo_json = pseudo_json.replace('%5B', '[')
-    pseudo_json = pseudo_json.replace('%5D', ']')
+    # Replace URL-encoding characters, e.g. '%7B' -> '{'
+    pseudo_json = urllib.parse.unquote(pseudo_json)
 
     # Make the text valid json by replacing single-quotes
     # with double-quotes and underscores with commas.    

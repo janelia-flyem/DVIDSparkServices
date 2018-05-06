@@ -1,5 +1,6 @@
 import os
 import csv
+import warnings
 import subprocess
 from itertools import chain
 
@@ -10,7 +11,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 try:
-    import graph_tool as gt
+    with warnings.catch_warnings():
+        # Importing graph_tool results in warnings about duplicate C++/Python conversion functions.
+        # Ignore those warnings
+        warnings.filterwarnings("ignore", "to-Python converter")
+        import graph_tool as gt
+
     _graph_tool_available = True
 except ImportError:
     _graph_tool_available = False
@@ -107,10 +113,7 @@ def load_labelmap(labelmap_config, working_dir):
     if labelmap_config["file-type"] == "label-to-body":
         logger.info(f"Loading label-to-body mapping from {path}")
         with Timer("Loading mapping", logger):
-            with open(path, 'r') as csv_file:
-                rows = csv.reader(csv_file)
-                all_items = chain.from_iterable(rows)
-                mapping_pairs = np.fromiter(all_items, np.uint64).reshape(-1,2)
+            mapping_pairs = load_edge_csv(path)
 
     elif labelmap_config["file-type"] in ("equivalence-edges", "body-rag"):
         logger.info(f"Loading equivalence mapping from {path}")
@@ -223,7 +226,7 @@ def segment_to_body_mapping_from_edge_csv(csv_path, output_csv_path=None):
         
     return mapping
 
-def mapping_from_edges(edges, sort_by='body', as_series=False):
+def mapping_from_edges(edges, sort_by='body', as_series=False, remove_identities=False):
     """
     Compute the connected components of the graph defined by 'edges'
     (a 2-column ndarray representing edges between segments),
@@ -239,6 +242,8 @@ def mapping_from_edges(edges, sort_by='body', as_series=False):
             If True, return a pandas.Series (where segment is the index, body is the data).
             If False, return a 2-column np.ndarray, with segment in the first column and body in the second column.
 
+        remove_identities:
+            If True, remove rows with identity mappings (leave them implicit)
     Returns:
         The computed mapping, as either an ndarray or Series, as requested via as_series.
     """
@@ -253,6 +258,9 @@ def mapping_from_edges(edges, sort_by='body', as_series=False):
         mapping.sort_values(inplace=True)
     else:
         mapping.sort_index(inplace=True)
+
+    if remove_identities:
+        mapping = pd.DataFrame(mapping).query('sv != body')['body']
 
     if as_series:
         return mapping
@@ -284,8 +292,12 @@ def _mapping_from_edges_gt(edges):
     cc_body_ids.columns = ['body']
 
     mapped_cc_df = df.merge( cc_body_ids, how='inner', left_on='cc_index', right_index=True, copy=False )
-    mapping = pd.Series(index=mapped_cc_df['sv'].values, data=mapped_cc_df['body'].values)
-    
+
+    mapping = pd.Series(index=mapped_cc_df['sv'].values.astype(edges.dtype),
+                        data=mapped_cc_df['body'].values.astype(edges.dtype))
+    mapping.name = 'body'
+    mapping.index.name = 'sv'
+
     return mapping
 
 def _mapping_from_edges_nx(edges):
@@ -299,6 +311,8 @@ def _mapping_from_edges_nx(edges):
     """
     segments = pd.unique(edges.reshape(-1))
     mapping = pd.Series(index=segments, data=edges.dtype.type(0))
+    mapping.name = 'body'
+    mapping.index.name = 'sv'
 
     import networkx as nx
     g = nx.Graph()
