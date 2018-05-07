@@ -235,7 +235,7 @@ class EvaluateSeg(DVIDWorkflow):
 
         #  grab ROI (no overlap and no neighbor checking)
         distrois = self.sparkdvid_context.parallelize_roi(self.config_data["dvid-info"]["roi"],
-                self.chunksize, border=1)
+                self.chunksize, border=1, partition_method="grid-aligned-" + str(self.config_data["options"]["chunk-size"]))
         def setBorderHack(subvolume):
             subvolume.border = 0
             return subvolume
