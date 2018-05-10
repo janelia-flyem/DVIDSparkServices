@@ -2,6 +2,16 @@
 """
 Script to copy a list of mesh tarballs from one DVID node to another.
 See --help for details.
+
+Pre-requisites:
+
+    conda install requests tqdm
+
+Example usage:
+    
+    python copy-meshes.py --help
+    python copy-meshes.py --parallelism=4 body-ids.csv emdata2:8700 0667 segmentation emdata2:8700 abc123 segmentation
+
 """
 import sys
 import csv
