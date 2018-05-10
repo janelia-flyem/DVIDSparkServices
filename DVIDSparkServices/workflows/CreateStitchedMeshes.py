@@ -259,12 +259,12 @@ class CreateStitchedMeshes(Workflow):
         "minimum-agglomerated-size": {
             "description": "Agglomerated groups smaller than this voxel count will not be processed.",
             "type": "number",
-            "default": 1e6 # 1 Megavoxel
+            "default": 1
         },
         "maximum-agglomerated-size": {
             "description": "Agglomerated groups larger than this voxel count will not be processed.",
             "type": "number",
-            "default": 10e9 # 10 Gigavoxels
+            "default": 100e9 # 100 Gigavoxels (HUGE)
         },
         "minimum-agglomerated-segment-count": {
             "description": "Don't bother with any meshes that are part of a body with fewer segments than this setting.",
