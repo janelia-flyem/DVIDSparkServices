@@ -2,10 +2,11 @@ import os
 import csv
 import warnings
 import subprocess
-from itertools import chain
 
 import numpy as np
 import pandas as pd
+
+from neuclease.merge_table import load_edge_csv
 
 import logging
 logger = logging.getLogger(__name__)
@@ -130,40 +131,6 @@ def load_labelmap(labelmap_config, working_dir):
         raise RuntimeError(f"Unknown labelmap file-type: {labelmap_config['file-type']}")
 
     return mapping_pairs
-
-
-def load_edge_csv(csv_path):
-    """
-    Load and return the given edge list CSV file as a numpy array.
-    
-    Each row represents an edge. For example:
-    
-        123,456
-        123,789
-        789,234
-    
-    The CSV file may optionally contain a header row.
-    Also, it may contain more than two columns, but only the first two columns are used.
-    
-    Returns:
-        ndarray with shape (N,2)
-    """
-    with open(csv_path, 'r') as csv_file:
-        # Is there a header?
-        has_header = csv.Sniffer().has_header(csv_file.read(1024))
-        csv_file.seek(0)
-        rows = iter(csv.reader(csv_file))
-        if has_header:
-            # Skip header
-            _header = next(rows)
-        
-        # We only care about the first two columns
-        df = pd.read_csv(csv_file, usecols=[0,1], header=None, names=['u', 'v'], dtype=np.uint64, engine='c')
-        edges = df.values
-        assert edges.dtype == np.uint64
-        assert edges.shape[1] == 2
-
-    return edges
 
 
 def groups_from_edges(edges):
