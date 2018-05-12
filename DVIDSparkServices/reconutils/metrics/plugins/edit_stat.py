@@ -14,7 +14,7 @@ Summary stats:
     * Number of mergers required to get to threshold
 """
 class edit_stat(StatType):
-    def __init__(self, volthres = 90, splitfactor=5):
+    def __init__(self, volthres = [50, 75, 90], splitfactor=5):
         """Init.
 
         Args:
@@ -78,8 +78,6 @@ class edit_stat(StatType):
                         max_val = overlap
                         max_id = body2
                 seg2bestgt[body] = max_id
-        
-            target *= (self.volthres / 100.0)
 
             # 2, 3
             sorted_splits = []
@@ -120,33 +118,35 @@ class edit_stat(StatType):
             sidx = 0
             current_accum_rat = current_accum
 
-            while current_accum_rat < target:
-                take_split = False
-                if midx == len(sorted_mergers) and sidx == len(sorted_splits):
-                    break
+            for thres in self.volthres:
+                target *= (thres / 100.0)
+                while current_accum_rat < target:
+                    take_split = False
+                    if midx == len(sorted_mergers) and sidx == len(sorted_splits):
+                        break
 
-                if midx == len(sorted_mergers):
-                    take_split = True
-                elif sidx == len(sorted_splits):
-                    pass
-                elif (sorted_splits[sidx] / float(self.splitfactor)) > sorted_mergers[midx]:
-                    take_split = True
+                    if midx == len(sorted_mergers):
+                        take_split = True
+                    elif sidx == len(sorted_splits):
+                        pass
+                    elif (sorted_splits[sidx] / float(self.splitfactor)) > sorted_mergers[midx]:
+                        take_split = True
 
-                if take_split:
-                    current_accum_rat += sorted_splits[sidx]
-                    sidx += 1
-                else:
-                    current_accum_rat += sorted_mergers[midx]
-                    midx += 1
+                    if take_split:
+                        current_accum_rat += sorted_splits[sidx]
+                        sidx += 1
+                    else:
+                        current_accum_rat += sorted_mergers[midx]
+                        midx += 1
 
-            # a larger/smaller value is not obviously better or worse
-            sumstat = {"name": "edit.splits", "typename": gotable.get_name(), "val": sidx, "higher-better": False}
-            sumstat["description"] = "Number of split operations (split:merge cost = %0.2f and correct threshold = %d)" % (self.splitfactor, self.volthres)
-            summarystats.append(sumstat)
+                # a larger/smaller value is not obviously better or worse
+                sumstat = {"name": "edit.splits-%d" % thres, "typename": gotable.get_name(), "val": sidx, "higher-better": False}
+                sumstat["description"] = "Number of split operations (split:merge cost = %0.2f and correct threshold = %d)" % (self.splitfactor, thres)
+                summarystats.append(sumstat)
 
-            sumstat = {"name": "edit.merges", "typename": gotable.get_name(), "val": midx, "higher-better": False}
-            sumstat["description"] = "Number of merge operations (split:merge cost = %0.2f and correct threshold = %d)" % (self.splitfactor, self.volthres)
-            summarystats.append(sumstat)
+                sumstat = {"name": "edit.merges-%d" % thres, "typename": gotable.get_name(), "val": midx, "higher-better": False}
+                sumstat["description"] = "Number of merge operations (split:merge cost = %0.2f and correct threshold = %d)" % (self.splitfactor, thres)
+                summarystats.append(sumstat)
 
         return summarystats
 

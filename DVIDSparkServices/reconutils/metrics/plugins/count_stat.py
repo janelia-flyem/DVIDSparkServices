@@ -25,7 +25,7 @@ TODO: better formalize histogram and best test stats
 
 """
 class count_stat(StatType):
-    def __init__(self, thresholds = [50, 75], debugthreshold=90):
+    def __init__(self, thresholds = [50, 75, 90], debugthreshold=90):
         super(count_stat, self).__init__()
 
         self.thresholds = thresholds
