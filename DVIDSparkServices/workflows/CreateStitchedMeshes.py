@@ -259,12 +259,12 @@ class CreateStitchedMeshes(Workflow):
         "minimum-agglomerated-size": {
             "description": "Agglomerated groups smaller than this voxel count will not be processed.",
             "type": "number",
-            "default": 1e6 # 1 Megavoxel
+            "default": 1
         },
         "maximum-agglomerated-size": {
             "description": "Agglomerated groups larger than this voxel count will not be processed.",
             "type": "number",
-            "default": 10e9 # 10 Gigavoxels
+            "default": 100e9 # 100 Gigavoxels (HUGE)
         },
         "minimum-agglomerated-segment-count": {
             "description": "Don't bother with any meshes that are part of a body with fewer segments than this setting.",
@@ -473,11 +473,11 @@ class CreateStitchedMeshes(Workflow):
             segment_ids_and_mesh_blocks = segment_id_and_smoothed_mesh
             del segment_id_and_smoothed_mesh
 
-        # per-body vertex counts -- segment is the INDEX
+        # per-body vertex counts
         body_initial_vertex_counts_df = full_stats_df.query('keep_segment and keep_body')[['segment', 'body_initial_vertex_count']]
         
         # Join mesh blocks with corresponding body vertex counts
-        body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.values)
+        body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.itertuples(index=False))
         segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
         rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining mesh blocks with body vertex counts", logger)
         rt.unpersist(segment_ids_and_mesh_blocks)
@@ -852,10 +852,13 @@ class CreateStitchedMeshes(Workflow):
         if sparse_body_ids:
             sparse_body_ids = set(sparse_body_ids)
             sparse_body_stats_df = body_stats_df.query('body in @sparse_body_ids')
-            for row in sparse_body_stats_df.itertuples(index=False):
-                if not row.keep_body:
-                    logger.error(f"You explicitly listed body {row.body} in subset-bodies, "
-                                 "but it will be excluded due to your other config settings.")
+            excluded_bodies_df = sparse_body_stats_df[~sparse_body_stats_df['keep_body']]
+            if len(excluded_bodies_df) > 0:
+                logger.error("You explicitly listed the following bodies in subset-bodies, "
+                             "but they will be excluded due to your other config settings (See excluded-body-stats.csv): "
+                             f"{excluded_bodies_df['body'].values.tolist()}")
+                output_path = self.config_dir + '/excluded-body-stats.csv'
+                excluded_bodies_df.to_csv(output_path, header=True, index=False)
             body_stats_df['keep_body'] &= body_stats_df.eval('body in @sparse_body_ids')
 
         full_stats_df = full_stats_df.merge(body_stats_df, 'left', on='body', copy=False)
