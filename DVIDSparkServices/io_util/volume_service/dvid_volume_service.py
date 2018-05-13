@@ -76,6 +76,12 @@ DvidSegmentationServiceSchema = \
             "type": "string",
             "minLength": 1
         },
+        "supervoxels": {
+            "description": "Whether or not to read/write supervoxels from the labelmap instance, not agglomerated labels.\n"
+                           "Applies to labelmap instances only.",
+            "type": "boolean",
+            "default": False
+        },
         "disable-indexing": {
             "description": "Tell the server not to update the label index after POST blocks.\n"
                            "Useful during initial volume ingestion, in which label\n"
@@ -164,6 +170,8 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             self.disable_indexing = volume_config["dvid"]["disable-indexing"]
         else:
             self.disable_indexing = False
+
+        self._supervoxels = ("supervoxels" in volume_config["dvid"]) and (volume_config["dvid"]["supervoxels"])
 
         ##
         ## Block width
@@ -295,6 +303,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
                                              scale, self._instance_type, self._is_labels,
                                              shape, box_zyx[0],
                                              throttle=throttle,
+                                             supervoxels=self._supervoxels,
                                              node_service=self.node_service )
         except Exception as ex:
             raise RuntimeError(f"Failed to fetch subvolume: box_zyx = {box_zyx.tolist()}") from ex
@@ -314,6 +323,8 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             # Grayscale multi-scale is achieved via multiple instances
             instance_name = f"{instance_name}_{scale}"
             scale = 0
+
+        assert not self._supervoxels, "Write with supervoxels=True is not supported by libdvid yet."
 
         try:
             with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
