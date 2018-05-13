@@ -293,6 +293,7 @@ class connectivity_stat(StatType):
             seg1stats[b1] = (b2, overlap, b1size, b2size)
 
         # grab subset of tableseg1seg2 that has large bodies
+        thresholded_falsepositives = [0]*len(thresholds)
         for pre, overlapset in tableseg1seg2.items():
             # ignore small bodies from segmentation 1
             
@@ -323,6 +324,12 @@ class connectivity_stat(StatType):
                     # probably should only be called once by construction
                     assert (pre1, post1) not in seg2conns_mapped
                     seg2conns_mapped[(pre1,post1)] = overlap
+                else: 
+                    for count, threshold in enumerate(thresholds):
+                        if overlap >= threshold:
+                            thresholded_falsepositives[count] += 1
+
+
                    
         # generate stats
         conntable_stats = []
@@ -368,6 +375,9 @@ class connectivity_stat(StatType):
                         thresholded_match[count] += 1
                     if overlap2 >= threshold:
                         thresholded_match2[count] += 1
+                        # check for false positives
+                        if overlap < threshold:
+                            thresholded_falsepositives[count] += 1
 
             # accumulate global stats
             overall_tot += totconn
@@ -382,7 +392,7 @@ class connectivity_stat(StatType):
 
         for pos, threshold in enumerate(thresholds):
             thresstat = {}
-            thresstat["name"] = "connpairs.matched-%d" % threshold
+            thresstat["name"] = "connpairs.recall-%d" % threshold
             thresstat["higher-better"] = True
             thresstat["typename"] = typename
             if thresholded_match[pos] == 0:
@@ -392,7 +402,21 @@ class connectivity_stat(StatType):
             thresstat["description"] = "%d body pairs matched out of %d with >=%d connections" % (thresholded_match2[pos], thresholded_match[pos], threshold)
 
             sum_stats.append(thresstat)
-       
+
+            thresstat = {}
+            thresstat["name"] = "connpairs.precision-%d" % threshold
+            thresstat["higher-better"] = True
+            thresstat["typename"] = typename
+            if thresholded_match[pos] == 0:
+                thresstat["val"] = 0 
+            else:
+                thresstat["val"] = round(thresholded_match2[pos] / float(thresholded_match[pos]+thresholded_falsepositives[pos]), 4)
+            thresstat["description"] = "precision: true positives %d and false positives %d with >=%d connections" % (thresholded_match2[pos], thresholded_falsepositives[pos], threshold)
+
+            sum_stats.append(thresstat)
+ 
+
+
         # configure body stats
         bodytype = {"typename": typename, "name": "GTConn", "largest2smallest": True, "isgt": True}
         
