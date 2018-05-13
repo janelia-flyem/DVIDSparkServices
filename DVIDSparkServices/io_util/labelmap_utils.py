@@ -64,6 +64,7 @@ LabelMapSchema = \
     }
 }
 
+
 def load_labelmap(labelmap_config, working_dir):
     """
     Load a labelmap file as specified in the given labelmap_config,
