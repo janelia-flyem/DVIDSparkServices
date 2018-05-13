@@ -192,9 +192,9 @@ def init_dvid_database(test_dir, reuse_last=False):
     data = json.loads(repoinfo)
     uuid2 = data["root"]
 
-    # create labelarray instance for two uuids
+    # create labelmap instance for two uuids
     create_instance = 'curl -X POST 127.0.0.1:8000/api/repo/%s/instance -d'
-    typedata = "{\"typename\": \"labelarray\", \"dataname\" : \"labels\", \"MaxDownresLevel\": \"2\"}"
+    typedata = "{\"typename\": \"labelmap\", \"dataname\" : \"labels\", \"MaxDownresLevel\": \"2\"}"
     
     create_instance1_command = (create_instance % uuid1).split()
     create_instance2_command = (create_instance % uuid2).split()
@@ -373,6 +373,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
 
     tests["test_meshes_stitched"] = "CreateStitchedMeshes"
     tests["test_meshes_stitched_body"] = "CreateStitchedMeshes"
+    tests["test_meshes_stitched_dvid_mappings"] = "CreateStitchedMeshes"
     
     tests["test_cc"] = "ConnectedComponents"
     tests["test_comp"] = "EvaluateSeg"

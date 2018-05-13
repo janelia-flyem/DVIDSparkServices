@@ -36,6 +36,7 @@ requirements:
     - neuroproof
     - neutube-python >=0.1.post8
     - libdvid-cpp >=0.2
+    - neuclease
     - requests
     - scikit-image
     - pillow

@@ -4,34 +4,12 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from neuclease.merge_table import normalize_merge_table, MERGE_TABLE_DTYPE
+
 from DVIDSparkServices.util import Timer
 from DVIDSparkServices.io_util.labelmap_utils import mapping_from_edges
 
 logger = logging.getLogger(__name__)
-
-MERGE_TABLE_DTYPE = [('id_a', '<u8'),
-                     ('id_b', '<u8'),
-                     ('xa', '<u4'),
-                     ('ya', '<u4'),
-                     ('za', '<u4'),
-                     ('xb', '<u4'),
-                     ('yb', '<u4'),
-                     ('zb', '<u4'),
-                     ('score', '<f4')]
-
-
-def swap_cols(table, rows, name_a, name_b):
-    """
-    Swap two columns of a structured array, in-place.
-    """
-    col_a = table[name_a][rows]
-    col_b = table[name_b][rows]
-    
-    # Swap dtypes to avoid assignment error
-    col_a, col_b = col_a.view(col_b.dtype), col_b.view(col_a.dtype)
-
-    table[name_a][rows] = col_b
-    table[name_b][rows] = col_a
 
 
 def load_and_normalize_merge_table(path, drop_duplicate_edges=True, sort=None):
@@ -48,42 +26,6 @@ def load_and_normalize_merge_table(path, drop_duplicate_edges=True, sort=None):
     assert merge_table.dtype == MERGE_TABLE_DTYPE
     return normalize_merge_table(merge_table, drop_duplicate_edges, sort)
 
-def normalize_merge_table(merge_table, drop_duplicate_edges=True, sort=None):
-    """
-    'Normalize' the given merge table by ensuring that id_a <= id_b for all rows,
-    swapping fields as needed.
-    
-    If drop_duplicate_edges=True, duplicate edges will be dropped,
-    without regard to any of the other columns (e.g. two rows with
-    identical edges but different scores are still considered duplicates).
-    """
-    assert merge_table.dtype == MERGE_TABLE_DTYPE
-
-    # Group the A coords and the B coords so they can be swapped together
-    grouped_dtype = [('id_a', '<u8'),
-                     ('id_b', '<u8'),
-                     ('loc_a', [('xa', '<u4'), ('ya', '<u4'), ('za', '<u4')]),
-                     ('loc_b', [('xb', '<u4'), ('yb', '<u4'), ('zb', '<u4')]),
-                     ('score', '<f4')]
-
-    swap_rows = merge_table['id_a'] > merge_table['id_b']
-    merge_table_grouped = merge_table.view(grouped_dtype)
-    
-    swap_cols(merge_table_grouped, swap_rows, 'id_a', 'id_b')
-    swap_cols(merge_table_grouped, swap_rows, 'loc_a', 'loc_b')
-
-    assert (merge_table['id_a'] <= merge_table['id_b']).all()
-
-    if drop_duplicate_edges:
-        edge_df = pd.DataFrame( {'id_a': merge_table['id_a'], 'id_b': merge_table['id_b']} )
-        dupe_rows = edge_df.duplicated(keep='last')
-        if dupe_rows.sum() > 0:
-            merge_table = merge_table[~dupe_rows]
-    
-    if sort is not None:
-        merge_table.sort(order=sort)
-    
-    return merge_table
 
 def extract_edges(merge_table, as_records=False):
     """

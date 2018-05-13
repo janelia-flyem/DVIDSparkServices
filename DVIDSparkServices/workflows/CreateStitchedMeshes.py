@@ -7,12 +7,13 @@ import logging
 from functools import partial
 from io import BytesIO
 from contextlib import closing
-from itertools import chain
+from multiprocessing import TimeoutError
 
 import numpy as np
 import pandas as pd
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
+from neuclease.dvid import fetch_mappings
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -24,7 +25,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels
 from DVIDSparkServices.dvid.metadata import is_node_locked, create_keyvalue_instance
 
-from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService
+from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService 
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
 from DVIDSparkServices.io_util.brick import Grid, SparseBlockMask
@@ -35,7 +36,6 @@ from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVol
 from DVIDSparkServices.segstats import aggregate_segment_stats_from_bricks
 
 from DVIDSparkServices.subprocess_decorator import execute_in_subprocess
-from multiprocessing import TimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +172,10 @@ class CreateStitchedMeshes(Workflow):
                                        "- no-groups: No tarballs. Each mesh is written as a separate key.\n"
                                        "- singletons: Each mesh is written as a separate key, but it is wrapped in a 1-item tarball.\n"
                                        "- hundreds: Group meshes in groups of up to 100, such that ids xxx00 through xxx99 end up in the same group.\n"
-                                       "- labelmap: Use the labelmap setting below to determine the grouping.\n",
+                                       "- labelmap: Use the labelmap setting below to determine the grouping.\n"
+                                       "- dvid-labelmap: Use the dvid-labelmap setting below to determine the grouping.\n",
                         "type": "string",
-                        "enum": ["no-groups", "singletons", "hundreds", "labelmap"],
+                        "enum": ["no-groups", "singletons", "hundreds", "labelmap", "dvid-labelmap"],
                         "default": "no-groups"
                     },
                     "naming-scheme": {
@@ -193,7 +194,30 @@ class CreateStitchedMeshes(Workflow):
                         "default": "obj"
                     },
                     
-                    "labelmap": copy.copy(LabelMapSchema), # Only used by the 'labelmap' grouping-scheme
+                    # Only used by the 'labelmap' grouping-scheme
+                    "labelmap": copy.copy(LabelMapSchema),
+                    "dvid-labelmap": {
+                        # Only used by the 'dvid-labelmap' grouping-scheme
+                        "description": "Parameters specify a DVID labelmap instance from which mappings can be queried",
+                        "type": "object",
+                        "default": {},
+                        #"additionalProperties": False, # Can't use this in conjunction with 'oneOf' schema feature
+                        "properties": {
+                            "server": {
+                                "description": "location of DVID server.",
+                                "type": "string",
+                            },
+                            "uuid": {
+                                "description": "version node",
+                                "type": "string"
+                            },
+                            "segmentation-name": {
+                                "description": "The labels instance to read mappings from\n",
+                                "type": "string",
+                                "minLength": 1
+                            }
+                        }
+                    },
 
                     "subset-bodies": {
                         "description": "(Optional.) Instead of generating meshes for all meshes in the volume,\n"
@@ -230,6 +254,13 @@ class CreateStitchedMeshes(Workflow):
                 ["description"] = ("A labelmap file to determine mesh groupings.\n"
                                    "Only used by the 'labelmap' grouping-scheme.\n"
                                    "Will be applied AFTER any labelmap you specified in the segmentation volume info.\n")
+    MeshGenerationSchema\
+        ["properties"]["storage"]\
+            ["properties"]["dvid-labelmap"]\
+                ["description"] = ("A labelmap file to determine mesh groupings.\n"
+                                   "Only used by the 'dvid-labelmap' grouping-scheme.\n"
+                                   "Will be applied AFTER any labelmap you specified in the segmentation volume info.\n")
+
 
     MeshWorkflowOptionsSchema = copy.copy(Workflow.OptionsSchema)
     MeshWorkflowOptionsSchema["additionalProperties"] = False
@@ -732,7 +763,7 @@ class CreateStitchedMeshes(Workflow):
             return None
         
         grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
-        assert grouping_scheme in ('no-groups', 'singletons', 'labelmap'), \
+        assert grouping_scheme in ('no-groups', 'singletons', 'labelmap', 'dvid-labelmap'), \
             f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
 
         mapping_pairs = None
@@ -776,8 +807,21 @@ class CreateStitchedMeshes(Workflow):
         if self._labelmap is None:
             config = self.config_data
             grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
-            assert grouping_scheme == 'labelmap'
-            self._labelmap = load_labelmap( config["mesh-config"]["storage"]["labelmap"], self.config_dir )
+            assert grouping_scheme in ('labelmap', 'dvid-labelmap')
+            labelmap_config = config["mesh-config"]["storage"]["labelmap"]
+            dvid_labelmap_config = config["mesh-config"]["storage"]["dvid-labelmap"]
+            
+            assert "server" not in dvid_labelmap_config or labelmap_config["file-type"] == "__invalid__", \
+                "Can't supply both labelmap and dvid-labelmap grouping parameters.  Pick one."
+            
+            if "server" in dvid_labelmap_config:
+                mapping_series = fetch_mappings( dvid_labelmap_config["server"],
+                                                 dvid_labelmap_config["uuid"],
+                                                 dvid_labelmap_config["segmentation-name"] )
+                mapping_array = np.array((mapping_series.index.values, mapping_series.values))
+                self._labelmap = np.transpose(mapping_array).astype(np.uint64, copy=False)
+            else:
+                self._labelmap = load_labelmap( config["mesh-config"]["storage"]["labelmap"], self.config_dir )
         return self._labelmap
 
 
@@ -818,7 +862,7 @@ class CreateStitchedMeshes(Workflow):
         ## also append body stats
         ##
         grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
-        if grouping_scheme != "labelmap":
+        if grouping_scheme not in ("labelmap", "dvid-labelmap"):
             # Not grouping -- Just duplicate segment stats into body columns
             full_stats_df['body'] = full_stats_df['segment']
             body_stats_df = pd.DataFrame({ 'body': full_stats_df['segment'] })
@@ -914,7 +958,7 @@ class CreateStitchedMeshes(Workflow):
                 return body_id
             grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.groupBy(last_six_digits, numPartitions=n_partitions)
 
-        elif grouping_scheme == "labelmap":
+        elif grouping_scheme in ("labelmap", "dvid-labelmap"):
             mapping_pairs = self.load_labelmap()
 
             df = pd.DataFrame( mapping_pairs, columns=["segment_id", "body_id"] )
