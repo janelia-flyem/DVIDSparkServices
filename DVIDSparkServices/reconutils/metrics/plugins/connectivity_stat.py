@@ -373,10 +373,10 @@ class connectivity_stat(StatType):
                 for count, threshold in enumerate(thresholds):
                     if overlap >= threshold:
                         thresholded_match[count] += 1
-                    if overlap2 >= threshold:
-                        thresholded_match2[count] += 1
-                        # check for false positives
-                        if overlap < threshold:
+                        if overlap2 >= threshold:
+                            thresholded_match2[count] += 1
+                    else: # check for false positives
+                        if overlap2 >= threshold:
                             thresholded_falsepositives[count] += 1
 
             # accumulate global stats
