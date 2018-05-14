@@ -180,12 +180,23 @@ class Evaluate(object):
             labelgt = labelgt.astype(numpy.float64)
             label2 = label2.astype(numpy.float64)
 
+
+            # overlap function ignore 0 value, 0's should be counted if in test
+            maxarrval = numpy.amax(label2) + 1
+            label2[label2 == 0] = maxarrval
+
             # creates stack and adds boundary padding
             stackgt = npmetrics.Stack(labelgt, boundary_iter)
             stack2 = npmetrics.Stack(label2, 0)
 
             # returns list of (body1, body2, overlap)
             overlaps12 = stackgt.find_overlaps(stack2)
+
+            # undo temporary assignemnt to 0
+            label2[label2 == maxarrval] = 0
+            for index, (body1, body2, overlap) in enumerate(overlaps12):
+                if body2 == maxarrval:
+                    overlaps12[index][1] = 0
 
             # reverse overlaps for mappings
             overlaps21 = []
