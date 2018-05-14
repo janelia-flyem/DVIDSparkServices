@@ -251,6 +251,8 @@ class count_stat(StatType):
         
         if disablefilter:
             body_threshold = 0
+        if self.segstats.selfcompare:
+            body_threshold = 0
         
         gtbodies = 0
         segbodies = 0
@@ -296,6 +298,8 @@ class count_stat(StatType):
         body_threshold = self.segstats.ptfilter
         if body_overlap.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
+        if self.segstats.selfcompare:
+            body_threshold = 0
  
         count = 0
         cumdisttemp = []
@@ -328,6 +332,8 @@ class count_stat(StatType):
         body_threshold = self.segstats.ptfilter
         if gotable.get_comparison_type() == "voxels":
             body_threshold = self.segstats.voxelfilter
+        if self.segstats.selfcompare:
+            body_threshold = 0
             
         # limit number of bodies to examine
         num_displaybodies = self.segstats.num_displaybodies
@@ -364,7 +370,11 @@ class count_stat(StatType):
                 # match body if over half of the seg
                 if max_val > (total2 // 2):
                     important_segbodies[max_id] = max_val
-          
+        else:
+            for gt, overlapset in gotable.overlap_map.items():
+                for seg, overlap in overlapset:
+                    totalgtsize += overlap
+
         # add dist bodies
         if not self.segstats.selfcompare:
             segbodies = {}

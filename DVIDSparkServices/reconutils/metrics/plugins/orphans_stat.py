@@ -95,6 +95,8 @@ class orphans_stat(StatType):
         def count_suborphans(stat):
             summary_stats = []
             subval = {}
+            stat.remap_stats()
+
             for onum, gotable in enumerate(stat.gt_overlaps):
                 if gotable.get_comparison_type() not in self.supported_types:
                     continue
@@ -105,16 +107,16 @@ class orphans_stat(StatType):
                 subvolumesize = 0
                 for gt, overlapset in gotable.overlap_map.items():
                     total = self._get_body_volume(overlapset)
-                    if gt not in bigbodies_gt and gt not in stat.boundarybodies:
+                    if gt not in bigbodies_gt[onum] and gt not in stat.boundarybodies:
                         # small bodies not touching the edge
                         num_gtorphans += 1
                         subvolumesize += total
-                    if gt in bigbodies_gt:
+                    if gt in bigbodies_gt[onum]:
                         subvolumesize += total
       
                 # filter small subvolumes (remove boundary orphans)
                 ignoresubvolume = False
-                if stat.subvolume_threshold > float(subvolumesize / stat.subvolsize):
+                if stat.subvolume_threshold > (float(subvolumesize) / stat.subvolsize):
                     ignoresubvolume = True    
 
 
@@ -122,7 +124,7 @@ class orphans_stat(StatType):
                     num_segorphans = 0
                     sotable = stat.seg_overlaps[onum]
                     for seg, overlapset in sotable.overlap_map.items():
-                        if seg not in bigbodies_seg and seg not in stat.boundarybodies2:
+                        if seg not in bigbodies_seg[onum] and seg not in stat.boundarybodies2:
                             # small bodies not touching the edge
                             num_segorphans += 1
                     sumstat = {"name": "orphans", "typename": gotable.get_name(), "val": num_segorphans-num_gtorphans, "higher-better": False, "ignore": ignoresubvolume}
