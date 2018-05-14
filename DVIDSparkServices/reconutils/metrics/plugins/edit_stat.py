@@ -118,8 +118,9 @@ class edit_stat(StatType):
             sidx = 0
             current_accum_rat = current_accum
 
+            origtarget = target
             for thres in self.volthres:
-                target *= (thres / 100.0)
+                target = origtarget * (thres / 100.0)
                 while current_accum_rat < target:
                     take_split = False
                     if midx == len(sorted_mergers) and sidx == len(sorted_splits):

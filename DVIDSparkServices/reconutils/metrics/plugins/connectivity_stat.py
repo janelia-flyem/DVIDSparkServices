@@ -279,6 +279,7 @@ class connectivity_stat(StatType):
         seg1stats = {}
 
         seg1conns = {}
+        seg2conns = {}
         seg2conns_mapped = {}
 
         # hack to remove '-graph' from synapse graph
@@ -318,17 +319,18 @@ class connectivity_stat(StatType):
                 if post1 not in seg1conns[pre1]:
                     seg1conns[pre1][post1] = 0
                 seg1conns[pre1][post1] += overlap
+       
+                if pre2 not in seg2conns:
+                    seg2conns[pre2] = {}
+                if post2 not in seg2conns[pre2]:
+                    seg2conns[pre2][post2] = 0
+                seg2conns[pre2][post2] += overlap
         
                 # find matching overlap
                 if (pre2 in seg2toseg1 and seg2toseg1[pre2] == pre1) and (post2 in seg2toseg1 and seg2toseg1[post2] == post1):
                     # probably should only be called once by construction
                     assert (pre1, post1) not in seg2conns_mapped
                     seg2conns_mapped[(pre1,post1)] = overlap
-                else: 
-                    for count, threshold in enumerate(thresholds):
-                        if overlap >= threshold:
-                            thresholded_falsepositives[count] += 1
-
 
                    
         # generate stats
@@ -342,6 +344,7 @@ class connectivity_stat(StatType):
 
         # find number of matches at different thresholds
         thresholded_match = [0]*len(thresholds)
+        thresholded_allpositives = [0]*len(thresholds)
         thresholded_match2 = [0]*len(thresholds)
 
         # iterate all connections and compile stats
@@ -375,14 +378,19 @@ class connectivity_stat(StatType):
                         thresholded_match[count] += 1
                         if overlap2 >= threshold:
                             thresholded_match2[count] += 1
-                    else: # check for false positives
-                        if overlap2 >= threshold:
-                            thresholded_falsepositives[count] += 1
 
             # accumulate global stats
             overall_tot += totconn
             overall_match += totmatch
             bodystatstemp.append((totmatch, [totconn, pre2], pre))
+
+        for pre, connections in seg2conns.items():
+            for post, overlap in connections.items():
+                # find threshold matches
+                for count, threshold in enumerate(thresholds):
+                    if overlap >= threshold:
+                        thresholded_allpositives[count] += 1
+
 
         sum_stats = [{"name": "conn.match", "description": "%d matched out of %d" % (overall_match, overall_tot), "higher-better": True, "typename": typename}]
         if overall_tot == 0:
@@ -410,8 +418,8 @@ class connectivity_stat(StatType):
             if thresholded_match[pos] == 0:
                 thresstat["val"] = 0 
             else:
-                thresstat["val"] = round(thresholded_match2[pos] / float(thresholded_match[pos]+thresholded_falsepositives[pos]), 4)
-            thresstat["description"] = "precision: true positives %d and false positives %d with >=%d connections" % (thresholded_match2[pos], thresholded_falsepositives[pos], threshold)
+                thresstat["val"] = round(thresholded_match2[pos] / float(thresholded_allpositives[pos]), 4)
+            thresstat["description"] = "#true positives %d and #false positives %d with >=%d connections" % (thresholded_match2[pos], thresholded_allpositives[pos]-thresholded_match2[pos], threshold)
 
             sum_stats.append(thresstat)
  

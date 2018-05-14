@@ -92,13 +92,17 @@ class count_stat(StatType):
             tempstats = []
             self._calculate_bodystats(tempstats, None, gotable, self.segstats.seg_overlaps[onum], True) 
 
-            # prepare for subvolume summary 
+            # prepare for subvolume summary
+            tempstats2 = []
             for stat in tempstats:
+                if stat["name"] == "TOTAL-SIZE":
+                    continue
                 stat["description"] += " (substack=%d)" % self.segstats.subvolumes[0].sv_index
                 stat["name"] = "S-" + stat["name"] 
+                tempstats2.append(stat)
 
             # save for later
-            self.subsvol_hist_stats[onum] = tempstats
+            self.subsvol_hist_stats[onum] = tempstats2
 
     def write_subvolume_stats(self):
         """Write subvolume summary stats for the subvolume.
@@ -494,7 +498,11 @@ class count_stat(StatType):
                         sumstat = {"name": "HIST-%d"%threshold, "higher-better": False, "typename": gotable.get_name(), "val": numgtbodies[iter1]}
                         sumstat["description"] = "%d bodies for %d percent of volume" % (numgtbodies[iter1], threshold) 
                         summarystats.append(sumstat)
-
+                
+                # provide a size state for #voxels or points
+                sumstat = {"name": "TOTAL-SIZE", "higher-better": True, "typename": gotable.get_name(), "val": totalgtsize}
+                sumstat["description"] = "Size of ground truth ROI analyzed"
+                summarystats.append(sumstat)
 
             # disable Best Test if non-gt mode and self compare
             if not self.segstats.nogt and not disablegt and not self.segstats.selfcompare:
@@ -504,10 +512,5 @@ class count_stat(StatType):
                 summarystats.append(sumstat)
 
             
-            # provide a size state for #voxels or points
-            sumstat = {"name": "TOTAL-SIZE", "higher-better": True, "typename": gotable.get_name(), "val": totalgtsize}
-            sumstat["description"] = "Size of ground truth ROI analyzed"
-            summarystats.append(sumstat)
-
 
 
