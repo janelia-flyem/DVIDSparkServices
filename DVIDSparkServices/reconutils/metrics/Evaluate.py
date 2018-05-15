@@ -196,7 +196,7 @@ class Evaluate(object):
             label2[label2 == maxarrval] = 0
             for index, (body1, body2, overlap) in enumerate(overlaps12):
                 if body2 == maxarrval:
-                    overlaps12[index][1] = 0
+                    overlaps12[index] = (body1, 0, overlap)
 
             # reverse overlaps for mappings
             overlaps21 = []
