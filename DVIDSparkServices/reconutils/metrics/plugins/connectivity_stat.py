@@ -415,7 +415,7 @@ class connectivity_stat(StatType):
             thresstat["name"] = "connpairs.precision-%d" % threshold
             thresstat["higher-better"] = True
             thresstat["typename"] = typename
-            if thresholded_match[pos] == 0:
+            if thresholded_match2[pos] == 0:
                 thresstat["val"] = 0 
             else:
                 thresstat["val"] = round(thresholded_match2[pos] / float(thresholded_allpositives[pos]), 4)
