@@ -442,12 +442,11 @@ class CreateStitchedMeshes(Workflow):
                 filtered_volume = brick.volume
             else:
                 # Mask out segments we don't want to process
-                filtered_volume = np.asarray(brick.volume, order='C')
+                filtered_volume = brick.volume.copy('C')
                 filtered_flat = filtered_volume.reshape(-1)
                 s = pd.Series(filtered_flat)
                 filter_mask = ~s.isin(segments_to_keep).values
                 filtered_flat[filter_mask] = 0
-                brick.volume[:] = filtered_flat.reshape(brick.volume.shape)
 
             ids_and_mesh_datas = []
             for (segment_id, (box, mask, _count)) in object_masks_for_labels(filtered_volume, brick.physical_box):
