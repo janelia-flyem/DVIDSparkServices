@@ -898,10 +898,9 @@ class CreateStitchedMeshes(Workflow):
             sparse_body_stats_df = body_stats_df.query('body in @sparse_body_ids')
             excluded_bodies_df = sparse_body_stats_df[~sparse_body_stats_df['keep_body']]
             if len(excluded_bodies_df) > 0:
-                logger.error("You explicitly listed the following bodies in subset-bodies, "
-                             "but they will be excluded due to your other config settings (See excluded-body-stats.csv): "
-                             f"{excluded_bodies_df['body'].values.tolist()}")
                 output_path = self.config_dir + '/excluded-body-stats.csv'
+                logger.error(f"You explicitly listed {len(excluded_bodies_df)} bodies in subset-bodies, "
+                             f"but they will be excluded due to your other config settings.  See {output_path}.")
                 excluded_bodies_df.to_csv(output_path, header=True, index=False)
             body_stats_df['keep_body'] &= body_stats_df.eval('body in @sparse_body_ids')
 
