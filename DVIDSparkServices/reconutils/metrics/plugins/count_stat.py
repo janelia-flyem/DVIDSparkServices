@@ -309,7 +309,6 @@ class count_stat(StatType):
             localcount = self._get_body_volume(overlapset, ignorebodies) 
             if localcount == 0:
                 continue
-            count += localcount
 
             # ignore small bodies if ignorebodies is not already set
             # ignore bodies in sparse mode as well
@@ -321,7 +320,7 @@ class count_stat(StatType):
                 if localcount < body_threshold:
                     ignorebodies_temp.add(body)
                     continue
-
+            count += localcount
             cumdisttemp.append([localcount, body])
 
         cumdisttemp.sort()
