@@ -457,7 +457,7 @@ class sparkdvid(object):
             aligned_start = np.array(offset) // 64 * 64
             aligned_stop = (np.array(offset) + volume_shape + 64-1) // 64 * 64
             aligned_shape = aligned_stop - aligned_start
-            aligned_volume = node_service.get_labelarray_blocks3D( instance_name, aligned_shape, aligned_start, throttle, scale )
+            aligned_volume = node_service.get_labelarray_blocks3D( instance_name, aligned_shape, aligned_start, throttle, scale, supervoxels )
             requested_box_within_aligned = ( offset - aligned_start,
                                              offset - aligned_start + volume_shape )
             return extract_subvol(aligned_volume, requested_box_within_aligned )
