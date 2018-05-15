@@ -279,6 +279,14 @@ class count_stat(StatType):
         sumstat = {"name": "num.gt.bodies", "typename": name, "val": gtbodies, "display": False}
         sumstat["description"] = "Number of GT bodies"
         summarystats.append(sumstat)
+        totalgtsize = 0
+        for gt, overlapset in gotable.overlap_map.items():
+            for seg, overlap in overlapset:
+                totalgtsize += overlap
+        sumstat = {"name": "size", "typename": name, "val": totalgtsize, "display": False}
+        sumstat["description"] = "Size of volume"
+        summarystats.append(sumstat)
+
 
         # disable if self compare
         if not self.segstats.selfcompare:
