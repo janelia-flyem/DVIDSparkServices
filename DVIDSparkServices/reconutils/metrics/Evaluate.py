@@ -505,13 +505,16 @@ class Evaluate(object):
             if depth < 1:
                 depth = 1
             whole_volume_stats = subvolstats_computed.treeReduce(combinestats, depth)
-            
+           
+        import time
+        beginfinal = time.time()
         # compute summary, body stats, and debug information
         # iterate stats and collect summary and body stats
         metric_results["summarystats"].extend(whole_volume_stats.write_summary_stats())
         metric_results["bodystats"].extend(whole_volume_stats.write_body_stats())
         # iterate stats and collect debug info "bodydebug"
         metric_results["bodydebug"].extend(whole_volume_stats.write_bodydebug())
-        
+        print("Final collection of stats: ", time.time()-beginfinal)
+
         return metric_results
 
