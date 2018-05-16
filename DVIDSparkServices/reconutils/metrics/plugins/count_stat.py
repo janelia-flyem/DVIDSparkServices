@@ -349,6 +349,7 @@ class count_stat(StatType):
 
         # candidate bodies must have >50% in the GT body to be considered
         if not self.segstats.selfcompare:
+            sizecache = {}
             important_segbodies = {}
             # hungarian matching would probably be overkill
             for gt, overlapset in gotable.overlap_map.items():
@@ -365,15 +366,22 @@ class count_stat(StatType):
                     if overlap > max_val:
                         max_val = overlap
                         max_id = seg
-                if total > body_threshold:
+                if total >= body_threshold:
                     totalgtsize += total
+                else:
+                    continue
 
                 # find size of seg body
                 total2 = 0
-                overlapset2 = sotable.overlap_map[max_id]
-                for seg2, overlap2 in overlapset2:
-                    total2 += overlap2
-                
+                # speedup in case there a large false merge body
+                if max_id in sizecache:
+                    total2 = sizecache[max_id] 
+                else: 
+                    overlapset2 = sotable.overlap_map[max_id]
+                    for seg2, overlap2 in overlapset2:
+                        total2 += overlap2
+                    sizecache[max_id] = total2
+
                 # match body if over half of the seg
                 if max_val > (total2 // 2):
                     important_segbodies[max_id] = max_val
