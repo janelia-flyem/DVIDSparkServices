@@ -815,9 +815,9 @@ class CreateStitchedMeshes(Workflow):
                 "Can't supply both labelmap and dvid-labelmap grouping parameters.  Pick one."
             
             if "server" in dvid_labelmap_config:
-                mapping_series = fetch_mappings( dvid_labelmap_config["server"],
-                                                 dvid_labelmap_config["uuid"],
-                                                 dvid_labelmap_config["segmentation-name"] )
+                mapping_series = fetch_mappings( ( dvid_labelmap_config["server"],
+                                                   dvid_labelmap_config["uuid"],
+                                                   dvid_labelmap_config["segmentation-name"] ) )
                 mapping_array = np.array((mapping_series.index.values, mapping_series.values))
                 self._labelmap = np.transpose(mapping_array).astype(np.uint64, copy=False)
             else:
