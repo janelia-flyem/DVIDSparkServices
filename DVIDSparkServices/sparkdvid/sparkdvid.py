@@ -19,18 +19,18 @@ is backed by a clustered DB.
 
 """
 from __future__ import division
-import time
 
 import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
 import logging
-from networkx.algorithms.shortest_paths import dense
 logger = logging.getLogger(__name__)
 
-from libdvid import SubstackZYX, DVIDException
+from libdvid import SubstackZYX
+from neuclease.dvid import parse_rle_response
+
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap, blockwise_boxes, num_worker_nodes, cpus_per_worker, extract_subvol, runlength_decode_from_lengths, default_dvid_session
+from DVIDSparkServices.util import mask_roi, RoiMap, num_worker_nodes, cpus_per_worker, extract_subvol, default_dvid_session
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_label_instance, DataInstance, get_blocksize
@@ -529,7 +529,7 @@ class sparkdvid(object):
         r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol/{body_id}?format=rles&scale={scale}')
         r.raise_for_status()
         
-        return cls._parse_rle_response( r.content )
+        return parse_rle_response( r.content )
 
     @classmethod
     def get_coarse_sparsevol(cls, server, uuid, instance_name, body_id):
@@ -553,53 +553,7 @@ class sparkdvid(object):
         r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol-coarse/{body_id}')
         r.raise_for_status()
         
-        return cls._parse_rle_response( r.content )
-
-    @classmethod
-    def _parse_rle_response(cls, response_bytes):
-        """
-        Parse the (legacy) RLE response from DVID's 'sparsevol' and 'sparsevol-coarse' endpoints.
-        
-        Return an array of coordinates of the form:
-    
-            [[Z,Y,X],
-             [Z,Y,X],
-             [Z,Y,X],
-             ...
-            ]
-        """
-        descriptor = response_bytes[0]
-        ndim = response_bytes[1]
-        run_dimension = response_bytes[2]
-
-        assert descriptor == 0, f"Don't know how to handle this payload. (descriptor: {descriptor})"
-        assert ndim == 3, "Expected XYZ run-lengths"
-        assert run_dimension == 0, "FIXME, we assume the run dimension is X"
-
-        content_as_int32 = np.frombuffer(response_bytes, np.int32)
-        _voxel_count = content_as_int32[1]
-        run_count = content_as_int32[2]
-        rle_items = content_as_int32[3:].reshape(-1,4)
-
-        assert len(rle_items) == run_count, \
-            f"run_count ({run_count}) doesn't match data array length ({len(rle_items)})"
-
-        rle_starts_xyz = rle_items[:,:3]
-        rle_starts_zyx = rle_starts_xyz[:,::-1]
-        rle_lengths = rle_items[:,3]
-
-        # Sadly, the decode function requires contiguous arrays, so we must copy.
-        rle_starts_zyx = rle_starts_zyx.copy('C')
-        rle_lengths = rle_lengths.copy('C')
-
-        # For now, DVID always returns a voxel_count of 0, so we can't make this assertion.
-        #assert rle_lengths.sum() == _voxel_count,\
-        #    f"Voxel count ({voxel_count}) doesn't match expected sum of run-lengths ({rle_lengths.sum()})"
-
-        dense_coords = runlength_decode_from_lengths(rle_starts_zyx, rle_lengths)
-        
-        assert rle_lengths.sum() == len(dense_coords), "Got the wrong number of coordinates!"
-        return dense_coords
+        return parse_rle_response( r.content )
 
 
     @classmethod

@@ -666,54 +666,6 @@ def runlength_decode_from_ranges(rle_array_zyx):
     coords = np.array(coords).reshape((-1,3))
     return coords[1:, :] # omit dummy row (see above)
 
-@jit("i4[:,:](i4[:,::1],i4[::1])", nopython=True) # See note about signature, below.
-def runlength_decode_from_lengths(rle_start_coords_zyx, rle_lengths):
-    """
-    Given a 2D array of coordinates and a 1D array of runlengths, i.e.:
-        
-        [[Z,Y,X], [Z,Y,X], [Z,Y,X],...]
-
-        and 
-        
-        [Length, Length, Length,...]
-
-    Return an array of coordinates of the form:
-
-        [[Z,Y,X],
-         [Z,Y,X],
-         [Z,Y,X],
-         ...
-        ]
-    
-    In which every run-length has been expanded into a run
-    of consecutive coordinates in the result.
-    That is, result.shape == (rle_lengths.sum(), 3)
-    
-    Note: The "runs" are expanded along the X AXIS.
-    
-    Note about Signature:
-    
-        Due to an apparent numba bug, it is dangerous to pass non-contiguous arrays to this function.
-        (It returns incorrect results.)
-        
-        Therefore, the signature is explicitly written above to require contiguous arrays (e.g. i4[::1]),
-        If you attempt to pass a non-contiguous array, you'll see an error like this:
-        
-            TypeError: No matching definition for argument type(s) readonly array(int32, 2d, A), readonly array(int32, 1d, C)
-    """
-    # Numba doesn't allow us to use empty lists at all,
-    # so we have to initialize this list with a dummy row,
-    # which we'll omit in the return value
-    coords = [0,0,0]
-    for i in range(len(rle_start_coords_zyx)):
-        (z, y, x0) = rle_start_coords_zyx[i]
-        length = rle_lengths[i]
-        for x in range(x0, x0+length):
-            coords.extend([z,y,x])
-
-    coords = np.array(coords, np.int32).reshape((-1,3))
-    return coords[1:, :] # omit dummy row (see above)
-
 
 def blockwise_boxes( bounding_box, block_shape ):
     """
