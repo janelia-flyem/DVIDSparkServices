@@ -4,7 +4,6 @@ import copy
 import json
 import logging
 import socket
-import sqlite3
 from functools import partial
 from collections import OrderedDict
 
@@ -101,6 +100,13 @@ class CopySegmentation(Workflow):
                            "Will not work unless you add the 'available-scales' setting to the input service's geometry config.",
             "type": "boolean",
             "default": True
+        },
+        "dont-overwrite-identical-blocks": {
+            "description": "Before writing each block, read the existing segmentation from DVID\n"
+                           "and check to see if it already matches what will be written.\n"
+                           "If our write would be a no-op, don't write it.\n",
+            "type": "boolean",
+            "default": False
         },
         "slab-depth": {
             "description": "The data is downloaded and processed in Z-slabs.\n"
@@ -218,12 +224,22 @@ class CopySegmentation(Workflow):
         self.mgr_client = ResourceManagerClient( options["resource-server"], options["resource-port"] )
         self.input_service = VolumeService.create_from_config( input_config, self.config_dir, self.mgr_client )
 
+        if isinstance(self.input_service.base_service, DvidVolumeService):
+            assert input_config["dvid"]["supervoxels"], \
+                'DVID input service config must use "supervoxels: true"'
+            
+
         self.output_services = []
         for i, output_config in enumerate(output_configs):
             # Replace 'auto' dimensions with input bounding box
             replace_default_entries(output_config["geometry"]["bounding-box"], self.input_service.bounding_box_zyx[:, ::-1])
             output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
             assert isinstance( output_service, VolumeServiceWriter )
+
+            if "dvid" in output_config:            
+                assert output_config["dvid"]["supervoxels"], \
+                    'DVID output service config must use "supervoxels: true"'
+
 
             # These services aren't supported because we copied some geometry (bounding-box)
             # directly from the input service.
@@ -587,6 +603,7 @@ class CopySegmentation(Workflow):
         instance_name = output_service.base_service.instance_name
         block_width = output_service.block_width
         EMPTY_VOXEL = 0
+        dont_overwrite_identical_blocks = self.config_data["options"]["dont-overwrite-identical-blocks"]
         
         @self.collect_log(lambda _: socket.gethostname() + '-write-blocks-' + str(scale))
         def write_brick(brick):
@@ -595,11 +612,32 @@ class CopySegmentation(Workflow):
             assert (brick.physical_box % block_width == 0).all(), \
                 f"This function assumes each brick's physical data is already block-aligned: {brick}"
             
+            if dont_overwrite_identical_blocks:
+                existing_stored_brick = output_service.get_subvolume(brick.physical_box, scale)
+            
             x_size = brick.volume.shape[2]
             # Find all non-zero blocks (and record by block index)
             block_coords = []
             for block_index, block_x in enumerate(range(0, x_size, block_width)):
-                if not (brick.volume[:, :, block_x:block_x+block_width] == EMPTY_VOXEL).all():
+                new_block = brick.volume[:, :, block_x:block_x+block_width]
+                
+                # By default, write this block if it is non-empty
+                write_block = (new_block != EMPTY_VOXEL).any()
+
+                # If dont-overwrite-identical-blocks is enabled,
+                # write the block if it DIFFERS from the block that was already stored in DVID.
+                # (Regardless of whether or not either block is empty.)
+                if dont_overwrite_identical_blocks:
+                    old_block = existing_stored_brick[:, :, block_x:block_x+block_width]
+                    difference_map = (new_block != old_block)
+                    write_block = difference_map.any()
+                    if write_block:
+                        changed_voxel_list = np.unique(new_block[difference_map]).tolist()
+                        msg = (f"Slab {slab_index}: Scale {scale}: Overwriting block {brick.physical_box[0].tolist()} (ZYX). "
+                               f"Changing {difference_map.sum()} voxels in total, with IDs: {changed_voxel_list})")
+                        logger.info(msg)
+
+                if write_block:
                     block_coords.append( (0, 0, block_index) ) # (Don't care about Z,Y indexes, just X-index)
 
             # Find *runs* of non-zero blocks

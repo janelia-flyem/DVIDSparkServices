@@ -7,6 +7,7 @@
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
+        "supervoxels": true
       },
 
       "geometry": {
@@ -20,7 +21,8 @@
           "server": "127.0.0.1:8000",
           "uuid": "UUID2",
           "segmentation-name": "labels-copy-translated",
-          "disable-indexing": true
+          "disable-indexing": true,
+          "supervoxels": true
         },
         "geometry": {
           "bounding-box": [[0, 0, 0], [256, 256, 256]]
@@ -30,6 +32,9 @@
 
     "options": {
         "instance-creation-type": "labelmap",
+        
+        "dont-overwrite-identical-blocks": true,
+        
         "pyramid-depth": 4,
         "slab-depth": 64, # Force several slabs (and exercise stats merging logic) 
 
