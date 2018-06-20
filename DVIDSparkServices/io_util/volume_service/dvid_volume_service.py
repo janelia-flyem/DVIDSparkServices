@@ -324,8 +324,6 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
             instance_name = f"{instance_name}_{scale}"
             scale = 0
 
-        assert not self._supervoxels, "Write with supervoxels=True is not supported by libdvid yet."
-
         try:
             with self._resource_manager_client.access_context(self._server, True, 1, req_bytes):
                 return sparkdvid.post_voxels( self._server, self._uuid, instance_name,
