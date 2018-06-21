@@ -632,9 +632,16 @@ class CopySegmentation(Workflow):
                     difference_map = (new_block != old_block)
                     write_block = difference_map.any()
                     if write_block:
-                        changed_voxel_list = np.unique(new_block[difference_map]).tolist()
-                        msg = (f"Slab {slab_index}: Scale {scale}: Overwriting block {brick.physical_box[0].tolist()} (ZYX). "
-                               f"Changing {difference_map.sum()} voxels in total, with IDs: {changed_voxel_list})")
+                        coord_xyz = brick.physical_box[0][::-1].tolist()
+                        changed_voxel_list_new = np.unique(new_block[difference_map]).tolist()
+                        changed_voxel_list_old = np.unique(old_block[difference_map]).tolist()
+                        msg = (f"Slab {slab_index}: Scale {scale}: Overwriting block: "
+                               '{ '
+                                    f'"block-coord-xyz": {coord_xyz}, '
+                                    f'"difference-voxel-count": {difference_map.sum()}, '
+                                    f'"new-ids": {changed_voxel_list_new}, '
+                                    f'"old-ids": {changed_voxel_list_old} '
+                               ' }')
                         logger.info(msg)
 
                 if write_block:
