@@ -771,7 +771,7 @@ class CreateStitchedMeshes(Workflow):
             assert isinstance(volume_service, LabelmappedVolumeService), \
                 "Cant' use service labelmap: The input isn't a LabelmappedVolumeService"
             mapping_pairs = volume_service.mapping_pairs
-        elif grouping_scheme == 'labelmap':
+        elif grouping_scheme in ("labelmap", "dvid-labelmap"):
             mapping_pairs = self.load_labelmap()
 
         if mapping_pairs is not None:
