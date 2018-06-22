@@ -35,7 +35,7 @@ class LabelmappedVolumeService(VolumeServiceWriter):
               since bodies always contain a supervoxel with matching ID.
     """
     def __init__(self, original_volume_service, labelmap_config, config_dir):
-        self.original_volume_service = original_volume_service
+        self.original_volume_service = original_volume_service # See VolumeService.service_chain
         validate(labelmap_config, LabelMapSchema)
 
         # Convert relative path to absolute

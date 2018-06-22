@@ -26,6 +26,17 @@ class VolumeService(metaclass=ABCMeta):
         """
         return self
 
+    @property
+    def service_chain(self):
+        """
+        If this service wraps another service(s) (e.g. ScaledVolumeService, etc.),
+        return the chain wrapped services, including the base service.
+        If this service is a base service, self will be the only item in the list.
+        """
+        if hasattr(self, 'original_volume_service'):
+            return [self] + self.original_volume_service.service_chain
+        return [self]
+
     @classmethod
     def create_from_config( cls, volume_config, config_dir, resource_manager_client=None ):
         from .dvid_volume_service import DvidVolumeService

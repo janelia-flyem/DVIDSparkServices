@@ -30,7 +30,7 @@ class TestTransposedVolumeService(unittest.TestCase):
         }
         
         validate_and_inject_defaults(cls.VOLUME_CONFIG, GrayscaleVolumeSchema)
-    
+
     def test_full_volume(self):
         # First, N5 alone
         n5_reader = N5VolumeServiceReader(self.VOLUME_CONFIG, os.getcwd())
@@ -39,6 +39,13 @@ class TestTransposedVolumeService(unittest.TestCase):
         assert full_from_n5.shape == self.RAW_VOLUME_DATA.shape
         assert (full_from_n5 == self.RAW_VOLUME_DATA).all()
 
+        # Check API
+        transposed_reader = TransposedVolumeService(n5_reader, ['x', 'y', 'z'])
+        assert transposed_reader.base_service == n5_reader
+        assert len(transposed_reader.service_chain) == 2
+        assert transposed_reader.service_chain[0] == transposed_reader
+        assert transposed_reader.service_chain[1] == n5_reader
+        
         # Now use transposed reader, but with identity transposition
         transposed_reader = TransposedVolumeService(n5_reader, ['x', 'y', 'z'])
         assert (transposed_reader.bounding_box_zyx == n5_reader.bounding_box_zyx).all()

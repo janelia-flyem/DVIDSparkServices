@@ -8,8 +8,10 @@
       },
       "geometry": {
         "bounding-box": [[0,0,0], [256,256,256]],
-        "message-block-shape": [6400,64,64]
-      }
+        "message-block-shape": [6400,64,64],
+        "available-scales": [0,1,2,3]
+      },
+      "rescale-level": 1
     },
     "output": {
       "dvid": {

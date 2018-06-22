@@ -25,7 +25,7 @@ from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels
 from DVIDSparkServices.dvid.metadata import is_node_locked, create_keyvalue_instance
 
-from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService 
+from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService, ScaledVolumeService, TransposedVolumeService
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
 from DVIDSparkServices.io_util.brick import Grid, SparseBlockMask
@@ -755,12 +755,20 @@ class CreateStitchedMeshes(Workflow):
         assert isinstance(volume_service.base_service, DvidVolumeService), \
             "Can't use subset-bodies feature for non-DVID sources" 
 
-        if not (volume_service.base_service.bounding_box_zyx == volume_service.bounding_box_zyx).all():
-            # Can't fetch sparse bodies with transposed or rescaled services, so the entire volume will
-            # be read and subset-bodies will be selected after seg is downloaded.
-            logger.warn("You are using subset-bodies with a rescaled or transposed volume. Sparsevol will not be fetched. "
-                        "Instead, dense segmentation will be fetched, and your subset will be selected from it.")
-            return None
+        service_scale = 0
+        for service in volume_service.service_chain:
+            if isinstance(service, ScaledVolumeService):
+                service_scale += service.scale_delta
+            if isinstance(service, TransposedVolumeService):
+                # Can't fetch sparse bodies with transposed services, so the entire volume will
+                # be read and subset-bodies will be selected after seg is downloaded.
+                #
+                # (With some work, we could add support for transposed services,
+                # but it would probably be easier to add a feature to just transpose the meshes
+                # after they're computed.)
+                logger.warning("You are using subset-bodies with transposed volume. Sparsevol will not be fetched. "
+                               "Instead, dense segmentation will be fetched, and your subset will be selected from it.")
+                return None
         
         grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
         assert grouping_scheme in ('no-groups', 'singletons', 'labelmap', 'dvid-labelmap'), \
@@ -781,6 +789,7 @@ class CreateStitchedMeshes(Workflow):
             # which is convenient for this reverse lookup
             reverse_lookup = pd.Series(index=bodies, data=segments)
             sparse_segment_ids = reverse_lookup.loc[sparse_body_ids].values
+            sparse_segment_ids = sparse_segment_ids.astype(np.uint64)
         else:
             # No labelmap: The 'body ids' are identical to segment ids
             sparse_segment_ids = sparse_body_ids
@@ -788,14 +797,27 @@ class CreateStitchedMeshes(Workflow):
         logger.info("Reading sparse block mask for body subset...")
         # Fetch the sparse mask of blocks that the sparse segments belong to
         dvid_service = volume_service.base_service
-        block_mask, lowres_box, block_shape = \
+        block_mask, lowres_box, dvid_block_shape = \
             sparkdvid.get_union_block_mask_for_bodies( dvid_service.server,
                                                        dvid_service.uuid,
                                                        dvid_service.instance_name,
-                                                       sparse_segment_ids )
+                                                       sparse_segment_ids,
+                                                       dvid_service.supervoxels )
 
-        fullres_box = lowres_box * block_shape
-        return SparseBlockMask(block_mask, fullres_box, block_shape)
+        # None of the bodies on the list could be found in the sparsevol data.
+        # Something is very wrong.
+        if block_mask is None:
+            logger.error("Could not retrieve a sparse block mask!  Fetching all segmentation.")
+            return None
+
+        # Box in full-res DVID coordinates
+        fullres_box = lowres_box * dvid_block_shape
+        
+        # Box in service coordinates (if using ScaledVolumeService, need to shrink the box accordingly) 
+        service_res_box = fullres_box // (2**service_scale)
+        service_res_block_shape = np.array(dvid_block_shape) // (2**service_scale)
+        
+        return SparseBlockMask(block_mask, service_res_box, service_res_block_shape)
 
 
     def load_labelmap(self):

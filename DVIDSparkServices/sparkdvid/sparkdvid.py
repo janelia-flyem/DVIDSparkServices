@@ -20,6 +20,7 @@ is backed by a clustered DB.
 """
 from __future__ import division
 
+import requests
 import numpy as np
 from DVIDSparkServices.sparkdvid.Subvolume import Subvolume
 
@@ -532,7 +533,7 @@ class sparkdvid(object):
         return parse_rle_response( r.content )
 
     @classmethod
-    def get_coarse_sparsevol(cls, server, uuid, instance_name, body_id):
+    def get_coarse_sparsevol(cls, server, uuid, instance_name, body_id, supervoxels=False):
         """
         Return the 'coarse sparsevol' representation of a given body.
         This is similar to the sparsevol representation at scale=6,
@@ -547,17 +548,19 @@ class sparkdvid(object):
              ...
             ]
         """
+        
+        supervoxels = str(bool(supervoxels)).lower()
         if not server.startswith('http://'):
             server = 'http://' + server
         session = default_dvid_session()
-        r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol-coarse/{body_id}')
+        r = session.get(f'{server}/api/node/{uuid}/{instance_name}/sparsevol-coarse/{body_id}?supervoxels={supervoxels}')
         r.raise_for_status()
         
         return parse_rle_response( r.content )
 
 
     @classmethod
-    def get_union_block_mask_for_bodies( cls, server, uuid, instance_name, body_ids ):
+    def get_union_block_mask_for_bodies( cls, server, uuid, instance_name, body_ids, supervoxels=False ):
         """
         Given a list of body IDs, fetch their sparse blocks from DVID and
         return a mask of all blocks touched by those bodies.
@@ -573,9 +576,19 @@ class sparkdvid(object):
         
         union_box = None
         
+        nonexistent_bodies = []
         for body_id in body_ids:
-            block_coords = cls.get_coarse_sparsevol( server, uuid, instance_name, body_id )
-            
+            try:
+                block_coords = cls.get_coarse_sparsevol( server, uuid, instance_name, body_id, supervoxels )
+            except requests.RequestException as ex:
+                if ex.response.status_code in (404, 400):
+                    # FIXME: This body/supervoxel probably doesn't exist any more.
+                    #        Is there a better way to verify that we're not discarding real errors?
+                    nonexistent_bodies.append(body_id)
+                    continue
+                else:
+                    raise
+
             all_block_coords[body_id] = block_coords
             
             min_coord = block_coords.min(axis=0)
@@ -586,6 +599,12 @@ class sparkdvid(object):
             else:
                 union_box[0] = np.minimum( min_coord, union_box[0] )
                 union_box[1] = np.maximum( max_coord+1, union_box[1] )
+
+        if nonexistent_bodies:
+            logger.warning(f"Could not find sparse masks for {len(nonexistent_bodies)} bodies: {nonexistent_bodies}")
+
+        if union_box is None:
+            return (None, None, None)
 
         union_shape = union_box[1] - union_box[0]
         union_mask = np.zeros( union_shape, bool )

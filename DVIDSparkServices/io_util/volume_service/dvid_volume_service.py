@@ -171,7 +171,8 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
         else:
             self.disable_indexing = False
 
-        self._supervoxels = ("supervoxels" in volume_config["dvid"]) and (volume_config["dvid"]["supervoxels"])
+        # Whether or not to read the supervoxels from the labelmap instance instead of agglomerated labels.
+        self.supervoxels = ("supervoxels" in volume_config["dvid"]) and (volume_config["dvid"]["supervoxels"])
 
         ##
         ## Block width
@@ -303,7 +304,7 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
                                              scale, self._instance_type, self._is_labels,
                                              shape, box_zyx[0],
                                              throttle=throttle,
-                                             supervoxels=self._supervoxels,
+                                             supervoxels=self.supervoxels,
                                              node_service=self.node_service )
         except Exception as ex:
             raise RuntimeError(f"Failed to fetch subvolume: box_zyx = {box_zyx.tolist()}") from ex

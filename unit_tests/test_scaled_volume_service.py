@@ -44,6 +44,14 @@ class TestScaledVolumeService(unittest.TestCase):
     
         cls.n5_reader = n5_reader
         cls.full_from_n5 = full_from_n5
+
+    def test_api(self):
+        n5_reader = self.n5_reader
+        scaled_reader = ScaledVolumeService(n5_reader, 0)
+        assert scaled_reader.base_service == n5_reader
+        assert len(scaled_reader.service_chain) == 2
+        assert scaled_reader.service_chain[0] == scaled_reader
+        assert scaled_reader.service_chain[1] == n5_reader
     
     def test_full_volume_no_scaling(self):
         n5_reader = self.n5_reader
