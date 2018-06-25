@@ -613,7 +613,11 @@ class CopySegmentation(Workflow):
                 f"This function assumes each brick's physical data is already block-aligned: {brick}"
             
             if dont_overwrite_identical_blocks:
-                existing_stored_brick = output_service.get_subvolume(brick.physical_box, scale)
+                try:
+                    existing_stored_brick = output_service.get_subvolume(brick.physical_box, scale)
+                except:
+                    logger.error(f"Error reading brick: {brick.physical_box.tolist()}, scale={scale}")
+                    raise
             
             x_size = brick.volume.shape[2]
             # Find all non-zero blocks (and record by block index)
@@ -662,7 +666,11 @@ class CopySegmentation(Workflow):
                 data_offset_zyx = brick.physical_box[0] + (0,0,data_x_start)
 
                 with Timer() as _put_timer:
-                    output_service.write_subvolume(datacrop, data_offset_zyx, scale)
+                    try:
+                        output_service.write_subvolume(datacrop, data_offset_zyx, scale)
+                    except:
+                        logger.error(f"Error writing brick at {brick.physical_box.tolist()}, scale={scale}, offset={data_offset_zyx}")
+                        raise
 
                 # Note: This timing data doesn't reflect ideal throughput, since throttle
                 #       and/or the resource manager muddy the numbers a bit...
