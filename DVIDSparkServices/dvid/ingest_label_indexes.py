@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from numba import jit
 
-from neuclease.dvid import fetch_labelindex
+from neuclease.dvid import fetch_labelindex, fetch_complete_mappings
 
 from dvidutils import LabelMapper # Fast label mapping in C++
 
@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--check-mismatches', action='store_true',
                         help='If given, every LabelIndex will be compared with the existing LabelIndex on the server, and only the mismatching ones will be sent.')
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
-                        help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
+                        help='Either a UUID to pull the mapping from, or a CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
     parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both', 'sort-only'],
                         help='Whether to load the LabelIndices, MappingOps, or both. If sort-only, sort/save the stats and exit.')
     parser.add_argument('--tombstones', default='include', choices=['include', 'exclude', 'only'],
@@ -81,13 +81,25 @@ def main():
         main_impl(args)
     logger.info(f"DONE. Total time: {timer.timedelta}")
 
+
 def main_impl(args):
     # Read agglomeration file
     segment_to_body_df = None
     if args.agglomeration_mapping:
         with Timer("Loading agglomeration mapping", logger):
-            mapping_pairs = load_edge_csv(args.agglomeration_mapping)
-            segment_to_body_df = pd.DataFrame(mapping_pairs, columns=AGGLO_MAP_COLUMNS)
+            if args.agglomeration_mapping.endswith('.csv'):
+                mapping_pairs = load_edge_csv(args.agglomeration_mapping)
+                segment_to_body_df = pd.DataFrame(mapping_pairs, columns=AGGLO_MAP_COLUMNS)
+            else:
+                if set(args.agglomeration_mapping) - set('0123456789abcdef'):
+                    raise RuntimeError(f"Your agglomeration mapping is neither a CSV file nor a UUID: {args.agglomeration_mapping}")
+
+                mapping_uuid = args.agglomeration_mapping
+                logger.info(f"Loading agglomeration mapping from UUID {mapping_uuid}")
+                mapping_series = fetch_complete_mappings((args.server, mapping_uuid, args.labelmap_instance))
+                segment_to_body_df = pd.DataFrame( {'segment_id': mapping_series.index.values} )
+                segment_to_body_df['body_id'] = mapping_series.values
+                assert (segment_to_body_df.columns == AGGLO_MAP_COLUMNS).all()
 
     if args.last_mutid is None:
         # By default, use 0 if we're ingesting
@@ -822,7 +834,8 @@ if __name__ == "__main__":
         sys.argv += (f"--operation=indexes"
                      #f"--operation=sort-only"
                      #f"--operation=both"
-                     #f" --agglomeration-mapping={mapping_file}"DVIDSparkServices/dvid/ingest_label_indexes.py
+                     f" --agglomeration-mapping={mapping_file}"
+                     #f" --agglomeration-mapping={dvid_config['uuid']}"
                      f" --num-threads=8"
                      f" --batch-size=1000"
                      f" --tombstones=exclude"
