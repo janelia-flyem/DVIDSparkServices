@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 from numba import jit
 
+from neuclease.dvid import fetch_labelindex
+
 from dvidutils import LabelMapper # Fast label mapping in C++
 
 import DVIDSparkServices # We implicitly rely on initialize_excepthook()
@@ -53,6 +55,8 @@ def main():
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--last-mutid', '-i', required=False, type=int)
+    parser.add_argument('--check-mismatches', action='store_true',
+                        help='If given, every LabelIndex will be compared with the existing LabelIndex on the server, and only the mismatching ones will be sent.')
     parser.add_argument('--agglomeration-mapping', '-m', required=False,
                         help='A CSV file with two columns, mapping supervoxels to agglomerated bodies. Any missing entries implicitly identity-mapped.')
     parser.add_argument('--operation', default='indexes', choices=['indexes', 'mappings', 'both', 'sort-only'],
@@ -130,7 +134,8 @@ def main_impl(args):
                                   args.tombstones,
                                   batch_rows=args.batch_size,
                                   num_threads=args.num_threads,
-                                  show_progress_bar=not args.no_progress_bar )
+                                  show_progress_bar=not args.no_progress_bar,
+                                  check_mismatches=args.check_mismatches )
 
     # Upload mappings
     if args.operation in ('mappings', 'both'):
@@ -278,7 +283,8 @@ def ingest_label_indexes( server,
                           tombstone_mode='include',
                           batch_rows=1_000_000,
                           num_threads=1,
-                          show_progress_bar=True ):
+                          show_progress_bar=True,
+                          check_mismatches=False ):
     """
     Ingest the label indexes for a particular agglomeration.
     
@@ -313,8 +319,8 @@ def ingest_label_indexes( server,
     # 'processor' is declared as a global so it can be shared with
     # subprocesses quickly via implicit memory sharing via after fork()
     global processor
-    endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
-    processor = StatsBatchProcessor(last_mutid, endpoint, tombstone_mode, block_sv_stats)
+    instance_info = (server, uuid, instance_name)
+    processor = StatsBatchProcessor(last_mutid, instance_info, tombstone_mode, block_sv_stats, check_mismatches)
 
     gen = generate_stats_batches(block_sv_stats, batch_rows)
 
@@ -325,12 +331,20 @@ def ingest_label_indexes( server,
         # Progress shown as log messages
         progress_bar = LoggedProgressIndicator(len(block_sv_stats), logger)
 
+    all_mismatch_ids = []
     pool = multiprocessing.Pool(num_threads)
     with progress_bar, pool:
         # Rather than call pool.imap_unordered() with processor.process_batch(),
         # we use globally declared process_batch(), as explained below.
-        for next_stats_batch_total_rows in pool.imap_unordered(process_batch, gen):
+        for next_stats_batch_total_rows, batch_mismatches in pool.imap_unordered(process_batch, gen):
+            if batch_mismatches:
+                pd.Series(batch_mismatches).to_csv(f'labelindex-mismatches-{uuid}.csv', index=False, header=False, mode='a')
+                all_mismatch_ids.extend( batch_mismatches )
+                logger.warning(f"Found mismatches in labels: {batch_mismatches}")
             progress_bar.update(next_stats_batch_total_rows)
+
+    if check_mismatches:
+        logger.info(f"Found {len(all_mismatch_ids)} mismatches.")
 
 
 def _check_instance(server, uuid, instance_name):
@@ -432,17 +446,21 @@ class StatsBatchProcessor:
     Defined here as a class instead of a simple function to enable
     pickling (for multiprocessing), even when this file is run as __main__.
     """
-    def __init__(self, last_mutid, endpoint, tombstone_mode, block_sv_stats):
+    def __init__(self, last_mutid, instance_info, tombstone_mode, block_sv_stats, check_mismatches=False):
         assert tombstone_mode in ('include', 'exclude', 'only')
         self.last_mutid = last_mutid
-        self.endpoint = endpoint
         self.tombstone_mode = tombstone_mode
         self.block_sv_stats = block_sv_stats
+        self.check_mismatches = check_mismatches
 
         self.user = os.environ["USER"]
         self.mod_time = datetime.datetime.now().isoformat()
-        if not self.endpoint.startswith('http://'):
-            self.endpoint = 'http://' + self.endpoint
+        
+        server, uuid, instance = instance_info
+        if not server.startswith('http://'):
+            server = 'http://' + server
+            instance_info = (server, uuid, instance)
+        self.instance_info = instance_info
 
         self._session = None # Created lazily, after pickling
 
@@ -455,11 +473,36 @@ class StatsBatchProcessor:
     def process_batch(self, batch_and_rowcount):
         """
         Takes a batch of grouped stats rows and sends it to dvid in the appropriate protobuf format.
+        
+        If self.check_mismatches is True, read the labelindex for each 
         """
         next_stats_batch, next_stats_batch_total_rows = batch_and_rowcount
         labelindex_batch = chain(*map(self.label_indexes_for_body, next_stats_batch))
-        self.post_labelindex_batch(labelindex_batch)
-        return next_stats_batch_total_rows
+
+        if not self.check_mismatches:
+            self.post_labelindex_batch(labelindex_batch)
+            return next_stats_batch_total_rows, []
+
+        # Check for mismatches
+        mismatch_batch = []
+        for labelindex in labelindex_batch:
+            try:
+                existing_labelindex = fetch_labelindex(self.instance_info, labelindex.label)
+            except requests.RequestException:
+                logger.warning(f"Failed to fetch LabelIndex for label: {labelindex.label}")
+                mismatch_batch.append(labelindex)
+            else:
+                if (labelindex.blocks != existing_labelindex.blocks):
+                    # Update the mut_id to match the previous one.
+                    labelindex.last_mutid = existing_labelindex.last_mutid
+                    mismatch_batch.append(labelindex)
+
+        # Post mismatches (only)
+        self.post_labelindex_batch(mismatch_batch)
+
+        # Return mismatch IDs
+        mismatch_labels = [labelindex.label for labelindex in mismatch_batch]
+        return next_stats_batch_total_rows, mismatch_labels
 
     def label_indexes_for_body(self, body_group_span):
         """
@@ -525,8 +568,10 @@ class StatsBatchProcessor:
             # and a label contained only one supervoxel.
             return
         payload = label_indices.SerializeToString()
-        
-        r = self.session.post(self.endpoint, data=payload)
+    
+        server, uuid, instance_name = self.instance_info    
+        endpoint = f'{server}/api/node/{uuid}/{instance_name}/indices'
+        r = self.session.post(endpoint, data=payload)
         r.raise_for_status()
 
 
@@ -777,10 +822,11 @@ if __name__ == "__main__":
         sys.argv += (f"--operation=indexes"
                      #f"--operation=sort-only"
                      #f"--operation=both"
-                     #f" --agglomeration-mapping={mapping_file}"
+                     #f" --agglomeration-mapping={mapping_file}"DVIDSparkServices/dvid/ingest_label_indexes.py
                      f" --num-threads=8"
                      f" --batch-size=1000"
-                     f" --tombstones=include"
+                     f" --tombstones=exclude"
+                     f" --check-mismatches"
                      #f" --no-progress-bar"
                      f" {dvid_config['server']}"
                      f" {dvid_config['uuid']}"
