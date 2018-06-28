@@ -64,7 +64,7 @@ class CopySegmentation(Workflow):
             "description": "Where to store block statistics for the INPUT segmentation\n"
                            "(but translated to output coordinates).\n"
                            "If the file already exists, it will be appended to (for restarting from a failed job).\n"
-                           "Supported formats: CSV (.csv), sqlite3 (.sqlite), and pickled pandas dataframe (.pkl.csv)",
+                           "Supported formats: .csv and .h5",
             "type": "string",
             "default": "block-statistics.h5"
         },
