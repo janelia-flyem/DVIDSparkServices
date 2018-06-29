@@ -344,19 +344,24 @@ def ingest_label_indexes( server,
         progress_bar = LoggedProgressIndicator(len(block_sv_stats), logger)
 
     all_mismatch_ids = []
+    all_missing_ids = []
     pool = multiprocessing.Pool(num_threads)
     with progress_bar, pool:
         # Rather than call pool.imap_unordered() with processor.process_batch(),
         # we use globally declared process_batch(), as explained below.
-        for next_stats_batch_total_rows, batch_mismatches in pool.imap_unordered(process_batch, gen):
+        for next_stats_batch_total_rows, batch_mismatches, batch_missing in pool.imap_unordered(process_batch, gen):
             if batch_mismatches:
                 pd.Series(batch_mismatches).to_csv(f'labelindex-mismatches-{uuid}.csv', index=False, header=False, mode='a')
                 all_mismatch_ids.extend( batch_mismatches )
-                logger.warning(f"Found mismatches in labels: {batch_mismatches}")
+
+            if batch_missing:
+                pd.Series(batch_missing).to_csv(f'labelindex-missing-{uuid}.csv', index=False, header=False, mode='a')
+                all_missing_ids.extend( batch_missing )
             progress_bar.update(next_stats_batch_total_rows)
 
     if check_mismatches:
-        logger.info(f"Found {len(all_mismatch_ids)} mismatches.")
+        logger.info(f"Mismatched LabelIndex count: {len(all_mismatch_ids)}")
+        logger.info(f"Missing LabelIndex count: {len(all_missing_ids)}")
 
 
 def _check_instance(server, uuid, instance_name):
@@ -497,12 +502,14 @@ class StatsBatchProcessor:
 
         # Check for mismatches
         mismatch_batch = []
+        missing_batch = []
         for labelindex in labelindex_batch:
             try:
                 existing_labelindex = fetch_labelindex(self.instance_info, labelindex.label)
-            except requests.RequestException:
-                logger.warning(f"Failed to fetch LabelIndex for label: {labelindex.label}")
-                mismatch_batch.append(labelindex)
+            except requests.RequestException as ex:
+                missing_batch.append(labelindex)
+                if not str(ex.response.status_code).startswith('4'):
+                    logger.warning(f"Failed to fetch LabelIndex for label: {labelindex.label} due to error {ex.response.status_code}")
             else:
                 if (labelindex.blocks != existing_labelindex.blocks):
                     # Update the mut_id to match the previous one.
@@ -510,11 +517,13 @@ class StatsBatchProcessor:
                     mismatch_batch.append(labelindex)
 
         # Post mismatches (only)
-        self.post_labelindex_batch(mismatch_batch)
+        self.post_labelindex_batch(mismatch_batch + missing_batch)
 
         # Return mismatch IDs
         mismatch_labels = [labelindex.label for labelindex in mismatch_batch]
-        return next_stats_batch_total_rows, mismatch_labels
+        missing_labels = [labelindex.label for labelindex in missing_batch]
+        
+        return next_stats_batch_total_rows, mismatch_labels, missing_labels
 
     def label_indexes_for_body(self, body_group_span):
         """
@@ -816,6 +825,8 @@ class LoggedProgressIndicator:
 if __name__ == "__main__":
     DEBUG = False
     if DEBUG:
+        os.chdir(os.path.dirname(DVIDSparkServices.__file__) + '/..')
+        
         import yaml
         test_dir = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/test_copyseg/temp_data'
         with open(f'{test_dir}/config.yaml', 'r') as f:
@@ -834,8 +845,8 @@ if __name__ == "__main__":
         sys.argv += (f"--operation=indexes"
                      #f"--operation=sort-only"
                      #f"--operation=both"
-                     f" --agglomeration-mapping={mapping_file}"
-                     #f" --agglomeration-mapping={dvid_config['uuid']}"
+                     #f" --agglomeration-mapping={mapping_file}"
+                     f" --agglomeration-mapping={dvid_config['uuid']}"
                      f" --num-threads=8"
                      f" --batch-size=1000"
                      f" --tombstones=exclude"
