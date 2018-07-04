@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
-from neuclease.dvid import fetch_mappings
+from neuclease.dvid import fetch_complete_mappings
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -837,9 +837,10 @@ class CreateStitchedMeshes(Workflow):
                 "Can't supply both labelmap and dvid-labelmap grouping parameters.  Pick one."
             
             if "server" in dvid_labelmap_config:
-                mapping_series = fetch_mappings( ( dvid_labelmap_config["server"],
-                                                   dvid_labelmap_config["uuid"],
-                                                   dvid_labelmap_config["segmentation-name"] ) )
+                mapping_series = fetch_complete_mappings( ( dvid_labelmap_config["server"],
+                                                            dvid_labelmap_config["uuid"],
+                                                            dvid_labelmap_config["segmentation-name"] ),
+                                                            'kafka' )
                 mapping_array = np.array((mapping_series.index.values, mapping_series.values))
                 self._labelmap = np.transpose(mapping_array).astype(np.uint64, copy=False)
             else:
