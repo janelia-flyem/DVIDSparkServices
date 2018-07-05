@@ -777,7 +777,7 @@ class CreateStitchedMeshes(Workflow):
         mapping_pairs = None
         if use_service_labelmap:
             assert isinstance(volume_service, LabelmappedVolumeService), \
-                "Cant' use service labelmap: The input isn't a LabelmappedVolumeService"
+                "Can't use service labelmap: The input isn't a LabelmappedVolumeService"
             mapping_pairs = volume_service.mapping_pairs
         elif grouping_scheme in ("labelmap", "dvid-labelmap"):
             mapping_pairs = self.load_labelmap()
@@ -788,8 +788,13 @@ class CreateStitchedMeshes(Workflow):
             # pandas.Series permits duplicate index values,
             # which is convenient for this reverse lookup
             reverse_lookup = pd.Series(index=bodies, data=segments)
-            sparse_segment_ids = reverse_lookup.loc[sparse_body_ids].values
-            sparse_segment_ids = sparse_segment_ids.astype(np.uint64)
+            sparse_segment_ids = reverse_lookup.loc[sparse_body_ids]
+            
+            # Single-supervoxel bodies are not present in the mapping,
+            # and thus result in NaN entries.  Replace them with identity mappings.
+            missing_entries = sparse_segment_ids.isnull()
+            sparse_segment_ids[missing_entries] = sparse_segment_ids.index[missing_entries]
+            sparse_segment_ids = sparse_segment_ids.astype(np.uint64).values
         else:
             # No labelmap: The 'body ids' are identical to segment ids
             sparse_segment_ids = sparse_body_ids
