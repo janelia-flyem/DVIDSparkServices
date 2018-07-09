@@ -582,8 +582,8 @@ class sparkdvid(object):
                 block_coords = cls.get_coarse_sparsevol( server, uuid, instance_name, body_id, supervoxels )
             except requests.RequestException as ex:
                 if ex.response.status_code in (404, 400):
-                    # FIXME: This body/supervoxel probably doesn't exist any more.
-                    #        Is there a better way to verify that we're not discarding real errors?
+                    # FIXME: This body/supervoxel *probably* doesn't exist any more, unless some other error is occurring.
+                    #        Is there a better way to verify that we're not discarding "real" errors?
                     nonexistent_bodies.append(body_id)
                     continue
                 else:
@@ -601,7 +601,8 @@ class sparkdvid(object):
                 union_box[1] = np.maximum( max_coord+1, union_box[1] )
 
         if nonexistent_bodies:
-            logger.warning(f"Could not find sparse masks for {len(nonexistent_bodies)} bodies: {nonexistent_bodies}")
+            segment_type = {True: "supervoxels", False: "bodies"}[supervoxels]
+            logger.warning(f"Could not find sparse masks for {len(nonexistent_bodies)}/{len(body_ids)} {segment_type}: {nonexistent_bodies}")
 
         if union_box is None:
             return (None, None, None)

@@ -24,9 +24,6 @@ class Grid:
     - An optional halo shape, indicating that blocks within the grid
       should extend outside the block shape, causing neighboring
       blocks to overlap.
-      
-    
-    and an offset coordinate for the first block in the grid.
     """
     def __init__(self, block_shape, offset=None, halo=0):
         if offset is None:
@@ -68,6 +65,13 @@ class Grid:
 class SparseBlockMask:
     """
     Tiny class to hold a low-resolution binary mask and the box it corresponds to.
+    
+    In other words, a simple way of sparsely marking blocks of a large volume.
+    
+    If your blocks of interest are VERY sparse, it would be cheaper to simply
+    store the list of block coordinate tuples.  But for semi-sparse data, storing
+    a binary mask as done here is cheaper, assuming your chosen block 'resolution'
+    is reasonably large (typically (64,64,64).
     """
     def __init__(self, lowres_mask, box, resolution):
         """
