@@ -11,9 +11,11 @@ from multiprocessing import TimeoutError
 
 import numpy as np
 import pandas as pd
+import requests
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
 from neuclease.dvid import fetch_complete_mappings
+from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_full_instance_info
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -183,7 +185,8 @@ class CreateStitchedMeshes(Workflow):
                         "type": "string",
                         "enum": ["trivial", # Used for testing, and 'no-groups' mode.
                                  "neu3-level-0",  # Used for tarballs of supervoxels (one tarball per body)
-                                 "neu3-level-1"], # Used for "tarballs" of pre-agglomerated bodies (one tarball per body, but only one file per tarball).
+                                 "neu3-level-1",
+                                 "tarsupervoxels"], # Used for storage into a dvid 'tarsupervoxels' instance.
                         "default": "trivial"
                     },
                     "format": {
@@ -353,7 +356,11 @@ class CreateStitchedMeshes(Workflow):
             if mesh_config["storage"]["grouping-scheme"] == 'no-groups':
                 suffix = "_meshes"
             else:
-                suffix = "_meshes_tars"
+                if mesh_config["storage"]["naming-scheme"] == "tarsupervoxels":
+                    suffix = "_sv_meshes"
+                else:
+                    suffix = "_meshes_tars"
+
             output_info["dvid"]["meshes-destination"] = output_info["dvid"]["segmentation-name"] + suffix
 
         if isinstance(mesh_config["storage"]["subset-bodies"], str):
@@ -724,15 +731,27 @@ class CreateStitchedMeshes(Workflow):
             
     def _init_meshes_instance(self):
         output_info = self.config_data["output"]
-        if is_node_locked(output_info["dvid"]["server"], output_info["dvid"]["uuid"]):
-            raise RuntimeError(f"Can't write meshes: The node you specified ({output_info['dvid']['server']} / {output_info['dvid']['uuid']}) is locked.")
+        server = output_info["dvid"]["server"]
+        uuid = output_info["dvid"]["uuid"]
+        seg_instance = output_info["dvid"]["segmentation-name"]
+        mesh_instance = output_info["dvid"]["meshes-destination"]
+        naming_scheme = self.config_data["mesh-config"]["storage"]["naming-scheme"]
 
-        instance_name = output_info["dvid"]["meshes-destination"]
-        create_keyvalue_instance( output_info["dvid"]["server"],
-                                  output_info["dvid"]["uuid"],
-                                  instance_name,
-                                  compression=None, # No compression on the DVID side; we're sending pre-compressed values.
-                                  tags=["type=meshes"] )
+        if is_node_locked(server, uuid):
+            raise RuntimeError(f"Can't write meshes: The node you specified ({server} / {uuid}) is locked.")
+
+        try:
+            mesh_info = fetch_full_instance_info((server, uuid, mesh_instance))
+        except requests.HTTPError:
+            # Doesn't exist yet; must create.
+            # (No compression -- we'll send pre-compressed files)
+            if naming_scheme == "tarsupervoxels":
+                create_tarsupervoxel_instance( (server, uuid, mesh_instance), seg_instance )
+            else:
+                create_instance( (server, uuid, mesh_instance), "keyvalue", versioned=True, compression='none', tags=["type=meshes"] )
+        else:
+            if naming_scheme == "tarsupervoxels" and mesh_info["Base"]["TypeName"] != "tarsupervoxels":
+                raise RuntimeError("You are attempting to use the 'tarsupervoxels' scheme with the wrong instance type.")
 
 
     def _get_sparse_block_mask(self, volume_service, use_service_labelmap=False):
@@ -1083,7 +1102,10 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
             @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
             def write_tar():
                 with resource_client.access_context(dvid_server, False, 1, len(tar_bytes)):
-                    session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{tar_name}', tar_bytes)
+                    if config["mesh-config"]["storage"]["naming-scheme"] == "tarsupervoxels":
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/load', tar_bytes)
+                    else:
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{tar_name}', tar_bytes)
             
             write_tar()
             keys_written.append(tar_name)
@@ -1100,7 +1122,7 @@ def _get_group_name(config, group_id):
     # Must not allow np.uint64, which uses a custom __str__()
     group_id = int(group_id)
 
-    if naming_scheme == "trivial":
+    if naming_scheme in ("trivial", "tarsupervoxels"):
         group_name = str(group_id) # no special encoding
     elif naming_scheme == "neu3-level-0":
         keyEncodeLevel0 = 10000000000000
@@ -1127,7 +1149,7 @@ def _get_mesh_name(config, mesh_id):
     # Must not allow np.uint64, which uses a custom __str__()
     mesh_id = int(mesh_id)
 
-    if naming_scheme == "trivial":
+    if naming_scheme in ("trivial", "tarsupervoxels"):
         mesh_name = str(mesh_id) # no special encoding
     elif naming_scheme == "neu3-level-0":
         fileEncodeLevel0 = 0 # identity (supervoxel names remain unchanged)

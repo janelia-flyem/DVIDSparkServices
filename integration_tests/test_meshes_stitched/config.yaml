@@ -18,7 +18,7 @@
         "server": "127.0.0.1:8000",
         "uuid": "UUID1",
         "segmentation-name": "labels",
-        "meshes-destination": "labels_grouped_stitched_meshes"
+        "meshes-destination": "labels_sv_meshes"
       },
       "geometry": {} # Not used
     },
@@ -37,7 +37,7 @@
         "storage": {
           #format: drc,
           format: obj,
-          naming-scheme: "neu3-level-0",
+          naming-scheme: "tarsupervoxels",
           "grouping-scheme": "labelmap",
           "labelmap": {
             "file": ../mod-10-labelmap.csv, # Relative to temp_data/config.json
