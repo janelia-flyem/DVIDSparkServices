@@ -736,6 +736,7 @@ class CreateStitchedMeshes(Workflow):
         seg_instance = output_info["dvid"]["segmentation-name"]
         mesh_instance = output_info["dvid"]["meshes-destination"]
         naming_scheme = self.config_data["mesh-config"]["storage"]["naming-scheme"]
+        extension = self.config_data["mesh-config"]["storage"]["format"]
 
         if is_node_locked(server, uuid):
             raise RuntimeError(f"Can't write meshes: The node you specified ({server} / {uuid}) is locked.")
@@ -746,7 +747,7 @@ class CreateStitchedMeshes(Workflow):
             # Doesn't exist yet; must create.
             # (No compression -- we'll send pre-compressed files)
             if naming_scheme == "tarsupervoxels":
-                create_tarsupervoxel_instance( (server, uuid, mesh_instance), seg_instance )
+                create_tarsupervoxel_instance( (server, uuid, mesh_instance), seg_instance, extension )
             else:
                 create_instance( (server, uuid, mesh_instance), "keyvalue", versioned=True, compression='none', tags=["type=meshes"] )
         else:
