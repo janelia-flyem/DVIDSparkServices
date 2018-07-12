@@ -25,7 +25,7 @@ from DVIDSparkServices.util import Timer, persist_and_execute, num_worker_nodes,
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid 
 from DVIDSparkServices.reconutils.morpho import object_masks_for_labels
-from DVIDSparkServices.dvid.metadata import is_node_locked, create_keyvalue_instance
+from DVIDSparkServices.dvid.metadata import is_node_locked
 
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService, ScaledVolumeService, TransposedVolumeService
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
@@ -173,11 +173,12 @@ class CreateStitchedMeshes(Workflow):
                                        "Choices:\n"
                                        "- no-groups: No tarballs. Each mesh is written as a separate key.\n"
                                        "- singletons: Each mesh is written as a separate key, but it is wrapped in a 1-item tarball.\n"
-                                       "- hundreds: Group meshes in groups of up to 100, such that ids xxx00 through xxx99 end up in the same group.\n"
+                                       "- hundreds: Group meshes in groups of up to 100, such that ids xxxx00 through xxxx99 end up in the same group.\n"
+                                       "- thousands: Group meshes in groups of up to 1000, such that ids xxx000 through xxx999 end up in the same group.\n"
                                        "- labelmap: Use the labelmap setting below to determine the grouping.\n"
                                        "- dvid-labelmap: Use the dvid-labelmap setting below to determine the grouping.\n",
                         "type": "string",
-                        "enum": ["no-groups", "singletons", "hundreds", "labelmap", "dvid-labelmap"],
+                        "enum": ["no-groups", "singletons", "hundreds", "thousands", "labelmap", "dvid-labelmap"],
                         "default": "no-groups"
                     },
                     "naming-scheme": {
@@ -999,11 +1000,18 @@ class CreateStitchedMeshes(Workflow):
         n_partitions = num_worker_nodes() * cpus_per_worker()
 
         if grouping_scheme in "hundreds":
-            def last_six_digits( id_mesh ):
+            def hundreds( id_mesh ):
                 segment_id, _mesh = id_mesh
-                body_id = segment_id - (segment_id % 100)
-                return body_id
-            grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.groupBy(last_six_digits, numPartitions=n_partitions)
+                group_id = segment_id // 100 * 100
+                return group_id
+            grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.groupBy(hundreds, numPartitions=n_partitions)
+
+        elif grouping_scheme in "thousands":
+            def thousands( id_mesh ):
+                segment_id, _mesh = id_mesh
+                group_id = segment_id // 1000 * 1000
+                return group_id
+            grouped_segment_ids_and_meshes = segment_id_and_mesh_bytes.groupBy(thousands, numPartitions=n_partitions)
 
         elif grouping_scheme in ("labelmap", "dvid-labelmap"):
             mapping_pairs = self.load_labelmap()
