@@ -26,6 +26,8 @@
         task-block-shape: [64, 64, 64],
         task-block-halo: 2,
 
+        batch-count: 2,
+
         pre-stitch-smoothing-iterations: 3,
         pre-stitch-decimation: 0.1,
 

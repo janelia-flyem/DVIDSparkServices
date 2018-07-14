@@ -4,6 +4,7 @@ import copy
 import tarfile
 import socket
 import logging
+from math import ceil
 from functools import partial
 from io import BytesIO
 from contextlib import closing
@@ -14,6 +15,7 @@ import pandas as pd
 import requests
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
+from neuclease.logging_setup import PrefixedLogger
 from neuclease.dvid import fetch_complete_mappings
 from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_full_instance_info
 
@@ -72,6 +74,7 @@ class CreateStitchedMeshes(Workflow):
                 "maxItems": 3,
                 "default": [-1,-1,-1] # use preferred-message-shape
             },
+
             "task-block-halo": {
                 "description": "Meshes will be generated in blocks before stitching.\n"
                                "This setting specifies the width of the halo around each block,\n"
@@ -81,6 +84,16 @@ class CreateStitchedMeshes(Workflow):
                 "type": "integer",
                 "default": 1
             },
+
+            "batch-count": {
+                "description": "After segmentation is loaded, the meshes will be computed in batches.\n"
+                               "Specify the number of batches.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100,
+                "default": 1
+            },
+            
             "pre-stitch-smoothing-iterations": {
                 "description": "How many iterations of smoothing to apply to the mesh BEFORE the block meshes are stitched",
                 "type": "integer",
@@ -391,7 +404,6 @@ class CreateStitchedMeshes(Workflow):
             mesh_config["storage"]["subset-bodies"] = subset_bodies
 
     def execute(self):
-        from pyspark import StorageLevel
         self._sanitize_config()
 
         config = self.config_data
@@ -431,7 +443,9 @@ class CreateStitchedMeshes(Workflow):
 
         full_stats_df = self.compute_segment_and_body_stats(brick_wall.bricks)
         keep_col = full_stats_df['keep_segment'] & full_stats_df['keep_body']
-        if keep_col.all():
+        
+        batch_count = config["mesh-config"]['batch-count']
+        if keep_col.all() and batch_count == 1:
             segments_to_keep = None # keep everything
         else:
             # Note: This array will be broadcasted to the workers.
@@ -439,13 +453,33 @@ class CreateStitchedMeshes(Workflow):
             #       Broadcast expense should be minimal thanks to lz4 compression,
             #       but RAM usage will be high.
             segments_to_keep = full_stats_df['segment'][keep_col].values
+            
             if len(segments_to_keep) == 0:
                 raise RuntimeError("Based on your config settings, no meshes will be generated at all. See segment stats.")
+
             if segments_to_keep.max() < np.iinfo(np.uint32).max:
                 segments_to_keep = segments_to_keep.astype(np.uint32) # Save some RAM
-        
+
+        logger.info(f"Processing {keep_col.sum()} meshes in {batch_count} batches")
+        if segments_to_keep is None:
+            self.process_batch(brick_wall, full_stats_df, None, 0)
+        else:
+            batch_size = ceil(len(segments_to_keep) / batch_count)
+            batch_bounds = list(range(0, batch_size*batch_count+1, batch_size))
+            for batch_index, (start, stop) in enumerate(zip(batch_bounds[:-1], batch_bounds[1:])):
+                self.process_batch(brick_wall, full_stats_df, segments_to_keep[start:stop], batch_index)
+                
+
+    def process_batch(self, brick_wall, full_stats_df, segments_to_keep, batch_index):
+        from pyspark import StorageLevel
+        batch_logger = PrefixedLogger(logger, f"Batch {batch_index}: ")
+        config = self.config_data
+        bad_mesh_dir = f"{self.config_dir}/bad-meshes"
+
+        batch_logger.info(f"Starting batch of {len(segments_to_keep)} meshes")
+
         def generate_meshes_for_brick( brick ):
-            import DVIDSparkServices # Ensure faulthandler logging is active.
+            import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
             if segments_to_keep is None:
                 filtered_volume = brick.volume
             else:
@@ -470,7 +504,7 @@ class CreateStitchedMeshes(Workflow):
         # Compute meshes per-block
         # --> (segment_id, (mesh_for_one_block, compressed_size))
         segment_ids_and_mesh_blocks = brick_wall.bricks.flatMap( generate_meshes_for_brick )
-        rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", logger, StorageLevel.MEMORY_AND_DISK)
+        rt.persist_and_execute(segment_ids_and_mesh_blocks, "Computing block segment meshes", batch_logger, StorageLevel.MEMORY_AND_DISK) # @UndefinedVariable
         
         segments_and_counts_and_size = segment_ids_and_mesh_blocks \
                                        .map( lambda seg_mesh_size: (seg_mesh_size[0], (len(seg_mesh_size[1][0].vertices_zyx), seg_mesh_size[1][1]) ) ) \
@@ -481,10 +515,10 @@ class CreateStitchedMeshes(Workflow):
         
         counts_df = pd.DataFrame( segments_and_counts_and_size, columns=['segment', 'initial_vertex_count', 'total_compressed_size'] )
         del segments_and_counts_and_size
-        with Timer("Merging initial_vertex_count onto segment stats", logger):
+        with Timer("Merging initial_vertex_count onto segment stats", batch_logger):
             full_stats_df = full_stats_df.merge(counts_df, 'left', on='segment')
         if not config["options"]["skip-stats-export"]:
-            counts_df.to_csv(self.relpath_to_abspath('initial-vertex-counts.csv'), index=False)
+            counts_df.to_csv(self.relpath_to_abspath(f'batch-{batch_index}-initial-vertex-counts.csv'), index=False)
         
         # Drop size
         # --> (segment_id, mesh_for_one_block)
@@ -500,14 +534,14 @@ class CreateStitchedMeshes(Workflow):
         smoothing_iterations = config["mesh-config"]["pre-stitch-smoothing-iterations"]
         if smoothing_iterations > 0:
             def smooth(mesh):
-                import DVIDSparkServices # Ensure faulthandler logging is active.
+                import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
                 mesh.laplacian_smooth(smoothing_iterations)
                 mesh.drop_normals()
                 mesh.compress()
                 return mesh
             segment_id_and_smoothed_mesh = segment_ids_and_mesh_blocks.mapValues( smooth )
     
-            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing block meshes", logger, StorageLevel.MEMORY_AND_DISK)
+            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing block meshes", batch_logger, StorageLevel.MEMORY_AND_DISK) # @UndefinedVariable
             rt.unpersist(segment_ids_and_mesh_blocks)
             segment_ids_and_mesh_blocks = segment_id_and_smoothed_mesh
             del segment_id_and_smoothed_mesh
@@ -518,7 +552,7 @@ class CreateStitchedMeshes(Workflow):
         # Join mesh blocks with corresponding body vertex counts
         body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.itertuples(index=False))
         segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
-        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining mesh blocks with body vertex counts", logger)
+        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining mesh blocks with body vertex counts", batch_logger)
         rt.unpersist(segment_ids_and_mesh_blocks)
         
         max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
@@ -529,7 +563,7 @@ class CreateStitchedMeshes(Workflow):
         if decimation_fraction < 1.0:
             @self.collect_log(lambda _: socket.gethostname() + '-mesh-decimation')
             def decimate(id_mesh_bcount):
-                import DVIDSparkServices # Ensure faulthandler logging is active.
+                import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
                 segment_id, (mesh, body_vertex_count) = id_mesh_bcount
                 try:
                     final_decimation = decimation_fraction
@@ -552,7 +586,7 @@ class CreateStitchedMeshes(Workflow):
 
             segment_id_and_decimated_mesh = segment_ids_and_mesh_blocks_and_body_counts.map(decimate)
 
-            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating block meshes", logger)
+            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating block meshes", batch_logger)
             rt.unpersist(segment_ids_and_mesh_blocks_and_body_counts)
             segment_ids_and_mesh_blocks = segment_id_and_decimated_mesh
             del segment_id_and_decimated_mesh
@@ -560,13 +594,13 @@ class CreateStitchedMeshes(Workflow):
         if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
             # Compute normals
             def recompute_normals(mesh):
-                import DVIDSparkServices # Ensure faulthandler logging is active.
+                import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
                 mesh.recompute_normals()
                 return mesh
             
             segment_id_and_mesh_with_normals = segment_ids_and_mesh_blocks.map(recompute_normals)
 
-            rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing block mesh normals", logger)
+            rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing block mesh normals", batch_logger)
             rt.unpersist(segment_ids_and_mesh_blocks)
             segment_ids_and_mesh_blocks = segment_id_and_mesh_with_normals
             del segment_id_and_mesh_with_normals
@@ -574,7 +608,7 @@ class CreateStitchedMeshes(Workflow):
         # Group by segment ID
         # --> (segment_id, [mesh_for_block, mesh_for_block, ...])
         mesh_blocks_grouped_by_segment = segment_ids_and_mesh_blocks.groupByKey()
-        rt.persist_and_execute(mesh_blocks_grouped_by_segment, "Grouping block segment meshes", logger)
+        rt.persist_and_execute(mesh_blocks_grouped_by_segment, "Grouping block segment meshes", batch_logger)
         rt.unpersist(segment_ids_and_mesh_blocks)
         del segment_ids_and_mesh_blocks
         
@@ -583,7 +617,7 @@ class CreateStitchedMeshes(Workflow):
         stitch_method = config["mesh-config"]["stitch-method"]
         @self.collect_log()
         def concatentate_and_stitch(meshes):
-            import DVIDSparkServices # Ensure faulthandler logging is active.
+            import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
             def _impl():
                 concatenated_mesh = concatenate_meshes(meshes)
                 for mesh in meshes:
@@ -606,7 +640,7 @@ class CreateStitchedMeshes(Workflow):
             
         segment_id_and_mesh = mesh_blocks_grouped_by_segment.mapValues(concatentate_and_stitch)
         
-        rt.persist_and_execute(segment_id_and_mesh, "Stitching block segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_mesh, "Stitching block segment meshes", batch_logger)
         rt.unpersist(mesh_blocks_grouped_by_segment)
         del mesh_blocks_grouped_by_segment
 
@@ -615,12 +649,12 @@ class CreateStitchedMeshes(Workflow):
         smoothing_iterations = config["mesh-config"]["post-stitch-smoothing-iterations"]
         if smoothing_iterations > 0:
             def smooth(mesh):
-                import DVIDSparkServices # Ensure faulthandler logging is active.
+                import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
                 mesh.laplacian_smooth(smoothing_iterations)
                 return mesh
             segment_id_and_smoothed_mesh = segment_id_and_mesh.mapValues( smooth )
     
-            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing stitched meshes", logger)
+            rt.persist_and_execute(segment_id_and_smoothed_mesh, "Smoothing stitched meshes", batch_logger)
             rt.unpersist(segment_id_and_mesh)
             segment_id_and_mesh = segment_id_and_smoothed_mesh
             del segment_id_and_smoothed_mesh
@@ -633,7 +667,7 @@ class CreateStitchedMeshes(Workflow):
         if decimation_fraction < 1.0 or max_vertices > 0:
             @self.collect_log(lambda *_a, **_kw: 'post-stitch-decimation', logging.WARNING)
             def decimate(seg_and_mesh):
-                import DVIDSparkServices # Ensure faulthandler logging is active.
+                import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
                 segment_id, mesh = seg_and_mesh
                 final_decimation = decimation_fraction
 
@@ -646,7 +680,7 @@ class CreateStitchedMeshes(Workflow):
                 return (segment_id, mesh)
             segment_id_and_decimated_mesh = segment_id_and_mesh.map(decimate)
 
-            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating stitched meshes", logger)
+            rt.persist_and_execute(segment_id_and_decimated_mesh, "Decimating stitched meshes", batch_logger)
             rt.unpersist(segment_id_and_mesh)
             segment_id_and_mesh = segment_id_and_decimated_mesh
             del segment_id_and_decimated_mesh
@@ -655,18 +689,18 @@ class CreateStitchedMeshes(Workflow):
         if not config["options"]["skip-stats-export"]:
             segments_and_counts = segment_id_and_mesh.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1].vertices_zyx))).collect()
             counts_df = pd.DataFrame( segments_and_counts, columns=['segment', 'post_stitch_decimated_vertex_count'] )
-            counts_df.to_csv(self.relpath_to_abspath('poststitch-vertex-counts.csv'),  index=False)
+            counts_df.to_csv(self.relpath_to_abspath(f'batch-{batch_index}-poststitch-vertex-counts.csv'),  index=False)
 
         # Post-stitch normals
         # --> (segment_id, mesh)
         if (smoothing_iterations > 0 or decimation_fraction < 1.0) and config["mesh-config"]["compute-normals"]:
             def compute_normals(mesh):
-                import DVIDSparkServices # Ensure faulthandler logging is active.
+                import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
                 mesh.recompute_normals()
                 return mesh
             segment_id_and_mesh_with_normals = segment_id_and_mesh.mapValues(compute_normals)
 
-            rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing stitched mesh normals", logger)
+            rt.persist_and_execute(segment_id_and_mesh_with_normals, "Computing stitched mesh normals", batch_logger)
             rt.unpersist(segment_id_and_mesh)
             segment_id_and_mesh = segment_id_and_mesh_with_normals
             del segment_id_and_mesh_with_normals
@@ -678,7 +712,7 @@ class CreateStitchedMeshes(Workflow):
                 return mesh
             segment_id_and_rescaled_mesh = segment_id_and_mesh.mapValues(rescale)
             
-            rt.persist_and_execute(segment_id_and_rescaled_mesh, "Rescaling segment meshes", logger)
+            rt.persist_and_execute(segment_id_and_rescaled_mesh, "Rescaling segment meshes", batch_logger)
             rt.unpersist(segment_id_and_mesh)
             segment_id_and_mesh = segment_id_and_rescaled_mesh
             del segment_id_and_rescaled_mesh
@@ -688,7 +722,7 @@ class CreateStitchedMeshes(Workflow):
         fmt = config["mesh-config"]["storage"]["format"]
         @self.collect_log(echo_threshold=logging.INFO)
         def serialize(id_mesh):
-            import DVIDSparkServices # Ensure faulthandler logging is active.
+            import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
             segment_id, mesh = id_mesh
             try:
                 mesh_serialize = execute_in_subprocess(600, logging.getLogger(__name__))(mesh.serialize)
@@ -704,7 +738,7 @@ class CreateStitchedMeshes(Workflow):
         segment_id_and_mesh_bytes = segment_id_and_mesh.map( serialize ) \
                                                        .filter(lambda mesh_bytes: len(mesh_bytes) > 0)
 
-        rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", logger)
+        rt.persist_and_execute(segment_id_and_mesh_bytes, "Serializing segment meshes", batch_logger)
         rt.unpersist(segment_id_and_mesh)
         del segment_id_and_mesh
 
@@ -714,20 +748,20 @@ class CreateStitchedMeshes(Workflow):
             mesh_file_sizes = segment_id_and_mesh_bytes.map(lambda id_mesh: (id_mesh[0], len(id_mesh[1])) ).collect()
             mesh_file_sizes_df = pd.DataFrame(mesh_file_sizes, columns=['segment', 'file_size'])
             del mesh_file_sizes
-            mesh_file_sizes_df.to_csv(self.relpath_to_abspath('file-sizes.csv'), index=False)
+            mesh_file_sizes_df.to_csv(self.relpath_to_abspath(f'batch-{batch_index}-file-sizes.csv'), index=False)
             del mesh_file_sizes_df
 
         # Group by body ID
         # --> ( body_id, [( segment_id, mesh_bytes ), ( segment_id, mesh_bytes ), ...] )
-        segment_id_and_mesh_bytes_grouped_by_body = self.group_by_body(segment_id_and_mesh_bytes)
+        segment_id_and_mesh_bytes_grouped_by_body = self.group_by_body(segment_id_and_mesh_bytes, batch_logger)
 
         instance_name = config["output"]["dvid"]["meshes-destination"]
-        with Timer("Writing meshes to DVID", logger):
+        with Timer("Writing meshes to DVID", batch_logger):
             keys_written = segment_id_and_mesh_bytes_grouped_by_body.mapPartitions( partial(post_meshes_to_dvid, config, instance_name) ).collect()
             keys_written = list(keys_written)
 
         keys_written = pd.Series(keys_written, name='key')
-        keys_written.to_csv(self.relpath_to_abspath('./keys-uploaded.csv'), index=False, header=False)
+        keys_written.to_csv(self.relpath_to_abspath(f'batch-{batch_index}-keys-uploaded.csv'), index=False, header=False)
 
             
     def _init_meshes_instance(self):
@@ -986,7 +1020,7 @@ class CreateStitchedMeshes(Workflow):
         return full_stats_df
 
 
-    def group_by_body(self, segment_id_and_mesh_bytes):
+    def group_by_body(self, segment_id_and_mesh_bytes, logger):
         """
         For the RDD with items: (segment_id, mesh_bytes),
         group the items by the body (a.k.a. group) that each segment is in.
