@@ -94,6 +94,13 @@ class CreateStitchedMeshes(Workflow):
                 "default": 1
             },
             
+            "skip-batches": {
+                "description": "Skip the given batch indexes.  Useful for resuming a failed job or skipping a problematic batch.\n",
+                "type": "array",
+                "items": { "type": "integer", "minimum": 0 },
+                "default": []
+            },
+            
             "pre-stitch-smoothing-iterations": {
                 "description": "How many iterations of smoothing to apply to the mesh BEFORE the block meshes are stitched",
                 "type": "integer",
@@ -467,16 +474,21 @@ class CreateStitchedMeshes(Workflow):
             batch_size = ceil(len(segments_to_keep) / batch_count)
             batch_bounds = list(range(0, batch_size*batch_count+1, batch_size))
             for batch_index, (start, stop) in enumerate(zip(batch_bounds[:-1], batch_bounds[1:])):
-                self.process_batch(brick_wall, full_stats_df, segments_to_keep[start:stop], batch_index)
-                
+                if batch_index in config["mesh-config"]["skip-batches"]:
+                    logger.info(f"Skipping batch {batch_index}")
+                    continue
 
-    def process_batch(self, brick_wall, full_stats_df, segments_to_keep, batch_index):
+                batch_logger = PrefixedLogger(logger, f"Batch {batch_index}: ")
+                batch_segments = segments_to_keep[start:stop]
+                with Timer(f"Processing {len(batch_segments)} meshes", batch_logger):
+                    self.process_batch(brick_wall, full_stats_df, batch_segments, batch_index, batch_logger)
+
+
+    def process_batch(self, brick_wall, full_stats_df, segments_to_keep, batch_index, batch_logger):
         from pyspark import StorageLevel
-        batch_logger = PrefixedLogger(logger, f"Batch {batch_index}: ")
         config = self.config_data
         bad_mesh_dir = f"{self.config_dir}/bad-meshes"
 
-        batch_logger.info(f"Starting batch of {len(segments_to_keep)} meshes")
 
         def generate_meshes_for_brick( brick ):
             import DVIDSparkServices # Ensure faulthandler logging is active. # @UnusedImport
