@@ -383,6 +383,9 @@ class CreateStitchedMeshes(Workflow):
 
             output_info["dvid"]["meshes-destination"] = output_info["dvid"]["segmentation-name"] + suffix
 
+        if mesh_config["batch-count"] > 1 and not mesh_config["storage"]["naming-scheme"] == "tarsupervoxels":
+            raise RuntimeError("FIXME: Batch mechanism is broken for key-value tarballs because it will overwrite the tarball in every batch.")
+
         if isinstance(mesh_config["storage"]["subset-bodies"], str):
             csv_path = self.relpath_to_abspath(mesh_config["storage"]["subset-bodies"])
             with open(csv_path, 'r') as csv_file:
