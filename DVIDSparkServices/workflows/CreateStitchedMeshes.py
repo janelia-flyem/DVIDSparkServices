@@ -90,7 +90,6 @@ class CreateStitchedMeshes(Workflow):
                                "Specify the number of batches.",
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 100,
                 "default": 1
             },
             
