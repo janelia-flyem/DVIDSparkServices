@@ -259,6 +259,14 @@ class CreateStitchedMeshes(Workflow):
                         ],
                         "default": []
                     },
+                    "skip-sparse-fetch": {
+                        "description": "When using 'subset-bodies' option, we attempt to save time by only fetching the blocks that we need from DVID. \n"
+                                       "But to do that, we need to fetch the /sparsevol-coarse from DVID for every body (supervoxel) in the sparse set. \n"
+                                       "For large subset lists, fetching all those sparsevols is slower than just fetching the whole segmentation to begin with. \n"
+                                       "Use this option to disable the sparse fetch if you think it will be slower than reading the entire segmentation. \n",
+                        "type": "boolean",
+                        "default": False
+                    },
                     "input-is-mapped-supervoxels": {
                         "description": "When using 'subset-bodies' option, we need to know how to fetch sparse blocks from dvid.\n"
                                        "If the input is a pre-mapped supervoxel volume, we'll have to use the supervoxel IDs (not body ids) when fetching from DVID.\n"
@@ -818,7 +826,7 @@ class CreateStitchedMeshes(Workflow):
         config = self.config_data
         
         sparse_body_ids = config["mesh-config"]["storage"]["subset-bodies"]
-        if not sparse_body_ids:
+        if not sparse_body_ids or config["mesh-config"]["storage"]["skip-sparse-fetch"]:
             return None
 
         assert isinstance(volume_service.base_service, DvidVolumeService), \
