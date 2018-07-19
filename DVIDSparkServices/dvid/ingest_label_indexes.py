@@ -20,7 +20,7 @@ from dvidutils import LabelMapper # Fast label mapping in C++
 
 import DVIDSparkServices # We implicitly rely on initialize_excepthook()
 
-from DVIDSparkServices.util import Timer, default_dvid_session
+from DVIDSparkServices.util import Timer, default_dvid_session, groupby_presorted, groupby_spans_presorted
 from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
 from DVIDSparkServices.dvid.metadata import DataInstance
 
@@ -668,70 +668,6 @@ def load_stats_h5_to_records(h5_path):
     return block_sv_stats, presorted_by, agglomeration_path
 
 
-@jit(nopython=True)
-def groupby_presorted(a, sorted_cols):
-    """
-    Given an array of data and some sorted reference columns to use for grouping,
-    yield subarrays of the data, according to runs of identical rows in the reference columns.
-    
-    JIT-compiled with numba.
-    For pre-sorted structured array input, this is much faster than pandas.DataFrame(a).groupby().
-    
-    Args:
-        a: ND array, any dtype, shape (N,) or (N,...)
-        sorted_cols: ND array, at least 2D, any dtype, shape (N,...),
-                     not necessarily the same shape as 'a', except for the first dimension.
-                     Must be pre-ordered so that identical rows are contiguous,
-                     and therefore define the group boundaries.
-
-    Note: The contents of 'a' need not be related in any way to sorted_cols.
-          The sorted_cols array is just used to determine the split points,
-          and the corresponding rows of 'a' are returned.
-
-    Examples:
-    
-        a = np.array( [[0,0,0],
-                       [1,0,0],
-                       [2,1,0],
-                       [3,1,1],
-                       [4,2,1]] )
-
-        # Group by second column
-        groups = list(groupby_presorted(a, a[:,1:2]))
-        assert (groups[0] == [[0,0,0], [1,0,0]]).all()
-        assert (groups[1] == [[2,1,0], [3,1,1]]).all()
-        assert (groups[2] == [[4,2,1]]).all()
-    
-        # Group by third column
-        groups = list(groupby_presorted(a, a[:,2:3]))
-        assert (groups[0] == [[0,0,0], [1,0,0], [2,1,0]]).all()
-        assert (groups[1] == [[3,1,1], [4,2,1]]).all()
-
-        # Group by external column
-        col = np.array([10,10,40,40,40]).reshape(5,1) # must be at least 2D
-        groups = list(groupby_presorted(a, col))
-        assert (groups[0] == [[0,0,0], [1,0,0]]).all()
-        assert (groups[1] == [[2,1,0], [3,1,1],[4,2,1]]).all()
-        
-    """
-    assert sorted_cols.ndim >= 2
-    assert sorted_cols.shape[0] == a.shape[0]
-
-    if len(a) == 0:
-        return
-
-    start = 0
-    row = sorted_cols[0]
-    for stop in range(len(sorted_cols)):
-        next_row = sorted_cols[stop]
-        if (next_row != row).any():
-            yield a[start:stop]
-            start = stop
-            row = next_row
-
-    # Last group
-    yield a[start:len(sorted_cols)]
-
 def group_sums_presorted(a, sorted_cols):
     """
     Args:
@@ -774,28 +710,6 @@ def group_sums_presorted(a, sorted_cols):
 
     return _agg(a, sorted_cols, groups, agg_results)
 
-
-@jit(nopython=True)
-def groupby_spans_presorted(sorted_cols):
-    """
-    Similar to groupby_presorted(), but yields only the (start, stop)
-    indexes of the contiguous groups, (not the group subarrays themselves).
-    """
-    assert sorted_cols.ndim >= 2
-    if len(sorted_cols) == 0:
-        return
-
-    start = 0
-    row = sorted_cols[0]
-    for stop in range(len(sorted_cols)):
-        next_row = sorted_cols[stop]
-        if (next_row != row).any():
-            yield (start, stop)
-            start = stop
-            row = next_row
-
-    # Last group
-    yield (start, len(sorted_cols))
 
 class LoggedProgressIndicator:
     """
