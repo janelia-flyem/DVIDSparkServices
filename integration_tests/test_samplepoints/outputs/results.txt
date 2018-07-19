@@ -1,0 +1,41 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/tmp/test_samplepoints_logs', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/test_samplepoints_logs
+ * Serving Flask app "logserver" (lazy loading)
+ * Environment: production
+   WARNING: Do not use the development server in a production environment.
+   Use a production WSGI server instead.
+ * Debug mode: off
+INFO [2018-07-19 01:40:48,604] Started logserver on 192.168.1.152:3000
+INFO [2018-07-19 01:40:48,608] Starting resource manager on the driver (192.168.1.152)
+INFO [2018-07-19 01:40:48,613] Started resource manager
+Sample Points: Started [2018-07-19 01:40:48]
+INFO [2018-07-19 01:40:48,637] Reading /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_samplepoints/points.csv...
+INFO [2018-07-19 01:40:48,645] Reading /Users/bergs/Documents/workspace/DVIDSparkServices/integration_tests/test_samplepoints/points.csv took 0:00:00.006228
+INFO [2018-07-19 01:40:48,648] Sorting input points...
+INFO [2018-07-19 01:40:48,651] Sorting input points took 0:00:00.001889
+INFO [2018-07-19 01:40:48,654] Computing brick IDs...
+INFO [2018-07-19 01:40:49,053] Computing brick IDs took 0:00:00.398017
+INFO [2018-07-19 01:40:49,056] Distributing points...
+INFO [2018-07-19 01:40:49,632] Distributing points took 0:00:00.574689
+INFO [2018-07-19 01:40:49,635] Constructing sparse mask...
+INFO [2018-07-19 01:40:49,637] Constructing sparse mask took 0:00:00.000187
+INFO [2018-07-19 01:40:49,641] Initializing RDD of 25 Bricks (over 16 partitions) with total volume 0.0 Gvox
+INFO [2018-07-19 01:40:49,714] Joining point groups with bricks...
+INFO [2018-07-19 01:40:49,789] Joining point groups with bricks took 0:00:00.072782
+INFO [2018-07-19 01:40:49,791] Sampling bricks...
+INFO [2018-07-19 01:41:00,129] Sampling bricks took 0:00:10.336373
+INFO [2018-07-19 01:41:00,131] Concatenating samples...
+INFO [2018-07-19 01:41:00,133] Concatenating samples took 0:00:00.000341
+INFO [2018-07-19 01:41:00,135] Sorting samples...
+INFO [2018-07-19 01:41:00,138] Sorting samples took 0:00:00.000483
+INFO [2018-07-19 01:41:00,139] Exporting samples...
+INFO [2018-07-19 01:41:00,146] Exporting samples took 0:00:00.004377
+INFO [2018-07-19 01:41:00,147] DONE.
+Sample Points: Finished [2018-07-19 01:41:00]
+INFO [2018-07-19 01:41:00,151] No worker init processes to kill
+INFO [2018-07-19 01:41:00,153] No driver init process to kill
+INFO [2018-07-19 01:41:00,156] Terminating resource manager (PID 7507)
+Resource manager killed via external signal: SystemExit
+INFO [2018-07-19 01:41:00,228] Terminating logserver (PID 7506)
+Log server killed via external signal: SystemExit
