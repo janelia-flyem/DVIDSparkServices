@@ -90,7 +90,7 @@ class SparseBlockMask:
             self.resolution = np.asarray(resolution)
             
         assert (((self.box[1] - self.box[0]) // self.resolution) == self.lowres_mask.shape).all(), \
-            f"Inconsistent mask shape ({lowres_mask}) and box {box.tolist()} for the given resolution ({resolution}).\n"\
+            f"Inconsistent mask shape ({lowres_mask.shape}) and box {self.box.tolist()} for the given resolution ({resolution}).\n"\
             "Note: box should be specified in FULL resolution coordinates."
 
 class Brick:
