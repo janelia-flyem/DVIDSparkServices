@@ -1,0 +1,15 @@
+['/magnetic/workspace/logcollector/logcollector/logserver.py', '--log-dir=/tmp/test_grayscale_benchmark_logs', '--port=3000']
+Starting server on 0.0.0.0:3000
+Saving logs to /tmp/test_grayscale_benchmark_logs
+ * Serving Flask app "logserver" (lazy loading)
+ * Environment: production
+   WARNING: Do not use the development server in a production environment.
+   Use a production WSGI server instead.
+ * Debug mode: off
+INFO [2018-07-20 12:09:01,732] Started logserver on 10.60.1.57:3000
+Grayscale Benchmark: Started [2018-07-20 12:09:01]
+Grayscale Benchmark: Finished [2018-07-20 12:09:07]
+INFO [2018-07-20 12:09:07,026] No worker init processes to kill
+INFO [2018-07-20 12:09:07,041] No driver init process to kill
+INFO [2018-07-20 12:09:07,045] Terminating logserver (PID 37757)
+Log server killed via external signal: SystemExit

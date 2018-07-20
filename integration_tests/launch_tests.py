@@ -355,6 +355,7 @@ def run_tests(test_dir, uuid1, uuid2, selected=[], stop_after_fail=True):
 
     tests["test_segstats"] = "CopySegmentation"
     tests["test_samplepoints"] = "SamplePoints"
+    tests["test_grayscale_benchmark"] = "GrayscaleBenchmark"
 
     tests["test_ingest_label_indices"] = "IngestLabelIndices"
     

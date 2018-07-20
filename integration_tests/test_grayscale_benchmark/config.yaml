@@ -1,0 +1,36 @@
+input:
+  dvid:
+    server: "127.0.0.1:8000"
+    uuid: "UUID1"
+    grayscale-name: grayscale
+    
+  geometry:
+    bounding-box: [[0,0,0], [512,512,512]]
+    message-block-shape: [256, 64, 64]
+
+options:
+  warmup-minutes: 0.0001
+
+  log-collector-port: 3000
+  log-collector-directory: /tmp/test_grayscale_benchmark_logs
+
+#  worker-initialization:
+#    script-path: ./worker-dvid-files/launch-worker-dvid.sh
+#    script-args: ["worker-dvid-config.toml"]
+#    launch-delay: 60 # seconds
+#    log-dir: ./worker-dvid-files/worker-dvid-logs
+#    also-run-on-driver: false
+
+#  resource-server: "driver"
+#  resource-port: 4000
+#  resource-server-config:
+#    read_reqs: 128
+#    read_data: 10000000000000 # 10 TB (effectively unlimited -- limit concurrency via read_reqs)
+#    write_reqs: 32
+#    write_data: 4000000000
+
+  spark-config:
+    spark.task.cpus: 1
+    spark.task.maxFailures: 1
+
+  debug: false
