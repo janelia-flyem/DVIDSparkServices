@@ -10,7 +10,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 import DVIDSparkServices.rddtools as rt
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.util import default_dvid_session, num_worker_nodes, NumpyConvertingEncoder
+from DVIDSparkServices.util import Timer, default_dvid_session, num_worker_nodes, NumpyConvertingEncoder
 from DVIDSparkServices.io_util.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidGenericVolumeSchema
 from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid, boxes_from_grid
@@ -111,10 +111,11 @@ class GrayscaleBenchmark(Workflow):
             
             with resource_mgr_client.access_context(server, True, 1, voxel_count):
                 timestamp = datetime.now()
-                r = session.get(url)
+                with Timer() as timer:
+                    r = session.get(url)
             
             r.raise_for_status()
-            return timestamp, voxel_count, len(r.content), r.elapsed.total_seconds()
+            return timestamp, voxel_count, len(r.content), timer.seconds
 
         # This hash-related hackery is to ensure uniform partition lengths, which Spark is bad at by default.
         boxes = list(clipped_boxes_from_grid( volume_service.bounding_box_zyx, Grid(volume_service.preferred_message_shape) ))
@@ -181,8 +182,7 @@ def compute_stats(block_shape, concurrent_threads, df):
         "blocks-per-request": total_blocks / len(df),
         "seconds-per-request": df['seconds'].mean(),
         "seconds-per-block": df['seconds'].sum() / total_blocks,
-        
-        "voxels-per-second": df['voxel_count'].sum() / df['seconds'].sum(),
-        "mb-per-second": (df['payload_bytes'].sum() / 1e6) / df['seconds'].sum()
+
+        "wall-time": (df['timestamp'].iloc[-1] - df['timestamp'].iloc[0]).seconds + df['seconds'].iloc[-1],
     }
     return stats
