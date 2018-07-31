@@ -95,7 +95,7 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
         raise
 
 
-def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log_dir, max_hours, job_name, workflow_name, config_file):
+def launch_driver_job( master_job_id, master_hostname, num_driver_slots, driver_node_type, job_log_dir, max_hours, job_name, workflow_name, config_file):
     # Set MASTER now so that it will be inherited by the driver process
     os.environ["MASTER"] = "spark://{}:7077".format(master_hostname)
     
@@ -107,6 +107,7 @@ def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log
     job = Bjob( job_cmd,
                 name=f"{job_name}-driver",
                 num_slots=num_driver_slots,
+                node_type=driver_node_type,
                 max_runtime_minutes=int(max_hours * 60),
                 stdout_file=f"{job_log_dir}/{job_name}-driver.log" )
 
@@ -127,6 +128,7 @@ def launch_driver_job( master_job_id, master_hostname, num_driver_slots, job_log
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--driver-slots', type=int, default=16)
+    parser.add_argument('--driver-node-type', choices=['sandy', 'haswell', 'broadwell', 'avx2'])
     parser.add_argument('--job-log-dir', type=str, default='.')
     parser.add_argument('--max-hours', type=float, default=8)
     parser.add_argument('--job-name')
@@ -150,13 +152,14 @@ def main():
                                                                args.job_log_dir)       # it's easier to make sense of the logs when the driver dies first.
     
         driver_job_id, _driver_hostname = launch_driver_job( master_job_id,
-                                                              master_hostname,
-                                                              args.driver_slots,
-                                                              args.job_log_dir,
-                                                              args.max_hours,
-                                                              args.job_name,
-                                                              args.workflow_name,
-                                                              args.config_file )
+                                                             master_hostname,
+                                                             args.driver_slots,
+                                                             args.driver_node_type,
+                                                             args.job_log_dir,
+                                                             args.max_hours,
+                                                             args.job_name,
+                                                             args.workflow_name,
+                                                             args.config_file )
     except BaseException as ex:
         if isinstance(ex, KeyboardInterrupt):
             print("User Interrupted!")

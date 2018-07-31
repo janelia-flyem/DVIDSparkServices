@@ -52,6 +52,7 @@ class Bjob(object):
                   shell_command,
                   name=None,
                   num_slots=1,
+                  node_type=None,
                   max_runtime_minutes=None,
                   estimated_runtime_minutes=None,
                   stdout_file=None,
@@ -126,7 +127,9 @@ class Bjob(object):
             cmd += " -H"
         
         cmd += f" -n {self.num_slots}"
-
+        
+        if self.node_type:
+            cmd += f' -R"select[{self.node_type}]"'
         if self.name:
             cmd += f" -J {self.name}"
         if self.app_env:
