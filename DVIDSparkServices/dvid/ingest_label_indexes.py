@@ -127,7 +127,7 @@ def main_impl(args):
         if stats_are_presorted:
             logger.info("Stats are pre-sorted")
         else:
-            output_dir, basename = os.path.split(args.supervoxel_block_stats_h5)
+            output_dir, basename = os.path.split(os.path.abspath(args.supervoxel_block_stats_h5))
             if segment_to_body_df is None:
                 output_path = output_dir + '/sorted-by-segment-' + basename
             else:
@@ -498,7 +498,7 @@ class StatsBatchProcessor:
 
         if not self.check_mismatches:
             self.post_labelindex_batch(labelindex_batch)
-            return next_stats_batch_total_rows, []
+            return next_stats_batch_total_rows, [], []
 
         # Check for mismatches
         mismatch_batch = []
