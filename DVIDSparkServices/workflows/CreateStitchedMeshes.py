@@ -16,7 +16,7 @@ import requests
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
 from neuclease.logging_setup import PrefixedLogger
-from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_instance_info, fetch_complete_mappings
+from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_instance_info, fetch_complete_mappings, fetch_exists
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -266,6 +266,14 @@ class CreateStitchedMeshes(Workflow):
                         "type": "boolean",
                         "default": False
                     },
+                    
+                    "skip-existing-supervoxels": {
+                        "description": "Do not generate meshes for supervoxels that already exist on the server.\n"
+                                       "Only valid when writing to a 'tarsupervoxels' instance.",
+                        "type": "boolean",
+                        "default": False
+                    },
+                    
                     "input-is-mapped-supervoxels": {
                         "description": "When using 'subset-bodies' option, we need to know how to fetch sparse blocks from dvid.\n"
                                        "If the input is a pre-mapped supervoxel volume, we'll have to use the supervoxel IDs (not body ids) when fetching from DVID.\n"
@@ -392,6 +400,9 @@ class CreateStitchedMeshes(Workflow):
 
         if mesh_config["batch-count"] > 1 and not mesh_config["storage"]["naming-scheme"] == "tarsupervoxels":
             raise RuntimeError("FIXME: Batch mechanism is broken for key-value tarballs because it will overwrite the tarball in every batch.")
+
+        if mesh_config["storage"]["skip-existing-supervoxels"] and not mesh_config["storage"]["naming-scheme"] == "tarsupervoxels":
+            raise RuntimeError("The skip-existing-supervoxels setting is only permitted when writing to a 'tarsupervoxels' instance.")
 
         if isinstance(mesh_config["storage"]["subset-bodies"], str):
             csv_path = self.relpath_to_abspath(mesh_config["storage"]["subset-bodies"])
@@ -1010,6 +1021,19 @@ class CreateStitchedMeshes(Workflow):
         full_stats_df['keep_segment'] = ((full_stats_df['segment_voxel_count'] >= config['options']['minimum-segment-size']) &
                                          (full_stats_df['segment_voxel_count'] <= config['options']['maximum-segment-size']) )
 
+        if config["mesh-config"]["storage"]["skip-existing-supervoxels"]:
+            dvid_server = config["output"]["dvid"]["server"]
+            uuid = config["output"]["dvid"]["uuid"]
+            meshes_instance = config["output"]["dvid"]["meshes-destination"]
+
+            rows_to_check = full_stats_df.query('keep_segment and keep_body')
+            existing_flags = fetch_exists(dvid_server, uuid, meshes_instance, rows_to_check['segment'].values)
+            if existing_flags.any():
+                # Re-index with stats index
+                existing_flags = pd.Series(existing_flags.values, index=rows_to_check.index, dtype=bool)
+                existing_loc = existing_flags.loc[existing_flags].index
+                full_stats_df.loc[existing_loc, 'keep_segment'] = False
+                logger.info(f"Skipping {len(existing_loc)} pre-existing supervoxels")
 
         #import pandas as pd
         #pd.set_option('expand_frame_repr', False)

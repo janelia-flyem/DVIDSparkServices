@@ -45,7 +45,8 @@
             "file": ../mod-10-labelmap.csv, # Relative to temp_data/config.json
             "file-type": label-to-body
           },
-          "subset-bodies": ../subset-bodies-odd-only.csv
+          "subset-bodies": ../subset-bodies-odd-only.csv,
+          "skip-existing-supervoxels": false
         }
     },
     "options": {
