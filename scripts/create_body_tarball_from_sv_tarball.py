@@ -25,9 +25,9 @@ def main():
 
     instance_info = (args.server, args.uuid, args.instance)
     for body_id in tqdm(args.body_ids):
-        create_sv_tarball_from_sv_tarball(instance_info, body_id)
+        create_body_tarball_from_sv_tarball(instance_info, body_id)
         
-def create_sv_tarball_from_sv_tarball(instance_info, body_id):
+def create_body_tarball_from_sv_tarball(instance_info, body_id):
     """
     Download a supervoxel mesh tarball from the given key-value instance,
     concatenate together the component meshes into a single body tarball,
