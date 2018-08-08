@@ -19,6 +19,11 @@ import faulthandler
 import contextlib
 from subprocess import Popen, PIPE
 import atexit
+import warnings
+
+## Don't show the following warning from within pandas:
+## FutureWarning: elementwise comparison failed; returning scalar instead, but in the future will perform elementwise comparison
+warnings.filterwarnings("ignore", module=r"pandas\..*", category=FutureWarning)
 
 # Segfaults will trigger a traceback dump
 FAULTHANDLER_TEE, FAULTHANDLER_OUTPUT_PATH = None, None

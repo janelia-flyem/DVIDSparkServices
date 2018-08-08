@@ -869,7 +869,7 @@ class CreateStitchedMeshes(Workflow):
             # Single-supervoxel bodies are not present in the mapping,
             # and thus result in NaN entries.  Replace them with identity mappings.
             missing_entries = sparse_segment_ids.isnull()
-            sparse_segment_ids[missing_entries] = sparse_segment_ids.index[missing_entries]
+            sparse_segment_ids.loc[missing_entries] = sparse_segment_ids.loc[missing_entries].index.values
             sparse_segment_ids = sparse_segment_ids.astype(np.uint64).values
         else:
             # No labelmap: The 'body ids' are identical to segment ids
