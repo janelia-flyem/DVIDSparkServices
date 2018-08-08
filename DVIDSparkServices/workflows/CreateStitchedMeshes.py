@@ -861,15 +861,23 @@ class CreateStitchedMeshes(Workflow):
         assert grouping_scheme in ('no-groups', 'singletons', 'labelmap', 'dvid-labelmap'), \
             f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
 
+        # By default, we'll be using the INPUT service, unless 'dvid-labelmap' is used.
+        dvid_service = volume_service.base_service
+        server = dvid_service.server
+        uuid = dvid_service.uuid
+        instance = dvid_service.instance_name
+        read_supervoxels = dvid_service.supervoxels
+
         mapping_pairs = None
         if use_service_labelmap:
             assert isinstance(volume_service, LabelmappedVolumeService), \
                 "Can't use service labelmap: The input isn't a LabelmappedVolumeService"
             mapping_pairs = volume_service.mapping_pairs
-        elif grouping_scheme in ("labelmap", "dvid-labelmap"):
+        elif grouping_scheme == "labelmap":
+            # For a custom labelmap (from CSV),
+            # We fetch the supervoxel sparsevols independently
+            # (they are not necessarily grouped together by body on the DVID server)
             mapping_pairs = self.load_labelmap()
-
-        if mapping_pairs is not None:
             segments, bodies = mapping_pairs.transpose()
             
             # pandas.Series permits duplicate index values,
@@ -877,24 +885,39 @@ class CreateStitchedMeshes(Workflow):
             reverse_lookup = pd.Series(index=bodies, data=segments)
             sparse_segment_ids = reverse_lookup.loc[sparse_body_ids]
             
-            # Single-supervoxel bodies are not present in the mapping,
+            # Single-supervoxel bodies may not be present in the mapping,
             # and thus result in NaN entries.  Replace them with identity mappings.
             missing_entries = sparse_segment_ids.isnull()
             sparse_segment_ids.loc[missing_entries] = sparse_segment_ids.loc[missing_entries].index.values
             sparse_segment_ids = sparse_segment_ids.astype(np.uint64).values
+        
+        elif grouping_scheme == "dvid-labelmap":
+            # When using a dvid labelmap, supervoxels are already grouped by body on the server.
+            # Exploit that to minimize the number of /sparsevol calls.
+
+            # Override the instance to use (use the one specified in the dvid-labelmap config)
+            dvid_labelmap_config = config["mesh-config"]["storage"]["dvid-labelmap"]
+            server = dvid_labelmap_config["server"]
+            uuid = dvid_labelmap_config["uuid"]
+            instance = dvid_labelmap_config["segmentation-name"]
+            
+            # Fetch sparse BODIES (not supervoxels)
+            sparse_segment_ids = sparse_body_ids
+            read_supervoxels = False
+
         else:
-            # No labelmap: The 'body ids' are identical to segment ids
+            # No labelmap: The subset 'body ids' are identical to supervoxel ids
             sparse_segment_ids = sparse_body_ids
 
         logger.info("Reading sparse block mask for body subset...")
+
         # Fetch the sparse mask of blocks that the sparse segments belong to
-        dvid_service = volume_service.base_service
         block_mask, lowres_box, dvid_block_shape = \
-            sparkdvid.get_union_block_mask_for_bodies( dvid_service.server,
-                                                       dvid_service.uuid,
-                                                       dvid_service.instance_name,
-                                                       sparse_segment_ids,
-                                                       dvid_service.supervoxels )
+            sparkdvid.get_union_block_mask_for_bodies( server,
+                                                       uuid,
+                                                       instance,
+                                                       sparse_segment_ids, # May be supervoxel IDs or body IDs, depending on path taken above
+                                                       read_supervoxels )
 
         # None of the bodies on the list could be found in the sparsevol data.
         # Something is very wrong.
