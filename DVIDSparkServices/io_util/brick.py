@@ -71,7 +71,7 @@ class SparseBlockMask:
     If your blocks of interest are VERY sparse, it would be cheaper to simply
     store the list of block coordinate tuples.  But for semi-sparse data, storing
     a binary mask as done here is cheaper, assuming your chosen block 'resolution'
-    is reasonably large (typically (64,64,64).
+    is reasonably large (typically (64,64,64), or (32,32,32) for DVID ROIs).
     """
     def __init__(self, lowres_mask, box, resolution):
         """
