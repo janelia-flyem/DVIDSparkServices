@@ -40,7 +40,7 @@ def create_sv_tarball_from_sv_tarball(instance_info, body_id):
     sv_tarball_path = f'/tmp/{encoded_sv}.tar'
     
     logger.info(f'Fetching {encoded_sv}.tar')
-    tarball_contents = fetch_key(instance_info, f'{encoded_sv}.tar')
+    tarball_contents = fetch_key(*instance_info, f'{encoded_sv}.tar')
     with open(sv_tarball_path, 'wb') as f:
         f.write(tarball_contents)
     
@@ -60,7 +60,7 @@ def create_sv_tarball_from_sv_tarball(instance_info, body_id):
     
     with open(body_tarball_path, 'rb') as f:
         logger.info(f'Posting {encoded_body}.tar')
-        post_key(instance_info, f'{encoded_body}.tar', f)
+        post_key(*instance_info, f'{encoded_body}.tar', f)
 
 if __name__ == "__main__":
     DEBUG = False

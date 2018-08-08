@@ -96,7 +96,7 @@ def main_impl(args):
 
                 mapping_uuid = args.agglomeration_mapping
                 logger.info(f"Loading agglomeration mapping from UUID {mapping_uuid}")
-                mapping_series = fetch_complete_mappings((args.server, mapping_uuid, args.labelmap_instance))
+                mapping_series = fetch_complete_mappings(args.server, mapping_uuid, args.labelmap_instance)
                 segment_to_body_df = pd.DataFrame( {'segment_id': mapping_series.index.values} )
                 segment_to_body_df['body_id'] = mapping_series.values
                 assert (segment_to_body_df.columns == AGGLO_MAP_COLUMNS).all()
@@ -505,7 +505,7 @@ class StatsBatchProcessor:
         missing_batch = []
         for labelindex in labelindex_batch:
             try:
-                existing_labelindex = fetch_labelindex(self.instance_info, labelindex.label)
+                existing_labelindex = fetch_labelindex(*self.instance_info, labelindex.label)
             except requests.RequestException as ex:
                 missing_batch.append(labelindex)
                 if not str(ex.response.status_code).startswith('4'):

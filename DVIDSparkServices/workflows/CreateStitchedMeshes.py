@@ -16,8 +16,7 @@ import requests
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
 from neuclease.logging_setup import PrefixedLogger
-from neuclease.dvid import fetch_complete_mappings
-from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_full_instance_info
+from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_instance_info, fetch_complete_mappings
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -799,14 +798,14 @@ class CreateStitchedMeshes(Workflow):
             raise RuntimeError(f"Can't write meshes: The node you specified ({server} / {uuid}) is locked.")
 
         try:
-            mesh_info = fetch_full_instance_info((server, uuid, mesh_instance))
+            mesh_info = fetch_instance_info(server, uuid, mesh_instance)
         except requests.HTTPError:
             # Doesn't exist yet; must create.
             # (No compression -- we'll send pre-compressed files)
             if naming_scheme == "tarsupervoxels":
-                create_tarsupervoxel_instance( (server, uuid, mesh_instance), seg_instance, extension )
+                create_tarsupervoxel_instance( server, uuid, mesh_instance, seg_instance, extension )
             else:
-                create_instance( (server, uuid, mesh_instance), "keyvalue", versioned=True, compression='none', tags=["type=meshes"] )
+                create_instance( server, uuid, mesh_instance, "keyvalue", versioned=True, compression='none', tags=["type=meshes"] )
         else:
             if naming_scheme == "tarsupervoxels" and mesh_info["Base"]["TypeName"] != "tarsupervoxels":
                 raise RuntimeError("You are attempting to use the 'tarsupervoxels' scheme with the wrong instance type.")
@@ -920,7 +919,7 @@ class CreateStitchedMeshes(Workflow):
             
             if "server" in dvid_labelmap_config:
                 sui = ( dvid_labelmap_config["server"], dvid_labelmap_config["uuid"], dvid_labelmap_config["segmentation-name"] )
-                mapping_series = fetch_complete_mappings(sui)
+                mapping_series = fetch_complete_mappings(*sui)
                 mapping_array = np.array((mapping_series.index.values, mapping_series.values))
                 self._labelmap = np.transpose(mapping_array).astype(np.uint64, copy=False)
             else:
