@@ -4,7 +4,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from neuclease.util import read_csv_header
+from neuclease.util import read_csv_header, lexsort_columns
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -96,23 +96,23 @@ class SamplePoints(Workflow):
         input_csv = config["options"]["input-table"]
         with Timer(f"Reading {input_csv}", logger):
             points_df = pd.read_csv(input_csv, header=0, usecols=['z','y','x'], dtype=np.int32)
-
-        with Timer("Sorting input points", logger):
-            # Convert to numpy for faster lexsort
-            points = points_df[['z','y','x']].to_records(index=False)        
-            points.sort()
-            points = points.view(np.int32).reshape(-1,3)
+            points = points_df[['z', 'y', 'x']].values
+            del points_df
 
         # All points must lie within the input volume        
         points_box = [points.min(axis=0), 1+points.max(axis=0)]
         if (box_intersection(points_box, volume_service.bounding_box_zyx) != points_box).all():
             raise RuntimeError("The point list includes points outside of the volume bounding box.")
-        
-        with Timer("Computing brick IDs", logger):
+
+        with Timer("Sorting points by Brick ID", logger):
             # 'Brick ID' is defined as the divided corner coordinate 
             brick_shape = volume_service.preferred_message_shape
-            brick_ids = points // brick_shape
+            brick_ids_and_points = np.concatenate( (points // brick_shape, points), axis=1 )
+            lexsort_columns(brick_ids_and_points)
 
+            brick_ids = brick_ids_and_points[: ,:3]
+            points = brick_ids_and_points[:, 3:]
+            
             # Extract the first row of each group to get the set of unique brick IDs
             point_group_spans = groupby_spans_presorted(brick_ids)
             point_group_starts = (start for start, stop in point_group_spans)
