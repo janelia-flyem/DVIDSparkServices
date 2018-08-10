@@ -139,7 +139,7 @@ class SamplePoints(Workflow):
         # Aim for 2 GB RDD partitions when loading segmentation
         GB = 2**30
         target_partition_size_voxels = 2 * GB // np.uint64().nbytes
-        brickwall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sbm)
+        brickwall = BrickWall.from_volume_service(volume_service, 0, None, self.sc, target_partition_size_voxels, sbm, lazy=True)
         
         with Timer("Joining point groups with bricks", logger):
             id_and_brick = brickwall.bricks.map(lambda brick: (tuple(brick.logical_box[0] // brick_shape), brick))

@@ -1,3 +1,4 @@
+from functools import partial
 import numpy as np
 
 from DVIDSparkServices import rddtools as rt
@@ -32,7 +33,7 @@ class BrickWall:
     ##
 
     @classmethod
-    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, sparse_boxes=None):
+    def from_accessor_func(cls, bounding_box, grid, volume_accessor_func=None, sc=None, target_partition_size_voxels=None, sparse_boxes=None, lazy=False):
         """
         Convenience constructor, taking an arbitrary volume_accessor_func.
         
@@ -54,6 +55,13 @@ class BrickWall:
             target_partition_size_voxels:
                 Optional. If provided, the RDD partition lengths (i.e. the number of bricks per RDD partition)
                 will be chosen to have (approximately) this many total voxels in each partition.
+            
+            sparse_boxes:
+                A list of (physical) sparse boxes indicating which bricks should actually be present in the BrickWall.
+                If not provided, all bricks within the bounding_box will be present. 
+
+            lazy:
+                If True, the bricks' data will not be created until their 'volume' member is first accessed.
         """
         if target_partition_size_voxels is None:
             if sc:
@@ -67,7 +75,7 @@ class BrickWall:
             else:
                 if not hasattr(sparse_boxes, '__len__'):
                     sparse_boxes = list(sparse_boxes)
-                total_voxels = sum( lambda _logical, physical: np.prod(physical[1] - physical[0]), sparse_boxes )
+                total_voxels = sum( map(lambda physbox: np.prod(physbox[1] - physbox[0]), sparse_boxes ) )
             
             voxels_per_thread = total_voxels / num_threads
             target_partition_size_voxels = (voxels_per_thread // 2) # Arbitrarily aim for 2 partitions per thread
@@ -75,12 +83,12 @@ class BrickWall:
         block_size_voxels = np.prod(grid.block_shape)
         rdd_partition_length = target_partition_size_voxels // block_size_voxels
 
-        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length, sparse_boxes)
+        bricks = generate_bricks_from_volume_source(bounding_box, grid, volume_accessor_func, sc, rdd_partition_length, sparse_boxes, lazy)
         return BrickWall( bounding_box, grid, bricks )
 
 
     @classmethod
-    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None, sparse_block_mask=None):
+    def from_volume_service(cls, volume_service, scale=0, bounding_box_zyx=None, sc=None, target_partition_size_voxels=None, sparse_block_mask=None, lazy=False):
         """
         Convenience constructor, initialized from a VolumeService object.
         
@@ -108,6 +116,9 @@ class BrickWall:
             
             sparse_block_mask:
                 Instance of SparseBlockMask
+            
+            lazy:
+                If True, the bricks' data will not be created until their 'volume' member is first accessed.
         """
         grid = Grid(volume_service.preferred_message_shape, (0,0,0))
         
@@ -139,7 +150,8 @@ class BrickWall:
                                              lambda box: volume_service.get_subvolume(box, scale),
                                              sc,
                                              target_partition_size_voxels,
-                                             sparse_boxes )
+                                             sparse_boxes,
+                                             lazy )
 
     ##
     ## Operations

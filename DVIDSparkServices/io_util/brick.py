@@ -2,12 +2,12 @@ import logging
 from functools import partial
 
 
+import cloudpickle
 import numpy as np
 
-from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection,\
-    box_to_slicing
 from neuclease.util import SparseBlockMask
 
+from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection, box_to_slicing
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
@@ -89,11 +89,31 @@ class Brick:
      
         Note: Both boxes (logical and physical) are always stored in GLOBAL coordinates.
     """
-    def __init__(self, logical_box, physical_box, volume, custom_hash=None):
+    def __init__(self, logical_box, physical_box, volume=None, *, lazy_creation_fn=None, custom_hash=None):
+        """
+        Args:
+            logical_box:
+                The Brick's logical address within some abstract Grid in space.
+            physical_box:
+                The region in space that those voxels inhabit.
+                By definition, `volume.shape == (physical_box[1] - physical_box[0])`
+            volume:
+                An array of voxels, i.e. the actual data for the Brick.
+                May be None if lazy_creation_fn is provided.
+            lazy_creation_fn:
+                Instead of providing a volume at construction, you may provide a function to create the volume,
+                which will be called upon the first access to Brick.volume
+            custom_hash:
+                Optionally specify a hash value for this brick, which will be returned by __hash__()
+        """
+        assert (volume is None) ^ (lazy_creation_fn is None), \
+            "Must supply either volume or lazy_creation_fn (not both)"
         self.logical_box = np.asarray(logical_box)
         self.physical_box = np.asarray(physical_box)
+
         self._volume = volume
-        assert ((self.physical_box[1] - self.physical_box[0]) == self._volume.shape).all()
+        if self._volume is not None:
+            assert ((self.physical_box[1] - self.physical_box[0]) == self._volume.shape).all()
         
         # Used for pickling.
         self._compressed_volume = None
@@ -101,6 +121,10 @@ class Brick:
         
         # Optional custom hashing
         self._hash = custom_hash
+        
+        self._create_volume_fn = None
+        if lazy_creation_fn is not None:
+            self._create_volume_fn = cloudpickle.dumps(lazy_creation_fn)
 
     def __hash__(self):
         if self._hash is None:
@@ -124,16 +148,28 @@ class Brick:
     @property
     def volume(self):
         """
-        The volume is decompressed lazily.
-        See __getstate__() for explanation.
+        The volume is created or decompressed lazily.
+        See __init__ and __getstate__() for explanation.
         """
         if self._destroyed:
             raise RuntimeError("Attempting to access data for a brick that has already been explicitly destroyed:\n"
                                f"{self}")
-        if self._volume is None:
+        if self._volume is not None:
+            return self._volume
+
+        if self._compressed_volume is not None:
             assert self._compressed_volume is not None
             self._volume = self._compressed_volume.deserialize()
-        return self._volume
+            return self._volume
+        
+        if self._create_volume_fn is not None:
+            fn = cloudpickle.loads(self._create_volume_fn)
+            self._volume = fn(self.physical_box)
+            assert (self._volume.shape == (self.physical_box[1] - self.physical_box[0])).all()
+            del self._create_volume_fn
+            return self._volume
+        
+        raise AssertionError("This brick has no data, and no way to create it.")
     
     def compress(self):
         """
@@ -175,7 +211,7 @@ class Brick:
         self._volume = None
         self._destroyed = True
 
-def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None, sparse_boxes=None ):
+def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func, sc=None, rdd_partition_length=None, sparse_boxes=None, lazy=False ):
     """
     Generate an RDD or iterable of Bricks for the given bounding box and grid.
      
@@ -273,11 +309,14 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
 
     def make_bricks( logical_and_physical_box ):
         logical_box, physical_box = logical_and_physical_box
-        volume = volume_accessor_func(physical_box)
-        return Brick(logical_box, physical_box, volume)
+        if lazy:
+            volume_accessor_func
+            return Brick(logical_box, physical_box, lazy_creation_fn=volume_accessor_func)
+        else:
+            volume = volume_accessor_func(physical_box)
+            return Brick(logical_box, physical_box, volume)
     
     bricks = rt.map( make_bricks, logical_and_physical_boxes )
-
     return bricks
 
 def clip_to_logical( brick ):
