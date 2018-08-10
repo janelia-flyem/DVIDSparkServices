@@ -1,13 +1,13 @@
 import logging
-from itertools import starmap
 from functools import partial
-import collections
+
 
 import numpy as np
-import pandas as pd
 
 from DVIDSparkServices.util import ndrange, extract_subvol, overwrite_subvol, box_as_tuple, box_intersection,\
     box_to_slicing
+from neuclease.util import SparseBlockMask
+
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import cpus_per_worker, num_worker_nodes, persist_and_execute, unpersist
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
@@ -61,37 +61,6 @@ class Grid:
         block_index = (point - self.offset) // self.block_shape
         block_start = self.offset + (block_index * self.block_shape)
         return np.asarray( (block_start, block_start + self.block_shape) )
-
-class SparseBlockMask:
-    """
-    Tiny class to hold a low-resolution binary mask and the box it corresponds to.
-    
-    In other words, a simple way of sparsely marking blocks of a large volume.
-    
-    If your blocks of interest are VERY sparse, it would be cheaper to simply
-    store the list of block coordinate tuples.  But for semi-sparse data, storing
-    a binary mask as done here is cheaper, assuming your chosen block 'resolution'
-    is reasonably large (typically (64,64,64), or (32,32,32) for DVID ROIs).
-    """
-    def __init__(self, lowres_mask, box, resolution):
-        """
-        Args:
-            lowres_mask:
-                boolean ndarray, where each voxel represents a block of full-res data.
-            box:
-                The volume of space covered by the mask, in FULL-RES coordinates
-            resolution:
-                The width (or shape) of each lowres voxel in FULL-RES coordinates.
-        """
-        self.lowres_mask = lowres_mask.astype(bool, copy=False)
-        self.box = np.asarray(box)
-        self.resolution = resolution
-        if isinstance(self.resolution, collections.Iterable):
-            self.resolution = np.asarray(resolution)
-            
-        assert (((self.box[1] - self.box[0]) // self.resolution) == self.lowres_mask.shape).all(), \
-            f"Inconsistent mask shape ({lowres_mask.shape}) and box {self.box.tolist()} for the given resolution ({resolution}).\n"\
-            "Note: box should be specified in FULL resolution coordinates."
 
 class Brick:
     """
