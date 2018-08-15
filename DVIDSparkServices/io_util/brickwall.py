@@ -4,7 +4,7 @@ from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker
 from dvidutils import downsample_labels
 
-from neuclease.util import Grid, SparseBlockMask, sparse_boxes_from_block_mask
+from neuclease.util import Grid, SparseBlockMask
 from .brick import ( Brick, generate_bricks_from_volume_source,
                      realign_bricks_to_new_grid, pad_brick_data_from_volume_source, apply_labelmap_to_bricks )
 
@@ -142,7 +142,7 @@ class BrickWall:
         if sparse_block_mask is not None:
             assert isinstance(sparse_block_mask, SparseBlockMask)
             assert scale == 0, "FIXME: I don't think the sparse feature works with scales other than 0."
-            sparse_boxes = sparse_boxes_from_block_mask(sparse_block_mask, grid)
+            sparse_boxes = sparse_block_mask.sparse_boxes(grid)
 
         return BrickWall.from_accessor_func( downsampled_box,
                                              grid,
