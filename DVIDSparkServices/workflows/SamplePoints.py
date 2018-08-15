@@ -31,9 +31,21 @@ class SamplePoints(Workflow):
             "type": "string"
         },
         "output-table": {
-            "description": "Results file.  Must be .csv for now.",
+            "description": "Results file.  Must be .csv for now, and must contain at least columns x,y,z",
             "type": "string",
             "default": "point-samples.csv"
+        },
+        "rescale-points-to-level": {
+            "description": "Specifies a scale (power of 2) by which to divide the loaded point coordinates before beginning the analysis.\n"
+                           "Typically used if you are applying a 'rescale-level' to your input source.\n"
+                           "Note: The points will appear rescaled in the output file.  The original points are not preserved.\n",
+            "type": "integer",
+            "default": 0
+        },
+        "output-column": {
+            "description": "The name of the output column in the final CSV results",
+            "type": "string",
+            "default": "label"
         }
         # TODO:
         # - Support .npy input
@@ -93,9 +105,12 @@ class SamplePoints(Workflow):
 
         input_csv = config["options"]["input-table"]
         with Timer(f"Reading {input_csv}", logger):
-            points_df = pd.read_csv(input_csv, header=0, usecols=['z','y','x'], dtype=np.int32)
-            points = points_df[['z', 'y', 'x']].values
-            del points_df
+            coordinate_table_df = pd.read_csv(input_csv, header=0, dtype=np.int32)
+            points = coordinate_table_df[['z', 'y', 'x']].values
+
+        rescale = config["options"]["rescale-points-to-level"]
+        if rescale != 0:
+            points //= 2**rescale
 
         # All points must lie within the input volume        
         points_box = [points.min(axis=0), 1+points.max(axis=0)]
@@ -172,8 +187,16 @@ class SamplePoints(Workflow):
         with Timer("Sorting samples", logger):
             sample_table.sort()
 
+        output_col = options["output-column"]
+        with Timer("Sorting table", logger):
+            coordinate_table_df.sort_values(['z', 'y', 'x'], inplace=True)
+
+        # Now that samples and input rows are sorted identically,
+        # append the results
+        coordinate_table_df[output_col] = sample_table['label']
+
         with Timer("Exporting samples", logger):
-            pd.DataFrame(sample_table).to_csv(config["options"]["output-table"], header=True, index=False)
+            coordinate_table_df.to_csv(config["options"]["output-table"], header=True, index=False)
 
         logger.info("DONE.")
 

@@ -37,3 +37,11 @@ results = pd.read_csv(dirpath + '/temp_data/point-samples.csv')
 if (results[['z', 'y', 'x', 'label']].values != points[['z', 'y', 'x', 'label']].values).all():
     print("DEBUG: FAIL: point sample file does not match expected!")
     sys.exit(1)
+
+if 'coord_sum' not in results.columns:
+    print("DEBUG: FAIL: extraneous input columns were not preserved in the output!")
+    sys.exit(1)
+    
+if not (results['coord_sum'] == results[['x', 'y', 'z']].sum(axis=1)).all():
+    print("DEBUG: FAIL: extraneous input columns were not preserved correctly!")
+    sys.exit(1)
