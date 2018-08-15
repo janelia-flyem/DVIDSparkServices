@@ -29,9 +29,10 @@ logger = logging.getLogger(__name__)
 
 from libdvid import SubstackZYX
 from neuclease.dvid import parse_rle_response
+from neuclease.util import extract_subvol
 
 from DVIDSparkServices.auto_retry import auto_retry
-from DVIDSparkServices.util import mask_roi, RoiMap, num_worker_nodes, cpus_per_worker, extract_subvol, default_dvid_session
+from DVIDSparkServices.util import mask_roi, RoiMap, num_worker_nodes, cpus_per_worker, default_dvid_session
 from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_label_instance, DataInstance, get_blocksize

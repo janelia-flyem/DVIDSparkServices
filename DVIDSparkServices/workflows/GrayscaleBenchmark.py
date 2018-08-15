@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
+from neuclease.util import Grid, clipped_boxes_from_grid, boxes_from_grid
 from dvid_resource_manager.client import ResourceManagerClient
 
 import DVIDSparkServices.rddtools as rt
@@ -13,7 +14,6 @@ from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.util import Timer, default_dvid_session, num_worker_nodes, NumpyConvertingEncoder
 from DVIDSparkServices.io_util.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidGenericVolumeSchema
-from DVIDSparkServices.io_util.brick import Grid, clipped_boxes_from_grid, boxes_from_grid
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,8 @@ from dvidutils import LabelMapper # Fast label mapping in C++
 
 import DVIDSparkServices # We implicitly rely on initialize_excepthook()
 
-from DVIDSparkServices.util import Timer, default_dvid_session, groupby_presorted, groupby_spans_presorted
+from neuclease.util import Timer, groupby_presorted, groupby_spans_presorted
+from DVIDSparkServices.util import default_dvid_session
 from DVIDSparkServices.io_util.labelmap_utils import load_edge_csv
 from DVIDSparkServices.dvid.metadata import DataInstance
 

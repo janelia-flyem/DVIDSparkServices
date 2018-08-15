@@ -5,7 +5,8 @@ from jsonschema import validate
 
 import z5py
 
-from DVIDSparkServices.util import box_to_slicing, replace_default_entries
+from neuclease.util import box_to_slicing
+from DVIDSparkServices.util import replace_default_entries
 
 from . import VolumeServiceReader, GeometrySchema
 

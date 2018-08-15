@@ -1,7 +1,7 @@
 import numpy as np
 from skimage.util.shape import view_as_blocks
 
-from DVIDSparkServices.util import box_to_slicing
+from neuclease.util import box_to_slicing
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d, downsample_raw, downsample_box
 
 from . import VolumeServiceReader

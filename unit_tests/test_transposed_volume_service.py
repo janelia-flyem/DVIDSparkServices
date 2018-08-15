@@ -6,7 +6,7 @@ import numpy as np
 import DVIDSparkServices
 from DVIDSparkServices.io_util.volume_service import N5VolumeServiceReader, GrayscaleVolumeSchema, TransposedVolumeService
 from DVIDSparkServices.json_util import validate_and_inject_defaults
-from DVIDSparkServices.util import box_to_slicing
+from neuclease.util import box_to_slicing
 
 TEST_VOLUME_N5 = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/resources/volume-256.n5'
 TEST_VOLUME_RAW = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/resources/grayscale-256-256-256-uint8.bin'

@@ -11,18 +11,18 @@ import h5py
 import numpy as np
 import pandas as pd
 
+from neuclease.util import Grid, slabs_from_box, boxes_from_grid,  box_intersection, box_to_slicing
+
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_label_instance, is_datainstance
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, \
-    replace_default_entries, box_intersection, box_to_slicing
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, replace_default_entries
 
-from DVIDSparkServices.io_util.brickwall import BrickWall, Grid
+from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service import ( VolumeService, VolumeServiceWriter, SegmentationVolumeSchema,
                                                        SegmentationVolumeListSchema, TransposedVolumeService, ScaledVolumeService )
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
-from DVIDSparkServices.io_util.brick import slabs_from_box, boxes_from_grid
 
 logger = logging.getLogger(__name__)
 

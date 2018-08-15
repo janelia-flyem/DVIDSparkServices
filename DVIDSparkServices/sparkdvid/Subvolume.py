@@ -11,6 +11,7 @@ import collections
 import numpy as np
 
 
+
 SubvolumeNamedTuple = collections.namedtuple('SubvolumeNamedTuple',
             'z1 y1 x1 z2 y2 x2')
 
@@ -180,7 +181,7 @@ class Subvolume(object):
             bounds_zyx = [subvol.box_with_border[0:3], subvol.box_with_border[3:6]]
             bounds_list_with_border.append( bounds_zyx )
 
-        from DVIDSparkServices.util import boxlist_to_json
+        from neuclease.util import boxlist_to_json
         # The 'json' module doesn't have nice pretty-printing options for our purposes,
         # so we'll do this ourselves.
         from io import StringIO

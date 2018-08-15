@@ -4,7 +4,7 @@ import numpy as np
 
 from libdvid import DVIDNodeService, DVIDServerService
 
-from DVIDSparkServices.util import box_to_slicing
+from neuclease.util import box_to_slicing
 from DVIDSparkServices.reconutils.downsample import downsample_binary_3d_suppress_zero
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid
 

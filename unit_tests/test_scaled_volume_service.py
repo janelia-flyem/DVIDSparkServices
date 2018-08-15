@@ -7,7 +7,7 @@ import numpy as np
 import DVIDSparkServices
 from DVIDSparkServices.io_util.volume_service import VolumeService, N5VolumeServiceReader, GrayscaleVolumeSchema, ScaledVolumeService
 from DVIDSparkServices.json_util import validate_and_inject_defaults
-from DVIDSparkServices.util import box_to_slicing
+from neuclease.util import box_to_slicing
 from DVIDSparkServices.reconutils.downsample import downsample_raw
 from skimage.util.shape import view_as_blocks
 

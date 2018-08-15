@@ -4,13 +4,11 @@ import logging
 import numpy as np
 import pandas as pd
 
-from neuclease.util import read_csv_header, lexsort_columns
+from neuclease.util import read_csv_header, lexsort_columns, Timer, box_intersection, groupby_presorted, groupby_spans_presorted, SparseBlockMask
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.util import Timer, box_intersection, groupby_presorted, groupby_spans_presorted
 from DVIDSparkServices.io_util.volume_service import VolumeService, DvidSegmentationVolumeSchema
-from DVIDSparkServices.io_util.brick import SparseBlockMask
 from DVIDSparkServices.io_util.brickwall import BrickWall
 
 logger = logging.getLogger(__name__)

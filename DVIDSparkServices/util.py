@@ -9,7 +9,7 @@ import contextlib
 import inspect
 import socket
 import logging
-from itertools import starmap, product
+from itertools import starmap
 from datetime import timedelta
 import json
 import getpass
@@ -217,17 +217,6 @@ def bb_to_slicing(start, stop):
     return tuple( starmap( slice, zip(start, stop) ) )
 
 
-def extract_subvol(array, box):
-    return array[box_to_slicing(*box)]
-
-def overwrite_subvol(array, box, subarray):
-    try:
-        array[box_to_slicing(*box)] = subarray
-    except:
-        assert (subarray.shape == box[1] - box[0]).all(), \
-            f"subarray is the wrong shape {subarray.shape} for the given box {box}"
-        raise
-
 def bb_as_tuple(box):
     if isinstance(box, np.ndarray):
         box = box.tolist()
@@ -236,6 +225,7 @@ def bb_as_tuple(box):
 # Aliases
 box_to_slicing = bb_to_slicing
 box_as_tuple = bb_as_tuple
+
 
 def box_intersection(box_A, box_B):
     """
@@ -250,66 +240,6 @@ def box_intersection(box_A, box_B):
     intersection[1] = np.minimum( box_A[1], box_B[1] )
     return intersection
 
-
-def ndrange(start, stop=None, step=None):
-    """
-    Generator.
-
-    Like np.ndindex, but accepts start/stop/step instead of
-    assuming that start is always (0,0,0) and step is (1,1,1).
-    
-    Example:
-    
-    >>> for index in ndrange((1,2,3), (10,20,30), step=(5,10,15)):
-    ...     print(index)
-    (1, 2, 3)
-    (1, 2, 18)
-    (1, 12, 3)
-    (1, 12, 18)
-    (6, 2, 3)
-    (6, 2, 18)
-    (6, 12, 3)
-    (6, 12, 18)
-    """
-    if stop is None:
-        stop = start
-        start = (0,)*len(stop)
-
-    if step is None:
-        step = (1,)*len(stop)
-
-    assert len(start) == len(stop) == len(step), \
-        f"tuple lengths don't match: ndrange({start}, {stop}, {step})"
-
-    for index in product(*starmap(range, zip(start, stop, step))):
-        yield index
-
-def boxlist_to_json( bounds_list, indent=0 ):
-    # The 'json' module doesn't have nice pretty-printing options for our purposes,
-    # so we'll do this ourselves.
-    from io import StringIO
-
-    buf = StringIO()
-    buf.write('    [\n')
-    
-    bounds_list, last_item = bounds_list[:-1], bounds_list[-1:]
-    
-    for bounds_zyx in bounds_list:
-        start_str = '[{}, {}, {}]'.format(*bounds_zyx[0])
-        stop_str  = '[{}, {}, {}]'.format(*bounds_zyx[1])
-        buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ],\n')
-
-    # Write last entry
-    if last_item:
-        last_item = last_item[0]
-        start_str = '[{}, {}, {}]'.format(*last_item[0])
-        stop_str  = '[{}, {}, {}]'.format(*last_item[1])
-        buf.write(' '*indent + '[ ' + start_str + ', ' + stop_str + ' ]')
-
-    buf.write('\n')
-    buf.write(' '*indent + ']')
-
-    return str(buf.getvalue())
 
 def replace_default_entries(array, default_array, marker=-1):
     """
@@ -805,91 +735,3 @@ def join_many(*rdds):
         next_rdd, rdds = rdds[0], rdds[1:]
         result = result.join(next_rdd).map(condense_value, True)
     return result
-
-
-@jit(nopython=True)
-def groupby_presorted(a, sorted_cols):
-    """
-    Given an array of data and some sorted reference columns to use for grouping,
-    yield subarrays of the data, according to runs of identical rows in the reference columns.
-    
-    JIT-compiled with numba.
-    For pre-sorted structured array input, this is much faster than pandas.DataFrame(a).groupby().
-    
-    Args:
-        a: ND array, any dtype, shape (N,) or (N,...)
-        sorted_cols: ND array, at least 2D, any dtype, shape (N,...),
-                     not necessarily the same shape as 'a', except for the first dimension.
-                     Must be pre-ordered so that identical rows are contiguous,
-                     and therefore define the group boundaries.
-
-    Note: The contents of 'a' need not be related in any way to sorted_cols.
-          The sorted_cols array is just used to determine the split points,
-          and the corresponding rows of 'a' are returned.
-
-    Examples:
-    
-        a = np.array( [[0,0,0],
-                       [1,0,0],
-                       [2,1,0],
-                       [3,1,1],
-                       [4,2,1]] )
-
-        # Group by second column
-        groups = list(groupby_presorted(a, a[:,1:2]))
-        assert (groups[0] == [[0,0,0], [1,0,0]]).all()
-        assert (groups[1] == [[2,1,0], [3,1,1]]).all()
-        assert (groups[2] == [[4,2,1]]).all()
-    
-        # Group by third column
-        groups = list(groupby_presorted(a, a[:,2:3]))
-        assert (groups[0] == [[0,0,0], [1,0,0], [2,1,0]]).all()
-        assert (groups[1] == [[3,1,1], [4,2,1]]).all()
-
-        # Group by external column
-        col = np.array([10,10,40,40,40]).reshape(5,1) # must be at least 2D
-        groups = list(groupby_presorted(a, col))
-        assert (groups[0] == [[0,0,0], [1,0,0]]).all()
-        assert (groups[1] == [[2,1,0], [3,1,1],[4,2,1]]).all()
-        
-    """
-    assert sorted_cols.ndim >= 2
-    assert sorted_cols.shape[0] == a.shape[0]
-
-    if len(a) == 0:
-        return
-
-    start = 0
-    row = sorted_cols[0]
-    for stop in range(len(sorted_cols)):
-        next_row = sorted_cols[stop]
-        if (next_row != row).any():
-            yield a[start:stop]
-            start = stop
-            row = next_row
-
-    # Last group
-    yield a[start:len(sorted_cols)]
-
-@jit(nopython=True)
-def groupby_spans_presorted(sorted_cols):
-    """
-    Similar to groupby_presorted(), but yields only the (start, stop)
-    indexes of the contiguous groups, (not the group subarrays themselves).
-    """
-    assert sorted_cols.ndim >= 2
-    if len(sorted_cols) == 0:
-        return
-
-    start = 0
-    row = sorted_cols[0]
-    for stop in range(len(sorted_cols)):
-        next_row = sorted_cols[stop]
-        if (next_row != row).any():
-            yield (start, stop)
-            start = stop
-            row = next_row
-
-    # Last group
-    yield (start, len(sorted_cols))
-

@@ -42,7 +42,7 @@ import logging
 import warnings
 
 from skimage.util import view_as_blocks
-from DVIDSparkServices.util import box_to_slicing
+from neuclease.util import box_to_slicing
 
 # Special compression for labels (uint64)
 from libdvid import encode_label_block, decode_label_block, encode_mask_array, decode_mask_array

@@ -5,11 +5,11 @@ from functools import partial
 import numpy as np
 from skimage.util import view_as_blocks
 
+from neuclease.util import Grid, slabs_from_box, Timer, box_to_slicing
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices import rddtools as rt
-from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries, Timer, box_to_slicing
-from DVIDSparkServices.io_util.brick import Grid, slabs_from_box
+from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema, TransposedVolumeService
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -42,7 +42,7 @@ class ConvertGrayscaleVolume(Workflow):
         },
          
         "slab-depth": {
-,            "description": "The volume is processed iteratively, in 'slabs'.\n"
+            "description": "The volume is processed iteratively, in 'slabs'.\n"
                            "This setting determines the thickness of each slab.\n"
                            "Must be a multiple of the output brick Z-dimension.\n",
             "type": "integer",

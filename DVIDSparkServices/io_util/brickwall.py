@@ -1,13 +1,12 @@
-from functools import partial
 import numpy as np
 
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker
 from dvidutils import downsample_labels
 
-from .brick import ( Brick, Grid, SparseBlockMask, generate_bricks_from_volume_source,
-                     realign_bricks_to_new_grid, pad_brick_data_from_volume_source, apply_labelmap_to_bricks,
-                     sparse_boxes_from_block_mask )
+from neuclease.util import Grid, SparseBlockMask, sparse_boxes_from_block_mask
+from .brick import ( Brick, generate_bricks_from_volume_source,
+                     realign_bricks_to_new_grid, pad_brick_data_from_volume_source, apply_labelmap_to_bricks )
 
 class BrickWall:
     """

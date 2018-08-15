@@ -18,8 +18,9 @@ import h5py
 
 
 from dvid_resource_manager.client import ResourceManagerClient
+from neuclease.util import Grid
 
-from DVIDSparkServices.io_util.brick import Grid, Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
+from DVIDSparkServices.io_util.brick import Brick, generate_bricks_from_volume_source, realign_bricks_to_new_grid, pad_brick_data_from_volume_source
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_label_instance, is_datainstance

@@ -15,6 +15,7 @@ import pandas as pd
 import requests
 
 from vol2mesh.mesh import Mesh, concatenate_meshes
+from neuclease.util import Grid, SparseBlockMask
 from neuclease.logging_setup import PrefixedLogger
 from neuclease.dvid import create_instance, create_tarsupervoxel_instance, fetch_instance_info, fetch_complete_mappings, fetch_exists
 
@@ -31,7 +32,6 @@ from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema, LabelmappedVolumeService, ScaledVolumeService, TransposedVolumeService
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
-from DVIDSparkServices.io_util.brick import Grid, SparseBlockMask
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService

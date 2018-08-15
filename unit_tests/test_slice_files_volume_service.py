@@ -3,11 +3,11 @@ import unittest
 
 import numpy as np
 
+from neuclease.util import box_to_slicing
+
 import DVIDSparkServices
 from DVIDSparkServices.io_util.volume_service import SliceFilesVolumeServiceReader, SliceFilesVolumeServiceWriter, GrayscaleVolumeSchema
-
 from DVIDSparkServices.json_util import validate_and_inject_defaults
-from DVIDSparkServices.util import box_to_slicing
 
 TEST_VOLUME_SLICE_PATH_FORMAT = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/resources/volume-256-pngs/{:05d}.png'
 TEST_VOLUME_RAW = os.path.dirname(DVIDSparkServices.__file__) + '/../integration_tests/resources/grayscale-256-256-256-uint8.bin'

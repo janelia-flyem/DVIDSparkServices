@@ -7,8 +7,8 @@ import numpy as np
 import vigra
 import dvidutils
 
-from DVIDSparkServices.io_util.brick import box_intersection
-from DVIDSparkServices.util import box_to_slicing, Timer
+from neuclease.util import box_intersection, box_to_slicing, Timer
+
 from DVIDSparkServices.reconutils.downsample import downsample_binary_3d_suppress_zero
 
 BLOCK_WIDTH = 64

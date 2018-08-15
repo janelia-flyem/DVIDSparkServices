@@ -6,7 +6,8 @@ import numpy as np
 from PIL import Image
 from jsonschema import validate
 
-from DVIDSparkServices.util import replace_default_entries, box_to_slicing
+from neuclease.util import box_to_slicing
+from DVIDSparkServices.util import replace_default_entries
 from . import VolumeServiceReader, VolumeServiceWriter, GeometrySchema
 
 

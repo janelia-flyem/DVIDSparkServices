@@ -22,7 +22,7 @@ from DVIDSparkServices.dvid.metadata import is_node_locked
 from DVIDSparkServices.io_util.volume_service import DvidSegmentationVolumeSchema, LabelMapSchema
 from DVIDSparkServices.io_util.labelmap_utils import load_labelmap
 
-from DVIDSparkServices.io_util.brick import SparseBlockMask
+from neuclease.util import SparseBlockMask
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidVolumeService
