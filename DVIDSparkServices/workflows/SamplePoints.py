@@ -13,6 +13,18 @@ from DVIDSparkServices.io_util.brickwall import BrickWall
 
 logger = logging.getLogger(__name__)
 
+# Common CSV column types (unknown columns will have their types guessed by pandas)
+CSV_TYPES = { 'x': np.int32,
+              'y': np.int32,
+              'z': np.int32,
+              'kind': 'category',
+              'conf': np.float32,
+              'user': 'category',
+              'label': np.uint64,
+              'body': np.uint64,
+              'sv': np.uint64 }
+
+
 
 class SamplePoints(Workflow):
     """
@@ -105,7 +117,7 @@ class SamplePoints(Workflow):
 
         input_csv = config["options"]["input-table"]
         with Timer(f"Reading {input_csv}", logger):
-            coordinate_table_df = pd.read_csv(input_csv, header=0, dtype=np.int32)
+            coordinate_table_df = pd.read_csv(input_csv, header=0, dtype=CSV_TYPES)
             points = coordinate_table_df[['z', 'y', 'x']].values
 
         rescale = config["options"]["rescale-points-to-level"]
