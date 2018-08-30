@@ -33,6 +33,9 @@ class SamplePoints(Workflow):
     The volume is divided into Bricks, and the points are grouped by target brick.
     No data is fetched for Bricks that don't have points within them.
     After sampling, the results are aggregated and exported to CSV.
+    
+    All columns from the original CSV file are preserved, but the rows will not necessarily
+    be in the same order as the input file.  They will be sorted by coordinate.
     """
     SamplePointsOptionsSchema = copy.copy(Workflow.OptionsSchema)
     SamplePointsOptionsSchema["additionalProperties"] = False
@@ -62,8 +65,6 @@ class SamplePoints(Workflow):
         # TODO:
         # - Support .npy input
         # - Support alternative column names instead of x,y,z (e.g. 'xa', 'ya', 'yb')
-        # - Optionally preserve extraneous input columns when writing the output
-        # - It may be necessary to iterate over the volume in 'slabs' instead of handling it all at once.
     })
 
     Schema = \
