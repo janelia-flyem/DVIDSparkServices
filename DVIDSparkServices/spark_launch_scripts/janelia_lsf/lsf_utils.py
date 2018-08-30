@@ -1,3 +1,4 @@
+import os
 import re
 import time
 from subprocess import check_output, Popen, CalledProcessError
@@ -164,11 +165,12 @@ class Bjob(object):
             f.write("Host graphs for this job can be found at the following URL:\n")
             f.write(self.rtm_url + "\n\n")
 
-def get_hostgraph_url(job_id):
+def get_hostgraph_url(job_id=None):
     """
     Construct a URL that can be used to browse a job's host
     graphs on Janelia's RTM web server.
     """
+    job_id = job_id or os.environ["LSB_JOBID"]
     submit_time = get_job_submit_time(job_id)
     submit_timestamp = int(submit_time.timestamp())
     rtm_url = ( "http://lsf-rtm/cacti/plugins/grid/grid_bjobs.php"
