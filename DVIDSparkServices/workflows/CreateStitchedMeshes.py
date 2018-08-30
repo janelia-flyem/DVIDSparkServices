@@ -215,6 +215,13 @@ class CreateStitchedMeshes(Workflow):
                                  "drc"],   # Draco (compressed) (.drc)
                         "default": "obj"
                     },
+                    "include-empty": {
+                        "description": "Objects too small to generate proper meshes for may be 'serialized' as an empty buffer (0 bytes long).\n"
+                                       "This setting specifies whether 0-byte files are uploaded to the destination server in such cases,\n"
+                                       "or if they are omitted entirely.\n",
+                        "type": "boolean",
+                        "default": True
+                    },
                     
                     # Only used by the 'labelmap' grouping-scheme
                     "labelmap": copy.copy(LabelMapSchema),
@@ -1166,6 +1173,8 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
     
     grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
     mesh_format = config["mesh-config"]["storage"]["format"]
+    
+    upload_empty = config["mesh-config"]["storage"]["include-empty"]
 
     if grouping_scheme == "no-groups":
         for group_id, segment_ids_and_meshes in partition_items:
@@ -1173,9 +1182,8 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
 
                 @auto_retry(3, pause_between_tries=60.0, logging_name=__name__)
                 def write_mesh():
-                    if len(mesh_data) == 0:
-                        # Empty meshes may be 'serialized' as an empty buffer.
-                        # Don't upload such files.
+                    # Empty or very small meshes may be 'serialized' as an empty buffer.
+                    if len(mesh_data) == 0 and not upload_empty:
                         return
                     with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
                         session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}', mesh_data)
@@ -1189,20 +1197,19 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
         for group_id, segment_ids_and_meshes in partition_items:
             tar_name = _get_group_name(config, group_id)
             tar_stream = BytesIO()
-            nonempty_mesh_count = 0
+            upload_count = 0
             with closing(tarfile.open(tar_name, 'w', tar_stream)) as tf:
                 for (segment_id, mesh_data) in segment_ids_and_meshes:
-                    if len(mesh_data) == 0:
-                        # Empty meshes may be 'serialized' as an empty buffer.
-                        # Don't upload such files.
+                    # Empty or very small meshes may be 'serialized' as an empty buffer.
+                    if len(mesh_data) == 0 and not upload_empty:
                         continue
-                    nonempty_mesh_count += 1
+                    upload_count += 1
                     mesh_name = _get_mesh_name(config, segment_id)
                     f_info = tarfile.TarInfo(mesh_name)
                     f_info.size = len(mesh_data)
                     tf.addfile(f_info, BytesIO(mesh_data))
     
-            if nonempty_mesh_count == 0:
+            if upload_count == 0:
                 # Tarball has no content -- all meshes were empty.
                 continue
             
