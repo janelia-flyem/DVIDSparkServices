@@ -1,0 +1,113 @@
+##
+## Example config file for computing supervoxel meshes via
+## the CreateStitchedMeshes workflow from DVIDSparkServices.
+## 
+## Note: This is a YAML file. Indentation is important.
+##
+## Tip: For more detailed explanation of these options (and others),
+##      print the commented default config via:
+##      launchworkflow --dump-default-verbose-yaml CreateStitchedMeshes
+
+input:
+  dvid:
+    server: "emdata2:7900"
+    uuid: "61c6ebc5cedc43cd9c0de74778d22889"
+    segmentation-name: "segmentation"
+    supervoxels: true
+  
+  geometry:
+    bounding-box: [[0, 0, 0], [34427, 39725, 41394]]
+
+    # Since we're fetching sparse data,
+    # use a small-ish brick shape when downloading data.
+    "message-block-shape": [256,256,256]
+
+    ## When performing non-sparse jobs (i.e. fetching all of scale 1)
+    ## it makes sense to download the larger 'bricks' from DVID.
+    ## Larger block shape to save time during shuffle
+    ## (while still avoiding stupid libdvid requirement not to exceed INT_MAX).
+    #message-block-shape: [3840,256,256]
+    #                                       
+
+    block-width: 64
+    available-scales: [0,1,2,3,4,5,6,7]
+
+  
+  # This means "fetch data at scale 1".
+  # Since this will result in a mesh that is small in all dimensions,
+  # the mesh verticies will need to be upscaled before upload.
+  # Note the 'rescale-before-write' setting, below.
+  rescale-level: 1
+
+
+output:
+  dvid:
+    server: "emdata2:7900"
+    uuid: "61c6ebc5cedc43cd9c0de74778d22889"
+    segmentation-name: segmentation
+    meshes-destination: segmentation_sv_meshes
+
+  geometry: {} # not used
+
+mesh-config:
+  # This compensates for the 'rescale-level' setting, above.
+  rescale-before-write: 2
+
+  # The mesh will be computed in blocks,
+  # with this per-block shape and overlap.
+  task-block-shape: [256, 256, 256]
+  task-block-halo: 4
+
+  batch-count: 1
+
+  pre-stitch-smoothing-iterations: 2
+  pre-stitch-decimation: 0.1
+  pre-stitch-max-vertices: 10e6
+
+  stitch-method: simple-concatenate
+
+  post-stitch-smoothing-iterations: 0
+  post-stitch-decimation: 1.0
+ 
+  storage:
+    # Since we are not using a 'grouping-scheme',
+    # This setting actually refers to supervoxel IDs, not body IDs.
+    subset-bodies: supervoxels-to-process.csv
+    
+    # Alternatively, the above setting also accepts a list:
+    # subset-bodies: [1224133018]
+
+    # FIXME!
+    # Normally, you want to set this to true, to avoid computing meshes
+    # for supervoxels that are already present in the tarsupervoxels instance.
+    # Here, it is set to 'false' for demonstration purposes only.
+    skip-existing-supervoxels: false
+
+    format: drc
+    naming-scheme: tarsupervoxels
+    grouping-scheme: singletons
+
+options:
+    # This setting is not important unless you are computing many meshes (on a cluster).
+    initial-partition-size: 2147483648 # 2 GB
+
+    # These settings are normally used to throttle parallel access to DVID from a cluster.
+    # In single-node mode, the exact settings are not crucial.
+    resource-server: driver
+    resource-port: 4000
+    resource-server-config:
+      read_reqs: 128
+      read_data: 107374182400
+      write_reqs: 32
+      write_data: 4000000000
+
+    # While the job is running, some log data is collected and served over http.
+    # These settings pertain to that feature.
+    log-collector-port: 3000
+    log-collector-directory: ./task-logs
+
+    # Override spark configuration settings
+    # See Spark documentation for more config options.
+    spark-config:
+      spark.task.cpus: 1
+      spark.task.maxFailures: 2
