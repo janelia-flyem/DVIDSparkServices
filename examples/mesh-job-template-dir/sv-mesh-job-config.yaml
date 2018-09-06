@@ -6,11 +6,11 @@
 ##
 ## Tip: For more detailed explanation of these options (and others),
 ##      print the commented default config via:
-##      launchworkflow --dump-default-verbose-yaml CreateStitchedMeshes
+##      launchworkflow.py --dump-default-verbose-yaml CreateStitchedMeshes
 ##
 ## Example usage:
 ## 
-## spark-submit --driver-memory 2G --executor-memory 4G --master 'local[16]' $(which launchworkflow.py) CreateStitchedMeshes -c sv-mesh-job-config.yaml
+## NUM_SPARK_WORKERS=1 spark-submit --driver-memory 2G --executor-memory 4G --master 'local[16]' $(which launchworkflow.py) CreateStitchedMeshes -c sv-mesh-job-config.yaml
 ##
 
 input:
