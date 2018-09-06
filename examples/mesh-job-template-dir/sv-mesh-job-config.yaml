@@ -7,6 +7,11 @@
 ## Tip: For more detailed explanation of these options (and others),
 ##      print the commented default config via:
 ##      launchworkflow --dump-default-verbose-yaml CreateStitchedMeshes
+##
+## Example usage:
+## 
+## spark-submit --driver-memory 2G --executor-memory 4G --master 'local[16]' $(which launchworkflow.py) CreateStitchedMeshes -c sv-mesh-job-config.yaml
+##
 
 input:
   dvid:
@@ -72,7 +77,9 @@ mesh-config:
   storage:
     # Since we are not using a 'grouping-scheme',
     # This setting actually refers to supervoxel IDs, not body IDs.
-    subset-bodies: supervoxels-to-process.csv
+    # You can provide a CSV file here, or a list.
+    subset-bodies: [1224133018]
+    #subset-bodies: ./supervoxels-to-process.csv
     
     # Alternatively, the above setting also accepts a list:
     # subset-bodies: [1224133018]
