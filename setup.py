@@ -9,7 +9,7 @@ setup( name='DVIDSparkServices',
        test_suite="DVIDSparkServices.reconutils.metrics.tests",
        entry_points={
           'console_scripts': [
-              'launchworkflow = DVIDSparkServices.workflow.launchworkflow:main',
+              'launchworkflow.py = DVIDSparkServices.workflow.launchworkflow:main',
               'sparklaunch_janelia_lsf = DVIDSparkServices.spark_launch_scripts.janelia_lsf.sparklaunch_janelia_lsf:main',
               'sparklaunch_janelia_lsf_int = DVIDSparkServices.spark_launch_scripts.janelia_lsf.sparklaunch_janelia_lsf_int:main'
           ]
