@@ -1,9 +1,9 @@
 import numpy as np
-from jsonschema import validate
 
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.util import replace_default_entries
+from DVIDSparkServices.json_util import validate
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
 

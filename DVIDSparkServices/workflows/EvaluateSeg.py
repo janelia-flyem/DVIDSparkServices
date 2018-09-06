@@ -3,7 +3,7 @@
 from __future__ import print_function, absolute_import
 from DVIDSparkServices.workflow.dvidworkflow import DVIDWorkflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import NumpyConvertingEncoder
+from DVIDSparkServices.json_util import NumpyConvertingEncoder
 from libdvid import ConnectionMethod
 import numpy
 from DVIDSparkServices.sparkdvid.Subvolume import SubvolumeNamedTuple

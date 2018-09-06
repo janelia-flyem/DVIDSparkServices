@@ -2,9 +2,9 @@
 
 import sys
 import json
-from jsonschema import validate
 from jsonschema import ValidationError
 
+from DVIDSparkServices.json_util import validate
 from DVIDSparkServices.workflow.workflow import Workflow, WorkflowError
 from DVIDSparkServices.sparkdvid import sparkdvid
 

@@ -1,12 +1,12 @@
 import numpy as np
 
-from jsonschema import validate
 
 from dvid_resource_manager.client import ResourceManagerClient
 
 from libdvid import DVIDException
 
 from DVIDSparkServices.util import replace_default_entries
+from DVIDSparkServices.json_util import validate
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.dvid.metadata import DataInstance, get_blocksize

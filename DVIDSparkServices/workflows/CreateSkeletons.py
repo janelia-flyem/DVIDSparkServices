@@ -1,6 +1,5 @@
 import os
 import copy
-import json
 import tarfile
 from datetime import datetime
 import logging
@@ -9,7 +8,6 @@ from io import BytesIO
 from contextlib import closing
 
 import numpy as np
-import requests
 
 from vol2mesh.mesh_from_array import mesh_from_array
 
@@ -17,6 +15,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.util import Timer, persist_and_execute, unpersist, num_worker_nodes, cpus_per_worker, default_dvid_session
+from DVIDSparkServices.json_util import json_dumps
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
 from DVIDSparkServices.skeletonize_array import SkeletonConfigSchema, skeletonize_array
@@ -655,7 +654,7 @@ def skeletonize(config, body_id, combined_box, combined_mask, downsample_factor)
     config_copy = copy.deepcopy(config)
     config_copy["options"]["(final-downsample-factor)"] = downsample_factor
     
-    config_comment = json.dumps(config_copy, sort_keys=True, indent=4, separators=(',', ': '))
+    config_comment = json_dumps(config_copy, sort_keys=True, indent=4, separators=(',', ': '))
     config_comment = "\n".join( "# " + line for line in config_comment.split("\n") )
     config_comment += "\n\n"
 

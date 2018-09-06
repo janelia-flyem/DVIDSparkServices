@@ -11,7 +11,8 @@ from dvid_resource_manager.client import ResourceManagerClient
 
 import DVIDSparkServices.rddtools as rt
 from DVIDSparkServices.workflow.workflow import Workflow
-from DVIDSparkServices.util import Timer, default_dvid_session, num_worker_nodes, NumpyConvertingEncoder
+from DVIDSparkServices.util import Timer, default_dvid_session, num_worker_nodes
+from DVIDSparkServices.json_util import NumpyConvertingEncoder
 from DVIDSparkServices.io_util.volume_service import VolumeService
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidGenericVolumeSchema
 

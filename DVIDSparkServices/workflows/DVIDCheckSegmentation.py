@@ -24,7 +24,8 @@ from DVIDSparkServices.io_util.brick import Brick, generate_bricks_from_volume_s
 from DVIDSparkServices.sparkdvid.sparkdvid import sparkdvid, retrieve_node_service
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import create_label_instance, is_datainstance
-from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute, NumpyConvertingEncoder
+from DVIDSparkServices.util import Timer, runlength_encode, choose_pyramid_depth, nonconsecutive_bincount, cpus_per_worker, num_worker_nodes, persist_and_execute
+from DVIDSparkServices.json_util import NumpyConvertingEncoder
 from DVIDSparkServices.auto_retry import auto_retry
 
 from DVIDSparkServices.io_util.volume_service.dvid_volume_service import DvidSegmentationVolumeSchema

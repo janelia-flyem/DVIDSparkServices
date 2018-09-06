@@ -3,10 +3,10 @@ import lz4
 
 import numpy as np
 
-from jsonschema import validate
 
 from dvidutils import LabelMapper
 
+from DVIDSparkServices.json_util import validate
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.io_util.labelmap_utils import LabelMapSchema, load_labelmap
 

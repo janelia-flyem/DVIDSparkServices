@@ -11,7 +11,6 @@ import time
 import requests
 import subprocess
 from jsonschema import ValidationError
-import json
 import uuid
 import socket
 import getpass
@@ -27,10 +26,10 @@ from quilted.filelock import FileLock
 
 from dvid_resource_manager.server import DEFAULT_CONFIG as DEFAULT_RESOURCE_MANAGER_CONFIG
 
+import DVIDSparkServices.util # @UnusedImport -- (it is actually used)
 from DVIDSparkServices import cleanup_faulthandler
-import DVIDSparkServices.util
 from DVIDSparkServices.util import mkdir_p, unicode_to_str, kill_if_running, num_worker_nodes, get_localhost_ip_address
-from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults
+from DVIDSparkServices.json_util import validate_and_inject_defaults, inject_defaults, json_dump, json_load
 from DVIDSparkServices.workflow.logger import WorkflowLogger
 
 import logging
@@ -183,7 +182,7 @@ class Workflow(object):
             if jsonfile.startswith('http'):
                 self.config_data = requests.get(jsonfile).json()
             elif ext == '.json':
-                self.config_data = json.load(open(jsonfile))
+                self.config_data = json_load(open(jsonfile))
             elif ext in ('.yml', '.yaml'):
                 self.config_data = yaml.load(open(jsonfile))
             else:
@@ -433,7 +432,7 @@ class Workflow(object):
 
             server_config_path = f'{tmpdir}/driver-resource-server-config.json'
             with open(server_config_path, 'w') as f:
-                json.dump(self.config_data["options"]["resource-server-config"], f)
+                json_dump(self.config_data["options"]["resource-server-config"], f)
             config_arg = '--config-file={}'.format(server_config_path)
         else:
             config_arg = ''
@@ -631,7 +630,7 @@ class Workflow(object):
         output_stream = StringIO()
         if syntax == "json":
             default_instance = inject_defaults( {}, schema )
-            json.dump( default_instance, output_stream, indent=4 )
+            json_dump( default_instance, output_stream, indent=4 )
         else:
             default_instance = inject_defaults( {}, schema, (syntax == "yaml-with-comments"), 2 )
             yaml.dump(default_instance, output_stream )

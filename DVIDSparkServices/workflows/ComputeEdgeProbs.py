@@ -16,7 +16,7 @@ from functools import partial
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.auto_retry import auto_retry
 from DVIDSparkServices.sparkdvid.sparkdvid import retrieve_node_service 
-from DVIDSparkServices.util import NumpyConvertingEncoder
+from DVIDSparkServices.json_util import NumpyConvertingEncoder
 
 class ComputeEdgeProbs(DVIDWorkflow):
     # schema for creating segmentation

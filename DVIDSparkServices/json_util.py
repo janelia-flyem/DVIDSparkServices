@@ -1,12 +1,16 @@
-from __future__ import print_function, absolute_import
-from jsonschema import Draft4Validator, validators
-import copy
-
 import io
+import copy
+import json
+import collections
+
+import numpy as np
+
+from jsonschema import Draft4Validator, validators
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 from ruamel.yaml import YAML
 yaml = YAML()
 yaml.default_flow_style = True
+
 
 def flow_style(ob):
     """
@@ -36,6 +40,72 @@ class Dict(dict):
         super().__init__(*args, **kwargs)
         self.from_default = False
 
+
+class NumpyConvertingEncoder(json.JSONEncoder):
+    """
+    Encoder that converts numpy arrays and scalars
+    into their pure-python counterparts.
+    
+    (No attempt is made to preserve bit-width information.)
+    
+    Usage:
+    
+        >>> d = {"a": np.arange(3, dtype=np.uint32)}
+        >>> json.dumps(d, cls=NumpyConvertingEncoder)
+        '{"a": [0, 1, 2]}'
+    """
+    def default(self, o):
+        if isinstance(o, (np.ndarray, np.number)):
+            return o.tolist()
+        return super().default(o)
+
+
+class ExtendedEncoder(json.JSONEncoder):
+    """
+    Encoder that handles objects that the built-in json library doesn't handle:
+    
+    - Numpy arrays and scalars are converted into their pure-python counterparts
+      (No attempt is made to preserve bit-width information.)
+
+    - All Mapping and Sequence types are converted to dict and list, respectively.
+      (For example, ruamel.yaml.CommentedMap)
+    
+    Usage:
+    
+        >>> d = {"a": np.arange(3, dtype=np.uint32)}
+        >>> json.dumps(d, cls=NumpyConvertingEncoder)
+        '{"a": [0, 1, 2]}'
+    """
+    def default(self, o):
+        if isinstance(o, (np.ndarray, np.number)):
+            return o.tolist()
+        if isinstance(o, collections.abc.Mapping) and not isinstance(o, dict):
+            return dict(o)
+        if isinstance(o, collections.abc.Sequence) and not isinstance(o, list):
+            return list(o)
+        return super().default(o)
+
+def json_dump(*args, **kwargs):
+    """
+    json.dump(), but using ExtendedEncoder, above.
+    """
+    if 'cls' not in kwargs:
+        kwargs['cls'] = ExtendedEncoder
+    return json.dump(*args, **kwargs)
+
+def json_dumps(*args, **kwargs):
+    """
+    json.dumps(), but using ExtendedEncoder, above.
+    """
+    if 'cls' not in kwargs:
+        kwargs['cls'] = ExtendedEncoder
+    return json.dump(*args, **kwargs)
+
+# For API parity with json_dump, above
+json_load = json.load
+json_loads = json.loads
+
+
 def extend_with_default(validator_class):
     """
     This code was adapted from the jsonschema FAQ:
@@ -59,10 +129,14 @@ def extend_with_default(validator_class):
 
 DefaultValidatingDraft4Validator = extend_with_default(Draft4Validator)
 
-def validate_and_inject_defaults(instance, schema, cls=None, *args, **kwargs):
+def validate(instance, schema, cls=None, *args, inject_defaults=False, **kwargs):
     """
-    Drop-in replacement for jsonschema.validate(), but also *modifies* the instance
-    to fill missing properties with their schema-provided default values.
+    Drop-in replacement for jsonschema.validate(), with the following extended functionality:
+    
+    - Any Mapping or Sequence can pass validation as a dict or array, respectively
+      (not only dicts and lists).
+    - If inject_defaults is True, this function *modifies* the instance IN-PLACE
+      to fill missing properties with their schema-provided default values.
 
     See the jsonschema FAQ:
     http://python-jsonschema.readthedocs.org/en/latest/faq/
@@ -71,11 +145,23 @@ def validate_and_inject_defaults(instance, schema, cls=None, *args, **kwargs):
         cls = validators.validator_for(schema)
     cls.check_schema(schema)
 
-    # Add default-injection behavior to the validator
-    extended_cls = extend_with_default(cls)
+    if inject_defaults:
+        # Add default-injection behavior to the validator
+        cls = extend_with_default(cls)
+    
+    # By default, jsonschema expects JSON objects to be of type 'dict',
+    # but we want to accept anything that satisfies collections.abc.Mapping (e.g. ruamel.yaml.CommentedMap).
+    # Same goes for sequences.
+    # https://python-jsonschema.readthedocs.io/en/stable/validate/?highlight=str#validating-with-additional-types
+    kwargs["types"] = {"object": (collections.abc.Mapping,),
+                       "array": (collections.abc.Sequence,)}
     
     # Validate and inject defaults.
-    extended_cls(schema, *args, **kwargs).validate(instance)
+    cls(schema, *args, **kwargs).validate(instance)
+
+
+def validate_and_inject_defaults(instance, schema, cls=None, *args, **kwargs):
+    validate(instance, schema, cls=None, *args, inject_defaults=True, **kwargs)
 
 
 def extend_with_default_without_validation(validator_class, include_yaml_comments=False, yaml_indent=2):
