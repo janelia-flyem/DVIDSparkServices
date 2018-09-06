@@ -71,6 +71,16 @@ def compute_comparison_mapping_table(old_edges, new_edges, sv_sizes=None):
     If sv_sizes is provided, the size of each supervoxel is appended as a column in the DataFrame.
     Any supervoxel IDs missing from sv_sizes ("phantom" supervoxels) are presumed to be of size 0.
     
+    Note:
+        For simply comparing segmentations (regardless of internal merge topology),
+        this function may not be what you want.
+        Consider two 3-node graphs: A-B-C and B-C-A.
+        Those two graphs yield identical segmentations (i.e. a single component),
+        but their graph intersection yields two components (A and B-C).
+        Consider using a different function, which returns a set-based result.
+        That is, compute the CC for the 'old' graph, the CC for the 'new' graph,
+        and then simply enumerate the unique body pairs in the resulting table.
+
     Args:
         old_edges: ndarray, shape (N,2)
         
