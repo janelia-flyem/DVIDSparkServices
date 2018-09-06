@@ -62,6 +62,7 @@ requirements:
     - pyspark-flame
     - tqdm # For progress bar reporting
     - protobuf
+    - cloudpickle
     
     # Needed for brainmaps support:
     - httplib2
