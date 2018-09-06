@@ -81,7 +81,7 @@ class ExtendedEncoder(json.JSONEncoder):
             return o.tolist()
         if isinstance(o, collections.abc.Mapping) and not isinstance(o, dict):
             return dict(o)
-        if isinstance(o, collections.abc.Sequence) and not isinstance(o, list):
+        if isinstance(o, collections.abc.Sequence) and not isinstance(o, (list, str, bytes)):
             return list(o)
         return super().default(o)
 
@@ -132,9 +132,8 @@ DefaultValidatingDraft4Validator = extend_with_default(Draft4Validator)
 def validate(instance, schema, cls=None, *args, inject_defaults=False, **kwargs):
     """
     Drop-in replacement for jsonschema.validate(), with the following extended functionality:
-    
-    - Any Mapping or Sequence can pass validation as a dict or array, respectively
-      (not only dicts and lists).
+
+    - Specifically allow types from ruamel.yaml.comments
     - If inject_defaults is True, this function *modifies* the instance IN-PLACE
       to fill missing properties with their schema-provided default values.
 
@@ -149,12 +148,11 @@ def validate(instance, schema, cls=None, *args, inject_defaults=False, **kwargs)
         # Add default-injection behavior to the validator
         cls = extend_with_default(cls)
     
-    # By default, jsonschema expects JSON objects to be of type 'dict',
-    # but we want to accept anything that satisfies collections.abc.Mapping (e.g. ruamel.yaml.CommentedMap).
-    # Same goes for sequences.
+    # By default, jsonschema expects JSON objects to be of type 'dict'.
+    # We also want to permit ruamel.yaml.comments.CommentedSeq and CommentedMap
     # https://python-jsonschema.readthedocs.io/en/stable/validate/?highlight=str#validating-with-additional-types
-    kwargs["types"] = {"object": (collections.abc.Mapping,),
-                       "array": (collections.abc.Sequence,)}
+    kwargs["types"] = {"object": (CommentedMap, dict),
+                       "array": (CommentedSeq, list)} # Can't use collections.abc.Sequence because that would catch strings, too!
     
     # Validate and inject defaults.
     cls(schema, *args, **kwargs).validate(instance)
