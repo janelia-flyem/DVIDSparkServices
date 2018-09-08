@@ -865,8 +865,10 @@ class CreateStitchedMeshes(Workflow):
                 return None
         
         grouping_scheme = config["mesh-config"]["storage"]["grouping-scheme"]
-        assert grouping_scheme in ('no-groups', 'singletons', 'labelmap', 'dvid-labelmap'), \
-            f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme}"
+        naming_scheme = config["mesh-config"]["storage"]["naming-scheme"]
+        
+        if naming_scheme != 'tarsupervoxels' and grouping_scheme not in ('no-groups', 'singletons', 'labelmap', 'dvid-labelmap'):
+            raise AssertionError(f"Not allowed to use 'subset-bodies' setting for grouping scheme: {grouping_scheme} (except for tarsupervoxels)")
 
         # By default, we'll be using the INPUT service, unless 'dvid-labelmap' is used.
         dvid_service = volume_service.base_service
