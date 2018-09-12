@@ -118,3 +118,17 @@ options:
     spark-config:
       spark.task.cpus: 1
       spark.task.maxFailures: 2
+      
+      # If you encounter the following error from Spark:
+      # 
+      #   Service 'sparkDriver' could not bind on a random free port. You may check whether configuring an appropriate binding address.
+      #   ...
+      #   java.net.BindException: Can't assign requested address: Service 'sparkDriver' failed after 16 retries (on a random free port)!
+      #                           Consider explicitly setting the appropriate binding address for the service 'sparkDriver'
+      #                           (for example spark.driver.bindAddress for SparkDriver) to the correct binding address.
+      #
+      # then consider uncommenting these settings:
+      # 
+      #spark.driver.bindAddress: 0.0.0.0
+      #spark.driver.host: 0.0.0.0
+      #spark.driver.port: 5050
