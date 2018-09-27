@@ -211,8 +211,9 @@ class CreateStitchedMeshes(Workflow):
                     "format": {
                         "description": "Format to save the meshes in. ",
                         "type": "string",
-                        "enum": ["obj",    # Wavefront OBJ (.obj)
-                                 "drc"],   # Draco (compressed) (.drc)
+                        "enum": ["obj",     # Wavefront OBJ (.obj)
+                                 "drc",     # Draco (compressed) (.drc)
+                                 "ngmesh"], # "neuroglancer mesh" format -- a custom binary format
                         "default": "obj"
                     },
                     "include-empty": {
@@ -1148,7 +1149,7 @@ class CreateStitchedMeshes(Workflow):
 
 def post_meshes_to_dvid(config, instance_name, partition_items):
     """
-    Send the given meshes (either .obj or .drc) as key/value pairs to DVID.
+    Send the given meshes (either obj, drc, or ngmesh) as key/value pairs to DVID.
     
     Args:
         config: The CreateStitchedMeshes workflow config data
