@@ -1188,9 +1188,8 @@ def post_meshes_to_dvid(config, instance_name, partition_items):
                     # Empty or very small meshes may be 'serialized' as an empty buffer.
                     if len(mesh_data) == 0 and not upload_empty:
                         return
-                    with resource_client.access_context(dvid_server, False, 2, len(mesh_data)):
-                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}', mesh_data)
-                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}_info', json={ 'format': mesh_format })
+                    with resource_client.access_context(dvid_server, False, 1, len(mesh_data)):
+                        session.post(f'{dvid_server}/api/node/{uuid}/{instance_name}/key/{segment_id}.{mesh_format}', mesh_data)
                 
                 write_mesh()
                 keys_written.append(str(segment_id))
