@@ -592,8 +592,22 @@ class CreateStitchedMeshes(Workflow):
         # Join mesh blocks with corresponding body vertex counts
         body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.itertuples(index=False))
         segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
-        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining mesh blocks with body vertex counts", batch_logger)
+
+        # A side effect of the above join() is that blocks with the same segment ID were moved to the same partition.
+        # That can leave highly unbalanced partitions, so we want to force a shuffle here.
+        # You would think that repartition() would be the exact function to use,
+        # but no: apparently it's just a poorly named synonym for coalesce().
+        
+        num_partitions = segment_ids_and_mesh_blocks_and_body_counts.getNumPartitions()
+        segment_ids_and_mesh_blocks_and_body_counts = ( segment_ids_and_mesh_blocks_and_body_counts
+                                                            .zipWithIndex()
+                                                            .map(lambda kv: kv[::-1])
+                                                            .partitionBy(num_partitions)
+                                                            .values() )
+
+        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining (and reshuffling) mesh blocks with body vertex counts", batch_logger)
         rt.unpersist(segment_ids_and_mesh_blocks)
+        
         
         max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
 
