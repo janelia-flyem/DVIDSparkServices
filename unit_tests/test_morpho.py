@@ -32,7 +32,7 @@ class TestContingencyTable(unittest.TestCase):
     def test_mem_usage(self):
         a = np.random.randint(100,200, size=(100,100), dtype=np.uint32)
         b = np.random.randint(200,300, size=(100,100), dtype=np.uint32)
-        _table = assert_mem_usage_factor(10)(contingency_table)(a,b)
+        _table = assert_mem_usage_factor(20)(contingency_table)(a,b)
 
 
 class TestSplitDisconnectedBodies(unittest.TestCase):
@@ -92,7 +92,7 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
 
     def test_mem_usage(self):
         a = 1 + np.arange(1000**2, dtype=np.uint32).reshape((1000,1000)) // 10
-        split, mapping = assert_mem_usage_factor(10)(split_disconnected_bodies)(a)
+        split, mapping = assert_mem_usage_factor(20)(split_disconnected_bodies)(a)
         assert (a == split).all()
         assert mapping == {}
 

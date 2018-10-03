@@ -105,7 +105,7 @@ def split_disconnected_bodies(labels_orig):
     MINIMAL_origWithSplits_to_orig = dict( [k_v for k_v in origWithSplits_to_orig.items() if k_v[0] > max_orig] )
     
     # Update 2017-02-16:
-    # Every label involved in a split must be returned in the mapping, even hasn't changed.
+    # Every label involved in a split must be returned in the mapping, even if it hasn't changed.
     split_labels = set(MINIMAL_origWithSplits_to_orig.values())
     final_mapping = dict(MINIMAL_origWithSplits_to_orig)
     for k,v in origWithSplits_to_orig.items():
@@ -125,7 +125,7 @@ def _split_body_mappings( labels_orig, labels_split ):
     
     1. A mapping 'split_to_nonconflicting' which converts labels_split into a
        volume that matches labels_orig as closely as possible:
-         - Unsplit segments are mappted to their original IDs
+         - Unsplit segments are mapped to their original IDs
          - For split segments:
            -- the largest segment retains the original ID
            -- the other segments are mapped to new labels,
@@ -151,10 +151,17 @@ def _split_body_mappings( labels_orig, labels_split ):
     
     # For each 'orig' id, in which 'split' id did it mainly end up?
     overlap_table_px.index = overlap_table_px['right']
-    max_mapping = overlap_table_px.groupby('left').agg({'overlap_size': 'idxmax'})
-    max_mapping.columns = ['right']
-    main_split_segments = np.zeros((int(max_mapping.index.max())+1,), dtype=np.uint32)
-    main_split_segments[(max_mapping.index.values,)] = max_mapping['right'].values
+    
+    
+    #max_mapping = overlap_table_px.groupby('left').agg({'overlap_size': 'idxmax'})
+    #max_mapping = max_mapping.reset_index()
+    #max_mapping.columns = ['left', 'right']
+    
+    # This equivalent to the above, but faster
+    max_mapping = overlap_table_px.sort_values(['overlap_size'], ascending=False).drop_duplicates('left')
+    
+    main_split_segments = np.zeros((int(max_mapping['left'].max())+1,), dtype=np.uint32)
+    main_split_segments[(max_mapping['left'].values,)] = max_mapping['right'].values
     del max_mapping
     
     split_to_orig = dict( zip(overlap_table_px['right'], overlap_table_px['left']) )
@@ -189,21 +196,11 @@ def _split_body_mappings( labels_orig, labels_split ):
 
 
 def contingency_table(left_vol, right_vol):
-    """
-    Return a pd.DataFrame with columns 'left', 'right' and 'overlap_size',
-    indicating the count of overlapping pixels for each segment in 'from' with segments in 'to'.
-    
-    Note: Internally, copies both volumes multiple times.
-          This function seems to require an extra ~5x RAM relative to the inputs.
-    """
     assert left_vol.dtype == right_vol.dtype
-    dtype = left_vol.dtype
-    vols_combined = np.empty((left_vol.size,2), dtype)
-    vols_combined[:,0]= left_vol.flat
-    vols_combined[:,1]= right_vol.flat
-    vols_combined = vols_combined.reshape(-1).view([('left', dtype), ('right', dtype)])
-    pairs, counts = np.unique(vols_combined, return_counts=True)
-    table = pd.DataFrame({'left': pairs['left'], 'right': pairs['right'], 'overlap_size': counts})
+    df = pd.DataFrame({'left': left_vol.reshape(-1), 'right': right_vol.reshape(-1)})
+    table = df.groupby(['left', 'right']).agg('size')
+    table = table.reset_index()
+    table.columns = ['left', 'right', 'overlap_size']
     return table
 
 
