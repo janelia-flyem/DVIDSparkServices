@@ -9,7 +9,6 @@ import numpy
 import numpy as np
 import pandas as pd
 import vigra
-import scipy.sparse
 
 from dvidutils import LabelMapper
 
@@ -18,16 +17,6 @@ import skimage.measure as skm
 from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_binary_3d_suppress_zero, downsample_box
-
-
-try:
-    from numba import jit
-except ImportError:
-    # Fake jit decorator if numba isn't available
-    def jit(nopython=False):
-        def wrapper(f):
-            return f
-        return wrapper
 
 
 def split_disconnected_bodies(labels_orig):
@@ -115,79 +104,6 @@ def contingency_table(left_vol, right_vol):
     table = table.reset_index()
     table.columns = ['left', 'right', 'overlap_size']
     return table
-
-
-def matrix_argmax(m, axis=0):
-    """
-    Equivalent to np.argmax(table, axis=axis), but works
-    for both ndarray and scipy.sparse.coo_matrix objects.
-    
-    Update:
-        In newer versions of scipy, sparse matrix objects have
-        an argmax() method, so we can delete this function once
-        we upgrade our scipy dependency.
-    """
-    assert m.ndim == 2
-    if axis == 0:
-        return row_argmax(m.transpose())
-    if axis == 1:
-        return row_argmax(m)
-
-def row_argmax(table):
-    """
-    Equivalent to np.argmax(table, axis=1), but works
-    for both ndarray and scipy.sparse.coo_matrix objects.
-    """
-    assert isinstance(table, (numpy.ndarray, scipy.sparse.coo_matrix)), \
-        "Unsupported matrix type: {}".format(type(table))
-    assert table.ndim == 2
-    
-    if isinstance(table, numpy.ndarray):
-        return numpy.argmax(table, axis=1)
-
-    if isinstance(table, scipy.sparse.coo_matrix):
-        return _sparse_row_argmax(table.col, table.row, table.data, table.shape[0])
-
-    assert False, "Shouldn't get here..."
-
-@jit(nopython=True)
-def _sparse_row_argmax(sparse_cols, sparse_rows, sparse_data, num_dense_rows):
-    """
-    Helper function for row_argmax, to compute the argmax of a scipy.sparse.coo_matrix M.
-    
-    Args:
-        sparse_cols: M.col
-        sparse_rows: M.row
-        sparse_data: M.data
-        num_dense_rows: M.shape[0]
-    
-    Returns:
-        Equivalent to numpy.argmax(M.toarray(), axis=1)
-    """
-    row_maxcols = numpy.zeros((num_dense_rows, 2), dtype=numpy.uint32)
-    for i in range(sparse_cols.shape[0]):
-        col = sparse_cols[i]
-        row = sparse_rows[i]
-        element = sparse_data[i]
-        prev_max = row_maxcols[row,0]
-        if element > prev_max:
-            row_maxcols[row] = [element, col]
-    return row_maxcols[:,1]
-
-
-def compose_mappings( *mappings ):
-    """
-    Given a series of mappings (dicts) that form a chain going
-    from one set of labels to another, compose the chain
-    together into a final dict.
-    
-    For example, combine mappings A->B, B->C, C->D into a new mapping A->D
-    """
-    AtoB = mappings[0]
-    for BtoC in mappings[1:]:
-        AtoC = { k: BtoC[v] for k,v in AtoB.items() }
-        AtoB = AtoC
-    return AtoB
 
 
 def seeded_watershed(boundary, seed_threshold = 0, seed_size = 5, mask=None):

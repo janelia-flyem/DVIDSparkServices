@@ -2,12 +2,11 @@ from __future__ import division
 import unittest
 
 import numpy as np
-import scipy.sparse
 import vigra
 
 from numpy_allocation_tracking.decorators import assert_mem_usage_factor
 
-from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, matrix_argmax, object_masks_for_labels, assemble_masks,\
+from DVIDSparkServices.reconutils.morpho import split_disconnected_bodies, object_masks_for_labels, assemble_masks,\
     contingency_table
 from DVIDSparkServices.util import bb_to_slicing
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
@@ -95,23 +94,6 @@ class TestSplitDisconnectedBodies(unittest.TestCase):
         split, mapping = assert_mem_usage_factor(20)(split_disconnected_bodies)(a)
         assert (a == split).all()
         assert mapping == {}
-
-
-class TestSparseMatrixUtilityFunctions(unittest.TestCase):
- 
-    def test_matrix_argmax(self):
-        """
-        Test the special argmax function for sparse matrices.
-        """
-        data = [[0,3,0,2,0],
-                [0,0,1,0,5],
-                [0,0,0,2,0]]
-        data = np.array(data).astype(np.uint32)
-         
-        m = scipy.sparse.coo_matrix(data, data.nonzero())
-         
-        assert (matrix_argmax(m, axis=1) == [1,4,3]).all()  
-        assert (matrix_argmax(m, axis=1) == matrix_argmax(data, axis=1)).all()
 
 
 class Test_object_masks_for_labels(unittest.TestCase):
