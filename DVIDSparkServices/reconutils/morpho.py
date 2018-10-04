@@ -10,7 +10,12 @@ import numpy as np
 import pandas as pd
 import vigra
 import scipy.sparse
-from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple, reverse_dict
+
+from dvidutils import LabelMapper
+
+import skimage.measure as skm
+
+from DVIDSparkServices.util import select_item, bb_to_slicing, bb_as_tuple
 from DVIDSparkServices.sparkdvid.CompressedNumpyArray import CompressedNumpyArray
 from DVIDSparkServices.reconutils.downsample import downsample_binary_3d, downsample_binary_3d_suppress_zero, downsample_box
 
@@ -23,6 +28,7 @@ except ImportError:
         def wrapper(f):
             return f
         return wrapper
+
 
 def split_disconnected_bodies(labels_orig):
     """
@@ -55,149 +61,56 @@ def split_disconnected_bodies(labels_orig):
             Segments that were not split at all are not mentioned in this mapping,
             for split segments, every mapping pair for the split is returned, including the k->k (identity) pair.
     """
-    # Pre-allocate destination to force output dtype
-    labels_consecutive = numpy.zeros_like(labels_orig, numpy.uint32)
+    # Compute connected components and cast back to original dtype
+    labels_cc = skm.label(labels_orig, background=0, connectivity=1)
+    assert labels_cc.dtype == np.int64
+    if labels_orig.dtype == np.uint64:
+        labels_cc = labels_cc.view(np.uint64)
+    else:
+        labels_cc = labels_cc.astype(labels_orig.dtype, copy=False)
 
-    labels_consecutive, max_consecutive_label, orig_to_consecutive = \
-        vigra.analysis.relabelConsecutive(labels_orig, start_label=1, out=labels_consecutive)
-
-    max_orig = max( orig_to_consecutive.keys() )
-    cons_to_orig = reverse_dict( orig_to_consecutive )
+    # Find overlapping segments between orig and CC volumes
+    overlap_table_df = contingency_table(labels_orig, labels_cc)
+    overlap_table_df.columns = ['orig', 'cc', 'voxels']
+    overlap_table_df.sort_values('voxels', ascending=False, inplace=True)
     
-    labels_split = vigra.analysis.labelMultiArrayWithBackground(labels_consecutive)
+    # If a label in 'orig' is duplicated, it has multiple components in labels_cc.
+    # The largest component gets to keep the original ID;
+    # the other components must take on new values.
+    # (The new values must not conflict with any of the IDs in the original, so start at orig_max+1)
+    new_cc_pos = overlap_table_df['orig'].duplicated()
+    orig_max = overlap_table_df['orig'].max()
+    new_cc_values = np.arange(orig_max+1, orig_max+1+new_cc_pos.sum(), dtype=labels_orig.dtype)
 
-    # 'orig' = original label values I..J
-    # 'origWithSplits' = original label values I..J
-    #                    plus new label values for the S splits (J+1)..(J+1+S)
-    #
-    # 'cons' = consecutive label values 1..N
-    # 'consWithSplits' = consecutive label values 1..N
-    #                    plus new label values for the S splits (N+1)..(N+1+S)
+    overlap_table_df['final_cc'] = overlap_table_df['orig'].copy()
+    overlap_table_df.loc[new_cc_pos, 'final_cc'] = new_cc_values
+    
+    # Relabel the CC volume to use the 'final_cc' labels
+    mapper = LabelMapper(overlap_table_df['cc'].values, overlap_table_df['final_cc'].values)
+    mapper.apply_inplace(labels_cc)
 
-    split_to_consWithSplits, consWithSplits_to_cons = _split_body_mappings(labels_consecutive, labels_split)
-    del labels_consecutive
+    # Generate the mapping that could (if desired) convert the new volume into the original one,
+    # as described in the docstring above.
+    emitted_mapping_rows = overlap_table_df['orig'].duplicated(keep=False)
+    new_to_orig = dict(overlap_table_df.loc[emitted_mapping_rows, ['final_cc', 'orig']].values)
     
-    num_main_segments = max_consecutive_label
-    num_splits = len(split_to_consWithSplits) - num_main_segments - 1 # not counting zero
-
-    # Combine    
-    consWithSplits_to_origWithSplits = reverse_dict(orig_to_consecutive)
-    consWithSplits_to_origWithSplits.update(
-        dict( zip( range( 1+max_consecutive_label, 1+max_consecutive_label+num_splits),
-                   range( 1+max_orig, 1+max_orig+num_splits) )) )
-
-    # split -> consWithSplits -> origWithSplits
-    split_to_origWithSplits = compose_mappings( split_to_consWithSplits, consWithSplits_to_origWithSplits )
-
-    # Remap the image: split -> origWithSplits
-    labels_origWithSplits = numpy.empty_like(labels_orig)
-    vigra.analysis.applyMapping( labels_split, split_to_origWithSplits, out=labels_origWithSplits )
-    del labels_split
-
-    origWithSplits_to_consWithSplits = reverse_dict( consWithSplits_to_origWithSplits )
-
-    # origWithSplits -> consWithSplits -> cons -> orig
-    origWithSplits_to_orig = compose_mappings( origWithSplits_to_consWithSplits,
-                                               consWithSplits_to_cons,
-                                               cons_to_orig )
-    
-    # Return final reverse mapping, but remove the labels that stayed the same.
-    MINIMAL_origWithSplits_to_orig = dict( [k_v for k_v in origWithSplits_to_orig.items() if k_v[0] > max_orig] )
-    
-    # Update 2017-02-16:
-    # Every label involved in a split must be returned in the mapping, even if it hasn't changed.
-    split_labels = set(MINIMAL_origWithSplits_to_orig.values())
-    final_mapping = dict(MINIMAL_origWithSplits_to_orig)
-    for k,v in origWithSplits_to_orig.items():
-        if v in split_labels:
-            final_mapping[k] = v
-    
-    return labels_origWithSplits, final_mapping
-
-
-def _split_body_mappings( labels_orig, labels_split ):
-    """
-    Helper function for split_disconnected_bodies()
-    
-    Given an original label image and a connected components labeling
-    of that original image that 'splits' any disconnected objects it contained,
-    returns two mappings:
-    
-    1. A mapping 'split_to_nonconflicting' which converts labels_split into a
-       volume that matches labels_orig as closely as possible:
-         - Unsplit segments are mapped to their original IDs
-         - For split segments:
-           -- the largest segment retains the original ID
-           -- the other segments are mapped to new labels,
-              all of which are higher than labels_orig.max()
-    
-    2. A mapping 'nonconflicting_to_orig' to convert from
-       split_to_consistent.values() to the set of values in labels_orig
-       
-    Args:
-        labels_orig: A label image with CONSECUTIVE label values 1..N
-        labels_split: A connected components labeling of the original image,
-                      with label values 1..(N+M), assuming M splits in the original data.
-                      
-                      Note: Labels in this image do not need to have any other consistency
-                      with labels in the original.  For example, label 1 in 'labels_orig'
-                      may correspond to label 5 in 'labels_split'.
-    """
-    overlap_table_px = contingency_table(labels_orig, labels_split)
-    overlap_table_px.sort_values(['left', 'right'], inplace=True)
-    
-    num_orig_segments = len(set(overlap_table_px['left']) - set([0]))
-    num_split_segments = len(set(overlap_table_px['right']) - set([0]))
-    
-    # For each 'orig' id, in which 'split' id did it mainly end up?
-    overlap_table_px.index = overlap_table_px['right']
-    
-    
-    #max_mapping = overlap_table_px.groupby('left').agg({'overlap_size': 'idxmax'})
-    #max_mapping = max_mapping.reset_index()
-    #max_mapping.columns = ['left', 'right']
-    
-    # This equivalent to the above, but faster
-    max_mapping = overlap_table_px.sort_values(['overlap_size'], ascending=False).drop_duplicates('left')
-    
-    main_split_segments = np.zeros((int(max_mapping['left'].max())+1,), dtype=np.uint32)
-    main_split_segments[(max_mapping['left'].values,)] = max_mapping['right'].values
-    del max_mapping
-    
-    split_to_orig = dict( zip(overlap_table_px['right'], overlap_table_px['left']) )
-    split_to_orig[0] = 0
-
-    # ('main' segments have the same id in the 'orig' and 'nonconflicting' label sets)
-    main_split_ids_to_nonconflicting = _main_split_ids_to_orig = \
-        { main_split_segments[orig] : orig for orig in range(0, 1+num_orig_segments) }
-
-    # What are the 'non-main' IDs (i.e. new segments after the split)?
-    overlap_table_px = overlap_table_px.query('right not in @main_split_segments')
-    nonmain_split_ids = overlap_table_px['right'].values
-    nonmain_split_ids.sort()
-    del overlap_table_px
-
-    # Map the new split segments to new high ids, so they don't conflict with the old ones
-    nonmain_split_ids_to_nonconflicting = dict( zip( nonmain_split_ids,
-                                                     range( 1+num_orig_segments, 1+num_split_segments) ) )
-
-    # Map from split -> nonconflicting, i.e. (split -> main old/nonconflicting + split -> nonmain nonconflicting)
-    split_to_nonconflicting = dict(main_split_ids_to_nonconflicting)
-    split_to_nonconflicting.update( nonmain_split_ids_to_nonconflicting )
-    assert len(split_to_nonconflicting) == len(split_to_orig)
-
-    nonconflicting_to_split = reverse_dict( split_to_nonconflicting )
-
-    # Map from nonconflicting -> split -> orig
-    nonconflicting_to_orig = compose_mappings(nonconflicting_to_split, split_to_orig)
-    
-    assert len(split_to_nonconflicting) == len(nonconflicting_to_orig)
-    return split_to_nonconflicting, nonconflicting_to_orig
+    return labels_cc, new_to_orig
 
 
 def contingency_table(left_vol, right_vol):
+    """
+    Compute the overlap table ("contingency table")
+    for the given label volumes.
+    
+    Returns:
+        DataFrame with columns ['left', 'right', 'overlap_size'],
+        indicating the unique pairs of overlapping IDs and the number
+        of overlapping voxels.
+    """
     assert left_vol.dtype == right_vol.dtype
-    df = pd.DataFrame({'left': left_vol.reshape(-1), 'right': right_vol.reshape(-1)})
+    df = pd.DataFrame( {'left': left_vol.reshape(-1),
+                       'right': right_vol.reshape(-1)} )
+
     table = df.groupby(['left', 'right']).agg('size')
     table = table.reset_index()
     table.columns = ['left', 'right', 'overlap_size']
