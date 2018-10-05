@@ -48,6 +48,15 @@ class NumpyConvertingEncoder(json.JSONEncoder):
     
     (No attempt is made to preserve bit-width information.)
     
+    
+    NOTE: By default, json.dump() will allow ints/floats as object keys,
+          which it silently converts to strings.
+          But numpy integers will not work as keys, even when
+          using this custom encoder.
+          There appears to be no simple way to extend the builtin
+          json encoder to handle numpy keys.
+          You must convert them to strings (or ints) yourself.
+    
     Usage:
     
         >>> d = {"a": np.arange(3, dtype=np.uint32)}
