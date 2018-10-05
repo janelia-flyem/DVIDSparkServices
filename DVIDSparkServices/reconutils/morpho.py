@@ -78,10 +78,14 @@ def split_disconnected_bodies(labels_orig):
     mapper = LabelMapper(overlap_table_df['cc'].values, overlap_table_df['final_cc'].values)
     mapper.apply_inplace(labels_cc)
 
-    # Generate the mapping that could (if desired) convert the new volume into the original one,
-    # as described in the docstring above.
+    # Generate the mapping that could (if desired) convert the new
+    # volume into the original one, as described in the docstring above.
     emitted_mapping_rows = overlap_table_df['orig'].duplicated(keep=False)
-    new_to_orig = dict(overlap_table_df.loc[emitted_mapping_rows, ['final_cc', 'orig']].values)
+    emitted_mapping_pairs = overlap_table_df.loc[emitted_mapping_rows, ['final_cc', 'orig']].values
+
+    # Use tolist() to ensure plain Python int types
+    # (This is required by some client code in Evaluate.py)
+    new_to_orig = dict(emitted_mapping_pairs.tolist())
     
     return labels_cc, new_to_orig
 
