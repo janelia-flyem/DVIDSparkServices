@@ -102,6 +102,8 @@ This workflow takes the location of two DVID segmentations and computes quality 
 An ROI is provided and is split up between spark workers.  Each worker fetches two volumes corresponding to the baseline/ground truth volume and
 the comparison volume. 
 
+Custom metric plugins can be created and added to DVIDSparkServices/reconutils/metrics/plugins.  There are many example plugins in this directory that implement different subsets of the base class interface defined at DVIDSparkServices/reconutils/metrics/plugins/stat.py.
+
 ### Segmentation (plugin: CreateSegmentation)
 
 Performs segmentation on overlapping grayscale subvolumes fetched from DVID using a supplied segmentation plugin (or falls back to a simple default watershed implementation).  The subvolumes are then stitched together using conservative overlap rules to form a global segmentation.  This segmentation is then read back into DVID.  The default segmentation algorithm
