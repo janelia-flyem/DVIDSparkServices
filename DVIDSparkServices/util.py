@@ -29,7 +29,11 @@ from psutil import AccessDenied
 logger = logging.getLogger(__name__)
 
 def cpus_per_worker():
-    return 16
+    # FIXME: It would be nice to have a way of automatically
+    #        determine this, rather than hard-coding it here.
+    #        Anyway, at Janelia Spark workers have 32 CPUs
+    #        per machine as of 2018-10-18
+    return 32
 
 DEFAULT_DVID_SESSIONS = {}
 DEFAULT_APPNAME = "DVIDSparkServices" # Workflows should overwrite this in their constructors.
