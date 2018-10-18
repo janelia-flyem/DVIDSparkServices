@@ -19,12 +19,14 @@ import argparse
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices
+from DVIDSparkServices.util import cpus_per_worker
 from .lsf_utils import Bjob, kill_job, get_hostgraph_url
 
 ## NOTE: LSF jobs will inherit all of these environment variables by default. 
 
 # Location of spark distribution
-SPARK_HOME = "/misc/local/spark-test" # /misc/local/spark-versions/spark-2.2.0-bin-without-hadoop
+SPARK_VERSION = '2.3.1'
+SPARK_HOME = f"/misc/local/spark-versions/spark-{SPARK_VERSION}-bin-without-hadoop"
 
 # spark configuration path
 SPARK_CONF_DIR = abspath(dirname(DVIDSparkServices.__file__) + '/SPARK_CONF_DIR')
@@ -67,11 +69,11 @@ def setup_environment(num_spark_workers, config_file, job_log_dir):
 
 def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
     num_nodes = num_spark_workers + 1 # Add one for master
-    num_slots = num_nodes * 16
+    num_slots = num_nodes * cpus_per_worker()
     
     job = Bjob( 'dummy-string',
                 name=f'{job_name}-cluster',
-                app_env='sparkbatch(test)',
+                app_env=f'sparkbatch32({SPARK_VERSION})',
                 num_slots=num_slots,
                 max_runtime_minutes=int(max_hours * 60),
                 stdout_file=f'{job_log_dir}/{job_name}-cluster.log' )
@@ -79,7 +81,7 @@ def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
     try:
         print("Launching spark cluster:")
         master_job_id, queue_name, master_hostname = job.submit()
-        assert queue_name == 'spark', f"Unexpected queue name for master job: {queue_name}"
+        assert queue_name == 'spark32', f"Unexpected queue name for master job: {queue_name}"
 
         print(f'...master ({master_job_id}) is running on http://{master_hostname}:8080\n')
         
@@ -128,7 +130,7 @@ def launch_driver_job( master_job_id, master_hostname, num_driver_slots, driver_
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--driver-slots', type=int, default=16)
+    parser.add_argument('--driver-slots', type=int, default=cpus_per_worker())
     parser.add_argument('--driver-node-type', choices=['sandy', 'haswell', 'broadwell', 'avx2'])
     parser.add_argument('--driver-queue', help='For example, "spark-drivers"')
     parser.add_argument('--job-log-dir', type=str, default='.')
