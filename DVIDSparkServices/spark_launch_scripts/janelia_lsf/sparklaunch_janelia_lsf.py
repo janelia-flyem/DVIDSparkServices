@@ -46,7 +46,7 @@ def setup_environment(num_spark_workers, config_file, job_log_dir):
     # set path
     curr_path = os.environ["PATH"]
     os.environ["PATH"] = PATH_DIRS + ":" + curr_path
-
+    
     # set spark path
     os.environ["SPARK_HOME"] = SPARK_HOME
 
@@ -65,6 +65,12 @@ def setup_environment(num_spark_workers, config_file, job_log_dir):
 
     # DVIDSparkServices will drop faulthandler traceback logs here.
     os.environ["DVIDSPARKSERVICES_FAULTHANDLER_OUTPUT_DIR"] = abspath(job_log_dir)
+    
+    # Some pandas and numpy functions will use OpenMP (via MKL or OpenBLAS)
+    # which causes each process to use many threads.
+    # That's bad since you can end up with N**2 threads on a machine with N cores.
+    # Unless you know what you're doing, it's best to force OpenMP to use only 1 core per process.
+    os.environ["OMP_NUM_THREADS"] = '1'
 
 
 def launch_spark_cluster(job_name, num_spark_workers, max_hours, job_log_dir):
