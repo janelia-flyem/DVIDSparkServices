@@ -78,8 +78,8 @@ export SPARK_WORKER_DIR=/scratch/$USER/work
 export JAVA_HOME=/misc/local/jdk1.8.0_102
 export SPARK_LOG_DIR=~/.spark/logs/$(date +%H-%F)/
 export SPARK_EXECUTOR_MEMORY=90g
-export SPARK_DRIVER_MEMORY=60g
-export SPARK_WORKER_MEMORY=90g
+export SPARK_DRIVER_MEMORY=140g
+export SPARK_WORKER_MEMORY=160g
 export SPARK_WORKER_OPTS=-Dspark.worker.cleanup.enabled=true
 
 ###################################
