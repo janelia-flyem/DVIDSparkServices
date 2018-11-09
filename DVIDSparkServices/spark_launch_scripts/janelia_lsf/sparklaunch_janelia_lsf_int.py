@@ -16,7 +16,6 @@ Assumptions:
     - The master node must already be running and specified in the MASTER environment variable.
 
 """
-from __future__ import print_function
 import os
 from os.path import dirname, abspath
 import re
@@ -32,11 +31,7 @@ import smtplib
 from datetime import timedelta
 from collections import namedtuple
 from email.mime.text import MIMEText
-
-if sys.version_info.major == 2:
-    from StringIO import StringIO
-else:
-    from io import StringIO
+from io import StringIO
 
 # Note: You must run this script with the same python interpreter that will run the workflow
 import DVIDSparkServices.workflow
@@ -44,6 +39,7 @@ import DVIDSparkServices.workflow
 DRIVER_HOSTNAME = socket.gethostname()
 SPARK_HOME = os.environ["SPARK_HOME"]
 LSB_JOBNAME = os.environ['LSB_JOBNAME']
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -155,23 +151,35 @@ def main():
                 subprocess.check_output('bkill {}'.format(MASTER_BJOB_ID), shell=True)
             except subprocess.CalledProcessError as ex:
                 print(f"Failed to kill Spark Cluster: '{ex.output.decode()}' (Exit code {ex.returncode})")
+                cluster_is_running = True
+            else:
+                cluster_is_running = False
 
         if args.email_on_exit:
-            send_exit_email(args.workflow_name, workflow_proc.returncode, duration, args.config_or_callback_address)
+            send_exit_email(args.workflow_name, workflow_proc.returncode, duration, args.config_or_callback_address, cluster_is_running)
 
         print("EXITING Driver job")
         
-def send_exit_email(workflow_name, returncode, duration, config_file):
-    body = "Workflow {} exited with code: {}\n"\
-            "Duration: {}\n"\
-            "Job name: {}\n"\
-           "Config file: {}\n"\
-           .format(workflow_name, returncode, duration, LSB_JOBNAME, config_file)
+
+def send_exit_email(workflow_name, returncode, duration, config_file, cluster_is_running):
+    body = (f"Workflow {workflow_name} exited with code: {returncode}\n"
+            f"Duration: {duration}\n"
+            f"Job name: {LSB_JOBNAME}\n"
+            f"Config file: {config_file}\n")
+
+    if cluster_is_running:
+        body += "WARNING: THE SPARK CLUSTER DID NOT DIE SUCCESSFULLY.  IT MAY STILL BE RUNNING.\n"
+
+    user = getpass.getuser()
+    host = socket.gethostname()
 
     msg = MIMEText(body)
-    msg['Subject'] = 'Spark job exited: {}'.format(returncode)
-    msg['From'] = 'sparklaunch_janelia_lsf <{}@{}>'.format(getpass.getuser(), socket.gethostname())
-    msg['To'] = '{}@janelia.hhmi.org'.format(getpass.getuser())
+    msg['Subject'] = f'Spark job exited: {returncode}'
+    msg['From'] = f'sparklaunch_janelia_lsf <{user}@{host}>'
+    msg['To'] = f'{user}@janelia.hhmi.org'
+
+    if cluster_is_running:
+        msg['Subject'] += ' (POSSIBLE ZOMBIE CLUSTER)'
 
     s = smtplib.SMTP('mail.hhmi.org')
     s.sendmail(msg['From'], [msg['To']], msg.as_string())
