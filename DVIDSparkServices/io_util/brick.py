@@ -262,7 +262,6 @@ def generate_bricks_from_volume_source( bounding_box, grid, volume_accessor_func
     def make_bricks( logical_and_physical_box ):
         logical_box, physical_box = logical_and_physical_box
         if lazy:
-            volume_accessor_func
             return Brick(logical_box, physical_box, lazy_creation_fn=volume_accessor_func)
         else:
             volume = volume_accessor_func(physical_box)
