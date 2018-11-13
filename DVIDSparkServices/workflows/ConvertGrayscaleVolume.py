@@ -5,11 +5,14 @@ from functools import partial
 import numpy as np
 from skimage.util import view_as_blocks
 
+from dvidutils import destripe
 from neuclease.util import Grid, slabs_from_box, Timer, box_to_slicing
+from neuclease.focused.hotknife import HEMIBRAIN_TAB_BOUNDARIES
 from dvid_resource_manager.client import ResourceManagerClient
 
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries
+from DVIDSparkServices.io_util.brick import Brick
 from DVIDSparkServices.io_util.brickwall import BrickWall
 from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema
 from DVIDSparkServices.workflow.workflow import Workflow
@@ -67,6 +70,22 @@ class ConvertGrayscaleVolume(Workflow):
             "type": "string",
             "enum": ["x", "y", "z"],
             "default": "z"
+        },
+        
+        "contrast-adjustment": {
+            "description": "How to adjust the contrast before uploading.",
+            "type": "string",
+            "enum": ["none", "clahe", "hotknife-destripe"],
+            "default": "none"
+        },
+        
+        "hotknife-seams": {
+            "description": "Used by the hotknife-destripe contrast adjustment method. \n",
+                           "See dvidutils.destripe() for details."
+            "type": "array",
+            "items": {"type": "integer"},
+            "minItems": 2,
+            "default": [-1] + HEMIBRAIN_TAB_BOUNDARIES[1:] # Must begin with -1, not 0
         }
     })
 
@@ -217,7 +236,8 @@ class ConvertGrayscaleVolume(Workflow):
         slab_voxels = np.prod(slab_fullres_box_zyx[1] - slab_fullres_box_zyx[0]) // (2**scale)**3
         voxels_per_thread = slab_voxels // num_threads
 
-        pyramid_source = self.config_data["options"]["pyramid-source"]
+        options = self.config_data["options"]
+        pyramid_source = options["pyramid-source"]
         
         if pyramid_source == "copy" or scale == 0:
             # Copy from input source
@@ -229,6 +249,9 @@ class ConvertGrayscaleVolume(Workflow):
             bricked_slab_wall.persist_and_execute(f"Slab {slab_index}: Downsampling to scale {scale}", logger)
             upscale_slab_wall.unpersist()
             del upscale_slab_wall
+
+        if scale == 0:
+            bricked_slab_wall = self.adjust_contrast(bricked_slab_wall, slab_index)
         
         # Remap to output bricks
         output_grid = Grid(self.output_service.preferred_message_shape)
@@ -250,6 +273,61 @@ class ConvertGrayscaleVolume(Workflow):
                     extra={"status": f"Done: {slab_index}/{num_slabs}"})
         
         return padded_slab_wall
+
+
+    def adjust_contrast(self, bricked_slab_wall, slab_index):
+        options = self.config_data["options"]
+        contrast_adjustment = options["contrast-adjustment"]
+
+        if contrast_adjustment == "none":
+            return bricked_slab_wall
+        
+        if contrast_adjustment == "hotknife-destripe":
+            return self._hotknife_destripe(bricked_slab_wall, slab_index)
+        
+        if contrast_adjustment == "clahe":
+            return self._clahe_adjust(bricked_slab_wall, slab_index)
+
+
+    def _hotknife_destripe(self, bricked_slab_wall, slab_index):
+        options = self.config_data["options"]
+        assert options["slab-axis"] == 'z', \
+            "To use hotknife-destripe, processing slabs must be cut across the Z axis"
+
+        wall_shape = self.output_service.bounding_box_zyx[1] - self.output_service.bounding_box_zyx[0]
+        z_slice_shape = (1,) + (*wall_shape[1:],)
+        z_slice_grid = Grid( z_slice_shape )
+        
+        z_slice_slab = bricked_slab_wall.realign_to_new_grid( z_slice_grid )
+        z_slice_slab = z_slice_slab.fill_missing(lambda _box: 0)
+        z_slice_slab.persist_and_execute(f"Slab {slab_index}: Constructing slices", logger)
+
+        # This assertion could be lifted if we adjust seams as needed before calling destripe(),
+        # but for now I have no use-case for volumes that don't start at (0,0)
+        assert (bricked_slab_wall.bounding_box[0, 1:] == (0,0)).all(), \
+            "Input bounding box must start at YX == (0,0)"
+        
+        seams = options["hotknife-seams"]
+        def destripe_brick(brick):
+            assert brick.volume.shape[0] == 1
+            adjusted_slice = destripe(brick.volume[0], seams)
+            return Brick(brick.logical_box, brick.physical_box, adjusted_slice[None])
+        
+        adjusted_bricks = rt.map(destripe_brick, z_slice_slab.bricks)
+        adjusted_wall = BrickWall( bricked_slab_wall.bounding_box,
+                                   bricked_slab_wall.grid,
+                                   adjusted_bricks)
+        
+        adjusted_wall.persist_and_execute(f"Slab {slab_index}: Destriping slices", logger)
+        return adjusted_wall
+
+
+    def _clahe_adjust(self, bricked_slab_wall, slab_index):
+        raise NotImplementedError
+    
+        options = self.config_data["options"]
+        axis_name = options["slab-axis"]
+        axis = 'zyx'.index(axis_name)
 
 
 def write_brick(output_service, scale, brick):

@@ -16,7 +16,15 @@ output:
 
 options:
   max-pyramid-scale: 3
+  pyramid-source: compute
+
   slab-depth: 64
+  slab-axis: z
+
+  contrast-adjustment: hotknife-destripe
+  hotknife-seams: [-1,50,100,150,200] # Note: These are X-coordinates.
+                                      #       The X-dimension is 200px wide AFTER transpose-axes setting is applied.
+  
 
   resource-server: 'driver'
   resource-port: 4000
