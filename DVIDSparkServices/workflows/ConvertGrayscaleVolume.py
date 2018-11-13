@@ -11,7 +11,7 @@ from dvid_resource_manager.client import ResourceManagerClient
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker, replace_default_entries
 from DVIDSparkServices.io_util.brickwall import BrickWall
-from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema, TransposedVolumeService
+from DVIDSparkServices.io_util.volume_service import VolumeService, VolumeServiceWriter, GrayscaleVolumeSchema
 from DVIDSparkServices.workflow.workflow import Workflow
 from DVIDSparkServices.dvid.metadata import ( is_datainstance, create_rawarray8, Compression,
                                               extend_list_value, update_extents, reload_server_metadata )
@@ -50,16 +50,6 @@ class ConvertGrayscaleVolume(Workflow):
             ##
             ## NO DEFAULT: Must choose!
             #"default": -1
-        },
-        "transpose-axes": {
-            "description": "How to transpose/rotate the input volume before writing it out.\n"
-                           "Note: This setting is specified in XYZ order.\n"
-                           "      The default (['x', 'y', 'z']) is 'no-op'.",
-            "type": "array",
-            "items": { "type": "string" },
-            "minItems": 3,
-            "maxItems": 3,
-            "default": TransposedVolumeService.NO_TRANSPOSE
         }
     })
 
