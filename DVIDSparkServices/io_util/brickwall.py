@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.ndimage
 
 from DVIDSparkServices import rddtools as rt
 from DVIDSparkServices.util import num_worker_nodes, cpus_per_worker
@@ -152,6 +153,7 @@ class BrickWall:
                                              sparse_boxes,
                                              lazy )
 
+
     ##
     ## Operations
     ##
@@ -161,6 +163,7 @@ class BrickWall:
         """
         filtered_bricks = rt.filter(lambda brick: brick.volume.any(), self.bricks)
         return BrickWall( self.bounding_box, self.grid, filtered_bricks )
+
 
     def realign_to_new_grid(self, new_grid):
         """
@@ -174,6 +177,7 @@ class BrickWall:
         new_logical_boxes_and_bricks = realign_bricks_to_new_grid( new_grid, self.bricks )
         new_wall = BrickWall( self.bounding_box, new_grid, rt.values(new_logical_boxes_and_bricks) )
         return new_wall
+
 
     def fill_missing(self, volume_accessor_func, padding_grid=None):
         """
@@ -200,6 +204,7 @@ class BrickWall:
         new_wall = BrickWall( self.bounding_box, self.grid, padded_bricks )
         return new_wall
 
+
     def apply_labelmap(self, labelmap_config, working_dir, unpersist_original=False):
         """
         Relabel the bricks in this BrickWall with a labelmap.
@@ -225,6 +230,7 @@ class BrickWall:
         remapped_bricks = apply_labelmap_to_bricks(self.bricks, labelmap_config, working_dir, unpersist_original)
         return BrickWall( self.bounding_box, self.grid, remapped_bricks )
 
+
     def translate(self, offset_zyx):
         """
         Translate all bricks by the given offset.
@@ -243,30 +249,39 @@ class BrickWall:
         new_grid = Grid( self.grid.block_shape, self.grid.offset + offset_zyx )
         return BrickWall( new_bounding_box, new_grid, translated_bricks )
 
+    
     def persist_and_execute(self, description, logger=None, storage=None):
         self.bricks = rt.persist_and_execute( self.bricks, description, logger, storage )
+    
     
     def unpersist(self):
         rt.unpersist(self.bricks)
 
-    def label_downsample(self, block_shape):
+
+    def downsample(self, block_shape, method):
         assert block_shape[0] == block_shape[1] == block_shape[2], \
             "Currently, downsampling must be isotropic"
+        assert method in ['label', 'grayscale']
 
         factor = block_shape[0]
         def downsample_brick(brick):
             assert (brick.physical_box % factor == 0).all()
             assert (brick.logical_box % factor == 0).all()
         
-            # Old: Python downsampling
-            # downsample_3Dlabels(brick.volume)
-        
-            # Newer: Numba downsampling
-            #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
-        
-            # Even Newer: C++ downsampling (note: only works on aligned data.)
-            # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
-            downsampled_volume = downsample_labels(brick.volume, factor, suppress_zero=True)
+            if method == 'grayscale':
+                downsampled_volume = scipy.ndimage.interpolation.zoom(brick.volume, 1/factor, mode='reflect')
+            elif method == 'label':
+                # Old: Python downsampling
+                # downsample_3Dlabels(brick.volume)
+            
+                # Newer: Numba downsampling
+                #downsampled_volume, _ = downsample_labels_3d_suppress_zero(brick.volume, (2,2,2), brick.physical_box)
+            
+                # Even Newer: C++ downsampling (note: only works on aligned data.)
+                # For consistency with DVID's on-demand downsampling, we suppress 0 pixels.
+                downsampled_volume = downsample_labels(brick.volume, factor, suppress_zero=True)
+            else:
+                assert False
         
             downsampled_logical_box = brick.logical_box // factor
             downsampled_physical_box = brick.physical_box // factor
@@ -278,6 +293,7 @@ class BrickWall:
         new_bricks = rt.map( downsample_brick, self.bricks )
         
         return BrickWall( new_bounding_box, new_grid, new_bricks )
+
 
     def copy(self):
         """

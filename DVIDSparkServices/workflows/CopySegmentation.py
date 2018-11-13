@@ -525,7 +525,7 @@ class CopySegmentation(Workflow):
                         downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downloading pre-downsampled bricks", logger)
                     else:
                         # Compute downsampled (results in smaller bricks)
-                        downsampled_wall = padded_wall.label_downsample( (2,2,2) )
+                        downsampled_wall = padded_wall.downsample( (2,2,2), method='label' )
                         downsampled_wall.persist_and_execute(f"Slab {slab_index}: Scale {new_scale}: Downsampling", logger)
                         padded_wall.unpersist()
                         del padded_wall
