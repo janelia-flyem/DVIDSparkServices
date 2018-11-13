@@ -221,8 +221,11 @@ class ConvertGrayscaleVolume(Workflow):
         axis_name = options["slab-axis"]
         axis = 'zyx'.index(axis_name)
         slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], 0, 'round-down', axis))
+        logger.info(f"Processing volume in {len(slab_boxes)} slabs")
 
         for slab_index, slab_fullres_box_zyx in enumerate(slab_boxes):
+            logger.info(f"Starting slab {slab_index}: {slab_fullres_box_zyx[:,::-1].tolist()}")
+
             slab_wall = None
             for scale in range(min_scale, max_scale+1):
                 slab_wall = self._process_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes), slab_wall)
@@ -257,8 +260,18 @@ class ConvertGrayscaleVolume(Workflow):
         output_grid = Grid(self.output_service.preferred_message_shape)
         output_slab_wall = bricked_slab_wall.realign_to_new_grid( output_grid )
         
+        # Pad from previously-existing pyramid data until
+        # we have full storage blocks, e.g. (64,64,64),
+        # but not necessarily full bricks, e.g. (64,64,6400)
+        output_accessor_func = partial(self.output_service.get_subvolume, scale=scale)
+
+        # But don't bother fetching real data for scale 0
+        # the input slabs are already block-aligned, and the edges of each slice will be zeros anyway.
+        if scale == 0:
+            output_accessor_func = lambda _box: 0
+
         padding_grid = Grid( 3*(self.output_service.block_width,), output_grid.offset )
-        padded_slab_wall = output_slab_wall.fill_missing(lambda _box: 0, padding_grid)
+        padded_slab_wall = output_slab_wall.fill_missing(output_accessor_func, padding_grid)
         padded_slab_wall.persist_and_execute(f"Slab {slab_index}: Assembling scale {scale} bricks", logger)
 
         # Discard original bricks
@@ -299,7 +312,7 @@ class ConvertGrayscaleVolume(Workflow):
         z_slice_grid = Grid( z_slice_shape )
         
         z_slice_slab = bricked_slab_wall.realign_to_new_grid( z_slice_grid )
-        z_slice_slab.persist_and_execute(f"Slab {slab_index}: Constructing slices", logger)
+        z_slice_slab.persist_and_execute(f"Slab {slab_index}: Constructing slices of shape {z_slice_shape}", logger)
 
         # This assertion could be lifted if we adjust seams as needed before calling destripe(),
         # but for now I have no use-case for volumes that don't start at (0,0)
