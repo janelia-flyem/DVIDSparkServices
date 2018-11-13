@@ -41,6 +41,14 @@ class ConvertGrayscaleVolume(Workflow):
             #"default": -1
         },
         
+        "pyramid-source": {
+            "description": "How to create the downsampled pyramid volumes, either copied \n"
+                           "from the input source (if available) or computed from scale 0.\n",
+            "type": "string",
+            "enum": ["copy", "compute"],
+            "default": "copy"
+        },
+        
         "slab-depth": {
             "description": "The volume is processed iteratively, in 'slabs'.\n"
                            "This setting determines the thickness of each slab.\n"
@@ -126,6 +134,10 @@ class ConvertGrayscaleVolume(Workflow):
         assert ((output_bb_zyx == input_bb_zyx) | (output_bb_zyx == -1)).all(), \
             "Output bounding box must match the input bounding box exactly. (No translation permitted)."
 
+        if options["pyramid-source"] == "compute":
+            assert options["min-pyramid-scale"] == 0, \
+                "If computing downsample data, you must start with a minimum scale of 0."
+        
 
     def _prepare_output(self):
         """
@@ -191,23 +203,32 @@ class ConvertGrayscaleVolume(Workflow):
         axis = 'zyx'.index(axis_name)
         slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], 0, 'round-down', axis))
 
-        for scale in range(min_scale, max_scale+1):
-            for slab_index, slab_fullres_box_zyx in enumerate(slab_boxes):
-                self._convert_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes))
-            logger.info(f"Done exporting {len(slab_boxes)} slabs for scale {scale}.", extra={'status': f"DONE with scale {scale}"})
-        logger.info(f"DONE exporting {max_scale+1-min_scale} scales")
+        for slab_index, slab_fullres_box_zyx in enumerate(slab_boxes):
+            slab_wall = None
+            for scale in range(min_scale, max_scale+1):
+                slab_wall = self._process_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes), slab_wall)
+
+            logger.info(f"Slab {slab_index}: Done exporting {max_scale+1-min_scale} scales.", extra={'status': f"DONE with slab {slab_index}"})
+        logger.info(f"DONE exporting {len(slab_boxes)} slabs")
 
 
-    def _convert_slab(self, scale, slab_fullres_box_zyx, slab_index, num_slabs):
-        # Contruct BrickWall from input bricks
+    def _process_slab(self, scale, slab_fullres_box_zyx, slab_index, num_slabs, upscale_slab_wall):
         num_threads = num_worker_nodes() * cpus_per_worker()
         slab_voxels = np.prod(slab_fullres_box_zyx[1] - slab_fullres_box_zyx[0]) // (2**scale)**3
         voxels_per_thread = slab_voxels // num_threads
 
-        bricked_slab_wall = BrickWall.from_volume_service(self.input_service, scale, slab_fullres_box_zyx, self.sc, voxels_per_thread // 2)
-
-        # Force download
-        bricked_slab_wall.persist_and_execute(f"Downloading scale {scale} slab {slab_index}/{num_slabs}: {slab_fullres_box_zyx[:,::-1]}", logger)
+        pyramid_source = self.config_data["options"]["pyramid-source"]
+        
+        if pyramid_source == "copy" or scale == 0:
+            # Copy from input source
+            bricked_slab_wall = BrickWall.from_volume_service(self.input_service, scale, slab_fullres_box_zyx, self.sc, voxels_per_thread // 2)
+            bricked_slab_wall.persist_and_execute(f"Slab {slab_index}: Downloading scale {scale}", logger)
+        else:
+            # Downsample from previous scale
+            bricked_slab_wall = upscale_slab_wall.downsample( (2,2,2), 'grayscale' )
+            bricked_slab_wall.persist_and_execute(f"Slab {slab_index}: Downsampling to scale {scale}", logger)
+            upscale_slab_wall.unpersist()
+            del upscale_slab_wall
         
         # Remap to output bricks
         output_grid = Grid(self.output_service.preferred_message_shape)
@@ -215,7 +236,7 @@ class ConvertGrayscaleVolume(Workflow):
         
         padding_grid = Grid( 3*(self.output_service.block_width,), output_grid.offset )
         padded_slab_wall = output_slab_wall.fill_missing(lambda _box: 0, padding_grid)
-        padded_slab_wall.persist_and_execute(f"Assembling scale {scale} slab {slab_index}/{num_slabs} bricks", logger)
+        padded_slab_wall.persist_and_execute(f"Slab {slab_index}: Assembling scale {scale} bricks", logger)
 
         # Discard original bricks
         bricked_slab_wall.unpersist()
@@ -228,9 +249,7 @@ class ConvertGrayscaleVolume(Workflow):
         logger.info(f"Exporting scale {scale} slab {slab_index}/{num_slabs} took {timer.timedelta}",
                     extra={"status": f"Done: {slab_index}/{num_slabs}"})
         
-        # Discard output_bricks
-        padded_slab_wall.unpersist()
-        del padded_slab_wall
+        return padded_slab_wall
 
 
 def write_brick(output_service, scale, brick):
