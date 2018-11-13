@@ -40,16 +40,25 @@ class ConvertGrayscaleVolume(Workflow):
             ## NO DEFAULT: Must choose!
             #"default": -1
         },
-         
+        
         "slab-depth": {
             "description": "The volume is processed iteratively, in 'slabs'.\n"
                            "This setting determines the thickness of each slab.\n"
-                           "Must be a multiple of the output brick Z-dimension.\n",
+                           "Must be a multiple of the output brick width, in whichever dimension \n"
+                           "is specified by the 'slab-axis' setting, below (by default, the Z-axis).\n",
             "type": "integer",
             "minimum": 1
             ##
             ## NO DEFAULT: Must choose!
             #"default": -1
+        },
+        
+        "slab-axis": {
+            "description": "The axis across which the volume will be cut to create \n"
+            "'slabs' to be processed one at a time.  See 'slab-depth'.",
+            "type": "string",
+            "enum": ["x", "y", "z"],
+            "default": "z"
         }
     })
 
@@ -104,9 +113,12 @@ class ConvertGrayscaleVolume(Workflow):
         """
         options = self.config_data["options"]
 
-        brick_depth = self.output_service.preferred_message_shape[0]
-        assert options["slab-depth"] % brick_depth == 0, \
-            f'slab-depth ({options["slab-depth"]}) is not a multiple of the output brick shape ({brick_depth})'
+        axis_name = options["slab-axis"]
+        axis = 'zyx'.index(axis_name)
+        brick_width = self.output_service.preferred_message_shape[axis]
+        
+        assert options["slab-depth"] % brick_width == 0, \
+            f'slab-depth ({options["slab-depth"]}) is not a multiple of the output brick width ({brick_width}) along the slab-axis ("{axis_name}")'
 
         # Output bounding-box must match exactly (or left as auto)
         input_bb_zyx = self.input_service.bounding_box_zyx
@@ -174,7 +186,10 @@ class ConvertGrayscaleVolume(Workflow):
 
         min_scale = options["min-pyramid-scale"]
         max_scale = options["max-pyramid-scale"]
-        slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], 0, 'round-down'))
+        
+        axis_name = options["slab-axis"]
+        axis = 'zyx'.index(axis_name)
+        slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], 0, 'round-down', axis))
 
         for scale in range(min_scale, max_scale+1):
             for slab_index, slab_fullres_box_zyx in enumerate(slab_boxes):
