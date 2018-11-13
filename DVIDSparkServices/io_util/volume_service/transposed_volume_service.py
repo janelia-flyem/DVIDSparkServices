@@ -1,8 +1,11 @@
+import logging
 import numpy as np
 
 from . import VolumeServiceReader
 
 from DVIDSparkServices.json_util import flow_style
+
+logger = logging.getLogger(__name__)
 
 NewAxisOrderSchema = \
 {
@@ -68,7 +71,9 @@ class TransposedVolumeService(VolumeServiceReader):
             if new != orig:
                 assert self.bounding_box_zyx[0, i] == 0, \
                     "Bounding box must start at the origin for transposed axes."
-    
+        
+        logger.info(f"Initialized TransposedVolumeService with bounding box (XYZ): {self.bounding_box_zyx[:,::-1].tolist()}")
+        
     @property
     def base_service(self):
         return self.original_volume_service.base_service

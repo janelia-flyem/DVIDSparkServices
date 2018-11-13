@@ -131,7 +131,7 @@ class ConvertGrayscaleVolume(Workflow):
         self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
         assert isinstance( self.output_service, VolumeServiceWriter )
 
-        logger.info(f"Output bounding box: {output_config['geometry']['bounding-box']}")
+        logger.info(f"Output bounding box: {self.output_service.bounding_box_zyx[:,::-1]}")
 
 
     def _validate_config(self):
