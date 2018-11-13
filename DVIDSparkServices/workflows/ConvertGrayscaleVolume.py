@@ -299,7 +299,6 @@ class ConvertGrayscaleVolume(Workflow):
         z_slice_grid = Grid( z_slice_shape )
         
         z_slice_slab = bricked_slab_wall.realign_to_new_grid( z_slice_grid )
-        z_slice_slab = z_slice_slab.fill_missing(lambda _box: 0)
         z_slice_slab.persist_and_execute(f"Slab {slab_index}: Constructing slices", logger)
 
         # This assertion could be lifted if we adjust seams as needed before calling destripe(),
@@ -316,7 +315,7 @@ class ConvertGrayscaleVolume(Workflow):
         adjusted_bricks = rt.map(destripe_brick, z_slice_slab.bricks)
         adjusted_wall = BrickWall( bricked_slab_wall.bounding_box,
                                    bricked_slab_wall.grid,
-                                   adjusted_bricks)
+                                   adjusted_bricks )
         
         adjusted_wall.persist_and_execute(f"Slab {slab_index}: Destriping slices", logger)
         return adjusted_wall
