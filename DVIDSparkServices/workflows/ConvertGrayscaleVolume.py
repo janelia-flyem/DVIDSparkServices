@@ -239,13 +239,15 @@ class ConvertGrayscaleVolume(Workflow):
                 logger.info(f"Slab {slab_index}: SKIPPING. {slab_fullres_box_zyx[:,::-1].tolist()}")
                 continue
 
-            with Timer() as timer:
+            with Timer() as slab_timer:
                 logger.info(f"Slab {slab_index}: STARTING. {slab_fullres_box_zyx[:,::-1].tolist()}")
                 slab_wall = None
                 for scale in range(min_scale, max_scale+1):
-                    slab_wall = self._process_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes), slab_wall)
+                    with Timer() as scale_timer:
+                        slab_wall = self._process_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes), slab_wall)
+                    logger.info(f"Slab {slab_index}: Scale {scale} took {scale_timer.timedelta}")
 
-            logger.info(f"Slab {slab_index}: DONE. ({timer.timedelta})", extra={'status': f"DONE with slab {slab_index}"})
+            logger.info(f"Slab {slab_index}: DONE. ({slab_timer.timedelta})", extra={'status': f"DONE with slab {slab_index}"})
 
         logger.info(f"DONE exporting {len(slab_boxes)} slabs")
 
@@ -294,11 +296,9 @@ class ConvertGrayscaleVolume(Workflow):
         bricked_slab_wall.unpersist()
         del bricked_slab_wall
 
-        with Timer() as timer:
-            logger.info(f"Slab {slab_index}: Writing scale {scale}", extra={"status": f"Writing {slab_index}/{num_slabs}"})
-            rt.foreach( partial(write_brick, self.output_service, scale), padded_slab_wall.bricks )
+        logger.info(f"Slab {slab_index}: Writing scale {scale}", extra={"status": f"Writing {slab_index}/{num_slabs}"})
+        rt.foreach( partial(write_brick, self.output_service, scale), padded_slab_wall.bricks )
 
-        logger.info(f"Slab {slab_index}: Scale {scale} took {timer.timedelta}")
         return padded_slab_wall
 
 
@@ -386,3 +386,4 @@ def write_brick(output_service, scale, brick):
     nonzero_subvol = np.asarray(nonzero_subvol, order='C')
 
     output_service.write_subvolume(nonzero_subvol, brick.physical_box[0] + nonzero_start, scale)
+
