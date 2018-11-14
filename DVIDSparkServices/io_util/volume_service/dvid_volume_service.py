@@ -1,5 +1,5 @@
+import socket
 import numpy as np
-
 
 from dvid_resource_manager.client import ResourceManagerClient
 
@@ -256,9 +256,14 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
     @property
     def node_service(self):
         if self._node_service is None:
-            # We don't pass the resource manager details here
-            # because we use the resource manager from python.
-            self._node_service = retrieve_node_service(self._server, self._uuid, "", "")
+            try:
+                # We don't pass the resource manager details here
+                # because we use the resource manager from python.
+                self._node_service = retrieve_node_service(self._server, self._uuid, "", "")
+            except Exception as ex:
+                host = socket.gethostname()
+                msg = f"Host {host}: Failed to connect to {self._server} / {self._uuid}"
+                raise RuntimeError(msg) from ex
         return self._node_service
 
     @property
@@ -307,7 +312,9 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
                                              supervoxels=self.supervoxels,
                                              node_service=self.node_service )
         except Exception as ex:
-            raise RuntimeError(f"Failed to fetch subvolume: box_zyx = {box_zyx.tolist()}") from ex
+            host = socket.gethostname()
+            msg = f"Host {host}: Failed to fetch subvolume: box_zyx = {box_zyx.tolist()}"
+            raise RuntimeError(msg) from ex
         
     # Two-levels of auto-retry:
     # 1. Auto-retry up to three time for any reason.
@@ -334,7 +341,9 @@ class DvidVolumeService(VolumeServiceReader, VolumeServiceWriter):
                                               disable_indexing=self.disable_indexing,
                                               node_service=self.node_service )
         except Exception as ex:
-            raise RuntimeError(f"Failed to write subvolume: offset_zyx = {offset_zyx.tolist()}, shape = {subvolume.shape}") from ex
+            host = socket.gethostname()
+            msg = f"Host {host}: Failed to write subvolume: offset_zyx = {offset_zyx.tolist()}, shape = {subvolume.shape}"
+            raise RuntimeError(msg) from ex
 
     def __getstate__(self):
         """
