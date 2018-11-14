@@ -66,10 +66,16 @@ class ConvertGrayscaleVolume(Workflow):
         
         "slab-axis": {
             "description": "The axis across which the volume will be cut to create \n"
-            "'slabs' to be processed one at a time.  See 'slab-depth'.",
+                           "'slabs' to be processed one at a time.  See 'slab-depth'.",
             "type": "string",
             "enum": ["x", "y", "z"],
             "default": "z"
+        },
+        
+        "starting-slice": {
+            "description": "In case of a failed job, you may want to restart at a particular slice.",
+            "type": "integer",
+            "default": 0
         },
         
         "contrast-adjustment": {
@@ -131,7 +137,7 @@ class ConvertGrayscaleVolume(Workflow):
         self.output_service = VolumeService.create_from_config( output_config, self.config_dir, self.mgr_client )
         assert isinstance( self.output_service, VolumeServiceWriter )
 
-        logger.info(f"Output bounding box: {self.output_service.bounding_box_zyx[:,::-1]}")
+        logger.info(f"Output bounding box: {self.output_service.bounding_box_zyx[:,::-1].tolist()}")
 
 
     def _validate_config(self):
@@ -146,6 +152,9 @@ class ConvertGrayscaleVolume(Workflow):
         
         assert options["slab-depth"] % brick_width == 0, \
             f'slab-depth ({options["slab-depth"]}) is not a multiple of the output brick width ({brick_width}) along the slab-axis ("{axis_name}")'
+
+        assert (options["starting-slice"] % options["slab-depth"]) == 0, \
+            f'starting-slice must be a multiple of the slab depth'
 
         # Output bounding-box must match exactly (or left as auto)
         input_bb_zyx = self.input_service.bounding_box_zyx
@@ -218,19 +227,26 @@ class ConvertGrayscaleVolume(Workflow):
         min_scale = options["min-pyramid-scale"]
         max_scale = options["max-pyramid-scale"]
         
+        starting_slice = options["starting-slice"]
+        
         axis_name = options["slab-axis"]
         axis = 'zyx'.index(axis_name)
         slab_boxes = list(slabs_from_box(input_bb_zyx, options["slab-depth"], 0, 'round-down', axis))
         logger.info(f"Processing volume in {len(slab_boxes)} slabs")
 
         for slab_index, slab_fullres_box_zyx in enumerate(slab_boxes):
-            logger.info(f"Starting slab {slab_index}: {slab_fullres_box_zyx[:,::-1].tolist()}")
+            if slab_fullres_box_zyx[0, axis] < starting_slice:
+                logger.info(f"Slab {slab_index}: SKIPPING. {slab_fullres_box_zyx[:,::-1].tolist()}")
+                continue
 
-            slab_wall = None
-            for scale in range(min_scale, max_scale+1):
-                slab_wall = self._process_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes), slab_wall)
+            with Timer() as timer:
+                logger.info(f"Slab {slab_index}: STARTING. {slab_fullres_box_zyx[:,::-1].tolist()}")
+                slab_wall = None
+                for scale in range(min_scale, max_scale+1):
+                    slab_wall = self._process_slab(scale, slab_fullres_box_zyx, slab_index, len(slab_boxes), slab_wall)
 
-            logger.info(f"Slab {slab_index}: Done exporting {max_scale+1-min_scale} scales.", extra={'status': f"DONE with slab {slab_index}"})
+            logger.info(f"Slab {slab_index}: DONE. ({timer.timedelta})", extra={'status': f"DONE with slab {slab_index}"})
+
         logger.info(f"DONE exporting {len(slab_boxes)} slabs")
 
 
@@ -279,12 +295,10 @@ class ConvertGrayscaleVolume(Workflow):
         del bricked_slab_wall
 
         with Timer() as timer:
-            logger.info(f"Exporting scale {scale} slab {slab_index}/{num_slabs}", extra={"status": f"Exporting {slab_index}/{num_slabs}"})
+            logger.info(f"Slab {slab_index}: Writing scale {scale}", extra={"status": f"Writing {slab_index}/{num_slabs}"})
             rt.foreach( partial(write_brick, self.output_service, scale), padded_slab_wall.bricks )
 
-        logger.info(f"Exporting scale {scale} slab {slab_index}/{num_slabs} took {timer.timedelta}",
-                    extra={"status": f"Done: {slab_index}/{num_slabs}"})
-        
+        logger.info(f"Slab {slab_index}: Scale {scale} took {timer.timedelta}")
         return padded_slab_wall
 
 
