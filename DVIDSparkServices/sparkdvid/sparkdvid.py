@@ -37,7 +37,7 @@ from DVIDSparkServices.io_util.partitionSchema import volumePartition
 from DVIDSparkServices.io_util.brick import generate_bricks_from_volume_source
 from DVIDSparkServices.dvid.metadata import create_label_instance, DataInstance, get_blocksize
 
-
+@auto_retry(2, 10.0, __name__)
 def retrieve_node_service(server, uuid, resource_server, resource_port, appname="sparkservices"):
     """Create a DVID node service object"""
 
