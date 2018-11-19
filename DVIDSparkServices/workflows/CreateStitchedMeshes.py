@@ -213,7 +213,7 @@ class CreateStitchedMeshes(Workflow):
                         "type": "string",
                         "enum": ["obj",     # Wavefront OBJ (.obj)
                                  "drc",     # Draco (compressed) (.drc)
-                                 "ngmesh"], # "neuroglancer mesh" format -- a custom binary format
+                                 "ngmesh"], # "neuroglancer mesh" format -- a custom binary format.  Note: Data is presumed to be 8nm resolution
                         "default": "obj"
                     },
                     "include-empty": {
@@ -780,6 +780,11 @@ class CreateStitchedMeshes(Workflow):
             segment_id, mesh = id_mesh
             try:
                 mesh_serialize = execute_in_subprocess(600, logging.getLogger(__name__))(mesh.serialize)
+                
+                # FIXME: The ngmesh format is written in nm units.
+                #        Here, hardcode 8nm resolution.  We should make it configurable.
+                if fmt == 'ngmesh':
+                    mesh.vertices_zyx *= 8
                 return (segment_id, mesh_serialize(fmt=fmt))
             except:
                 # This assumes that we can still it serialize in obj format...
