@@ -951,8 +951,7 @@ class CreateStitchedMeshes(Workflow):
         # None of the bodies on the list could be found in the sparsevol data.
         # Something is very wrong.
         if block_mask is None:
-            logger.error("Could not retrieve a sparse block mask!  Fetching all segmentation.")
-            return None
+            raise RuntimeError("Could not retrieve any sparse block mask!")
 
         # Box in full-res DVID coordinates
         fullres_box = lowres_box * dvid_block_shape
