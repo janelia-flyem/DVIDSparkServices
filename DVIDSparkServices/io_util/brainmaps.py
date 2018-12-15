@@ -175,7 +175,7 @@ class BrainMapsVolume:
     @property
     def bounding_box(self):
         """
-        The bounding box [start, stop] of the volume at scale 0.
+        The bounding box [start, stop] of the volume at scale 0, in zyx order.
         """
         return self.bounding_boxes[0] # Scale 0
 
@@ -183,7 +183,7 @@ class BrainMapsVolume:
     @property
     def bounding_boxes(self):
         """
-        A list of bounding boxes (one per scale)
+        A list of bounding boxes (one per scale), each in zyx order.
         """
         if self._bounding_boxes is None:
             self._bounding_boxes = list(map(self._extract_bounding_box, self.geometries))
