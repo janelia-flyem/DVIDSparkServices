@@ -1,4 +1,3 @@
-
 from abc import ABCMeta, abstractmethod, abstractproperty
 
 class VolumeService(metaclass=ABCMeta):
@@ -77,7 +76,10 @@ class VolumeService(metaclass=ABCMeta):
 
         # Wrap with scaled service
         from . import ScaledVolumeService
-        if ("rescale-level" in volume_config) and (volume_config["rescale-level"] != 0):
+
+        # Even if rescale-level == 0, we still wrap in a scaled volumeservice because
+        # it enables more 'available-scales'
+        if ("rescale-level" in volume_config):
             service = ScaledVolumeService(service, volume_config["rescale-level"])
 
         return service
