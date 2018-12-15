@@ -4,7 +4,7 @@ from skimage.util.shape import view_as_blocks
 from neuclease.util import box_to_slicing
 from DVIDSparkServices.reconutils.downsample import downsample_labels_3d, downsample_raw, downsample_box
 
-from . import VolumeServiceReader
+from . import VolumeServiceReader, VolumeServiceWriter
 
 RescaleLevelSchema = \
 {
@@ -19,7 +19,7 @@ RescaleLevelSchema = \
     "default": 0
 }
 
-class ScaledVolumeService(VolumeServiceReader):
+class ScaledVolumeService(VolumeServiceReader, VolumeServiceWriter):
     """
     Wraps an existing VolumeServiceReader and presents
     a scaled view of it.
@@ -117,3 +117,11 @@ class ScaledVolumeService(VolumeServiceReader):
 
             # Force contiguous so caller doesn't have to worry about it.
             return np.asarray(requested_data, order='C')
+
+
+    def write_subvolume(self, subvolume, offset_zyx, scale):
+        assert self.scale_delta == 0, \
+            "FIXME: It isn't obvious why someone would want to use ScaledVolumeService to write data. \n"\
+            "But technically, we should probably upscale the data to something in available_scales before writing it."
+        adjusted_scale = scale + self.scale_delta
+        self.original_volume_service.write_subvolume(subvolume, offset_zyx, adjusted_scale)
