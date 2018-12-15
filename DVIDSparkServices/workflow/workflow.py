@@ -440,8 +440,8 @@ class Workflow(object):
         # Overwrite workflow config data so workers see our IP address.
         self.config_data["options"]["resource-server"] = driver_ip_addr
         self.resource_server = driver_ip_addr
-
-        logger.info("Starting resource manager on the driver ({})".format(driver_ip_addr))
+        
+        logger.info(f"Starting resource manager on the driver ({driver_ip_addr} / {socket.gethostname})")
         resource_server_script = sys.prefix + '/bin/dvid_resource_manager'
         resource_server_process = subprocess.Popen("{python} {server_script} {port} {config_arg}"\
                                                    .format( python=sys.executable,
