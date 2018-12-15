@@ -18,7 +18,7 @@ BrainMapsServiceSchema = \
     #"additionalProperties": False, # Can't use this in conjunction with 'oneOf' schema feature
     "properties": {
         "project": {
-            "description": "Project ID",
+            "description": "Project ID -- note: even though project ids look like integers, you must provide a string in your config file.",
             "type": "string",
         },
         "dataset": {
@@ -72,7 +72,6 @@ class BrainMapsVolumeServiceReader(VolumeServiceReader):
                                                   volume_config["brainmaps"]["dataset"],
                                                   volume_config["brainmaps"]["volume-id"],
                                                   volume_config["brainmaps"]["change-stack-id"],
-                                                  dtype=np.uint64,
                                                   use_gzip=volume_config["brainmaps"]["use-gzip"] )
 
         block_width = volume_config["geometry"]["block-width"]
