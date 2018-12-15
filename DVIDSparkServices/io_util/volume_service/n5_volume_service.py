@@ -134,7 +134,9 @@ class N5VolumeServiceReader(VolumeServiceReader):
             if scale == 0:
                 name = self._dataset_name
             else:
-                assert self._dataset_name[-1] == '0', "The N5 dataset does not appear to be a multi-resolution dataset."
+                assert 0 <= scale < 10 # need to fix the logic below if you want to support higher scales
+                assert self._dataset_name[-1] == '0', \
+                    "The N5 dataset does not appear to be a multi-resolution dataset."
                 name = self._dataset_name[:-1] + f'{scale}'
             self._n5_datasets[scale] = self._n5_file[name]
 
