@@ -134,7 +134,7 @@ class SamplePoints(Workflow):
             # 'Brick ID' is defined as the divided corner coordinate 
             brick_shape = volume_service.preferred_message_shape
             brick_ids_and_points = np.concatenate( (points // brick_shape, points), axis=1 )
-            lexsort_columns(brick_ids_and_points)
+            brick_ids_and_points = lexsort_columns(brick_ids_and_points)
 
             brick_ids = brick_ids_and_points[: ,:3]
             points = brick_ids_and_points[:, 3:]
