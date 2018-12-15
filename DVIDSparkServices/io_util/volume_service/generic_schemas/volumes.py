@@ -1,5 +1,5 @@
 from .. import ( DvidGrayscaleServiceSchema, SliceFilesServiceSchema, N5ServiceSchema, 
-                 DvidSegmentationServiceSchema, BrainMapsSegmentationServiceSchema, 
+                 DvidSegmentationServiceSchema, BrainMapsServiceSchema, 
                  NewAxisOrderSchema, RescaleLevelSchema, LabelMapSchema )
 
 from .geometry import GeometrySchema
@@ -21,6 +21,7 @@ GrayscaleVolumeSchema = \
     "default": {},
     "oneOf": [
         { "properties": { "dvid": DvidGrayscaleServiceSchema } },
+        { "properties": { "brainmaps": BrainMapsServiceSchema } },
         { "properties": { "slice-files": SliceFilesServiceSchema } },
         { "properties": { "n5": N5ServiceSchema } }
     ],
@@ -44,7 +45,7 @@ SegmentationVolumeSchema = \
     "default": {},
     "oneOf": [
         { "properties": { "dvid": DvidSegmentationServiceSchema }, "required": ["dvid"] },
-        { "properties": { "brainmaps": BrainMapsSegmentationServiceSchema }, "required": ["brainmaps"] }
+        { "properties": { "brainmaps": BrainMapsServiceSchema }, "required": ["brainmaps"] }
     ],
     "properties": {
         "geometry": GeometrySchema,

@@ -9,7 +9,7 @@ from DVIDSparkServices.io_util.brainmaps import BrainMapsVolume
 
 from . import VolumeServiceReader, GeometrySchema
 
-BrainMapsSegmentationServiceSchema = \
+BrainMapsServiceSchema = \
 {
     "description": "Parameters to use Google BrainMaps as a source of voxel data",
     "type": "object",
@@ -50,7 +50,7 @@ BrainMapsVolumeSchema = \
     "default": {},
 #    "additionalProperties": False,
     "properties": {
-        "slice-files": BrainMapsSegmentationServiceSchema,
+        "slice-files": BrainMapsServiceSchema,
         "geometry": GeometrySchema
     }
 }

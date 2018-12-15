@@ -5,7 +5,7 @@ from .volume_service import VolumeService, VolumeServiceReader, VolumeServiceWri
 from .transposed_volume_service import TransposedVolumeService, NewAxisOrderSchema
 from .scaled_volume_service import ScaledVolumeService, RescaleLevelSchema
 from .labelmapped_volume_service import LabelmappedVolumeService, LabelMapSchema
-from .brainmaps_volume_service import BrainMapsVolumeServiceReader, BrainMapsSegmentationServiceSchema
+from .brainmaps_volume_service import BrainMapsVolumeServiceReader, BrainMapsServiceSchema
 from .dvid_volume_service import DvidVolumeService, DvidGrayscaleServiceSchema, DvidSegmentationServiceSchema, DvidSegmentationVolumeSchema
 from .n5_volume_service import N5VolumeServiceReader, N5ServiceSchema
 from .slice_files_volume_service import SliceFilesVolumeServiceReader, SliceFilesVolumeServiceWriter, SliceFilesServiceSchema, SliceFilesVolumeSchema
