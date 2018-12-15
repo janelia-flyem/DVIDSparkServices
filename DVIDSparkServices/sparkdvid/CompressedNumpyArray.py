@@ -130,7 +130,7 @@ class CompressedNumpyArray(object):
         if self.raw_buffer is not None:
             return len(self.raw_buffer)
         if self.compressed_label_blocks is not None:
-            return len(self.compressed_label_blocks)
+            return sum(map(len, self.compressed_label_blocks))
         if self.compressed_mask_array is not None:
             return len(self.compressed_mask_array)
 
