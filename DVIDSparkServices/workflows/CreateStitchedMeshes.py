@@ -406,7 +406,9 @@ class CreateStitchedMeshes(Workflow):
 
             output_info["dvid"]["meshes-destination"] = output_info["dvid"]["segmentation-name"] + suffix
 
-        if mesh_config["batch-count"] > 1 and not mesh_config["storage"]["naming-scheme"] == "tarsupervoxels":
+        if (mesh_config["batch-count"] > 1
+            and mesh_config["storage"]["naming-scheme"] != "tarsupervoxels"
+            and mesh_config["storage"]["grouping-scheme"] != "no-groups"):
             raise RuntimeError("FIXME: Batch mechanism is broken for key-value tarballs because it will overwrite the tarball in every batch.")
 
         if mesh_config["storage"]["skip-existing-supervoxels"] and not mesh_config["storage"]["naming-scheme"] == "tarsupervoxels":
