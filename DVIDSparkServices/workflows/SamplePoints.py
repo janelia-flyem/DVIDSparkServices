@@ -201,12 +201,23 @@ class SamplePoints(Workflow):
         with Timer("Sorting samples", logger):
             sample_table.sort()
 
-        output_col = options["output-column"]
         with Timer("Sorting table", logger):
-            coordinate_table_df.sort_values(['z', 'y', 'x'], inplace=True)
+            if rescale == 0:
+                coordinate_table_df.sort_values(['z', 'y', 'x'], inplace=True)
+            else:
+                # sample_table is sorted by RESCALED coordiante,
+                # so sort our table the same way
+                coordinate_table_df['rz'] = coordinate_table_df['z'] // (2**rescale)
+                coordinate_table_df['ry'] = coordinate_table_df['y'] // (2**rescale)
+                coordinate_table_df['rx'] = coordinate_table_df['x'] // (2**rescale)
+                coordinate_table_df.sort_values(['rz', 'ry', 'rx'], inplace=True)
+                del coordinate_table_df['rz']
+                del coordinate_table_df['ry']
+                del coordinate_table_df['rx']
 
         # Now that samples and input rows are sorted identically,
         # append the results
+        output_col = options["output-column"]
         coordinate_table_df[output_col] = sample_table['label']
 
         with Timer("Exporting samples", logger):
