@@ -204,6 +204,9 @@ class ConvertGrayscaleVolume(Workflow):
     
             update_extents( server, uuid, scaled_instance_name, scaled_output_box_zyx )
 
+            # Higher-levels of the pyramid should not appear in the DVID-lite console.
+            extend_list_value(server, uuid, '.meta', 'restrictions', [scaled_instance_name])
+
         # Bottom level of pyramid is listed as neuroglancer-compatible
         extend_list_value(server, uuid, '.meta', 'neuroglancer', [instance_name])
 
