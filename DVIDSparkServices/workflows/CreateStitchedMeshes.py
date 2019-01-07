@@ -99,6 +99,12 @@ class CreateStitchedMeshes(Workflow):
                 "default": []
             },
             
+            "shuffle-before-decimate": {
+                "description": "Re-balance the mesh blocks across the RDD before decimating them",
+                "type": "boolean",
+                "default": False
+            },
+            
             "pre-stitch-smoothing-iterations": {
                 "description": "How many iterations of smoothing to apply to the mesh BEFORE the block meshes are stitched",
                 "type": "integer",
@@ -348,12 +354,6 @@ class CreateStitchedMeshes(Workflow):
             "type": "integer",
             "default": 0
         },
-        
-        "force-evaluation-checkpoints": {
-            "description": "Debugging feature. Force persistence of RDDs after every map step, for better logging.",
-            "type": "boolean",
-            "default": True
-        },
         "skip-stats-export": {
             "description": "Segment stats must be computed for grouping and dynamic decimation.  But SAVING them to a file can be disabled, as a debugging feature.",
             "type": "boolean",
@@ -595,21 +595,24 @@ class CreateStitchedMeshes(Workflow):
         body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.itertuples(index=False))
         segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
 
-        # A side effect of the above join() is that blocks with the same segment ID were moved to the same partition.
-        # That can leave highly unbalanced partitions, so we want to force a shuffle here.
-        # You would think that repartition() would be the exact function to use,
-        # but no: apparently it's just a poorly named synonym for coalesce().
-        
-        num_partitions = segment_ids_and_mesh_blocks_and_body_counts.getNumPartitions()
-        segment_ids_and_mesh_blocks_and_body_counts = ( segment_ids_and_mesh_blocks_and_body_counts
-                                                            .zipWithIndex()
-                                                            .map(lambda kv: kv[::-1])
-                                                            .partitionBy(num_partitions)
-                                                            .values() )
+        if not config["mesh-config"]["shuffle-before-decimate"]:
+            status = "Joining mesh blocks with body vertex counts"
+        else:
+            # A side effect of the above join() is that blocks with the same segment ID were moved to the same partition.
+            # That can leave highly unbalanced partitions, so we want to force a shuffle here.
+            # You would think that repartition() would be the exact function to use,
+            # but no: apparently it's just a poorly named synonym for coalesce().
+            
+            num_partitions = segment_ids_and_mesh_blocks_and_body_counts.getNumPartitions()
+            segment_ids_and_mesh_blocks_and_body_counts = ( segment_ids_and_mesh_blocks_and_body_counts
+                                                                .zipWithIndex()
+                                                                .map(lambda kv: kv[::-1])
+                                                                .partitionBy(num_partitions)
+                                                                .values() )
+            status = "Joining (and reshuffling) mesh blocks with body vertex counts"
 
-        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, "Joining (and reshuffling) mesh blocks with body vertex counts", batch_logger)
+        rt.persist_and_execute(segment_ids_and_mesh_blocks_and_body_counts, status, batch_logger)
         rt.unpersist(segment_ids_and_mesh_blocks)
-        
         
         max_vertices = config["mesh-config"]["pre-stitch-max-vertices"]
 
