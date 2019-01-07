@@ -589,10 +589,13 @@ class CreateStitchedMeshes(Workflow):
             del segment_id_and_smoothed_mesh
 
         # per-body vertex counts
-        body_initial_vertex_counts_df = full_stats_df.query('keep_segment and keep_body')[['segment', 'body_initial_vertex_count']]
+        with Timer("Filtering segment stats", batch_logger):
+            body_initial_vertex_counts_df = full_stats_df.query('keep_segment and keep_body')[['segment', 'body_initial_vertex_count']].copy()
         
+        with Timer("Parallelizing vertex counts", batch_logger):
+            body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.itertuples(index=False))
+
         # Join mesh blocks with corresponding body vertex counts
-        body_initial_vertex_counts = self.sc.parallelize(body_initial_vertex_counts_df.itertuples(index=False))
         segment_ids_and_mesh_blocks_and_body_counts = segment_ids_and_mesh_blocks.join(body_initial_vertex_counts)
 
         if not config["mesh-config"]["shuffle-before-decimate"]:
