@@ -244,7 +244,7 @@ class CopySegmentation(Workflow):
             # These services aren't supported because we copied some geometry (bounding-box)
             # directly from the input service.
             assert not isinstance( output_service, TransposedVolumeService )
-            assert not isinstance( output_service, ScaledVolumeService )
+            assert not isinstance( output_service, ScaledVolumeService ) or output_service.scale_delta == 0
 
             assert output_service.base_service.disable_indexing, \
                 "During ingestion, indexing should be disabled.\n" \
