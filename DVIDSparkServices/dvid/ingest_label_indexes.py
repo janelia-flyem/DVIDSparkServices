@@ -509,7 +509,9 @@ class StatsBatchProcessor:
                 existing_labelindex = fetch_labelindex(*self.instance_info, labelindex.label)
             except requests.RequestException as ex:
                 missing_batch.append(labelindex)
-                if not str(ex.response.status_code).startswith('4'):
+                if ex.response is None:
+                    logger.warning(f"Failed to fetch LabelIndex for label: {labelindex.label} due to no response")
+                elif not str(ex.response.status_code).startswith('4'):
                     logger.warning(f"Failed to fetch LabelIndex for label: {labelindex.label} due to error {ex.response.status_code}")
             else:
                 if (labelindex.blocks != existing_labelindex.blocks):
