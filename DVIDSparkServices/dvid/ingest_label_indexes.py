@@ -506,7 +506,7 @@ class StatsBatchProcessor:
         missing_batch = []
         for labelindex in labelindex_batch:
             try:
-                existing_labelindex = fetch_labelindex(*self.instance_info, labelindex.label)
+                existing_labelindex = fetch_labelindex(*self.instance_info, labelindex.label, session=self.session)
             except requests.RequestException as ex:
                 missing_batch.append(labelindex)
                 if ex.response is None:
