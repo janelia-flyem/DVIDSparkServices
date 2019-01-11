@@ -75,26 +75,29 @@ class ScaledVolumeService(VolumeServiceReader, VolumeServiceWriter):
 
     @property
     def available_scales(self):
-        return self.original_volume_service.available_scales
+        return list(range(10)) # arbitrary limit
 
     def get_subvolume(self, box_zyx, scale=0):
         """
         Extract the subvolume, specified in new (scaled) coordinates from the
         original volume service, then scale result accordingly before returning it.
-        
-        TODO: It would be better to request the scale (from among the available-scales)
-              that is closest to the final adjusted_scale.
-              In the current implementation, it's just assumed that the requested scale exists,
-              and then we downsample/upsample according to self.scale_delta.
         """
-        adjusted_scale = scale + self.scale_delta
-        if adjusted_scale in self.original_volume_service.available_scales:
+        true_scale = scale + self.scale_delta
+        
+        if true_scale in self.original_volume_service.available_scales:
             # The original source already has the data at the necessary scale.
-            return self.original_volume_service.get_subvolume( box_zyx, adjusted_scale )
+            return self.original_volume_service.get_subvolume( box_zyx, true_scale )
 
-        if self.scale_delta > 0:
-            orig_box_zyx = box_zyx * 2**self.scale_delta
-            orig_data = self.original_volume_service.get_subvolume(orig_box_zyx, scale)
+        # Start with the closest scale we've got
+        base_scales = np.array(self.original_volume_service.available_scales)
+        i_best = np.abs(base_scales - true_scale).argmin()
+        best_base_scale = base_scales[i_best]
+        
+        delta_from_best = true_scale - best_base_scale
+
+        if delta_from_best > 0:
+            orig_box_zyx = box_zyx * 2**delta_from_best
+            orig_data = self.original_volume_service.get_subvolume(orig_box_zyx, best_base_scale)
 
             if self.dtype == np.uint64:
                 # Assume that uint64 means labels.
@@ -103,9 +106,9 @@ class ScaledVolumeService(VolumeServiceReader, VolumeServiceWriter):
                 downsampled_data = downsample_raw( orig_data, self.scale_delta )[-1]
             return downsampled_data
         else:
-            upsample_factor = int(2**-self.scale_delta)
+            upsample_factor = int(2**-delta_from_best)
             orig_box_zyx = downsample_box(box_zyx, np.array(3*(upsample_factor,)))
-            orig_data = self.original_volume_service.get_subvolume(orig_box_zyx, scale)
+            orig_data = self.original_volume_service.get_subvolume(orig_box_zyx, best_base_scale)
 
             orig_shape = np.array(orig_data.shape)
             upsampled_data = np.empty( orig_shape * upsample_factor, dtype=self.dtype )
@@ -117,6 +120,7 @@ class ScaledVolumeService(VolumeServiceReader, VolumeServiceWriter):
 
             # Force contiguous so caller doesn't have to worry about it.
             return np.asarray(requested_data, order='C')
+
 
 
     def write_subvolume(self, subvolume, offset_zyx, scale):
