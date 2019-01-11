@@ -57,7 +57,7 @@ class VolumeService(metaclass=ABCMeta):
         elif "n5" in volume_config:
             service = N5VolumeServiceReader( volume_config, config_dir )
         elif "slice-files" in volume_config:
-            service = SliceFilesVolumeServiceReader( volume_config )
+            service = SliceFilesVolumeServiceReader( volume_config, config_dir )
         else:
             raise RuntimeError( "Unknown service type." )
 
