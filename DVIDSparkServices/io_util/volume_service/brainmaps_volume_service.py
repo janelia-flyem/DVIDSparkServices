@@ -50,7 +50,7 @@ BrainMapsVolumeSchema = \
     "default": {},
 #    "additionalProperties": False,
     "properties": {
-        "slice-files": BrainMapsServiceSchema,
+        "brainmaps": BrainMapsServiceSchema,
         "geometry": GeometrySchema
     }
 }
