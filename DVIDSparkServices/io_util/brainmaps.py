@@ -422,7 +422,7 @@ def fetch_subvol_data(http, project, dataset, volume_id, corner_xyz, size_xyz, s
         'geometry': {
             'corner': ','.join(str(x) for x in corner_xyz),
             'size': ','.join(str(x) for x in size_xyz),
-            'scale': scale
+            'scale': int(scale)
         },
         'subvolumeFormat': 'RAW_SNAPPY'
     }
