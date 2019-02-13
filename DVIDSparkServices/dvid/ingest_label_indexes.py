@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from numba import jit
 
-from neuclease.dvid import fetch_labelindex, fetch_complete_mappings
+from neuclease.dvid import fetch_repo_info, fetch_labelindex, fetch_complete_mappings
 
 from dvidutils import LabelMapper # Fast label mapping in C++
 
@@ -103,12 +103,7 @@ def main_impl(args):
                 assert (segment_to_body_df.columns == AGGLO_MAP_COLUMNS).all()
 
     if args.last_mutid is None:
-        # By default, use 0 if we're ingesting
-        # supervoxels (no agglomeration), otherwise use 1
-        if args.agglomeration_mapping:
-            args.last_mutid = 1
-        else:
-            args.last_mutid = 0
+        args.last_mutid = fetch_repo_info(args.server, args.uuid)['MutationID']
 
     # Upload label indexes
     if args.operation in ('indexes', 'both', 'sort-only'):
