@@ -18,7 +18,7 @@ compared to the pickler's performance.
 """
 
 from pyspark.serializers import FramedSerializer, PickleSerializer 
-import lz4
+import lz4.frame
 
 class CompressedSerializerLZ4(FramedSerializer):
     """ Compress/decompress already serialized data using fast lz4.
@@ -40,10 +40,10 @@ class CompressedSerializerLZ4(FramedSerializer):
         self.serializer = serializer
 
     def dumps(self, obj):
-        return lz4.dumps(self.serializer.dumps(obj))
+        return lz4.frame.compress(self.serializer.dumps(obj))
 
     def loads(self, obj):
-        return self.serializer.loads(lz4.loads(obj))
+        return self.serializer.loads(lz4.frame.decompress(obj))
 
     def __repr__(self):
         return "CompressedSerializerLZ4(%s)" % self.serializer

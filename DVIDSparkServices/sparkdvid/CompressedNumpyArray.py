@@ -37,7 +37,7 @@ else:
     import copyreg
 
 import numpy as np
-import lz4
+import lz4.frame
 import logging
 import warnings
 
@@ -101,9 +101,9 @@ class CompressedNumpyArray(object):
         if self.is_labels(numpy_array):
             self.compressed_label_blocks = serialize_uint64_blocks(numpy_array)
         elif self.dtype == np.bool and numpy_array.ndim == 3:
-            # It turns out that encode_mask_array + lz4.compress is better than
-            # lz4.compression alone (even multiple rounds of lz4 alone)
-            self.compressed_mask_array = lz4.compress(encode_mask_array(numpy_array))
+            # It turns out that encode_mask_array + lz4.frame.compress is better than
+            # lz4.frame.compress alone (even multiple rounds of lz4 alone)
+            self.compressed_mask_array = lz4.frame.compress(encode_mask_array(numpy_array))
         else:
 
             if numpy_array.ndim <= 1:
@@ -149,7 +149,7 @@ class CompressedNumpyArray(object):
         assert subarray.nbytes <= cls.MAX_LZ4_BUFFER_SIZE, \
             "FIXME: This class doesn't support compression of arrays whose slices are each > 1 GB"
         
-        return lz4.compress( subarray )
+        return lz4.frame.compress( subarray )
 
     def deserialize(self):
         """Extract the numpy array"""
@@ -160,18 +160,18 @@ class CompressedNumpyArray(object):
             # label compression was used.
             numpy_array = deserialize_uint64_blocks(self.compressed_label_blocks, self.shape)
         elif self.compressed_mask_array is not None:
-            numpy_array, _, _ = decode_mask_array(lz4.uncompress(self.compressed_mask_array), self.shape)
+            numpy_array, _, _ = decode_mask_array(lz4.frame.decompress(self.compressed_mask_array), self.shape)
             numpy_array = np.asarray(numpy_array, order='C')
         else:
             numpy_array = np.ndarray( shape=self.shape, dtype=self.dtype )
             
             # See serialization of 2D, 1D and 0D arrays, above.
             if numpy_array.ndim <= 2:
-                buf = lz4.uncompress(self.serialized_subarrays[0])
+                buf = lz4.frame.decompress(self.serialized_subarrays[0])
                 numpy_array[:] = np.frombuffer(buf, self.dtype).reshape( numpy_array.shape )
             else:
                 for subarray, serialized_subarray in zip(numpy_array, self.serialized_subarrays):
-                    buf = lz4.uncompress(serialized_subarray)
+                    buf = lz4.frame.decompress(serialized_subarray)
                     subarray[:] = np.frombuffer(buf, self.dtype).reshape( subarray.shape )
 
         if self.layout == 'F':
@@ -216,7 +216,7 @@ def serialize_uint64_blocks(volume):
 
         # We compress AGAIN, with LZ4, because this seems to provide
         # an additional 2x size reduction for nearly no slowdown.
-        compressed_block = lz4.compress( encoded_block )
+        compressed_block = lz4.frame.compress( encoded_block )
         compressed_blocks.append( compressed_block )
         del block
     
@@ -242,7 +242,7 @@ def deserialize_uint64_blocks(compressed_blocks, shape):
         compressed_block = compressed_blocks[bi]
         
         # (See note above regarding recompression with LZ4)
-        encoded_block = lz4.decompress( compressed_block )
+        encoded_block = lz4.frame.decompress( compressed_block )
         block = decode_label_block( encoded_block )
         block_view[zi,yi,xi] = block
     

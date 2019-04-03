@@ -43,7 +43,7 @@ requirements:
     - scikit-image
     - pillow
     - scipy
-    - python-lz4
+    - lz4 >=2,<3 # Note: old name was 'python-lz4'
     - python-snappy
     #- ilastik-versions-no-solvers  1.2  np111py27_14   # [osx]
     #- ilastik-versions-no-solvers  1.2  np111py27_12   # [linux]

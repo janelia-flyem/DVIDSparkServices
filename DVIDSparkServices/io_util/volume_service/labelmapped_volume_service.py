@@ -1,8 +1,6 @@
 import os
-import lz4
 
 import numpy as np
-
 
 from dvidutils import LabelMapper
 
